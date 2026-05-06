@@ -1,0 +1,96 @@
+name: Release APK
+
+on:
+  # Trigger when you push a version tag like v1.0.0
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  release:
+    name: Build & Release Signed APK
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: gradle
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: gradle-
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      # ── Decode keystore from GitHub Secret ───────────────────────────────────
+      # To set this up:
+      #   1. Generate a keystore: keytool -genkey -v -keystore release.jks
+      #      -alias claudecode -keyalg RSA -keysize 2048 -validity 10000
+      #   2. Base64 encode it:   base64 -i release.jks | pbcopy   (Mac)
+      #                          base64 release.jks | xclip        (Linux)
+      #   3. In GitHub → Settings → Secrets → Actions, add:
+      #      KEYSTORE_BASE64       = the base64 string
+      #      KEYSTORE_PASSWORD     = your storePassword
+      #      KEY_ALIAS             = claudecode
+      #      KEY_PASSWORD          = your keyPassword
+      - name: Decode keystore
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > release.jks
+
+      - name: Write signing config into local.properties
+        run: |
+          echo "KEYSTORE_FILE=../../release.jks"   >> local.properties
+          echo "KEYSTORE_PASSWORD=${{ secrets.KEYSTORE_PASSWORD }}" >> local.properties
+          echo "KEY_ALIAS=${{ secrets.KEY_ALIAS }}"                 >> local.properties
+          echo "KEY_PASSWORD=${{ secrets.KEY_PASSWORD }}"           >> local.properties
+
+      - name: Build release APK
+        run: ./gradlew assembleRelease --no-daemon --stacktrace
+
+      - name: Show APK info
+        run: |
+          APK=app/build/outputs/apk/release/app-release.apk
+          echo "✅ Signed release APK: $(du -sh $APK | cut -f1)"
+
+      # ── Upload to GitHub Release ─────────────────────────────────────────────
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: app/build/outputs/apk/release/app-release.apk
+          name: ClaudeCode Setup ${{ github.ref_name }}
+          body: |
+            ## ClaudeCode Setup ${{ github.ref_name }}
+
+            ### Install
+            1. Download `app-release.apk` below
+            2. Enable **Install unknown apps** in Android Settings
+            3. Open the APK and tap Install
+            4. Follow the on-screen setup (WiFi recommended, ~500 MB first-time download)
+
+            ### What's new
+            See [CHANGELOG.md](CHANGELOG.md) for details.
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── Also upload as artifact for easy download ─────────────────────────────
+      - name: Upload signed APK as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ClaudeCodeSetup-${{ github.ref_name }}-release
+          path: app/build/outputs/apk/release/app-release.apk
+          retention-days: 90

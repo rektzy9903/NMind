@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Terminal</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+
+html, body {
+  width:100%; height:100%;
+  background:#0D1117;
+  overflow:hidden;
+  -webkit-tap-highlight-color:transparent;
+}
+
+#screen {
+  position:absolute;
+  top:0; left:0; right:0; bottom:0;
+  font-family: 'Fira Code', 'JetBrains Mono', 'Cascadia Code',
+               'Courier New', 'DejaVu Sans Mono', monospace;
+  font-size: 13px;
+  line-height: 1.4;
+  color: #E6EDF3;
+  background: #0D1117;
+  overflow-y: auto;
+  overflow-x: auto;
+  padding: 4px;
+  white-space: pre;
+  word-wrap: normal;
+  cursor: text;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* ANSI color classes */
+.f0{color:#21262D}.f1{color:#F85149}.f2{color:#3FB950}.f3{color:#D29922}
+.f4{color:#58A6FF}.f5{color:#BC8CFF}.f6{color:#39C5CF}.f7{color:#E6EDF3}
+.f8{color:#484F58}.f9{color:#FF7B72}.f10{color:#56D364}.f11{color:#E3B341}
+.f12{color:#79C0FF}.f13{color:#D2A8FF}.f14{color:#56D4DD}.f15{color:#FFFFFF}
+.b0{background:#21262D}.b1{background:#F85149}.b2{background:#3FB950}
+.b3{background:#D29922}.b4{background:#58A6FF}.b5{background:#BC8CFF}
+.b6{background:#39C5CF}.b7{background:#E6EDF3}
+
+.bold{font-weight:bold}
+.dim{opacity:0.5}
+.italic{font-style:italic}
+.underline{text-decoration:underline}
+.blink{animation:blink 1s step-end infinite}
+.inverse{filter:invert(100%)}
+.strikethrough{text-decoration:line-through}
+
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+
+#cursor {
+  display:inline-block;
+  width:8px; height:1.2em;
+  background:#3FB950;
+  animation: cursorBlink 1s step-end infinite;
+  vertical-align:text-bottom;
+  margin-left:0;
+}
+@keyframes cursorBlink { 0%,100%{opacity:1} 50%{opacity:0} }
+
+/* 256-color palette cache for dynamic classes */
+</style>
+</head>
+<body>
+<div id="screen"><span id="output"></span><span id="cursor"></span></div>
+
+<script>
+(function(){
+'use strict';
+
+// ── Palette ──────────────────────────────────────────────────────────────────
+
+const BASE_COLORS = [
+  '#21262D','#F85149','#3FB950','#D29922','#58A6FF','#BC8CFF','#39C5CF','#E6EDF3',
+  '#484F58','#FF7B72','#56D364','#E3B341','#79C0FF','#D2A8FF','#56D4DD','#FFFFFF'
+];
+
+function get256Color(n){
+  if(n<16) return BASE_COLORS[n];
+  if(n>=232){ const g=Math.round((n-232)*10.92); return `rgb(${g},${g},${g})`; }
+  n-=16;
+  const b=n%6, g=Math.floor(n/6)%6, r=Math.floor(n/36);
+  const c=v=>v?v*40+55:0;
+  return `rgb(${c(r)},${c(g)},${c(b)})`;
+}
+
+const styleCache = {};
+function inlineStyle(fg, bg){
+  const key = `${fg}|${bg}`;
+  if(styleCache[key]) return styleCache[key];
+  let s = '';
+  if(fg !== null) s += `color:${typeof fg==='number'?get256Color(fg):fg};`;
+  if(bg !== null) s += `background:${typeof bg==='number'?get256Color(bg):bg};`;
+  styleCache[key] = s;
+  return s;
+}
+
+// ── State ────────────────────────────────────────────────────────────────────
+
+const ROWS = 50;
+const MAX_SCROLLBACK = 5000;
+
+let attrs = resetAttrs();
+let savedAttrs = resetAttrs();
+let savedCursor = {row:0, col:0};
+let curRow = 0, curCol = 0;
+let altMode = false;
+
+// Main screen: array of line strings (raw HTML)
+let lines = [''];
+let altLines = [''];
+
+// Current span accumulation
+let spanBuf = '';
+let spanAttrs = null;
+
+function resetAttrs(){
+  return {bold:false,dim:false,italic:false,underline:false,
+          blink:false,inverse:false,strike:false,
+          fg:null,bg:null};
+}
+
+function attrsEqual(a,b){
+  return a.bold===b.bold && a.dim===b.dim && a.italic===b.italic &&
+         a.underline===b.underline && a.blink===b.blink &&
+         a.inverse===b.inverse && a.strike===b.strike &&
+         a.fg===b.fg && a.bg===b.bg;
+}
+
+function currentLines(){ return altMode ? altLines : lines; }
+
+function ensureRow(r){
+  const ls = currentLines();
+  while(ls.length <= r) ls.push('');
+}
+
+// ── HTML span builder ─────────────────────────────────────────────────────────
+
+function attrsToSpan(a, text){
+  if(!text) return '';
+  const cls = [];
+  const style = [];
+  if(a.bold) cls.push('bold');
+  if(a.dim) cls.push('dim');
+  if(a.italic) cls.push('italic');
+  if(a.underline) cls.push('underline');
+  if(a.blink) cls.push('blink');
+  if(a.inverse) cls.push('inverse');
+  if(a.strike) cls.push('strikethrough');
+
+  if(a.fg !== null){
+    if(typeof a.fg === 'number' && a.fg < 16) cls.push('f'+a.fg);
+    else style.push(`color:${typeof a.fg==='number'?get256Color(a.fg):a.fg}`);
+  }
+  if(a.bg !== null){
+    if(typeof a.bg === 'number' && a.bg < 8) cls.push('b'+a.bg);
+    else style.push(`background:${typeof a.bg==='number'?get256Color(a.bg):a.bg}`);
+  }
+
+  const escapedText = text
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;');
+
+  if(!cls.length && !style.length) return escapedText;
+  const c = cls.length ? ` class="${cls.join(' ')}"` : '';
+  const s = style.length ? ` style="${style.join(';')}"` : '';
+  return `<span${c}${s}>${escapedText}</span>`;
+}
+
+// ── Write character to screen buffer ─────────────────────────────────────────
+
+function putChar(ch){
+  const ls = currentLines();
+  ensureRow(curRow);
+  // For simplicity, append to current line's HTML
+  // This is a "scroll-down" model suitable for Claude Code output
+  ls[curRow] += attrsToSpan(attrs, ch);
+  curCol++;
+}
+
+function newLine(){
+  const ls = currentLines();
+  curRow++;
+  curCol = 0;
+  ensureRow(curRow);
+  if(ls.length > MAX_SCROLLBACK){
+    ls.splice(0, ls.length - MAX_SCROLLBACK);
+    curRow = Math.max(0, curRow - 1);
+  }
+}
+
+// ── ANSI escape parser ────────────────────────────────────────────────────────
+
+let escState = 'normal'; // normal | esc | csi | osc | str
+let csiParams = '';
+let csiIntermediate = '';
+let oscBuf = '';
+
+function processByte(ch){
+  const code = ch.codePointAt(0);
+
+  if(escState === 'normal'){
+    if(code === 0x1B){ escState = 'esc'; return; }
+    if(code === 0x0A){ newLine(); return; }
+    if(code === 0x0D){ curCol = 0; return; }
+    if(code === 0x08){ if(curCol>0) curCol--; return; }
+    if(code === 0x09){ // Tab
+      const next = (Math.floor(curCol/8)+1)*8;
+      const sp = ' '.repeat(next - curCol);
+      currentLines()[curRow] = (currentLines()[curRow]||'') + attrsToSpan(attrs, sp);
+      curCol = next;
+      return;
+    }
+    if(code === 0x07) return; // Bell
+    if(code < 0x20) return;  // Other controls
+    putChar(ch);
+    return;
+  }
+
+  if(escState === 'esc'){
+    if(ch === '[')  { escState='csi'; csiParams=''; csiIntermediate=''; return; }
+    if(ch === ']')  { escState='osc'; oscBuf=''; return; }
+    if(ch === 'P' || ch === 'X' || ch === '^' || ch === '_')
+                    { escState='str'; oscBuf=''; return; }
+    if(ch === '7')  { savedCursor={row:curRow,col:curCol}; escState='normal'; return; }
+    if(ch === '8')  { curRow=savedCursor.row; curCol=savedCursor.col; escState='normal'; return; }
+    if(ch === 'M')  { if(curRow>0) curRow--; escState='normal'; return; } // Reverse index
+    if(ch === 'c')  { resetTerminal(); escState='normal'; return; }
+    if(ch === '=') { escState='normal'; return; } // DECKPAM
+    if(ch === '>') { escState='normal'; return; } // DECKPNM
+    escState='normal';
+    return;
+  }
+
+  if(escState === 'osc'){
+    if(code===0x07 || (code===0x1B)){ escState='normal'; return; } // BEL or ESC
+    oscBuf += ch;
+    return;
+  }
+  if(escState === 'str'){
+    if(code===0x07 || code===0x1B){ escState='normal'; return; }
+    return;
+  }
+
+  // CSI
+  if(escState === 'csi'){
+    if(code >= 0x30 && code <= 0x3F){ csiParams += ch; return; } // params
+    if(code >= 0x20 && code <= 0x2F){ csiIntermediate += ch; return; } // intermediate
+    // Final byte
+    escState = 'normal';
+    handleCSI(csiParams, csiIntermediate, ch);
+  }
+}
+
+function parseParams(raw, def){
+  if(!raw) return [def];
+  return raw.split(';').map(s => s===''?def : parseInt(s,10));
+}
+
+function handleCSI(params, inter, final){
+  switch(final){
+    case 'm': handleSGR(params); break;
+    case 'H': case 'f': {
+      const [r,c] = parseParams(params||'1;1',1);
+      curRow = Math.max(0,(r||1)-1);
+      curCol = Math.max(0,(c||1)-1);
+      ensureRow(curRow);
+      break;
+    }
+    case 'A': { const n=parseParams(params,1)[0]||1; curRow=Math.max(0,curRow-n); break; }
+    case 'B': { const n=parseParams(params,1)[0]||1; curRow+=n; ensureRow(curRow); break; }
+    case 'C': { const n=parseParams(params,1)[0]||1; curCol+=n; break; }
+    case 'D': { const n=parseParams(params,1)[0]||1; curCol=Math.max(0,curCol-n); break; }
+    case 'G': { const n=parseParams(params,1)[0]||1; curCol=Math.max(0,n-1); break; }
+    case 'd': { const n=parseParams(params,1)[0]||1; curRow=Math.max(0,n-1); ensureRow(curRow); break; }
+    case 'J': {
+      const n = parseParams(params,0)[0];
+      const ls = currentLines();
+      if(n===2||n===3){ ls.length=0; ls.push(''); curRow=0; curCol=0; }
+      else if(n===1){ for(let i=0;i<=curRow;i++) ls[i]=''; }
+      else { for(let i=curRow;i<ls.length;i++) ls[i]=''; }
+      break;
+    }
+    case 'K': {
+      const n = parseParams(params,0)[0];
+      const ls = currentLines();
+      ensureRow(curRow);
+      if(n===1) ls[curRow]='';
+      else if(n===2) ls[curRow]='';
+      else ls[curRow]=''; // erase to EOL (simplified)
+      break;
+    }
+    case 'P': { // Delete chars — simplified, clear rest of line
+      const ls = currentLines();
+      ensureRow(curRow);
+      ls[curRow]='';
+      break;
+    }
+    case 'S': { const n=parseParams(params,1)[0]||1; for(let i=0;i<n;i++) newLine(); break; }
+    case 'T': { const n=parseParams(params,1)[0]||1; curRow=Math.max(0,curRow-n); break; }
+    case 's': { savedCursor={row:curRow,col:curCol}; break; }
+    case 'u': { curRow=savedCursor.row; curCol=savedCursor.col; break; }
+    case 'h': handleMode(params, true); break;
+    case 'l': handleMode(params, false); break;
+    case 'r': break; // DECSTBM scroll region — ignore
+    case 'c': break; // Device attributes
+    case 'n': break; // Device status
+    case 't': break; // Window ops
+    default:  break;
+  }
+}
+
+function handleMode(params, enable){
+  const p = params.startsWith('?') ? params.slice(1) : params;
+  const codes = p.split(';').map(Number);
+  for(const code of codes){
+    if(code===1049||code===47||code===1047){ // Alternate screen
+      if(enable && !altMode){
+        altMode=true; altLines=[''];
+        savedCursor={row:curRow,col:curCol};
+        curRow=0; curCol=0;
+      } else if(!enable && altMode){
+        altMode=false;
+        curRow=savedCursor.row; curCol=savedCursor.col;
+      }
+    }
+    if(code===25){ /* cursor visibility — always show */ }
+    if(code===1){ /* application cursor keys */ }
+  }
+}
+
+function handleSGR(params){
+  const codes = parseParams(params,0);
+  let i=0;
+  while(i<codes.length){
+    const c=codes[i++];
+    if(c===0){ attrs=resetAttrs(); }
+    else if(c===1) attrs.bold=true;
+    else if(c===2) attrs.dim=true;
+    else if(c===3) attrs.italic=true;
+    else if(c===4) attrs.underline=true;
+    else if(c===5||c===6) attrs.blink=true;
+    else if(c===7) attrs.inverse=true;
+    else if(c===8) attrs.dim=true;   // conceal → dim
+    else if(c===9) attrs.strike=true;
+    else if(c===22){ attrs.bold=false; attrs.dim=false; }
+    else if(c===23) attrs.italic=false;
+    else if(c===24) attrs.underline=false;
+    else if(c===25) attrs.blink=false;
+    else if(c===27) attrs.inverse=false;
+    else if(c===29) attrs.strike=false;
+    else if(c>=30&&c<=37) attrs.fg=c-30;
+    else if(c===38){
+      if(codes[i]===5){ i++; attrs.fg=codes[i++]; }
+      else if(codes[i]===2){ i++; const r=codes[i++],g=codes[i++],b=codes[i++]; attrs.fg=`rgb(${r},${g},${b})`; }
+    }
+    else if(c===39) attrs.fg=null;
+    else if(c>=40&&c<=47) attrs.bg=c-40;
+    else if(c===48){
+      if(codes[i]===5){ i++; attrs.bg=codes[i++]; }
+      else if(codes[i]===2){ i++; const r=codes[i++],g=codes[i++],b=codes[i++]; attrs.bg=`rgb(${r},${g},${b})`; }
+    }
+    else if(c===49) attrs.bg=null;
+    else if(c>=90&&c<=97) attrs.fg=c-90+8;
+    else if(c>=100&&c<=107) attrs.bg=c-100+8;
+  }
+}
+
+function resetTerminal(){
+  lines=[''];
+  altLines=[''];
+  altMode=false;
+  curRow=0; curCol=0;
+  attrs=resetAttrs();
+}
+
+// ── Render ────────────────────────────────────────────────────────────────────
+
+let renderQueued = false;
+let pendingData = '';
+
+function scheduleRender(){
+  if(renderQueued) return;
+  renderQueued = true;
+  requestAnimationFrame(doRender);
+}
+
+function doRender(){
+  renderQueued = false;
+  const ls = currentLines();
+  const out = document.getElementById('output');
+  out.innerHTML = ls.join('\n');
+  // Scroll to bottom
+  const screen = document.getElementById('screen');
+  screen.scrollTop = screen.scrollHeight;
+}
+
+// ── Public API (called from Kotlin via evaluateJavascript) ────────────────────
+
+window.termWrite = function(raw){
+  // raw is a JS string that may contain escape sequences
+  // process character by character
+  for(const ch of raw){
+    processByte(ch);
+  }
+  scheduleRender();
+};
+
+window.termCopySelection = function(){
+  const sel = window.getSelection();
+  if(sel && sel.toString()){
+    Android.copyText(sel.toString());
+  }
+};
+
+window.termSendInput = function(text){
+  Android.sendInput(text);
+};
+
+// ── Keyboard input ────────────────────────────────────────────────────────────
+
+document.getElementById('screen').addEventListener('click', function(){
+  // Focus a hidden input for keyboard on Android
+  document.getElementById('hiddenInput').focus();
+});
+
+// ── Hidden input for capturing Android keyboard ───────────────────────────────
+
+const hi = document.createElement('input');
+hi.id = 'hiddenInput';
+hi.style.cssText = 'position:absolute;left:-9999px;top:-9999px;opacity:0;width:1px;height:1px;';
+hi.setAttribute('autocomplete','off');
+hi.setAttribute('autocorrect','off');
+hi.setAttribute('autocapitalize','off');
+hi.setAttribute('spellcheck','false');
+document.body.appendChild(hi);
+
+hi.addEventListener('input', function(e){
+  const val = e.data || hi.value;
+  if(val){
+    Android.sendInput(val);
+    hi.value='';
+  }
+});
+
+hi.addEventListener('keydown', function(e){
+  if(e.key==='Enter') Android.sendInput('\r');
+  else if(e.key==='Backspace') Android.sendInput('\x7f');
+  else if(e.key==='Tab') Android.sendInput('\t');
+  else if(e.key==='Escape') Android.sendInput('\x1b');
+  else if(e.ctrlKey){
+    const k = e.key.toLowerCase();
+    if(k>='a'&&k<='z') Android.sendInput(String.fromCharCode(k.charCodeAt(0)-96));
+    e.preventDefault();
+  }
+});
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+
+if(typeof Android !== 'undefined'){
+  Android.onTerminalReady();
+}
+
+// Initial welcome message
+window.termWrite('\x1b[32mClaudeCode Setup\x1b[0m — terminal ready\r\n');
+window.termWrite('\x1b[90mConnecting to Claude Code...\x1b[0m\r\n');
+
+})();
+</script>
+</body>
+</html>

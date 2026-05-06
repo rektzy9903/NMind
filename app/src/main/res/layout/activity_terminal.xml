@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/terminal_bg"
+    android:fitsSystemWindows="true">
+
+    <!-- Toolbar -->
+    <androidx.appcompat.widget.Toolbar
+        android:id="@+id/toolbar"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:background="@color/toolbar_bg"
+        app:title=""
+        android:elevation="0dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingEnd="8dp">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Claude Code"
+                android:textColor="@color/text_primary"
+                android:textSize="15sp"
+                android:textStyle="bold" />
+
+            <Button
+                android:id="@+id/btnSwitchProvider"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Switch"
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp" />
+
+        </LinearLayout>
+
+    </androidx.appcompat.widget.Toolbar>
+
+    <!-- Loading overlay -->
+    <TextView
+        android:id="@+id/tvLoading"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Starting terminal..."
+        android:textColor="@color/text_secondary"
+        android:textSize="13sp"
+        android:gravity="center"
+        android:paddingVertical="8dp"
+        android:background="@color/surface"
+        android:visibility="visible" />
+
+    <!-- Terminal WebView — takes all remaining space -->
+    <WebView
+        android:id="@+id/webViewTerminal"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:background="@color/terminal_bg"
+        android:scrollbars="vertical" />
+
+    <!-- Restart button (shown when claude exits) -->
+    <Button
+        android:id="@+id/btnRestart"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Restart Claude Code"
+        android:backgroundTint="@color/accent_green"
+        android:visibility="gone"
+        android:layout_margin="8dp" />
+
+    <!-- Quick-action bar — always visible above keyboard -->
+    <HorizontalScrollView
+        android:layout_width="match_parent"
+        android:layout_height="44dp"
+        android:background="@color/toolbar_bg"
+        android:scrollbars="none"
+        android:fillViewport="false">
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent"
+            android:orientation="horizontal"
+            android:paddingHorizontal="4dp"
+            android:gravity="center_vertical">
+
+            <Button
+                android:id="@+id/btnYes"
+                style="@style/QuickActionButton"
+                android:text="Yes" />
+
+            <Button
+                android:id="@+id/btnNo"
+                style="@style/QuickActionButton"
+                android:text="No" />
+
+            <Button
+                android:id="@+id/btnCancel"
+                style="@style/QuickActionButton"
+                android:text="Ctrl+C" />
+
+            <Button
+                android:id="@+id/btnEnter"
+                style="@style/QuickActionButton"
+                android:text="Enter" />
+
+            <Button
+                android:id="@+id/btnTab"
+                style="@style/QuickActionButton"
+                android:text="Tab" />
+
+        </LinearLayout>
+
+    </HorizontalScrollView>
+
+</LinearLayout>

@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ClaudeCode Setup</string>
+
+    <!-- Setup -->
+    <string name="setup_title">Setting up Claude Code for you…</string>
+    <string name="setup_subtitle">This only happens once ☕\nUsually takes 2–3 minutes</string>
+    <string name="setup_success">✅ All done! Claude Code is ready! 🎉</string>
+    <string name="setup_continue">Get started →</string>
+    <string name="setup_retry">Try again</string>
+    <string name="setup_show_details">Show details</string>
+    <string name="setup_hide_details">Hide details</string>
+
+    <!-- Errors -->
+    <string name="err_no_internet">Please connect to the internet to complete setup</string>
+    <string name="err_no_storage">Please free up at least 1GB of storage before continuing</string>
+    <string name="err_download_failed">Download failed. Check your connection and try again.</string>
+    <string name="err_install_failed">Installation failed. Please restart and try again.</string>
+    <string name="err_proxy_stopped">Proxy stopped. Tap to restart.</string>
+    <string name="err_proxy_timeout">Could not start proxy. Check your setup and try again.</string>
+    <string name="err_rate_limit">Daily limit reached. Switch to Gemini for 1500/day?</string>
+    <string name="err_model_config">Model config error. Please reselect your model.</string>
+    <string name="err_storage_full">Storage full. Please free up space and try again.</string>
+    <string name="err_slow_network">Slow connection detected. Try a lighter model like Gemini Flash?</string>
+    <string name="err_proxy_missing">Proxy missing. Reinstalling…</string>
+
+    <!-- Login flow -->
+    <string name="login_q1">Do you have a Claude subscription or free trial?</string>
+    <string name="login_yes_subscription">Yes — use my account</string>
+    <string name="login_no_use_free">No — use free provider</string>
+    <string name="login_q2">Are you in Malaysia?</string>
+    <string name="login_malaysia_yes">Yes</string>
+    <string name="login_other_country">No, other country</string>
+    <string name="login_gemini_title">We recommend Google Gemini</string>
+    <string name="login_gemini_subtitle">Works perfectly in Malaysia with 1500 free requests per day! ⭐</string>
+    <string name="login_use_gemini">Use Google Gemini</string>
+    <string name="login_let_me_choose">Let me choose</string>
+
+    <!-- Terminal -->
+    <string name="terminal_starting">Starting terminal…</string>
+    <string name="terminal_restarting">Restarting Claude Code…</string>
+    <string name="terminal_session_ended">Claude Code session ended</string>
+    <string name="btn_restart_claude">Restart Claude Code</string>
+    <string name="notification_running">Claude Code is running</string>
+    <string name="notification_stop">Stop</string>
+
+    <!-- Settings -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_provider">Provider / Model</string>
+    <string name="settings_change_provider">Change provider</string>
+    <string name="settings_clear_data">Clear saved API key &amp; settings</string>
+    <string name="settings_reset">Reset and reinstall everything</string>
+    <string name="settings_report">Report a problem (GitHub Issues)</string>
+    <string name="settings_version_claude">Claude Code v2.1.128</string>
+
+    <!-- WiFi warning -->
+    <string name="wifi_title">Large download ahead</string>
+    <string name="wifi_message">First-time setup needs ~500MB download.\n\nConnect to WiFi to avoid data charges?</string>
+    <string name="wifi_use_wifi">Use WiFi</string>
+    <string name="wifi_continue_mobile">Continue on mobile data</string>
+
+    <!-- Language array -->
+    <string-array name="language_options">
+        <item>English</item>
+        <item>Bahasa Malaysia</item>
+    </string-array>
+</resources>

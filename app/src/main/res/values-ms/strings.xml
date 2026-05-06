@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ClaudeCode Setup</string>
+
+    <string name="setup_title">Menyediakan Claude Code untuk anda…</string>
+    <string name="setup_subtitle">Ini hanya berlaku sekali ☕\nBiasanya mengambil masa 2–3 minit</string>
+    <string name="setup_success">✅ Selesai! Claude Code sedia digunakan! 🎉</string>
+    <string name="setup_continue">Mula →</string>
+    <string name="setup_retry">Cuba lagi</string>
+    <string name="setup_show_details">Tunjuk butiran</string>
+    <string name="setup_hide_details">Sembunyikan butiran</string>
+
+    <string name="err_no_internet">Sila sambung ke internet untuk meneruskan pemasangan</string>
+    <string name="err_no_storage">Sila kosongkan sekurang-kurangnya 1GB storan sebelum meneruskan</string>
+    <string name="err_proxy_stopped">Proksi berhenti. Ketik untuk mulakan semula.</string>
+    <string name="err_rate_limit">Had harian tercapai. Tukar ke Gemini untuk 1500/hari?</string>
+    <string name="err_storage_full">Storan penuh. Sila kosongkan ruang dan cuba lagi.</string>
+
+    <string name="login_q1">Adakah anda mempunyai langganan Claude atau percubaan percuma?</string>
+    <string name="login_yes_subscription">Ya — guna akaun saya</string>
+    <string name="login_no_use_free">Tidak — guna penyedia percuma</string>
+    <string name="login_q2">Adakah anda di Malaysia?</string>
+    <string name="login_malaysia_yes">Ya</string>
+    <string name="login_other_country">Tidak, negara lain</string>
+    <string name="login_gemini_title">Kami mengesyorkan Google Gemini</string>
+    <string name="login_gemini_subtitle">Berfungsi dengan sempurna di Malaysia dengan 1500 permintaan percuma sehari! ⭐</string>
+    <string name="login_use_gemini">Guna Google Gemini</string>
+    <string name="login_let_me_choose">Biar saya pilih</string>
+
+    <string name="terminal_starting">Memulakan terminal…</string>
+    <string name="btn_restart_claude">Mulakan Semula Claude Code</string>
+    <string name="notification_running">Claude Code sedang berjalan</string>
+    <string name="notification_stop">Berhenti</string>
+
+    <string name="settings_title">Tetapan</string>
+    <string name="settings_change_provider">Tukar penyedia</string>
+    <string name="settings_clear_data">Padam kunci API &amp; tetapan</string>
+    <string name="settings_reset">Tetapkan semula dan pasang semula segala-galanya</string>
+    <string name="settings_report">Laporkan masalah (GitHub Issues)</string>
+
+    <string name="wifi_title">Muat turun besar akan datang</string>
+    <string name="wifi_message">Persediaan kali pertama memerlukan ~500MB muat turun.\n\nSambung ke WiFi untuk mengelakkan caj data?</string>
+    <string name="wifi_use_wifi">Guna WiFi</string>
+    <string name="wifi_continue_mobile">Teruskan dengan data mudah alih</string>
+
+    <string-array name="language_options">
+        <item>English</item>
+        <item>Bahasa Malaysia</item>
+    </string-array>
+</resources>

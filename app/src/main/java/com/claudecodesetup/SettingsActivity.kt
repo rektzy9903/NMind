@@ -1,0 +1,121 @@
+package com.claudecodesetup
+
+import android.app.AlertDialog
+import android.content.Intent
+import android.net.Uri
+import android.os.Bundle
+import android.view.MenuItem
+import android.widget.Toast
+import androidx.appcompat.app.AppCompatActivity
+import com.claudecodesetup.data.AppPreferences
+import com.claudecodesetup.data.Providers
+import com.claudecodesetup.databinding.ActivitySettingsBinding
+
+class SettingsActivity : AppCompatActivity() {
+
+    private lateinit var binding: ActivitySettingsBinding
+    private lateinit var prefs: AppPreferences
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        binding = ActivitySettingsBinding.inflate(layoutInflater)
+        setContentView(binding.root)
+
+        prefs = AppPreferences(this)
+        setSupportActionBar(binding.toolbar)
+        supportActionBar?.setDisplayHomeAsUpEnabled(true)
+
+        populateFields()
+        setupActions()
+    }
+
+    private fun populateFields() {
+        val mode = prefs.getLoginMode()
+        val providerId = prefs.getProviderId()
+        val provider = Providers.byId(providerId)
+        val model = prefs.getModelId()
+
+        binding.tvCurrentProvider.text = when (mode) {
+            AppPreferences.MODE_SUBSCRIPTION -> "Claude Subscription"
+            AppPreferences.MODE_GEMINI -> "Google Gemini — $model"
+            else -> "${provider?.name ?: "Unknown"} — $model"
+        }
+
+        binding.tvClaudeVersion.text = "Claude Code v2.1.128"
+        binding.tvAppVersion.text = "App v${BuildConfig.VERSION_NAME}"
+
+        // Language
+        val langNames = arrayOf("English", "Bahasa Malaysia")
+        val langCodes = arrayOf("en", "ms")
+        val currentLang = prefs.getLanguage()
+        binding.spinnerLanguage.setSelection(langCodes.indexOf(currentLang).coerceAtLeast(0))
+        binding.spinnerLanguage.onItemSelectedListener =
+            object : android.widget.AdapterView.OnItemSelectedListener {
+                override fun onItemSelected(
+                    parent: android.widget.AdapterView<*>?, view: android.view.View?,
+                    position: Int, id: Long
+                ) {
+                    prefs.setLanguage(langCodes[position])
+                }
+                override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
+            }
+    }
+
+    private fun setupActions() {
+        binding.btnChangeProvider.setOnClickListener {
+            prefs.clearProviderOnly()
+            startActivity(Intent(this, LoginFlowActivity::class.java))
+            finish()
+        }
+
+        binding.btnClearData.setOnClickListener {
+            AlertDialog.Builder(this)
+                .setTitle("Clear all data?")
+                .setMessage("This will erase your API key and provider settings. You'll need to set up again.")
+                .setPositiveButton("Clear") { _, _ ->
+                    prefs.clearProviderOnly()
+                    Toast.makeText(this, "Settings cleared", Toast.LENGTH_SHORT).show()
+                    startActivity(Intent(this, LoginFlowActivity::class.java))
+                    finish()
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
+        }
+
+        binding.btnReset.setOnClickListener {
+            AlertDialog.Builder(this)
+                .setTitle("Reset everything?")
+                .setMessage(
+                    "This will delete your entire Claude Code installation and start fresh. " +
+                    "This cannot be undone."
+                )
+                .setPositiveButton("Reset") { _, _ -> resetEverything() }
+                .setNegativeButton("Cancel", null)
+                .show()
+        }
+
+        binding.btnReport.setOnClickListener {
+            startActivity(
+                Intent(Intent.ACTION_VIEW,
+                    Uri.parse("https://github.com/Alishahryar1/free-claude-code/issues/new"))
+            )
+        }
+    }
+
+    private fun resetEverything() {
+        prefs.clearAll()
+        // Delete environment files in background
+        Thread {
+            try {
+                filesDir.deleteRecursively()
+            } catch (_: Exception) {}
+        }.start()
+        startActivity(Intent(this, SetupActivity::class.java))
+        finishAffinity()
+    }
+
+    override fun onOptionsItemSelected(item: MenuItem): Boolean {
+        if (item.itemId == android.R.id.home) { finish(); return true }
+        return super.onOptionsItemSelected(item)
+    }
+}

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Dark theme (default / terminal feel) -->
+    <color name="bg_dark">#0D1117</color>
+    <color name="surface">#161B22</color>
+    <color name="toolbar_bg">#161B22</color>
+    <color name="terminal_bg">#0D1117</color>
+
+    <!-- Text -->
+    <color name="text_primary">#E6EDF3</color>
+    <color name="text_secondary">#8B949E</color>
+
+    <!-- Accents -->
+    <color name="accent_green">#3FB950</color>
+    <color name="accent_blue">#58A6FF</color>
+    <color name="accent_orange">#D29922</color>
+
+    <!-- Status -->
+    <color name="error_red">#F85149</color>
+    <color name="warning_bg">#2D2200</color>
+    <color name="warning_text">#D29922</color>
+
+    <!-- Light theme overrides -->
+    <color name="bg_light">#FFFFFF</color>
+    <color name="surface_light">#F6F8FA</color>
+    <color name="text_primary_light">#1F2328</color>
+    <color name="text_secondary_light">#656D76</color>
+</resources>

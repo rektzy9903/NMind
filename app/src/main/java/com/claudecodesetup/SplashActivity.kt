@@ -1,0 +1,24 @@
+package com.claudecodesetup
+
+import android.content.Intent
+import android.os.Bundle
+import androidx.appcompat.app.AppCompatActivity
+import com.claudecodesetup.data.AppPreferences
+
+class SplashActivity : AppCompatActivity() {
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+
+        val prefs = AppPreferences(this)
+
+        val next = when {
+            !prefs.isSetupComplete() -> SetupActivity::class.java
+            !prefs.isProviderConfigured() -> LoginFlowActivity::class.java
+            else -> TerminalActivity::class.java
+        }
+
+        startActivity(Intent(this, next))
+        finish()
+    }
+}
