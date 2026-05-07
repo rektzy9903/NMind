@@ -48,6 +48,25 @@ class SetupOrchestrator(
         onError: (SetupError) -> Unit,
         startStep: Int = 0
     ): Boolean {
+        // Shadow as mutable so self-heal can reset it before overall is calculated.
+        @Suppress("NAME_SHADOWING")
+        var startStep = startStep
+
+        // Ensure base directories always exist — cheap and idempotent.
+        envManager.filesDir.mkdirs()
+        envManager.homeDir.mkdirs()
+        envManager.tmpDir.mkdirs()
+
+        // Self-heal: if bash disappeared after setup progressed past step 4 (e.g.
+        // OS cleared app files, re-install edge case, EncryptedSharedPreferences
+        // inconsistency), fall back and re-extract the bootstrap before any
+        // bash-dependent step tries to run.
+        if (startStep > 4 && !envManager.isBootstrapped()) {
+            Log.w(TAG, "Bootstrap missing at step $startStep — resetting to step 4")
+            prefs.setSetupStep(4)
+            startStep = 4
+        }
+
         var overall = stepWeights.take(startStep).sum()
 
         fun stepProgress(step: Int, pct: Int) {

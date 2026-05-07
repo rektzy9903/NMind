@@ -23,7 +23,9 @@ class EnvironmentManager(private val context: Context) {
 
     // ─── Bootstrap ───────────────────────────────────────────────────────────
 
-    fun isBootstrapped(): Boolean = prootBin.exists() && termuxPrefix.resolve("bin/bash").exists()
+    // proot is not in the bootstrap zip — it is installed later via pkg.
+    // Only check for bash, which IS extracted from the bootstrap.
+    fun isBootstrapped(): Boolean = termuxPrefix.resolve("bin/bash").exists()
 
     suspend fun extractBootstrap(zipFile: File, onProgress: (Int) -> Unit): Boolean =
         withContext(Dispatchers.IO) {
