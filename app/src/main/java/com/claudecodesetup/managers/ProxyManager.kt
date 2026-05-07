@@ -19,51 +19,57 @@ class ProxyManager(private val envManager: EnvironmentManager) {
         .readTimeout(2, TimeUnit.SECONDS)
         .build()
 
-    suspend fun startProxy(onStatus: (String) -> Unit): Boolean = withContext(Dispatchers.IO) {
-        killProxy()
+    /**
+     * @param nodeArch  The arch-specific suffix used when Node.js was installed
+     *                  (e.g. "arm64", "armv7l", "x64"). Must match what was
+     *                  used in Step 8 of SetupOrchestrator.
+     */
+    suspend fun startProxy(nodeArch: String, onStatus: (String) -> Unit): Boolean =
+        withContext(Dispatchers.IO) {
+            killProxy()
 
-        val workDir = File(envManager.homeDir, "free-claude-code-main")
-        if (!workDir.exists()) {
-            onStatus("Proxy files missing")
-            return@withContext false
-        }
-
-        val proxyCommand = buildProxyCommand(workDir)
-
-        try {
-            val pb = ProcessBuilder(proxyCommand).apply {
-                directory(workDir)
-                redirectErrorStream(true)
-                environment().apply {
-                    put("HOME", envManager.homeDir.absolutePath)
-                    put("PATH", "${envManager.termuxPrefix.absolutePath}/bin:" +
-                        "${envManager.homeDir.absolutePath}/node-v20.11.0-linux-arm64/bin:" +
-                        "/usr/local/bin:/usr/bin:/bin")
-                }
+            val workDir = File(envManager.homeDir, "free-claude-code-main")
+            if (!workDir.exists()) {
+                onStatus("Proxy files missing")
+                return@withContext false
             }
 
-            proxyProcess = pb.start()
-            onStatus("Starting proxy...")
+            val proxyCommand = buildProxyCommand(workDir, nodeArch)
 
-            // Poll until proxy is up or timeout
-            repeat(15) { i ->
-                delay(1000)
-                if (isProxyAlive()) {
-                    Log.i(TAG, "Proxy ready after ${i + 1}s")
-                    return@withContext true
+            try {
+                val pb = ProcessBuilder(proxyCommand).apply {
+                    directory(workDir)
+                    redirectErrorStream(true)
+                    environment().apply {
+                        put("HOME", envManager.homeDir.absolutePath)
+                        put("PATH", "${envManager.termuxPrefix.absolutePath}/bin:" +
+                            "${envManager.homeDir.absolutePath}/node-v20.11.0-linux-$nodeArch/bin:" +
+                            "/usr/local/bin:/usr/bin:/bin")
+                    }
                 }
+
+                proxyProcess = pb.start()
+                onStatus("Starting proxy...")
+
+                // Poll until proxy is up or timeout
+                repeat(15) { i ->
+                    delay(1000)
+                    if (isProxyAlive()) {
+                        Log.i(TAG, "Proxy ready after ${i + 1}s")
+                        return@withContext true
+                    }
+                }
+
+                onStatus("Proxy timeout")
+                false
+            } catch (e: Exception) {
+                Log.e(TAG, "Proxy start failed", e)
+                onStatus("Proxy failed: ${e.message}")
+                false
             }
-
-            onStatus("Proxy timeout")
-            false
-        } catch (e: Exception) {
-            Log.e(TAG, "Proxy start failed", e)
-            onStatus("Proxy failed: ${e.message}")
-            false
         }
-    }
 
-    private fun buildProxyCommand(workDir: File): List<String> {
+    private fun buildProxyCommand(workDir: File, nodeArch: String): List<String> {
         val bashBin = envManager.termuxPrefix.resolve("bin/bash").absolutePath
         val uvBin = "/root/.local/bin/uv"
 
@@ -72,6 +78,7 @@ class ProxyManager(private val envManager: EnvironmentManager) {
             "proot-distro login ubuntu -- /bin/bash -c " +
             "'cd ~/free-claude-code-main && " +
             "kill \$(lsof -t -i:8082) 2>/dev/null; " +
+            "export PATH=\$HOME/node-v20.11.0-linux-$nodeArch/bin:\$PATH && " +
             "$uvBin run uvicorn server:app --host 0.0.0.0 --port 8082'"
         )
     }

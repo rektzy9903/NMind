@@ -86,8 +86,8 @@ class SetupActivity : AppCompatActivity() {
     // ─── Setup execution ──────────────────────────────────────────────────────
 
     private fun beginSetup() {
-        showProgress()
         val startStep = prefs.getSetupStep()
+        showProgress(SetupOrchestrator.progressForStep(startStep))
 
         lifecycleScope.launch {
             val success = withContext(Dispatchers.IO) {
@@ -118,12 +118,12 @@ class SetupActivity : AppCompatActivity() {
 
     // ─── UI states ────────────────────────────────────────────────────────────
 
-    private fun showProgress() {
+    private fun showProgress(initialProgress: Int = 0) {
         binding.layoutProgress.visibility = View.VISIBLE
         binding.layoutError.visibility = View.GONE
         binding.layoutSuccess.visibility = View.GONE
-        binding.progressBar.progress = 0
-        binding.tvStatus.text = "Getting things ready..."
+        binding.progressBar.progress = initialProgress
+        binding.tvStatus.text = if (initialProgress > 0) "Resuming setup..." else "Getting things ready..."
         binding.tvDetails.text = ""
         binding.btnRetry.visibility = View.GONE
     }

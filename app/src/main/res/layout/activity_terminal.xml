@@ -45,7 +45,42 @@
 
     </androidx.appcompat.widget.Toolbar>
 
-    <!-- Loading overlay -->
+    <!-- Session tab strip — tabs added programmatically, "+" always last -->
+    <HorizontalScrollView
+        android:layout_width="match_parent"
+        android:layout_height="36dp"
+        android:background="@color/surface"
+        android:scrollbars="none"
+        android:fillViewport="false">
+
+        <LinearLayout
+            android:id="@+id/tabContainer"
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingHorizontal="4dp"
+            android:paddingVertical="4dp">
+
+            <!-- Session tabs are inserted here programmatically before this button -->
+
+            <Button
+                android:id="@+id/btnNewSession"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="32dp"
+                android:layout_height="28dp"
+                android:text="+"
+                android:textSize="18sp"
+                android:textColor="@color/accent_green"
+                android:padding="0dp"
+                android:minWidth="0dp"
+                android:minHeight="0dp" />
+
+        </LinearLayout>
+
+    </HorizontalScrollView>
+
+    <!-- Loading indicator -->
     <TextView
         android:id="@+id/tvLoading"
         android:layout_width="match_parent"
@@ -67,7 +102,7 @@
         android:background="@color/terminal_bg"
         android:scrollbars="vertical" />
 
-    <!-- Restart button (shown when claude exits) -->
+    <!-- Restart button (shown when active session exits) -->
     <Button
         android:id="@+id/btnRestart"
         android:layout_width="match_parent"

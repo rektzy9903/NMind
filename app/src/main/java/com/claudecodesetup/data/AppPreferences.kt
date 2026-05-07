@@ -62,6 +62,9 @@ class AppPreferences(context: Context) {
 
     // ─── Language ────────────────────────────────────────────────────────────
 
+    fun getInstalledClaudeVersion(): String = prefs.getString(KEY_CLAUDE_VERSION, "") ?: ""
+    fun setInstalledClaudeVersion(v: String) = prefs.edit().putString(KEY_CLAUDE_VERSION, v).apply()
+
     fun getLanguage(): String = prefs.getString(KEY_LANGUAGE, "en") ?: "en"
     fun setLanguage(lang: String) = prefs.edit().putString(KEY_LANGUAGE, lang).apply()
 
@@ -92,6 +95,7 @@ class AppPreferences(context: Context) {
         private const val KEY_BASE_URL = "base_url"
         private const val KEY_SESSION_ACTIVE = "session_active"
         private const val KEY_LANGUAGE = "language"
+        private const val KEY_CLAUDE_VERSION = "claude_version"
 
         const val MODE_SUBSCRIPTION = "subscription"
         const val MODE_PROXY = "proxy"

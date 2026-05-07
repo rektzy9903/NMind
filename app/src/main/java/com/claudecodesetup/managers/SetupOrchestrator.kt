@@ -31,8 +31,16 @@ class SetupOrchestrator(
         val recoverable: Boolean = true
     )
 
+    companion object {
+        private val STEP_WEIGHTS = intArrayOf(2, 2, 1, 2, 10, 8, 20, 5, 3, 5, 25, 10, 2, 3, 2)
+
+        /** Returns cumulative progress (0–100) at the start of [step] for pre-seeding the bar. */
+        fun progressForStep(step: Int): Int =
+            STEP_WEIGHTS.take(step.coerceIn(0, STEP_WEIGHTS.size)).sum()
+    }
+
     // Step weights for progress calculation (total = 100)
-    private val stepWeights = intArrayOf(2, 2, 1, 2, 10, 8, 20, 5, 3, 5, 25, 10, 2, 3, 2)
+    private val stepWeights = STEP_WEIGHTS
 
     suspend fun run(
         onStep: (String) -> Unit,
@@ -75,8 +83,13 @@ class SetupOrchestrator(
         }
 
         // Step 2: WiFi check (informational, handled by caller)
-        prefs.setSetupStep(3)
-        stepProgress(2, 100)
+        // Guard ensures setSetupStep and stepProgress don't run when resuming
+        // from a later step, which would corrupt the saved resume point and
+        // make the progress bar jump backwards.
+        if (startStep <= 2) {
+            prefs.setSetupStep(3)
+            stepProgress(2, 100)
+        }
 
         // Step 3: Detect CPU architecture
         if (startStep <= 3) {
@@ -122,7 +135,10 @@ class SetupOrchestrator(
         // Step 5: Install proot-distro
         if (startStep <= 5) {
             onStep("Installing system tools...")
-            val result = envManager.runInTermux("pkg install -y proot proot-distro curl python")
+            val result = envManager.runInTermux(
+                "pkg install -y proot proot-distro curl python",
+                timeoutSeconds = 300
+            )
             if (result.exitCode != 0) {
                 Log.w(TAG, "proot-distro install stderr: ${result.stderr}")
             }
@@ -130,13 +146,38 @@ class SetupOrchestrator(
             stepProgress(5, 100)
         }
 
-        // Step 6: Install Ubuntu
+        // Step 6: Install Ubuntu via proot-distro
+        // This downloads ~300-700 MB and can take several minutes.
+        // A background heartbeat thread updates the status message every 15 s
+        // so the user sees real progress instead of a frozen screen.
         if (startStep <= 6) {
             if (!envManager.isUbuntuInstalled()) {
                 onStep("Setting up Linux (this takes 2-3 minutes)...")
-                val result = envManager.runInTermux("proot-distro install ubuntu")
+
+                val heartbeat = Thread {
+                    var secs = 0
+                    try {
+                        while (true) {
+                            Thread.sleep(15_000)
+                            secs += 15
+                            onStep("Setting up Linux... (${secs}s elapsed, please wait)")
+                        }
+                    } catch (_: InterruptedException) {}
+                }.also { it.isDaemon = true; it.start() }
+
+                val result = envManager.runInTermux(
+                    "proot-distro install ubuntu",
+                    timeoutSeconds = 900 // 15 minutes max for large downloads
+                )
+                heartbeat.interrupt()
+                heartbeat.join(1000)
+
                 if (result.exitCode != 0 && !envManager.isUbuntuInstalled()) {
-                    onError(SetupError("Could not install Linux environment. Check internet and try again."))
+                    val detail = result.stderr.take(200).ifBlank { result.stdout.take(200) }.trim()
+                    onError(SetupError(
+                        "Could not install Linux environment." +
+                        if (detail.isNotBlank()) "\n\n$detail" else "\n\nCheck internet and try again."
+                    ))
                     return false
                 }
             }
@@ -174,7 +215,8 @@ class SetupOrchestrator(
             envManager.runInUbuntu(
                 "cd ~ && tar -xzf $nodeTar --no-same-owner 2>/dev/null || true && " +
                 "echo 'export PATH=\$HOME/node-v20.11.0-linux-$nodeArch/bin:\$PATH' >> ~/.bashrc && " +
-                "echo 'export PATH=\$HOME/node-v20.11.0-linux-$nodeArch/bin:\$PATH' >> ~/.profile"
+                "echo 'export PATH=\$HOME/node-v20.11.0-linux-$nodeArch/bin:\$PATH' >> ~/.profile",
+                timeoutSeconds = 180
             )
             File(envManager.homeDir, nodeTar).delete()
             prefs.setSetupStep(9)
@@ -187,7 +229,8 @@ class SetupOrchestrator(
             envManager.runInUbuntu(
                 "apt-get update -qq && apt-get install -y -qq python3 python3-pip curl lsof 2>/dev/null; " +
                 "pip install uv --break-system-packages 2>/dev/null; " +
-                "pip3 install uv --break-system-packages 2>/dev/null || true"
+                "pip3 install uv --break-system-packages 2>/dev/null || true",
+                timeoutSeconds = 300
             )
             prefs.setSetupStep(10)
             stepProgress(9, 100)
@@ -210,20 +253,27 @@ class SetupOrchestrator(
                 }
 
                 // Extract with Python (no unzip dependency)
-                envManager.runInUbuntu("cd ~ && python3 -c \"import zipfile; zipfile.ZipFile('proxy.zip').extractall('.')\" && rm proxy.zip")
+                envManager.runInUbuntu(
+                    "cd ~ && python3 -c \"import zipfile; zipfile.ZipFile('proxy.zip').extractall('.')\" && rm proxy.zip",
+                    timeoutSeconds = 120
+                )
                 proxyZip.delete()
             }
             prefs.setSetupStep(11)
             stepProgress(10, 100)
         }
 
-        // Step 11: Install Claude Code (pinned version)
+        // Step 11: Install Claude Code (latest or pinned fallback)
         if (startStep <= 11) {
-            onStep("Installing Claude Code (pinned v2.1.128)...")
+            onStep("Fetching latest Claude Code version...")
+            val claudeVersion = downloader.fetchLatestClaudeVersion()
+            prefs.setInstalledClaudeVersion(claudeVersion)
+            onStep("Installing Claude Code ($claudeVersion)...")
             val nodeArch = envManager.nodeArchString(arch)
             val result = envManager.runInUbuntu(
                 "export PATH=\$HOME/node-v20.11.0-linux-$nodeArch/bin:\$PATH && " +
-                "npm install -g @anthropic-ai/claude-code@2.1.128 --no-audit --no-fund 2>&1"
+                "npm install -g @anthropic-ai/claude-code@$claudeVersion --no-audit --no-fund 2>&1",
+                timeoutSeconds = 300
             )
             val claudeOk = result.stdout.contains("added") || envManager.isClaudeInstalled()
             if (!claudeOk) {
@@ -238,7 +288,8 @@ class SetupOrchestrator(
             onStep("Installing proxy dependencies...")
             envManager.runInUbuntu(
                 "cd ~/free-claude-code-main && " +
-                "~/.local/bin/uv sync 2>/dev/null || pip install uvicorn fastapi httpx 2>/dev/null || true"
+                "~/.local/bin/uv sync 2>/dev/null || pip install uvicorn fastapi httpx 2>/dev/null || true",
+                timeoutSeconds = 300
             )
             prefs.setSetupStep(13)
             stepProgress(12, 100)
@@ -259,7 +310,8 @@ class SetupOrchestrator(
             onStep("Verifying installation...")
             val nodeArch = envManager.nodeArchString(arch)
             val result = envManager.runInUbuntu(
-                "export PATH=\$HOME/node-v20.11.0-linux-$nodeArch/bin:\$PATH && claude --version 2>&1"
+                "export PATH=\$HOME/node-v20.11.0-linux-$nodeArch/bin:\$PATH && claude --version 2>&1",
+                timeoutSeconds = 30
             )
             val ok = result.stdout.contains(".") || result.exitCode == 0
             if (!ok) {

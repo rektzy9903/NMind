@@ -418,6 +418,12 @@ window.termCopySelection = function(){
   }
 };
 
+// Clear all terminal content — called when switching sessions
+window.termClear = function(){
+  resetTerminal();
+  doRender();
+};
+
 window.termSendInput = function(text){
   Android.sendInput(text);
 };

@@ -41,7 +41,9 @@ class SettingsActivity : AppCompatActivity() {
             else -> "${provider?.name ?: "Unknown"} — $model"
         }
 
-        binding.tvClaudeVersion.text = "Claude Code v2.1.128"
+        val installedVersion = prefs.getInstalledClaudeVersion()
+            .ifEmpty { com.claudecodesetup.managers.DownloadManager.PINNED_CLAUDE_VERSION }
+        binding.tvClaudeVersion.text = "Claude Code v$installedVersion"
         binding.tvAppVersion.text = "App v${BuildConfig.VERSION_NAME}"
 
         // Language
