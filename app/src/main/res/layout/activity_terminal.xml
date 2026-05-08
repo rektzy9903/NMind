@@ -193,9 +193,8 @@
                 android:paddingVertical="11dp"
                 android:background="@null"
                 android:maxLines="4"
-                android:inputType="textMultiLine|textNoSuggestions|textNoSuggestions"
-                android:imeOptions="flagNoExtractUi"
-                android:autocomplete="false" />
+                android:inputType="textMultiLine|textNoSuggestions"
+                android:imeOptions="flagNoExtractUi" />
 
             <ImageButton
                 android:id="@+id/btnSend"
