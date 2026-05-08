@@ -20,20 +20,14 @@ class AppPreferences(context: Context) {
             EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
         )
     } catch (e: Exception) {
-        // Fallback to standard prefs if encryption fails (e.g., hardware issue)
         context.getSharedPreferences("claude_prefs", Context.MODE_PRIVATE)
     }
 
-    // ─── Setup state ────────────────────────────────────────────────────────
+    // ─── Termux / bridge setup ───────────────────────────────────────────────
 
-    fun isSetupComplete(): Boolean = prefs.getBoolean(KEY_SETUP_DONE, false)
-    fun setSetupComplete(done: Boolean) = prefs.edit().putBoolean(KEY_SETUP_DONE, done).apply()
-
-    fun getSetupStep(): Int = prefs.getInt(KEY_SETUP_STEP, 0)
-    fun setSetupStep(step: Int) = prefs.edit().putInt(KEY_SETUP_STEP, step).apply()
-
-    fun getDetectedArch(): String = prefs.getString(KEY_ARCH, "") ?: ""
-    fun setDetectedArch(arch: String) = prefs.edit().putString(KEY_ARCH, arch).apply()
+    /** True after the Termux setup script ran successfully and bridge was detected. */
+    fun isTermuxSetupComplete(): Boolean = prefs.getBoolean(KEY_TERMUX_SETUP_DONE, false)
+    fun setTermuxSetupComplete(done: Boolean) = prefs.edit().putBoolean(KEY_TERMUX_SETUP_DONE, done).apply()
 
     // ─── Provider config ─────────────────────────────────────────────────────
 
@@ -60,7 +54,7 @@ class AppPreferences(context: Context) {
     fun isSessionActive(): Boolean = prefs.getBoolean(KEY_SESSION_ACTIVE, false)
     fun setSessionActive(active: Boolean) = prefs.edit().putBoolean(KEY_SESSION_ACTIVE, active).apply()
 
-    // ─── Language ────────────────────────────────────────────────────────────
+    // ─── Misc ────────────────────────────────────────────────────────────────
 
     fun getInstalledClaudeVersion(): String = prefs.getString(KEY_CLAUDE_VERSION, "") ?: ""
     fun setInstalledClaudeVersion(v: String) = prefs.edit().putString(KEY_CLAUDE_VERSION, v).apply()
@@ -84,21 +78,19 @@ class AppPreferences(context: Context) {
     }
 
     companion object {
-        private const val KEY_SETUP_DONE = "setup_done"
-        private const val KEY_SETUP_STEP = "setup_step"
-        private const val KEY_ARCH = "cpu_arch"
-        private const val KEY_PROVIDER_SET = "provider_set"
-        private const val KEY_LOGIN_MODE = "login_mode"
-        private const val KEY_PROVIDER_ID = "provider_id"
-        private const val KEY_API_KEY = "api_key"
-        private const val KEY_MODEL_ID = "model_id"
-        private const val KEY_BASE_URL = "base_url"
+        private const val KEY_TERMUX_SETUP_DONE = "termux_setup_done"
+        private const val KEY_PROVIDER_SET  = "provider_set"
+        private const val KEY_LOGIN_MODE    = "login_mode"
+        private const val KEY_PROVIDER_ID   = "provider_id"
+        private const val KEY_API_KEY       = "api_key"
+        private const val KEY_MODEL_ID      = "model_id"
+        private const val KEY_BASE_URL      = "base_url"
         private const val KEY_SESSION_ACTIVE = "session_active"
-        private const val KEY_LANGUAGE = "language"
+        private const val KEY_LANGUAGE      = "language"
         private const val KEY_CLAUDE_VERSION = "claude_version"
 
         const val MODE_SUBSCRIPTION = "subscription"
-        const val MODE_PROXY = "proxy"
-        const val MODE_GEMINI = "gemini"
+        const val MODE_PROXY        = "proxy"
+        const val MODE_GEMINI       = "gemini"
     }
 }

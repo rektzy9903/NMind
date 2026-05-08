@@ -1,32 +1,44 @@
 package com.claudecodesetup
 
 import android.Manifest
-import android.app.AlertDialog
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.net.ConnectivityManager
-import android.net.NetworkCapabilities
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.View
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import androidx.lifecycle.lifecycleScope
 import com.claudecodesetup.data.AppPreferences
 import com.claudecodesetup.databinding.ActivitySetupBinding
-import com.claudecodesetup.managers.DownloadManager
-import com.claudecodesetup.managers.EnvironmentManager
-import com.claudecodesetup.managers.SetupOrchestrator
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import com.claudecodesetup.managers.BridgeManager
 
 class SetupActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivitySetupBinding
     private lateinit var prefs: AppPreferences
-    private lateinit var orchestrator: SetupOrchestrator
+    private lateinit var bridge: BridgeManager
+
+    private val pollHandler = Handler(Looper.getMainLooper())
+    private var polling = false
+
+    private val pollRunnable = object : Runnable {
+        override fun run() {
+            Thread {
+                val reachable = bridge.isBridgeReachable()
+                runOnUiThread {
+                    if (reachable) {
+                        onBridgeDetected()
+                    } else if (polling) {
+                        pollHandler.postDelayed(this, POLL_INTERVAL_MS)
+                    }
+                }
+            }.start()
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -34,160 +46,115 @@ class SetupActivity : AppCompatActivity() {
         setContentView(binding.root)
 
         prefs = AppPreferences(this)
-        orchestrator = SetupOrchestrator(
-            this,
-            EnvironmentManager(this),
-            DownloadManager(),
-            prefs
-        )
+        bridge = BridgeManager(this)
 
         requestNotificationPermission()
-        checkWifiAndBegin()
+        showInitialState()
 
-        binding.btnRetry.setOnClickListener { checkWifiAndBegin() }
-        binding.btnDetails.setOnClickListener { toggleDetails() }
+        binding.btnStartSetup.setOnClickListener { startSetup() }
+        binding.btnRetry.setOnClickListener { startSetup() }
+        binding.btnContinue.setOnClickListener { proceedToNext() }
     }
 
-    // ─── WiFi gate ────────────────────────────────────────────────────────────
-
-    private fun checkWifiAndBegin() {
-        if (!isOnWifi()) {
-            showWifiWarning()
-        } else {
-            beginSetup()
+    override fun onResume() {
+        super.onResume()
+        // Check bridge when returning from Termux (user may have completed setup)
+        if (binding.layoutWaiting.visibility == View.VISIBLE) {
+            startPolling()
         }
     }
 
-    private fun showWifiWarning() {
-        AlertDialog.Builder(this)
-            .setTitle("Large download ahead")
-            .setMessage(
-                "First-time setup needs ~500MB download.\n\n" +
-                "Connect to WiFi to avoid data charges?"
-            )
-            .setPositiveButton("Use WiFi") { _, _ ->
-                // Open WiFi settings
-                startActivity(Intent(android.provider.Settings.ACTION_WIFI_SETTINGS))
-            }
-            .setNegativeButton("Continue on mobile data") { _, _ ->
-                beginSetup()
-            }
-            .setCancelable(false)
-            .show()
+    override fun onPause() {
+        super.onPause()
+        stopPolling()
     }
 
-    private fun isOnWifi(): Boolean {
-        val cm = getSystemService(ConnectivityManager::class.java)
-        val net = cm.activeNetwork ?: return false
-        val caps = cm.getNetworkCapabilities(net) ?: return false
-        return caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
+    override fun onDestroy() {
+        super.onDestroy()
+        stopPolling()
     }
 
-    // ─── Setup execution ──────────────────────────────────────────────────────
+    // ─── States ──────────────────────────────────────────────────────────────
 
-    private fun beginSetup() {
-        val startStep = prefs.getSetupStep()
-        showProgress(SetupOrchestrator.progressForStep(startStep))
-
-        lifecycleScope.launch {
-            val success = withContext(Dispatchers.IO) {
-                orchestrator.run(
-                    onStep = { msg ->
-                        runOnUiThread {
-                            binding.tvStatus.text = msg
-                            appendDetail(msg)
-                        }
-                    },
-                    onProgress = { pct ->
-                        runOnUiThread {
-                            binding.progressBar.progress = pct
-                        }
-                    },
-                    onError = { err ->
-                        runOnUiThread { showError(err) }
-                    },
-                    startStep = startStep
-                )
-            }
-
-            if (success) {
-                showSuccess()
-            }
-        }
-    }
-
-    // ─── UI states ────────────────────────────────────────────────────────────
-
-    private fun showProgress(initialProgress: Int = 0) {
-        binding.layoutProgress.visibility = View.VISIBLE
-        binding.layoutError.visibility = View.GONE
+    private fun showInitialState() {
+        binding.layoutInitial.visibility = View.VISIBLE
+        binding.layoutWaiting.visibility = View.GONE
         binding.layoutSuccess.visibility = View.GONE
-        binding.progressBar.progress = initialProgress
-        binding.tvStatus.text = if (initialProgress > 0) "Resuming setup..." else "Getting things ready..."
-        binding.tvDetails.text = ""
-        binding.btnRetry.visibility = View.GONE
-    }
-
-    private fun showError(err: SetupOrchestrator.SetupError) {
-        binding.layoutProgress.visibility = View.VISIBLE
-        binding.layoutError.visibility = View.VISIBLE
-        binding.layoutSuccess.visibility = View.GONE
-        binding.tvErrorMsg.text = err.friendlyMessage
-        binding.btnRetry.visibility = View.VISIBLE
-
-        err.action?.let { action ->
-            binding.btnErrorAction.visibility = View.VISIBLE
-            binding.btnErrorAction.text = err.actionLabel ?: "Fix this"
-            binding.btnErrorAction.setOnClickListener {
-                startActivity(Intent(action))
-            }
-        }
-    }
-
-    private fun showSuccess() {
-        binding.layoutProgress.visibility = View.GONE
         binding.layoutError.visibility = View.GONE
+    }
+
+    private fun showWaitingState() {
+        binding.layoutInitial.visibility = View.GONE
+        binding.layoutWaiting.visibility = View.VISIBLE
+        binding.layoutSuccess.visibility = View.GONE
+        binding.layoutError.visibility = View.GONE
+    }
+
+    private fun showSuccessState() {
+        stopPolling()
+        binding.layoutInitial.visibility = View.GONE
+        binding.layoutWaiting.visibility = View.GONE
         binding.layoutSuccess.visibility = View.VISIBLE
+        binding.layoutError.visibility = View.GONE
+    }
 
-        binding.btnContinue.setOnClickListener {
-            startActivity(Intent(this, LoginFlowActivity::class.java))
-            finish()
+    private fun showErrorState(msg: String) {
+        stopPolling()
+        binding.layoutWaiting.visibility = View.GONE
+        binding.layoutError.visibility = View.VISIBLE
+        binding.tvErrorMsg.text = msg
+    }
+
+    // ─── Setup flow ───────────────────────────────────────────────────────────
+
+    private fun startSetup() {
+        binding.layoutError.visibility = View.GONE
+        showWaitingState()
+
+        try {
+            val scriptContent = assets.open("setup.sh").bufferedReader().readText()
+            bridge.runSetupScript(scriptContent)
+            startPolling()
+        } catch (e: Exception) {
+            showErrorState("Could not start setup: ${e.message}")
         }
     }
 
-    private fun toggleDetails() {
-        val v = binding.tvDetails
-        if (v.visibility == View.VISIBLE) {
-            v.visibility = View.GONE
-            binding.btnDetails.text = "Show details"
-        } else {
-            v.visibility = View.VISIBLE
-            binding.btnDetails.text = "Hide details"
-        }
+    private fun startPolling() {
+        if (polling) return
+        polling = true
+        pollHandler.post(pollRunnable)
     }
 
-    private fun appendDetail(msg: String) {
-        binding.tvDetails.append("$msg\n")
+    private fun stopPolling() {
+        polling = false
+        pollHandler.removeCallbacks(pollRunnable)
     }
 
-    // ─── Notification permission (Android 13+) ────────────────────────────────
+    private fun onBridgeDetected() {
+        stopPolling()
+        prefs.setTermuxSetupComplete(true)
+        showSuccessState()
+    }
+
+    private fun proceedToNext() {
+        startActivity(Intent(this, LoginFlowActivity::class.java))
+        finish()
+    }
+
+    // ─── Notification permission ──────────────────────────────────────────────
 
     private fun requestNotificationPermission() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(
-                    this, Manifest.permission.POST_NOTIFICATIONS
-                ) != PackageManager.PERMISSION_GRANTED
-            ) {
-                ActivityCompat.requestPermissions(
-                    this,
-                    arrayOf(Manifest.permission.POST_NOTIFICATIONS),
-                    REQ_NOTIF
-                )
+            if (ContextCompat.checkSelfPermission(this,
+                    Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(this,
+                    arrayOf(Manifest.permission.POST_NOTIFICATIONS), 42)
             }
         }
     }
 
     companion object {
-        private const val REQ_NOTIF = 42
+        private const val POLL_INTERVAL_MS = 5_000L
     }
 }

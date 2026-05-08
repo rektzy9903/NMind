@@ -1,28 +1,28 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Dark theme (default / terminal feel) -->
-    <color name="bg_dark">#0D1117</color>
-    <color name="surface">#161B22</color>
-    <color name="toolbar_bg">#161B22</color>
-    <color name="terminal_bg">#0D1117</color>
+    <!-- Claude.ai dark theme -->
+    <color name="bg_dark">#1E1E2E</color>
+    <color name="surface">#27273A</color>
+    <color name="toolbar_bg">#27273A</color>
+    <color name="terminal_bg">#1E1E2E</color>
 
     <!-- Text -->
-    <color name="text_primary">#E6EDF3</color>
-    <color name="text_secondary">#8B949E</color>
+    <color name="text_primary">#F0F0F0</color>
+    <color name="text_secondary">#9A9AB0</color>
 
-    <!-- Accents -->
-    <color name="accent_green">#3FB950</color>
-    <color name="accent_blue">#58A6FF</color>
-    <color name="accent_orange">#D29922</color>
+    <!-- Claude coral/orange accent -->
+    <color name="accent_orange">#DA7756</color>
+    <color name="accent_orange_dark">#B85F42</color>
+
+    <!-- Keep accent_green for backward compat with any drawable refs -->
+    <color name="accent_green">#DA7756</color>
+    <color name="accent_blue">#7B8CDE</color>
 
     <!-- Status -->
-    <color name="error_red">#F85149</color>
+    <color name="error_red">#E06C75</color>
     <color name="warning_bg">#2D2200</color>
-    <color name="warning_text">#D29922</color>
+    <color name="warning_text">#DA7756</color>
 
-    <!-- Light theme overrides -->
-    <color name="bg_light">#FFFFFF</color>
-    <color name="surface_light">#F6F8FA</color>
-    <color name="text_primary_light">#1F2328</color>
-    <color name="text_secondary_light">#656D76</color>
+    <!-- Tab active indicator -->
+    <color name="tab_active">#DA7756</color>
 </resources>

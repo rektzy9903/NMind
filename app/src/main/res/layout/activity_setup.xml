@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/bg_dark"
@@ -10,90 +9,167 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="32dp">
+        android:padding="32dp"
+        android:gravity="center_horizontal">
 
-        <!-- Logo / header -->
         <ImageView
             android:layout_width="72dp"
             android:layout_height="72dp"
-            android:layout_gravity="center_horizontal"
             android:layout_marginTop="24dp"
             android:src="@drawable/ic_terminal"
-            android:contentDescription="Claude Code" />
+            android:contentDescription="Setup" />
 
         <TextView
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_gravity="center_horizontal"
-            android:layout_marginTop="16dp"
-            android:text="Setting up Claude Code for you..."
+            android:layout_marginTop="20dp"
+            android:text="Set Up Claude Code"
             android:textColor="@color/text_primary"
-            android:textSize="20sp"
+            android:textSize="22sp"
             android:textStyle="bold"
             android:gravity="center" />
 
         <TextView
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_gravity="center_horizontal"
             android:layout_marginTop="8dp"
-            android:text="This only happens once ☕\nUsually takes 2–3 minutes"
+            android:text="We'll install Claude Code inside Ubuntu Linux via Termux.\nThis only happens once (5–15 minutes)."
             android:textColor="@color/text_secondary"
-            android:textSize="15sp"
-            android:gravity="center"
-            android:lineSpacingMultiplier="1.4" />
+            android:textSize="14sp"
+            android:lineSpacingMultiplier="1.4"
+            android:gravity="center" />
 
-        <!-- Progress section -->
+        <!-- ── Initial state ────────────────────────────────────────── -->
         <LinearLayout
-            android:id="@+id/layoutProgress"
+            android:id="@+id/layoutInitial"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:layout_marginTop="40dp">
+            android:layout_marginTop="32dp">
 
-            <ProgressBar
-                android:id="@+id/progressBar"
-                style="@style/Widget.AppCompat.ProgressBar.Horizontal"
-                android:layout_width="match_parent"
-                android:layout_height="12dp"
-                android:max="100"
-                android:progress="0"
-                android:progressBackgroundTint="@color/surface"
-                android:progressTint="@color/accent_green" />
-
-            <TextView
-                android:id="@+id/tvStatus"
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
-                android:text="Preparing..."
-                android:textColor="@color/text_primary"
-                android:textSize="15sp" />
+                android:orientation="vertical"
+                android:background="@drawable/bg_provider_card"
+                android:padding="20dp"
+                android:layout_marginBottom="24dp">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="What will happen:"
+                    android:textColor="@color/accent_orange"
+                    android:textSize="13sp"
+                    android:textAllCaps="true"
+                    android:letterSpacing="0.1"
+                    android:layout_marginBottom="12dp" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="1. Termux will open and run the setup\n2. Ubuntu Linux is installed (~300 MB)\n3. Node.js and Claude Code are installed\n4. A local proxy is installed (free mode)\n5. When done, tap back and this screen advances automatically"
+                    android:textColor="@color/text_primary"
+                    android:textSize="14sp"
+                    android:lineSpacingMultiplier="1.5" />
+
+            </LinearLayout>
 
             <Button
-                android:id="@+id/btnDetails"
-                style="@style/Widget.Material3.Button.TextButton"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:text="Show details"
-                android:textColor="@color/text_secondary" />
-
-            <TextView
-                android:id="@+id/tvDetails"
+                android:id="@+id/btnStartSetup"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:background="@color/surface"
-                android:fontFamily="monospace"
-                android:padding="12dp"
-                android:textColor="@color/text_secondary"
-                android:textSize="11sp"
-                android:visibility="gone" />
+                android:text="Start Setup in Termux"
+                android:textSize="16sp"
+                android:backgroundTint="@color/accent_orange" />
 
         </LinearLayout>
 
-        <!-- Error section -->
+        <!-- ── Waiting state ────────────────────────────────────────── -->
+        <LinearLayout
+            android:id="@+id/layoutWaiting"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginTop="32dp"
+            android:gravity="center"
+            android:visibility="gone">
+
+            <ProgressBar
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:indeterminateTint="@color/accent_orange" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="20dp"
+                android:text="Setup is running in Termux..."
+                android:textColor="@color/text_primary"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:gravity="center" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:text="Watch the Termux terminal for progress.\n\nThis page will advance automatically when setup is complete (usually 5–15 min)."
+                android:textColor="@color/text_secondary"
+                android:textSize="14sp"
+                android:lineSpacingMultiplier="1.4"
+                android:gravity="center" />
+
+        </LinearLayout>
+
+        <!-- ── Success state ────────────────────────────────────────── -->
+        <LinearLayout
+            android:id="@+id/layoutSuccess"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginTop="40dp"
+            android:gravity="center"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="✓"
+                android:textColor="@color/accent_orange"
+                android:textSize="64sp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="Setup complete!"
+                android:textColor="@color/text_primary"
+                android:textSize="22sp"
+                android:textStyle="bold"
+                android:gravity="center" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="Claude Code is ready. Now choose your AI provider."
+                android:textColor="@color/text_secondary"
+                android:textSize="15sp"
+                android:gravity="center" />
+
+            <Button
+                android:id="@+id/btnContinue"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="32dp"
+                android:text="Choose Provider →"
+                android:textSize="16sp"
+                android:backgroundTint="@color/accent_orange" />
+
+        </LinearLayout>
+
+        <!-- ── Error state ───────────────────────────────────────────── -->
         <LinearLayout
             android:id="@+id/layoutError"
             android:layout_width="match_parent"
@@ -109,16 +185,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:textColor="@color/error_red"
-                android:textSize="15sp" />
-
-            <Button
-                android:id="@+id/btnErrorAction"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:text="Fix this"
-                android:visibility="gone"
-                android:backgroundTint="@color/error_red" />
+                android:textSize="14sp" />
 
             <Button
                 android:id="@+id/btnRetry"
@@ -126,47 +193,10 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="12dp"
                 android:text="Try again"
-                android:visibility="gone"
-                android:backgroundTint="@color/accent_green" />
-
-        </LinearLayout>
-
-        <!-- Success section -->
-        <LinearLayout
-            android:id="@+id/layoutSuccess"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:layout_marginTop="40dp"
-            android:gravity="center"
-            android:visibility="gone">
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="✅"
-                android:textSize="56sp" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
-                android:text="All done! Claude Code is ready! 🎉"
-                android:textColor="@color/text_primary"
-                android:textSize="20sp"
-                android:textStyle="bold"
-                android:gravity="center" />
-
-            <Button
-                android:id="@+id/btnContinue"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="32dp"
-                android:text="Get started →"
-                android:textSize="17sp"
-                android:backgroundTint="@color/accent_green" />
+                android:backgroundTint="@color/accent_orange" />
 
         </LinearLayout>
 
     </LinearLayout>
+
 </ScrollView>

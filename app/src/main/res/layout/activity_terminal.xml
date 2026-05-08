@@ -185,7 +185,7 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:hint="Message Claude…"
-                android:hintTextColor="#555570"
+                android:textColorHint="#555570"
                 android:textColor="@color/text_primary"
                 android:textSize="15sp"
                 android:paddingStart="16dp"

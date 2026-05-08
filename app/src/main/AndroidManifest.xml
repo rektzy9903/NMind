@@ -9,10 +9,13 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
-    <!-- Storage: Android 10 only -->
-    <uses-permission
-        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
-        android:maxSdkVersion="29" />
+    <!-- Required to send commands to Termux -->
+    <uses-permission android:name="com.termux.permission.RUN_COMMAND" />
+
+    <!-- Package visibility: needed to detect if Termux is installed -->
+    <queries>
+        <package android:name="com.termux" />
+    </queries>
 
     <application
         android:name=".ClaudeApp"
@@ -39,7 +42,14 @@
             </intent-filter>
         </activity>
 
-        <!-- First-run setup -->
+        <!-- Termux install guide (shown when Termux not installed) -->
+        <activity
+            android:name=".TermuxInstallActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.ClaudeCodeSetup" />
+
+        <!-- Termux setup guide (runs setup.sh in Termux) -->
         <activity
             android:name=".SetupActivity"
             android:exported="false"
@@ -68,13 +78,13 @@
             android:screenOrientation="portrait"
             android:theme="@style/Theme.ClaudeCodeSetup" />
 
-        <!-- Foreground service: keeps proxy + claude alive -->
+        <!-- Foreground service: keeps bridge sessions alive -->
         <service
             android:name=".services.ClaudeService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
-        <!-- Boot receiver to show "Resume Session" shortcut -->
+        <!-- Boot receiver -->
         <receiver
             android:name=".receivers.BootReceiver"
             android:exported="true">
