@@ -189,15 +189,18 @@ class LoginFlowActivity : AppCompatActivity() {
     // ─── Subscription path ────────────────────────────────────────────────────
 
     private fun useSubscription() {
-        prefs.setLoginMode(AppPreferences.MODE_SUBSCRIPTION)
-        prefs.setProviderConfigured(true)
-        launchTerminal()
+        selectedProvider = Providers.ANTHROPIC
+        showApiKeyEntry(Providers.ANTHROPIC)
     }
 
     // ─── Save config and launch ───────────────────────────────────────────────
 
     private fun saveAndLaunch(provider: Provider, apiKey: String, model: AiModel) {
-        val mode = if (provider.id == "gemini") AppPreferences.MODE_GEMINI else AppPreferences.MODE_PROXY
+        val mode = when (provider.id) {
+            "anthropic" -> AppPreferences.MODE_SUBSCRIPTION
+            "gemini"    -> AppPreferences.MODE_GEMINI
+            else        -> AppPreferences.MODE_PROXY
+        }
         prefs.setLoginMode(mode)
         prefs.setProviderId(provider.id)
         prefs.setApiKey(apiKey)
@@ -221,7 +224,10 @@ class LoginFlowActivity : AppCompatActivity() {
             Screen.MALAYSIA_CHECK -> showHasSubscription()
             Screen.GEMINI_RECOMMEND -> showMalaysiaCheck()
             Screen.PROVIDER_LIST -> showMalaysiaCheck()
-            Screen.API_KEY_ENTRY -> showProviderList()
+            Screen.API_KEY_ENTRY -> {
+                if (selectedProvider?.id == "anthropic") showHasSubscription()
+                else showProviderList()
+            }
         }
     }
 

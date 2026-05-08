@@ -120,6 +120,22 @@ object Providers {
         )
     )
 
+    val ANTHROPIC = Provider(
+        id = "anthropic",
+        name = "Anthropic (Claude.ai)",
+        signupUrl = "https://console.anthropic.com/settings/api-keys",
+        rateLimit = "Subscription billing",
+        malaysiaStatus = MalaysiaStatus.GREEN,
+        malaysiaNote = "Works everywhere",
+        baseUrl = "",
+        requiresProxy = false,
+        models = listOf(
+            AiModel("Claude Sonnet 4.5", "claude-sonnet-4-5"),
+            AiModel("Claude Opus 4.5", "claude-opus-4-5"),
+            AiModel("Claude Haiku 4.5", "claude-haiku-4-5-20251001")
+        )
+    )
+
     val ALL = listOf(GEMINI, OPENROUTER, NVIDIA_NIM, META_LLAMA, OLLAMA)
 
     fun byId(id: String): Provider? = ALL.find { it.id == id }
