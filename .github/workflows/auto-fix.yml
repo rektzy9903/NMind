@@ -1,0 +1,68 @@
+name: Auto-fix CI failures
+
+on:
+  workflow_run:
+    workflows: ["Build APK"]
+    types: [completed]
+
+# Needed for checkout, reading logs, and opening a PR
+permissions:
+  contents: write
+  pull-requests: write
+  actions: read
+
+jobs:
+  fix:
+    name: Ask Claude to fix the build
+    runs-on: ubuntu-latest
+    # Only run when the watched workflow actually failed
+    if: ${{ github.event.workflow_run.conclusion == 'failure' }}
+
+    steps:
+      # Check out the exact commit that failed so Claude edits the right code
+      - name: Checkout failing commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v3
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      # Surface the failed run URL and ID so Claude can fetch the logs
+      - name: Collect failure context
+        id: ctx
+        run: |
+          echo "run_id=${{ github.event.workflow_run.id }}"    >> "$GITHUB_OUTPUT"
+          echo "run_url=${{ github.event.workflow_run.html_url }}" >> "$GITHUB_OUTPUT"
+          echo "head_sha=${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
+          echo "head_branch=${{ github.event.workflow_run.head_branch }}" >> "$GITHUB_OUTPUT"
+
+      - name: Ask Claude to diagnose and fix
+        uses: anthropics/claude-code-action@beta
+        with:
+          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          prompt: |
+            The GitHub Actions "Build APK" workflow just failed.
+
+            Failed run:  ${{ steps.ctx.outputs.run_url }}
+            Run ID:      ${{ steps.ctx.outputs.run_id }}
+            Commit:      ${{ steps.ctx.outputs.head_sha }}
+            Branch:      ${{ steps.ctx.outputs.head_branch }}
+
+            Steps to follow:
+            1. Run `gh run view ${{ steps.ctx.outputs.run_id }} --log-failed` to read
+               the full failure output.
+            2. Identify the root cause (compilation error, missing resource, Gradle
+               problem, etc.).
+            3. Fix the source code — do NOT change build.gradle versions unless the
+               error is explicitly about a version mismatch.
+            4. Verify the fix makes sense by reviewing the changed files.
+            5. Open a pull request targeting the `${{ steps.ctx.outputs.head_branch }}`
+               branch with a clear title and description explaining what broke and why.
+
+            Do not push directly to main. Create a PR so the fix can be reviewed.
