@@ -1,0 +1,115 @@
+{
+  "version": 2,
+  "updated": "2026-05-08",
+  "remoteUrl": "",
+  "providers": [
+    {
+      "id": "gemini",
+      "name": "Google Gemini",
+      "signupUrl": "https://aistudio.google.com",
+      "rateLimit": "15 req/min · 1500 req/day free",
+      "malaysiaStatus": "GREEN",
+      "malaysiaNote": "Google account only — recommended for Malaysia",
+      "baseUrl": "https://generativelanguage.googleapis.com/v1beta/openai/",
+      "requiresProxy": false,
+      "models": [
+        { "name": "Gemini 2.5 Flash",    "modelId": "gemini-2.5-flash-preview-05-20" },
+        { "name": "Gemini 2.0 Flash",    "modelId": "gemini-2.0-flash" },
+        { "name": "Gemini 1.5 Flash",    "modelId": "gemini-1.5-flash" },
+        { "name": "Gemini 1.5 Flash 8B", "modelId": "gemini-1.5-flash-8b" }
+      ]
+    },
+    {
+      "id": "openrouter",
+      "name": "OpenRouter",
+      "signupUrl": "https://openrouter.ai",
+      "rateLimit": "20 req/min · 50 req/day free",
+      "malaysiaStatus": "GREEN",
+      "malaysiaNote": "Email signup works",
+      "warningNote": "50 req/day = ~5 real Claude prompts. Consider Gemini for 1500/day instead.",
+      "baseUrl": "https://openrouter.ai/api/v1",
+      "requiresProxy": true,
+      "models": [
+        { "name": "Qwen3 Coder 480B",      "modelId": "qwen/qwen3-coder-480b-a35b-instruct:free" },
+        { "name": "DeepSeek R1 0528",      "modelId": "deepseek/deepseek-r1-0528:free" },
+        { "name": "GPT-OSS 120B",          "modelId": "openai/gpt-oss-120b:free" },
+        { "name": "Gemma 4 26B",           "modelId": "google/gemma-4-26b-a4b-it:free" },
+        { "name": "Llama 3.3 70B",         "modelId": "meta-llama/llama-3.3-70b-instruct:free" },
+        { "name": "GLM 4.5 Air",           "modelId": "z-ai/glm-4.5-air:free" },
+        { "name": "MiniMax M2.5",          "modelId": "minimax/minimax-m2.5:free" },
+        { "name": "Nemotron Super 120B",   "modelId": "nvidia/nemotron-3-super-120b-a12b:free" },
+        { "name": "Ling 2.6 1T",           "modelId": "inclusionai/ling-2.6-1t:free" }
+      ]
+    },
+    {
+      "id": "nvidia_nim",
+      "name": "NVIDIA NIM",
+      "signupUrl": "https://build.nvidia.com/models",
+      "rateLimit": "40 req/min · Free forever",
+      "malaysiaStatus": "RED",
+      "malaysiaNote": "SMS verification fails in Malaysia",
+      "baseUrl": "https://integrate.api.nvidia.com/v1",
+      "requiresProxy": true,
+      "models": [
+        { "name": "GLM 4.7",              "modelId": "nvidia_nim/z-ai/glm4.7" },
+        { "name": "GLM 5.1",              "modelId": "nvidia_nim/z-ai/glm5.1" },
+        { "name": "Kimi K2.5",            "modelId": "nvidia_nim/moonshotai/kimi-k2.5" },
+        { "name": "MiniMax M2.5",         "modelId": "nvidia_nim/minimaxai/minimax-m2.5" },
+        { "name": "MiniMax M2.7",         "modelId": "nvidia_nim/minimaxai/minimax-m2.7" },
+        { "name": "DeepSeek V4 Flash",    "modelId": "nvidia_nim/deepseek-ai/deepseek-v4-flash" },
+        { "name": "GPT-OSS 120B",         "modelId": "nvidia_nim/openai/gpt-oss-120b" },
+        { "name": "Llama 3.3 70B",        "modelId": "nvidia_nim/meta/llama-3.3-70b-instruct" },
+        { "name": "Qwen 3.5 397B",        "modelId": "nvidia_nim/qwen/qwen3.5-397b" },
+        { "name": "Nemotron Super 120B",  "modelId": "nvidia_nim/nvidia/nemotron-3-super-120b-a12b" },
+        { "name": "Step 3.5 Flash",       "modelId": "nvidia_nim/stepfun-ai/step-3.5-flash" }
+      ]
+    },
+    {
+      "id": "meta_llama",
+      "name": "Meta Llama API",
+      "signupUrl": "https://llama.developer.meta.com",
+      "rateLimit": "Limited free preview",
+      "malaysiaStatus": "YELLOW",
+      "malaysiaNote": "US priority — may work in Malaysia",
+      "baseUrl": "https://api.llama.com/v1",
+      "requiresProxy": true,
+      "models": [
+        { "name": "Llama 4 Scout",    "modelId": "meta-llama/llama-4-scout" },
+        { "name": "Llama 4 Maverick", "modelId": "meta-llama/llama-4-maverick" },
+        { "name": "Llama 3.3 70B",    "modelId": "meta-llama/llama-3.3-70b-instruct" }
+      ]
+    },
+    {
+      "id": "ollama",
+      "name": "Ollama (Local PC only)",
+      "signupUrl": "https://ollama.com/library",
+      "rateLimit": "Unlimited · 100% free",
+      "malaysiaStatus": "GREEN",
+      "malaysiaNote": "No internet needed",
+      "warningNote": "Requires PC with 8GB+ RAM running Ollama — not your phone",
+      "baseUrl": "http://localhost:11434",
+      "requiresProxy": true,
+      "models": [
+        { "name": "Llama 3.1 8B",         "modelId": "ollama/llama3.1:8b" },
+        { "name": "Llama 3.1 70B",         "modelId": "ollama/llama3.1:70b" },
+        { "name": "Qwen 2.5 Coder 7B",    "modelId": "ollama/qwen2.5-coder:7b" },
+        { "name": "Mistral 7B",            "modelId": "ollama/mistral:7b" }
+      ]
+    },
+    {
+      "id": "anthropic",
+      "name": "Anthropic (Claude.ai)",
+      "signupUrl": "https://console.anthropic.com/settings/api-keys",
+      "rateLimit": "Subscription billing",
+      "malaysiaStatus": "GREEN",
+      "malaysiaNote": "Works everywhere",
+      "baseUrl": "",
+      "requiresProxy": false,
+      "models": [
+        { "name": "Claude Sonnet 4.5",  "modelId": "claude-sonnet-4-5" },
+        { "name": "Claude Opus 4.5",    "modelId": "claude-opus-4-5" },
+        { "name": "Claude Haiku 4.5",   "modelId": "claude-haiku-4-5-20251001" }
+      ]
+    }
+  ]
+}

@@ -9,6 +9,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.claudecodesetup.data.AppPreferences
@@ -16,8 +17,10 @@ import com.claudecodesetup.data.AiModel
 import com.claudecodesetup.data.MalaysiaStatus
 import com.claudecodesetup.data.Provider
 import com.claudecodesetup.data.Providers
+import com.claudecodesetup.data.ProvidersRepository
 import com.claudecodesetup.databinding.ActivityLoginFlowBinding
 import com.google.android.material.chip.Chip
+import kotlinx.coroutines.launch
 
 class LoginFlowActivity : AppCompatActivity() {
 
@@ -105,27 +108,41 @@ class LoginFlowActivity : AppCompatActivity() {
         }
     }
 
-    // ─── Screen 4: Provider list ──────────────────────────────────────────────
+    // ─── Screen 4: Provider list (async — fetches from assets / remote) ──────
 
     private fun showProviderList() {
         currentScreen = Screen.PROVIDER_LIST
         with(binding) {
             tvQuestion.text = "Choose your AI provider"
-            tvSubtitle.text = "All providers below are free"
+            tvSubtitle.text = "Loading providers…"
             tvSubtitle.visibility = View.VISIBLE
             btnPrimary.visibility = View.GONE
             btnSecondary.visibility = View.GONE
             geminiRecommendCard.visibility = View.GONE
             apiKeyContainer.visibility = View.GONE
             providerContainer.visibility = View.VISIBLE
-
-            val adapter = ProviderListAdapter(Providers.ALL) { provider ->
-                selectedProvider = provider
-                showApiKeyEntry(provider)
-            }
-            providerRecycler.layoutManager = LinearLayoutManager(this@LoginFlowActivity)
-            providerRecycler.adapter = adapter
+            providerLoadingBar.visibility = View.VISIBLE
+            btnRefreshProviders.visibility = View.GONE
+            providerRecycler.adapter = null
         }
+
+        lifecycleScope.launch {
+            val result = ProvidersRepository.load(this@LoginFlowActivity)
+            with(binding) {
+                providerLoadingBar.visibility = View.GONE
+                tvSubtitle.text = if (result.fromRemote) "Live list" else "All providers below are free"
+                btnRefreshProviders.visibility = View.VISIBLE
+
+                val adapter = ProviderListAdapter(result.providers) { provider ->
+                    selectedProvider = provider
+                    showApiKeyEntry(provider)
+                }
+                providerRecycler.layoutManager = LinearLayoutManager(this@LoginFlowActivity)
+                providerRecycler.adapter = adapter
+            }
+        }
+
+        binding.btnRefreshProviders.setOnClickListener { showProviderList() }
     }
 
     // ─── Screen 5: API key entry ──────────────────────────────────────────────

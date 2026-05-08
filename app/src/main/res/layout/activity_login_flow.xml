@@ -121,11 +121,34 @@
                 android:layout_marginTop="24dp"
                 android:visibility="gone">
 
+                <!-- Loading bar shown while fetching providers -->
+                <ProgressBar
+                    android:id="@+id/providerLoadingBar"
+                    style="?android:attr/progressBarStyleHorizontal"
+                    android:layout_width="match_parent"
+                    android:layout_height="4dp"
+                    android:indeterminate="true"
+                    android:progressTint="@color/accent_green"
+                    android:visibility="gone" />
+
                 <androidx.recyclerview.widget.RecyclerView
                     android:id="@+id/providerRecycler"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:nestedScrollingEnabled="false" />
+
+                <!-- Refresh button shown after list loads -->
+                <Button
+                    android:id="@+id/btnRefreshProviders"
+                    style="@style/Widget.Material3.Button.OutlinedButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="40dp"
+                    android:layout_marginTop="12dp"
+                    android:layout_gravity="end"
+                    android:text="↻ Refresh list"
+                    android:textSize="13sp"
+                    android:textColor="@color/text_secondary"
+                    android:visibility="gone" />
 
             </LinearLayout>
 
