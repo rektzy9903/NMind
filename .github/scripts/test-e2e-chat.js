@@ -15,7 +15,7 @@ const http  = require('http');
 const https = require('https');
 
 const API_KEY    = process.env.OPENROUTER_API_KEY || '';
-const MODEL      = 'deepseek/deepseek-r1-0528:free';
+const MODEL      = 'openai/gpt-oss-20b:free';
 const PROVIDER   = 'https://openrouter.ai/api/v1';
 const PROXY_PORT = 18082;  // offset to avoid conflicts
 const HOST       = '127.0.0.1';
