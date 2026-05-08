@@ -66,9 +66,12 @@ class NodeBridgeManager(private val context: Context) {
     }
 
     fun startSetup() {
+        // Clearing setup_failed is the "retry" signal that bridge.js polls for.
+        // Do NOT clear the log here — bridge.js owns the log and clears it at
+        // the start of each install attempt so the user can read previous errors
+        // up until the retry actually begins.
         clearSetupFailedFlag()
         File(context.filesDir, SETUP_DONE_FILE).delete()
-        try { File(context.filesDir, SETUP_LOG_FILE).writeText("") } catch (_: Exception) {}
         startNodeEngine()
     }
 
