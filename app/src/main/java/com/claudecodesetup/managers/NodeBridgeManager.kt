@@ -3,6 +3,7 @@ package com.claudecodesetup.managers
 import android.content.Context
 import android.util.Log
 import com.claudecodesetup.NodeEngine
+import com.claudecodesetup.data.AppPreferences
 import org.json.JSONObject
 import java.io.File
 import java.net.Socket
