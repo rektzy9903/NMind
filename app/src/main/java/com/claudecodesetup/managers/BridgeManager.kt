@@ -67,6 +67,19 @@ class BridgeManager(private val context: Context) {
     // ─── Private ──────────────────────────────────────────────────────────────
 
     private fun sendTermuxCommand(command: String, background: Boolean) {
+        if (!background) {
+            // Bring Termux to the foreground so the terminal session is visible.
+            // This also ensures Termux's service is running before we send the
+            // RunCommandService intent, which requires Termux to already be up.
+            try {
+                val launchIntent = context.packageManager
+                    .getLaunchIntentForPackage(TERMUX_PACKAGE)
+                    ?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                if (launchIntent != null) context.startActivity(launchIntent)
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not launch Termux activity", e)
+            }
+        }
         try {
             val intent = Intent().apply {
                 setClassName(TERMUX_PACKAGE, TERMUX_RUN_COMMAND_SERVICE)
@@ -75,7 +88,8 @@ class BridgeManager(private val context: Context) {
                 putExtra("com.termux.RUN_COMMAND_ARGUMENTS", arrayOf("-c", command))
                 putExtra("com.termux.RUN_COMMAND_WORKDIR", TERMUX_HOME)
                 putExtra("com.termux.RUN_COMMAND_BACKGROUND", background)
-                putExtra("com.termux.RUN_COMMAND_SESSION_ACTION", "0")
+                // Must be Int — Termux uses getIntExtra() and ignores a String extra
+                putExtra("com.termux.RUN_COMMAND_SESSION_ACTION", 0)
             }
             context.startService(intent)
         } catch (e: Exception) {

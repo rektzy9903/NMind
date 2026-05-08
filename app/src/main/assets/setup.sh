@@ -3,6 +3,13 @@
 
 set -e
 
+# Enable allow-external-apps FIRST so subsequent app→Termux intents work.
+# This must happen before anything else so a partial/retried run still sets it.
+mkdir -p ~/.termux
+if ! grep -q "allow-external-apps" ~/.termux/termux.properties 2>/dev/null; then
+    echo "allow-external-apps = true" >> ~/.termux/termux.properties
+fi
+
 echo ""
 echo "╔══════════════════════════════════════╗"
 echo "║   ClaudeCode Setup  (v1.2.0)         ║"
@@ -155,13 +162,6 @@ exec socat TCP-LISTEN:8083,fork,reuseaddr \
 BRIDGEEOF
 chmod +x ~/.claudebridge.sh
 echo "Scripts created."
-
-# Enable Termux to receive intents from other apps
-mkdir -p ~/.termux
-if ! grep -q "allow-external-apps" ~/.termux/termux.properties 2>/dev/null; then
-    echo "allow-external-apps = true" >> ~/.termux/termux.properties
-    echo "External apps enabled (allow-external-apps = true)."
-fi
 
 echo ""
 echo "╔══════════════════════════════════════╗"

@@ -91,34 +91,121 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:layout_marginTop="32dp"
-            android:gravity="center"
+            android:layout_marginTop="24dp"
             android:visibility="gone">
 
-            <ProgressBar
-                android:layout_width="48dp"
-                android:layout_height="48dp"
-                android:indeterminateTint="@color/accent_orange" />
+            <!-- Current step label -->
+            <TextView
+                android:id="@+id/tvCurrentStep"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Connecting to Termux..."
+                android:textColor="@color/text_primary"
+                android:textSize="15sp"
+                android:textStyle="bold"
+                android:gravity="center"
+                android:layout_marginBottom="12dp" />
 
+            <!-- Horizontal determinate progress bar -->
+            <ProgressBar
+                android:id="@+id/progressSetup"
+                style="@android:style/Widget.ProgressBar.Horizontal"
+                android:layout_width="match_parent"
+                android:layout_height="8dp"
+                android:max="100"
+                android:progress="0"
+                android:progressTint="@color/accent_orange"
+                android:progressBackgroundTint="@color/surface" />
+
+            <!-- Task log header -->
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="20dp"
-                android:text="Setup is running in Termux..."
-                android:textColor="@color/text_primary"
-                android:textSize="16sp"
-                android:textStyle="bold"
-                android:gravity="center" />
+                android:layout_marginBottom="4dp"
+                android:text="SETUP LOG"
+                android:textColor="@color/text_secondary"
+                android:textSize="11sp"
+                android:letterSpacing="0.1" />
+
+            <!-- Scrollable real-time task log -->
+            <ScrollView
+                android:id="@+id/scrollTaskLog"
+                android:layout_width="match_parent"
+                android:layout_height="180dp"
+                android:background="@drawable/bg_provider_card"
+                android:scrollbars="vertical">
+
+                <TextView
+                    android:id="@+id/tvTaskLog"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:padding="12dp"
+                    android:fontFamily="monospace"
+                    android:textColor="@color/text_primary"
+                    android:textSize="11sp"
+                    android:lineSpacingMultiplier="1.5" />
+            </ScrollView>
 
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:text="Watch the Termux terminal for progress.\n\nThis page will advance automatically when setup is complete (usually 5–15 min)."
+                android:layout_marginTop="10dp"
+                android:text="This page advances automatically when setup completes (usually 5–15 min)."
                 android:textColor="@color/text_secondary"
-                android:textSize="14sp"
+                android:textSize="13sp"
                 android:lineSpacingMultiplier="1.4"
                 android:gravity="center" />
+
+            <!-- Manual fallback card -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:layout_marginTop="20dp"
+                android:background="@drawable/bg_provider_card"
+                android:padding="16dp">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="IF NOTHING HAPPENS IN TERMUX:"
+                    android:textColor="@color/accent_orange"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:letterSpacing="0.05"
+                    android:layout_marginBottom="8dp" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="1. Open Termux manually\n2. Copy and run this command:"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="13sp"
+                    android:lineSpacingMultiplier="1.4"
+                    android:layout_marginBottom="8dp" />
+
+                <TextView
+                    android:id="@+id/tvManualCmd"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/bg_provider_card"
+                    android:padding="10dp"
+                    android:text="proot-distro install ubuntu &amp;&amp; proot-distro login ubuntu"
+                    android:fontFamily="monospace"
+                    android:textColor="@color/accent_orange"
+                    android:textSize="12sp" />
+
+                <Button
+                    android:id="@+id/btnCopyCmd"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:text="Copy command"
+                    android:textSize="13sp"
+                    android:backgroundTint="@color/accent_orange" />
+
+            </LinearLayout>
 
         </LinearLayout>
 
