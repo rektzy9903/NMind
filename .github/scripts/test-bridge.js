@@ -24,6 +24,8 @@ const REGISTRY_URL   = `https://registry.npmjs.org/@anthropic-ai%2Fclaude-code/$
 const PROVIDERS = [
   { name: 'Gemini',      url: 'https://generativelanguage.googleapis.com/v1beta/openai/models' },
   { name: 'OpenRouter',  url: 'https://openrouter.ai/api/v1/models' },
+  { name: 'DeepSeek',    url: 'https://api.deepseek.com/models' },
+  { name: 'Kimi',        url: 'https://api.moonshot.ai/v1/models' },
   { name: 'NVIDIA NIM',  url: 'https://integrate.api.nvidia.com/v1/models' },
   { name: 'Meta Llama',  url: 'https://api.llama.com/v1/models' },
   { name: 'Anthropic',   url: 'https://api.anthropic.com/v1/models' },

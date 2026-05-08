@@ -15,6 +15,7 @@ data class Provider(
     val warningNote: String? = null,
     val baseUrl: String,
     val requiresProxy: Boolean,
+    val requiresApiKey: Boolean = true,
     val models: List<AiModel>
 )
 
@@ -32,17 +33,14 @@ object Providers {
         baseUrl = "https://integrate.api.nvidia.com/v1",
         requiresProxy = true,
         models = listOf(
-            AiModel("GLM 4.7", "nvidia_nim/z-ai/glm4.7"),
-            AiModel("GLM 5.1", "nvidia_nim/z-ai/glm5.1"),
-            AiModel("Kimi K2.5", "nvidia_nim/moonshotai/kimi-k2.5"),
-            AiModel("MiniMax M2.5", "nvidia_nim/minimaxai/minimax-m2.5"),
-            AiModel("MiniMax M2.7", "nvidia_nim/minimaxai/minimax-m2.7"),
-            AiModel("DeepSeek V4 Flash", "nvidia_nim/deepseek-ai/deepseek-v4-flash"),
-            AiModel("GPT-OSS 120B", "nvidia_nim/openai/gpt-oss-120b"),
-            AiModel("Llama 3.3 70B", "nvidia_nim/meta/llama-3.3-70b-instruct"),
-            AiModel("Qwen 3.5 397B", "nvidia_nim/qwen/qwen3.5-397b"),
-            AiModel("Nemotron Super 120B", "nvidia_nim/nvidia/nemotron-3-super-120b-a12b"),
-            AiModel("Step 3.5 Flash", "nvidia_nim/stepfun-ai/step-3.5-flash")
+            AiModel("GLM 4.7", "z-ai/glm4.7"),
+            AiModel("GLM 5", "z-ai/glm5"),
+            AiModel("Kimi K2.5", "moonshotai/kimi-k2.5"),
+            AiModel("MiniMax M2.5", "minimaxai/minimax-m2.5"),
+            AiModel("Step 3.5 Flash", "stepfun-ai/step-3.5-flash"),
+            AiModel("DeepSeek V4 Flash", "deepseek-ai/deepseek-v4-flash"),
+            AiModel("Llama 3.3 70B", "meta/llama-3.3-70b-instruct"),
+            AiModel("Qwen 3.5 235B", "qwen/qwen3.5-235b-a22b")
         )
     )
 
@@ -76,8 +74,8 @@ object Providers {
         rateLimit = "15 req/min · 1500 req/day free",
         malaysiaStatus = MalaysiaStatus.GREEN,
         malaysiaNote = "Google account only — recommended for Malaysia",
-        baseUrl = "https://generativelanguage.googleapis.com/v1beta/openai/",
-        requiresProxy = false,
+        baseUrl = "https://generativelanguage.googleapis.com/v1beta/openai",
+        requiresProxy = true,
         models = listOf(
             AiModel("Gemini 2.5 Flash", "gemini-2.5-flash-preview-05-20"),
             AiModel("Gemini 2.0 Flash", "gemini-2.0-flash"),
@@ -102,6 +100,37 @@ object Providers {
         )
     )
 
+    val DEEPSEEK = Provider(
+        id = "deepseek",
+        name = "DeepSeek",
+        signupUrl = "https://platform.deepseek.com/api_keys",
+        rateLimit = "Very cheap · Free tier available",
+        malaysiaStatus = MalaysiaStatus.GREEN,
+        malaysiaNote = "Works everywhere",
+        baseUrl = "https://api.deepseek.com/v1",
+        requiresProxy = true,
+        models = listOf(
+            AiModel("DeepSeek Chat (V3)", "deepseek-chat"),
+            AiModel("DeepSeek Reasoner (R1)", "deepseek-reasoner")
+        )
+    )
+
+    val KIMI = Provider(
+        id = "kimi",
+        name = "Kimi (Moonshot AI)",
+        signupUrl = "https://platform.moonshot.ai",
+        rateLimit = "Free credits on signup",
+        malaysiaStatus = MalaysiaStatus.GREEN,
+        malaysiaNote = "Works everywhere",
+        baseUrl = "https://api.moonshot.ai/v1",
+        requiresProxy = true,
+        models = listOf(
+            AiModel("Kimi K2", "kimi-k2"),
+            AiModel("Moonshot v1 8k", "moonshot-v1-8k"),
+            AiModel("Moonshot v1 32k", "moonshot-v1-32k")
+        )
+    )
+
     val OLLAMA = Provider(
         id = "ollama",
         name = "Ollama (Local PC only)",
@@ -112,11 +141,12 @@ object Providers {
         warningNote = "Requires PC with 8GB+ RAM running Ollama — not your phone",
         baseUrl = "http://localhost:11434",
         requiresProxy = true,
+        requiresApiKey = false,
         models = listOf(
-            AiModel("Llama 3.1 8B", "ollama/llama3.1:8b"),
-            AiModel("Llama 3.1 70B", "ollama/llama3.1:70b"),
-            AiModel("Qwen 2.5 Coder 7B", "ollama/qwen2.5-coder:7b"),
-            AiModel("Mistral 7B", "ollama/mistral:7b")
+            AiModel("Llama 3.1 8B", "llama3.1:8b"),
+            AiModel("Llama 3.1 70B", "llama3.1:70b"),
+            AiModel("Qwen 2.5 Coder 7B", "qwen2.5-coder:7b"),
+            AiModel("Mistral 7B", "mistral:7b")
         )
     )
 
@@ -136,7 +166,7 @@ object Providers {
         )
     )
 
-    val ALL = listOf(GEMINI, OPENROUTER, NVIDIA_NIM, META_LLAMA, OLLAMA)
+    val ALL = listOf(GEMINI, OPENROUTER, DEEPSEEK, KIMI, NVIDIA_NIM, META_LLAMA, OLLAMA)
 
     fun byId(id: String): Provider? = ALL.find { it.id == id }
 }

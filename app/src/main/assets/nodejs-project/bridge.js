@@ -547,6 +547,9 @@ function startBridgeServer() {
         if (cfg.baseUrl)   env.ANTHROPIC_BASE_URL   = cfg.baseUrl;
         if (cfg.authToken) env.ANTHROPIC_AUTH_TOKEN = cfg.authToken;
         if (cfg.modelId)   env.ANTHROPIC_MODEL      = cfg.modelId;
+        // Required for Claude Code to accept non-Anthropic models via a gateway proxy.
+        env.CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY = '1';
+        env.DISABLE_AUTOUPDATER = '1';
 
         const child = spawn(LAUNCHER, [CLAUDE_CLI], { env, cwd: FILES_DIR });
 

@@ -19,8 +19,12 @@ import com.claudecodesetup.data.Provider
 import com.claudecodesetup.data.Providers
 import com.claudecodesetup.data.ProvidersRepository
 import com.claudecodesetup.databinding.ActivityLoginFlowBinding
-import com.google.android.material.chip.Chip
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import java.util.concurrent.TimeUnit
 
 class LoginFlowActivity : AppCompatActivity() {
 
@@ -191,15 +195,100 @@ class LoginFlowActivity : AppCompatActivity() {
             selectedModel = provider.models.firstOrNull()
             tvModelId.text = selectedModel?.modelId ?: ""
 
+            // Show hint for providers that don't need an API key
+            if (!provider.requiresApiKey) {
+                etApiKey.hint = "No API key needed"
+                etApiKey.isEnabled = false
+                etApiKey.setText("")
+            } else {
+                etApiKey.hint = "API Key"
+                etApiKey.isEnabled = true
+            }
+
             btnConfirm.setOnClickListener {
                 val key = etApiKey.text.toString().trim()
-                if (key.isEmpty()) {
+                if (key.isEmpty() && provider.requiresApiKey) {
                     etApiKey.error = "Please enter your API key"
                     return@setOnClickListener
                 }
                 val model = selectedModel ?: return@setOnClickListener
-                saveAndLaunch(provider, key, model)
+                btnConfirm.isEnabled = false
+                btnConfirm.text = "Validating key…"
+                lifecycleScope.launch {
+                    val error = validateApiKey(provider, key)
+                    if (error == null) {
+                        saveAndLaunch(provider, key, model)
+                    } else {
+                        btnConfirm.isEnabled = true
+                        btnConfirm.text = "Start Claude Code →"
+                        etApiKey.error = error
+                    }
+                }
             }
+        }
+    }
+
+    // ─── API key validation ───────────────────────────────────────────────────
+
+    private val validationClient by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(10, TimeUnit.SECONDS)
+            .build()
+    }
+
+    /** Returns null if valid, or a short error string if invalid. */
+    private suspend fun validateApiKey(provider: Provider, key: String): String? {
+        if (!provider.requiresApiKey || key.isEmpty()) return null
+        return withContext(Dispatchers.IO) {
+            try {
+                val req = buildValidationRequest(provider, key) ?: return@withContext null
+                val resp = validationClient.newCall(req).execute()
+                val code = resp.code
+                resp.body?.close()
+                when {
+                    code in 200..299 -> null
+                    code == 401 || code == 403 -> "Invalid API key (HTTP $code)"
+                    code == 429 -> null  // rate limited but key is valid
+                    else -> "Validation failed (HTTP $code) — check key and try again"
+                }
+            } catch (e: Exception) {
+                "Network error — check your connection"
+            }
+        }
+    }
+
+    private fun buildValidationRequest(provider: Provider, key: String): Request? {
+        return when (provider.id) {
+            "anthropic" -> Request.Builder()
+                .url("https://api.anthropic.com/v1/models")
+                .header("x-api-key", key)
+                .header("anthropic-version", "2023-06-01")
+                .build()
+            "gemini" -> Request.Builder()
+                .url("https://generativelanguage.googleapis.com/v1beta/models?key=$key")
+                .build()
+            "openrouter" -> Request.Builder()
+                .url("https://openrouter.ai/api/v1/auth/key")
+                .header("Authorization", "Bearer $key")
+                .build()
+            "nvidia_nim" -> Request.Builder()
+                .url("https://integrate.api.nvidia.com/v1/models")
+                .header("Authorization", "Bearer $key")
+                .build()
+            "meta_llama" -> Request.Builder()
+                .url("https://api.llama.com/v1/models")
+                .header("Authorization", "Bearer $key")
+                .build()
+            "deepseek" -> Request.Builder()
+                .url("https://api.deepseek.com/models")
+                .header("Authorization", "Bearer $key")
+                .build()
+            "kimi" -> Request.Builder()
+                .url("https://api.moonshot.ai/v1/models")
+                .header("Authorization", "Bearer $key")
+                .build()
+            else -> null
         }
     }
 
@@ -213,11 +302,8 @@ class LoginFlowActivity : AppCompatActivity() {
     // ─── Save config and launch ───────────────────────────────────────────────
 
     private fun saveAndLaunch(provider: Provider, apiKey: String, model: AiModel) {
-        val mode = when (provider.id) {
-            "anthropic" -> AppPreferences.MODE_SUBSCRIPTION
-            "gemini"    -> AppPreferences.MODE_GEMINI
-            else        -> AppPreferences.MODE_PROXY
-        }
+        val mode = if (provider.id == "anthropic") AppPreferences.MODE_SUBSCRIPTION
+                   else AppPreferences.MODE_PROXY
         prefs.setLoginMode(mode)
         prefs.setProviderId(provider.id)
         prefs.setApiKey(apiKey)

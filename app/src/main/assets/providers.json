@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "updated": "2026-05-08",
   "remoteUrl": "",
   "providers": [
@@ -10,8 +10,9 @@
       "rateLimit": "15 req/min · 1500 req/day free",
       "malaysiaStatus": "GREEN",
       "malaysiaNote": "Google account only — recommended for Malaysia",
-      "baseUrl": "https://generativelanguage.googleapis.com/v1beta/openai/",
-      "requiresProxy": false,
+      "baseUrl": "https://generativelanguage.googleapis.com/v1beta/openai",
+      "requiresProxy": true,
+      "requiresApiKey": true,
       "models": [
         { "name": "Gemini 2.5 Flash",    "modelId": "gemini-2.5-flash-preview-05-20" },
         { "name": "Gemini 2.0 Flash",    "modelId": "gemini-2.0-flash" },
@@ -26,19 +27,51 @@
       "rateLimit": "20 req/min · 50 req/day free",
       "malaysiaStatus": "GREEN",
       "malaysiaNote": "Email signup works",
-      "warningNote": "50 req/day = ~5 real Claude prompts. Consider Gemini for 1500/day instead.",
+      "warningNote": "50 req/day free. For heavy use Gemini gives 1500/day.",
       "baseUrl": "https://openrouter.ai/api/v1",
       "requiresProxy": true,
+      "requiresApiKey": true,
       "models": [
-        { "name": "Qwen3 Coder 480B",      "modelId": "qwen/qwen3-coder-480b-a35b-instruct:free" },
         { "name": "DeepSeek R1 0528",      "modelId": "deepseek/deepseek-r1-0528:free" },
+        { "name": "Step 3.5 Flash",        "modelId": "stepfun/step-3.5-flash:free" },
+        { "name": "Qwen3 Coder 480B",      "modelId": "qwen/qwen3-coder-480b-a35b-instruct:free" },
         { "name": "GPT-OSS 120B",          "modelId": "openai/gpt-oss-120b:free" },
-        { "name": "Gemma 4 26B",           "modelId": "google/gemma-4-26b-a4b-it:free" },
+        { "name": "Gemma 4 27B",           "modelId": "google/gemma-4-27b-it:free" },
         { "name": "Llama 3.3 70B",         "modelId": "meta-llama/llama-3.3-70b-instruct:free" },
         { "name": "GLM 4.5 Air",           "modelId": "z-ai/glm-4.5-air:free" },
         { "name": "MiniMax M2.5",          "modelId": "minimax/minimax-m2.5:free" },
-        { "name": "Nemotron Super 120B",   "modelId": "nvidia/nemotron-3-super-120b-a12b:free" },
-        { "name": "Ling 2.6 1T",           "modelId": "inclusionai/ling-2.6-1t:free" }
+        { "name": "Nemotron Super 120B",   "modelId": "nvidia/nemotron-super-49b-v1:free" }
+      ]
+    },
+    {
+      "id": "deepseek",
+      "name": "DeepSeek",
+      "signupUrl": "https://platform.deepseek.com/api_keys",
+      "rateLimit": "Very cheap · Free credits on signup",
+      "malaysiaStatus": "GREEN",
+      "malaysiaNote": "Works everywhere",
+      "baseUrl": "https://api.deepseek.com/v1",
+      "requiresProxy": true,
+      "requiresApiKey": true,
+      "models": [
+        { "name": "DeepSeek Chat (V3)",    "modelId": "deepseek-chat" },
+        { "name": "DeepSeek Reasoner (R1)","modelId": "deepseek-reasoner" }
+      ]
+    },
+    {
+      "id": "kimi",
+      "name": "Kimi (Moonshot AI)",
+      "signupUrl": "https://platform.moonshot.ai",
+      "rateLimit": "Free credits on signup",
+      "malaysiaStatus": "GREEN",
+      "malaysiaNote": "Works everywhere",
+      "baseUrl": "https://api.moonshot.ai/v1",
+      "requiresProxy": true,
+      "requiresApiKey": true,
+      "models": [
+        { "name": "Kimi K2",          "modelId": "kimi-k2" },
+        { "name": "Moonshot v1 8k",   "modelId": "moonshot-v1-8k" },
+        { "name": "Moonshot v1 32k",  "modelId": "moonshot-v1-32k" }
       ]
     },
     {
@@ -50,18 +83,16 @@
       "malaysiaNote": "SMS verification fails in Malaysia",
       "baseUrl": "https://integrate.api.nvidia.com/v1",
       "requiresProxy": true,
+      "requiresApiKey": true,
       "models": [
-        { "name": "GLM 4.7",              "modelId": "nvidia_nim/z-ai/glm4.7" },
-        { "name": "GLM 5.1",              "modelId": "nvidia_nim/z-ai/glm5.1" },
-        { "name": "Kimi K2.5",            "modelId": "nvidia_nim/moonshotai/kimi-k2.5" },
-        { "name": "MiniMax M2.5",         "modelId": "nvidia_nim/minimaxai/minimax-m2.5" },
-        { "name": "MiniMax M2.7",         "modelId": "nvidia_nim/minimaxai/minimax-m2.7" },
-        { "name": "DeepSeek V4 Flash",    "modelId": "nvidia_nim/deepseek-ai/deepseek-v4-flash" },
-        { "name": "GPT-OSS 120B",         "modelId": "nvidia_nim/openai/gpt-oss-120b" },
-        { "name": "Llama 3.3 70B",        "modelId": "nvidia_nim/meta/llama-3.3-70b-instruct" },
-        { "name": "Qwen 3.5 397B",        "modelId": "nvidia_nim/qwen/qwen3.5-397b" },
-        { "name": "Nemotron Super 120B",  "modelId": "nvidia_nim/nvidia/nemotron-3-super-120b-a12b" },
-        { "name": "Step 3.5 Flash",       "modelId": "nvidia_nim/stepfun-ai/step-3.5-flash" }
+        { "name": "GLM 4.7",              "modelId": "z-ai/glm4.7" },
+        { "name": "GLM 5",                "modelId": "z-ai/glm5" },
+        { "name": "Kimi K2.5",            "modelId": "moonshotai/kimi-k2.5" },
+        { "name": "MiniMax M2.5",         "modelId": "minimaxai/minimax-m2.5" },
+        { "name": "Step 3.5 Flash",       "modelId": "stepfun-ai/step-3.5-flash" },
+        { "name": "DeepSeek V4 Flash",    "modelId": "deepseek-ai/deepseek-v4-flash" },
+        { "name": "Llama 3.3 70B",        "modelId": "meta/llama-3.3-70b-instruct" },
+        { "name": "Qwen 3.5 235B",        "modelId": "qwen/qwen3.5-235b-a22b" }
       ]
     },
     {
@@ -73,6 +104,7 @@
       "malaysiaNote": "US priority — may work in Malaysia",
       "baseUrl": "https://api.llama.com/v1",
       "requiresProxy": true,
+      "requiresApiKey": true,
       "models": [
         { "name": "Llama 4 Scout",    "modelId": "meta-llama/llama-4-scout" },
         { "name": "Llama 4 Maverick", "modelId": "meta-llama/llama-4-maverick" },
@@ -89,11 +121,12 @@
       "warningNote": "Requires PC with 8GB+ RAM running Ollama — not your phone",
       "baseUrl": "http://localhost:11434",
       "requiresProxy": true,
+      "requiresApiKey": false,
       "models": [
-        { "name": "Llama 3.1 8B",         "modelId": "ollama/llama3.1:8b" },
-        { "name": "Llama 3.1 70B",         "modelId": "ollama/llama3.1:70b" },
-        { "name": "Qwen 2.5 Coder 7B",    "modelId": "ollama/qwen2.5-coder:7b" },
-        { "name": "Mistral 7B",            "modelId": "ollama/mistral:7b" }
+        { "name": "Llama 3.1 8B",      "modelId": "llama3.1:8b" },
+        { "name": "Llama 3.1 70B",     "modelId": "llama3.1:70b" },
+        { "name": "Qwen 2.5 Coder 7B", "modelId": "qwen2.5-coder:7b" },
+        { "name": "Mistral 7B",        "modelId": "mistral:7b" }
       ]
     },
     {
@@ -105,6 +138,7 @@
       "malaysiaNote": "Works everywhere",
       "baseUrl": "",
       "requiresProxy": false,
+      "requiresApiKey": true,
       "models": [
         { "name": "Claude Sonnet 4.5",  "modelId": "claude-sonnet-4-5" },
         { "name": "Claude Opus 4.5",    "modelId": "claude-opus-4-5" },

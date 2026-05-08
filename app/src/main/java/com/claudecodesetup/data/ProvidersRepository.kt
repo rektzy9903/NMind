@@ -84,6 +84,7 @@ object ProvidersRepository {
             warningNote     = obj.optString("warningNote").takeIf { it.isNotEmpty() },
             baseUrl         = obj.getString("baseUrl"),
             requiresProxy   = obj.getBoolean("requiresProxy"),
+            requiresApiKey  = obj.optBoolean("requiresApiKey", true),
             models          = models
         )
     }

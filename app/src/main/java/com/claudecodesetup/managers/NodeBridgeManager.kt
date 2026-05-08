@@ -100,15 +100,14 @@ class NodeBridgeManager(private val context: Context) {
     }
 
     private fun writeConfig(mode: String, apiKey: String, modelId: String, baseUrl: String) {
-        val authToken = if (mode == "proxy") "freecc" else ""
-        val effectiveBaseUrl = when (mode) {
-            "proxy" -> "http://127.0.0.1:8082"
-            else    -> baseUrl
-        }
-        // providerUrl carries the real OpenAI-compatible endpoint for proxy-mode
-        // providers (OpenRouter, NVIDIA NIM, etc.) so bridge.js knows where to
-        // forward requests after converting from Anthropic to OpenAI format.
-        val providerUrl = if (mode == "proxy") baseUrl else ""
+        // Only Anthropic subscription talks directly; everything else routes through
+        // the local Anthropic→OpenAI proxy on port 8082 which converts the protocol.
+        val isSubscription = mode == AppPreferences.MODE_SUBSCRIPTION
+        val authToken = if (!isSubscription) "freecc" else ""
+        val effectiveBaseUrl = if (!isSubscription) "http://127.0.0.1:8082" else baseUrl
+        // providerUrl carries the real OpenAI-compatible endpoint so bridge.js knows
+        // where to forward after converting from Anthropic to OpenAI format.
+        val providerUrl = if (!isSubscription) baseUrl else ""
         val json = JSONObject().apply {
             put("mode",        mode)
             put("apiKey",      apiKey)
