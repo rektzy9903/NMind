@@ -748,6 +748,46 @@ function sanitizeKey(key) {
     return key.slice(0, 6) + '…' + key.slice(-4);
 }
 
+/**
+ * Run a quick launcher self-test. Spawns LAUNCHER with a trivial JS one-liner
+ * and returns a promise that resolves to true (ok) or false (broken).
+ * The result and any output are written to setup.log.
+ */
+function testLauncher() {
+    return new Promise(resolve => {
+        const env = {
+            HOME: FILES_DIR,
+            PATH: process.env.PATH || '/system/bin:/system/xbin',
+            LD_LIBRARY_PATH: NATIVE_DIR,
+            LANG: 'en_US.UTF-8',
+        };
+        log('[launcher-test] spawning: ' + LAUNCHER + ' -e "process.stdout.write(\'ok\')" \n');
+        let out = '', err = '';
+        let child;
+        try {
+            child = spawn(LAUNCHER, ['-e', "process.stdout.write('ok')"], { env, cwd: FILES_DIR });
+        } catch (e) {
+            log('[launcher-test] spawn threw: ' + e.message + '\n');
+            return resolve(false);
+        }
+        child.stdout.on('data', d => { out += d.toString(); });
+        child.stderr.on('data', d => { err += d.toString(); });
+        child.on('error', e => {
+            log('[launcher-test] error event: ' + e.message + '\n');
+            resolve(false);
+        });
+        child.on('close', code => {
+            log('[launcher-test] exit=' + code + ' stdout=' + JSON.stringify(out) + ' stderr=' + JSON.stringify(err.slice(0, 200)) + '\n');
+            resolve(code === 0 && out.includes('ok'));
+        });
+        setTimeout(() => {
+            try { child.kill(); } catch (_) {}
+            log('[launcher-test] timed out\n');
+            resolve(false);
+        }, 8000);
+    });
+}
+
 function runMessage(message, socket) {
     const env = buildEnv();
     const cfg = readConfig();
@@ -756,10 +796,13 @@ function runMessage(message, socket) {
     log('[config] mode=' + (cfg.mode || '?') +
         ' key=' + sanitizeKey(cfg.apiKey) +
         ' model=' + (cfg.modelId || '?') +
+        ' url=' + (cfg.baseUrl || '?') +
         ' providerUrl=' + (cfg.providerUrl || '(direct)') + '\n');
+    log('[spawn] LAUNCHER=' + LAUNCHER + '\n');
+    log('[spawn] CLAUDE_CLI_exists=' + fs.existsSync(CLAUDE_CLI) + '\n');
+    log('[spawn] message=' + message.slice(0, 80) + '\n');
 
-    // Pass the message as a positional argument, not via stdin.
-    // claude --print reads its input as argv, not from stdin.
+    // Try passing message as positional arg (primary) — claude --print <msg>
     const child = spawn(LAUNCHER, [CLAUDE_CLI, '--print', message], { env, cwd: FILES_DIR });
     child.stdin.end();
 
@@ -767,7 +810,9 @@ function runMessage(message, socket) {
     let stderrBuf = '';
     child.stdout.on('data', d => { try { socket.write(d); } catch (_) {} });
     child.stderr.on('data', d => {
-        stderrBuf += d.toString();
+        const s = d.toString();
+        stderrBuf += s;
+        log('[claude-stderr] ' + s.slice(0, 300) + '\n');
         try { socket.write(d); } catch (_) {}
     });
 
@@ -804,6 +849,16 @@ function openTcpBridge() {
             '  Key: ' + sanitizeKey(startCfg.apiKey) + '\x1b[0m\r\n\r\n'
         );
 
+        // Run launcher self-test once per connection — helps diagnose
+        // whether the child Node.js process can actually start on this device.
+        testLauncher().then(ok => {
+            const msg = ok
+                ? '\x1b[2m[diag] launcher OK\x1b[0m\r\n'
+                : '\x1b[31m[diag] LAUNCHER FAILED — child Node.js cannot start on this device.\x1b[0m\r\n' +
+                  '\x1b[33mSee !log for details. The app may need an update.\x1b[0m\r\n';
+            try { socket.write(msg); } catch (_) {}
+        });
+
         socket.on('data', d => {
             inputBuf += d.toString();
 
@@ -814,6 +869,46 @@ function openTcpBridge() {
                 inputBuf   = inputBuf.slice(nl + 1);
 
                 if (!line) continue;
+
+                // ── Built-in diagnostic commands ──────────────────────────────
+                if (line === '!log') {
+                    try {
+                        const logText = fs.readFileSync(SETUP_LOG, 'utf8');
+                        const lines   = logText.split('\n');
+                        const tail    = lines.slice(-80).join('\n');
+                        socket.write('\r\n\x1b[2m── setup.log (last 80 lines) ──\x1b[0m\r\n' +
+                            tail.replace(/\n/g, '\r\n') + '\r\n\x1b[2m──────────────\x1b[0m\r\n');
+                    } catch (e) {
+                        socket.write('\r\n[log read error: ' + e.message + ']\r\n');
+                    }
+                    continue;
+                }
+                if (line === '!test') {
+                    socket.write('\r\n\x1b[33mRunning launcher test…\x1b[0m\r\n');
+                    testLauncher().then(ok => {
+                        try {
+                            socket.write(ok
+                                ? '\x1b[32m✓ Launcher OK — child Node.js starts correctly.\x1b[0m\r\n'
+                                : '\x1b[31m✗ Launcher FAILED — child Node.js cannot start. Check !log.\x1b[0m\r\n');
+                        } catch (_) {}
+                    });
+                    continue;
+                }
+                if (line === '!ver') {
+                    const cfg2 = readConfig();
+                    try {
+                        socket.write('\r\n\x1b[2mLAUNCHER : ' + LAUNCHER + '\r\n' +
+                            'CLAUDE   : ' + CLAUDE_CLI + '\r\n' +
+                            'EXISTS   : ' + fs.existsSync(CLAUDE_CLI) + '\r\n' +
+                            'mode     : ' + (cfg2.mode || '?') + '\r\n' +
+                            'key      : ' + sanitizeKey(cfg2.apiKey) + '\r\n' +
+                            'model    : ' + (cfg2.modelId || '?') + '\r\n' +
+                            'baseUrl  : ' + (cfg2.baseUrl || '?') + '\r\n' +
+                            'provider : ' + (cfg2.providerUrl || '?') + '\x1b[0m\r\n');
+                    } catch (_) {}
+                    continue;
+                }
+
                 if (busy) {
                     // Interrupt running request
                     try { if (current) current.kill('SIGTERM'); } catch (_) {}
