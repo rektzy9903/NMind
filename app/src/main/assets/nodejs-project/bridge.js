@@ -581,31 +581,64 @@ function buildEnv() {
         PATH: process.env.PATH || '/system/bin:/system/xbin',
         LD_LIBRARY_PATH: NATIVE_DIR,
     };
-    if (cfg.authToken) {
-        env.ANTHROPIC_AUTH_TOKEN = cfg.authToken;
-    } else if (cfg.apiKey) {
-        env.ANTHROPIC_API_KEY = cfg.apiKey;
+
+    const isSubscription = cfg.mode === 'subscription';
+
+    if (isSubscription) {
+        // Direct Anthropic API: use the real API key with no base URL override
+        if (cfg.apiKey) env.ANTHROPIC_API_KEY = cfg.apiKey;
+    } else {
+        // Proxy mode: claude-code talks to our local proxy (port 8082).
+        // The proxy ignores whatever key we send — it uses cfg.apiKey to talk
+        // to the real provider. We must use ANTHROPIC_API_KEY (not AUTH_TOKEN)
+        // so claude-code takes the standard API path instead of the OAuth path.
+        env.ANTHROPIC_API_KEY  = cfg.apiKey || 'proxy-key';
+        env.ANTHROPIC_BASE_URL = cfg.baseUrl || 'http://127.0.0.1:8082';
     }
-    if (cfg.baseUrl)                   env.ANTHROPIC_BASE_URL = cfg.baseUrl;
-    if (cfg.modelId && !cfg.authToken) env.ANTHROPIC_MODEL    = cfg.modelId;
+
+    // Always set the model explicitly so claude-code doesn't need to discover it
+    if (cfg.modelId) env.ANTHROPIC_MODEL = cfg.modelId;
+
     env.CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY = '1';
     env.DISABLE_AUTOUPDATER = '1';
     return env;
 }
 
+function sanitizeKey(key) {
+    if (!key || key.length < 8) return '(not set)';
+    return key.slice(0, 6) + '…' + key.slice(-4);
+}
+
 function runMessage(message, socket) {
-    const env   = buildEnv();
+    const env = buildEnv();
+    const cfg = readConfig();
+
+    // Log sanitized config so the user can verify the right key/model/URL is active
+    log('[config] mode=' + (cfg.mode || '?') +
+        ' key=' + sanitizeKey(cfg.apiKey) +
+        ' model=' + (cfg.modelId || '?') +
+        ' providerUrl=' + (cfg.providerUrl || '(direct)') + '\n');
+
     const child = spawn(LAUNCHER, [CLAUDE_CLI, '--print'], { env, cwd: FILES_DIR });
 
     child.stdin.write(message + '\n');
     child.stdin.end();
 
+    // Collect stderr separately so we can include it in error messages
+    let stderrBuf = '';
     child.stdout.on('data', d => { try { socket.write(d); } catch (_) {} });
-    child.stderr.on('data', d => { try { socket.write(d); } catch (_) {} });
+    child.stderr.on('data', d => {
+        stderrBuf += d.toString();
+        try { socket.write(d); } catch (_) {}
+    });
 
     child.on('error', err => {
-        try { socket.write('\r\n\x1b[31mError: ' + err.message + '\x1b[0m\r\n'); } catch (_) {}
+        log('spawn error: ' + err.message + '\n');
+        try { socket.write('\r\n\x1b[31mFailed to start claude: ' + err.message + '\x1b[0m\r\n'); } catch (_) {}
     });
+
+    // Attach stderrBuf getter so the close handler can read it
+    child._stderrBuf = () => stderrBuf;
 
     return child;
 }
@@ -623,7 +656,14 @@ function openTcpBridge() {
         let   current   = null;
         let   currentTid = null;  // safety-net timeout handle
 
-        socket.write('\r\n\x1b[32mClaude Code ready.\x1b[0m Type a message and press Enter.\r\n\r\n');
+        const startCfg = readConfig();
+        const modeLabel = startCfg.mode === 'subscription' ? 'Anthropic' : (startCfg.providerUrl || 'proxy');
+        socket.write(
+            '\r\n\x1b[32mClaude Code ready.\x1b[0m Type a message and press Enter.\r\n' +
+            '\x1b[2mProvider: ' + modeLabel +
+            '  Model: ' + (startCfg.modelId || 'auto') +
+            '  Key: ' + sanitizeKey(startCfg.apiKey) + '\x1b[0m\r\n\r\n'
+        );
 
         socket.on('data', d => {
             inputBuf += d.toString();
@@ -669,13 +709,37 @@ function openTcpBridge() {
 
                 current.on('close', code => {
                     if (currentTid) { clearTimeout(currentTid); currentTid = null; }
+                    const stderr = current && current._stderrBuf ? current._stderrBuf() : '';
                     busy = false; current = null;
-                    // Show a helpful error only when the process failed silently
+
                     if (code !== 0 && code !== null && !responseStarted) {
+                        // Log the full stderr so it ends up in setup.log
+                        if (stderr) log('[stderr] ' + stderr.trim() + '\n');
+                        log('[exit] code=' + code + ' responseStarted=false\n');
+
+                        // Build a human-readable error with as much detail as possible
+                        let hint = 'Check your API key in Settings, then try again.';
+                        const s = stderr.toLowerCase();
+                        if (s.includes('invalid') && (s.includes('key') || s.includes('auth')))
+                            hint = 'Your API key appears invalid. Update it in Settings.';
+                        else if (s.includes('401') || s.includes('unauthorized'))
+                            hint = 'Authentication failed (401). Check your API key in Settings.';
+                        else if (s.includes('429') || s.includes('rate limit'))
+                            hint = 'Rate limited (429). Wait a moment, then try again.';
+                        else if (s.includes('model') && (s.includes('not found') || s.includes('unknown')))
+                            hint = 'Model not found. Change the model in Settings.';
+                        else if (s.includes('econnrefused') || s.includes('enotfound'))
+                            hint = 'Cannot reach provider. Check your internet connection.';
+
+                        const detail = stderr.trim()
+                            ? '\r\n\x1b[2m' + stderr.trim().split('\n').slice(-3).join(' | ') + '\x1b[0m'
+                            : '';
+
                         try {
                             socket.write(
-                                '\r\n\x1b[31m✗ Claude Code exited with error (code ' + code + ').\x1b[0m\r\n' +
-                                '\x1b[33mCheck your API key in Settings, then type your message again.\x1b[0m\r\n'
+                                '\r\n\x1b[31m✗ Claude Code exited (code ' + code + ').\x1b[0m\r\n' +
+                                '\x1b[33m' + hint + '\x1b[0m' +
+                                detail + '\r\n'
                             );
                         } catch (_) {}
                     }
