@@ -585,18 +585,21 @@ function buildEnv() {
     const isSubscription = cfg.mode === 'subscription';
 
     if (isSubscription) {
-        // Direct Anthropic API: use the real API key with no base URL override
+        // Direct Anthropic API: real sk-ant-... key, no base URL override
         if (cfg.apiKey) env.ANTHROPIC_API_KEY = cfg.apiKey;
     } else {
-        // Proxy mode: claude-code talks to our local proxy (port 8082).
-        // The proxy ignores whatever key we send — it uses cfg.apiKey to talk
-        // to the real provider. We must use ANTHROPIC_API_KEY (not AUTH_TOKEN)
-        // so claude-code takes the standard API path instead of the OAuth path.
-        env.ANTHROPIC_API_KEY  = cfg.apiKey || 'proxy-key';
-        env.ANTHROPIC_BASE_URL = cfg.baseUrl || 'http://127.0.0.1:8082';
+        // Proxy mode: all claude-code traffic goes to our local proxy on port 8082.
+        // We use ANTHROPIC_AUTH_TOKEN (not API_KEY) because claude-code v2.1.112
+        // validates that ANTHROPIC_API_KEY starts with 'sk-ant-' before making any
+        // request — a provider key (sk-or-..., AIza..., etc.) fails that check and
+        // causes silent exit 1. AUTH_TOKEN has no format validation.
+        // The proxy receives this token in the Bearer header but discards it,
+        // using cfg.apiKey to authenticate with the real provider.
+        env.ANTHROPIC_AUTH_TOKEN = cfg.apiKey || 'proxy-session';
+        env.ANTHROPIC_BASE_URL   = cfg.baseUrl || 'http://127.0.0.1:8082';
     }
 
-    // Always set the model explicitly so claude-code doesn't need to discover it
+    // Always set the model explicitly — prevents an extra model-discovery round-trip
     if (cfg.modelId) env.ANTHROPIC_MODEL = cfg.modelId;
 
     env.CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY = '1';

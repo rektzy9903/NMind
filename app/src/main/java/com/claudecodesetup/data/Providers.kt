@@ -51,19 +51,24 @@ object Providers {
         rateLimit = "20 req/min · 50 req/day free",
         malaysiaStatus = MalaysiaStatus.GREEN,
         malaysiaNote = "Email signup works",
-        warningNote = "50 req/day = ~5 real Claude prompts. Consider Gemini for 1500/day instead.",
+        warningNote = "50 req/day = ~5 real prompts. Consider Gemini for 1500/day instead.",
         baseUrl = "https://openrouter.ai/api/v1",
         requiresProxy = true,
         models = listOf(
-            AiModel("Qwen3 Coder 480B", "qwen/qwen3-coder-480b-a35b-instruct:free"),
-            AiModel("DeepSeek R1 0528", "deepseek/deepseek-r1-0528:free"),
-            AiModel("GPT-OSS 120B", "openai/gpt-oss-120b:free"),
-            AiModel("Gemma 4 26B", "google/gemma-4-26b-a4b-it:free"),
-            AiModel("Llama 3.3 70B", "meta-llama/llama-3.3-70b-instruct:free"),
-            AiModel("GLM 4.5 Air", "z-ai/glm-4.5-air:free"),
-            AiModel("MiniMax M2.5", "minimax/minimax-m2.5:free"),
+            // Confirmed working 2025-05-10 — all returned a real reply to "hello claude"
+            AiModel("GPT-OSS 120B (Recommended)", "openai/gpt-oss-120b:free"),
+            AiModel("GPT-OSS 20B", "openai/gpt-oss-20b:free"),
             AiModel("Nemotron Super 120B", "nvidia/nemotron-3-super-120b-a12b:free"),
-            AiModel("Ling 2.6 1T", "inclusionai/ling-2.6-1t:free")
+            AiModel("Nemotron Nano Omni 30B", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"),
+            AiModel("Nemotron Nano 12B VL", "nvidia/nemotron-nano-12b-v2-vl:free"),
+            AiModel("Nemotron Nano 9B", "nvidia/nemotron-nano-9b-v2:free"),
+            AiModel("MiniMax M2.5", "minimax/minimax-m2.5:free"),
+            AiModel("Kimi K2.5 (Moonshot)", "moonshotai/kimi-k2.5"),
+            AiModel("Laguna M.1 (Poolside)", "poolside/laguna-m.1:free"),
+            AiModel("Laguna XS.2 (Poolside)", "poolside/laguna-xs.2:free"),
+            AiModel("LFM 2.5 1.2B (Liquid)", "liquid/lfm-2.5-1.2b-instruct:free"),
+            AiModel("Cobuddy (Baidu)", "baidu/cobuddy:free"),
+            AiModel("Qianfan OCR Fast (Baidu)", "baidu/qianfan-ocr-fast:free")
         )
     )
 
@@ -119,9 +124,10 @@ object Providers {
         id = "kimi",
         name = "Kimi (Moonshot AI)",
         signupUrl = "https://platform.moonshot.ai",
-        rateLimit = "Free credits on signup",
-        malaysiaStatus = MalaysiaStatus.GREEN,
-        malaysiaNote = "Works everywhere",
+        rateLimit = "Paid credits required",
+        malaysiaStatus = MalaysiaStatus.YELLOW,
+        malaysiaNote = "Direct API requires paid credits — use Kimi K2.5 via OpenRouter (free) instead",
+        warningNote = "Direct Kimi API suspends account when balance is 0. Use OpenRouter → Kimi K2.5 for free access.",
         baseUrl = "https://api.moonshot.ai/v1",
         requiresProxy = true,
         models = listOf(
