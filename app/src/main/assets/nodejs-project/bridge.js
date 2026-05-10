@@ -589,9 +589,10 @@ function openTcpBridge() {
             return;
         }
 
-        let   inputBuf = '';
-        let   busy     = false;
-        let   current  = null;
+        let   inputBuf  = '';
+        let   busy      = false;
+        let   current   = null;
+        let   currentTid = null;  // safety-net timeout handle
 
         socket.write('\r\n\x1b[32mClaude Code ready.\x1b[0m Type a message and press Enter.\r\n\r\n');
 
@@ -608,23 +609,58 @@ function openTcpBridge() {
                 if (busy) {
                     // Interrupt running request
                     try { if (current) current.kill('SIGTERM'); } catch (_) {}
+                    if (currentTid) { clearTimeout(currentTid); currentTid = null; }
                     busy = false;
                 }
 
+                // Immediate feedback so the user knows the message was received
+                try { socket.write('\r\n\x1b[33m⏳ Thinking…\x1b[0m\r\n'); } catch (_) {}
+
                 busy = true;
+                let responseStarted = false;
                 current = runMessage(line, socket);
-                current.on('close', () => {
-                    busy    = false;
-                    current = null;
+
+                // Detect whether any output actually arrived (used for error diagnosis)
+                current.stdout.once('data', () => { responseStarted = true; });
+                current.stderr.once('data', () => { responseStarted = true; });
+
+                // 60 s safety-net: kills the child and shows an actionable error if the
+                // provider never responds.  The Android UI adds its own 15 s overlay.
+                currentTid = setTimeout(() => {
+                    if (!busy) return;
+                    try { if (current) current.kill('SIGTERM'); } catch (_) {}
+                    try {
+                        socket.write(
+                            '\r\n\x1b[31m✗ Request timed out after 60 s.\x1b[0m\r\n' +
+                            '\x1b[33mThe provider may be slow or down. Type your message again to retry.\x1b[0m\r\n'
+                        );
+                    } catch (_) {}
+                    busy = false; current = null; currentTid = null;
+                }, 60000);
+
+                current.on('close', code => {
+                    if (currentTid) { clearTimeout(currentTid); currentTid = null; }
+                    busy = false; current = null;
+                    // Show a helpful error only when the process failed silently
+                    if (code !== 0 && code !== null && !responseStarted) {
+                        try {
+                            socket.write(
+                                '\r\n\x1b[31m✗ Claude Code exited with error (code ' + code + ').\x1b[0m\r\n' +
+                                '\x1b[33mCheck your API key in Settings, then type your message again.\x1b[0m\r\n'
+                            );
+                        } catch (_) {}
+                    }
                     try { socket.write('\r\n'); } catch (_) {}
                 });
             }
         });
 
         socket.on('close', () => {
+            if (currentTid) { clearTimeout(currentTid); currentTid = null; }
             try { if (current) current.kill('SIGTERM'); } catch (_) {}
         });
         socket.on('error', () => {
+            if (currentTid) { clearTimeout(currentTid); currentTid = null; }
             try { if (current) current.kill('SIGTERM'); } catch (_) {}
         });
     });

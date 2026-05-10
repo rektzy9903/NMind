@@ -8,7 +8,9 @@ import android.content.ServiceConnection
 import android.content.res.ColorStateList
 import android.graphics.Color
 import android.os.Bundle
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.webkit.JavascriptInterface
@@ -36,6 +38,20 @@ class TerminalActivity : AppCompatActivity() {
     private var activeSessionId: Int = -1
     private val tabButtons = LinkedHashMap<Int, Button>()
 
+    // ─── Message-status tracking ──────────────────────────────────────────────
+
+    /** Per-session: waiting for the first response chunk after a user send. */
+    private val sessionBusy = mutableMapOf<Int, Boolean>()
+
+    /** Per-session: last message text sent by the user (used for Retry). */
+    private val lastSentMessage = mutableMapOf<Int, String>()
+
+    private val statusHandler = Handler(Looper.getMainLooper())
+    private var timeoutRunnable: Runnable? = null
+    private val THINKING_TIMEOUT_MS = 15_000L
+
+    // ─── Service connection ───────────────────────────────────────────────────
+
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName, binder: IBinder) {
             val b = binder as ClaudeService.LocalBinder
@@ -59,6 +75,8 @@ class TerminalActivity : AppCompatActivity() {
         }
     }
 
+    // ─── Lifecycle ────────────────────────────────────────────────────────────
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityTerminalBinding.inflate(layoutInflater)
@@ -70,7 +88,20 @@ class TerminalActivity : AppCompatActivity() {
         setupQuickActions()
         setupInputBar()
         setupHeaderButtons()
+        setupStatusBar()
         startAndBindService()
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        cancelThinkingTimeout()
+        if (serviceBound) {
+            claudeService?.onOutput = null
+            claudeService?.onSessionAdded = null
+            claudeService?.onSessionEnded = null
+            unbindService(serviceConnection)
+            serviceBound = false
+        }
     }
 
     // ─── WebView terminal ─────────────────────────────────────────────────────
@@ -122,11 +153,18 @@ class TerminalActivity : AppCompatActivity() {
         }
     }
 
-    // ─── Session tab management ───────────────────────────────────────────────
+    // ─── Service callbacks ────────────────────────────────────────────────────
 
     private fun attachServiceCallbacks() {
         claudeService!!.onOutput = { sessionId, chunk ->
             if (sessionId == activeSessionId) writeToTerminal(chunk)
+            // First output chunk means the bridge responded — cancel the thinking indicator
+            if (sessionBusy[sessionId] == true) {
+                sessionBusy[sessionId] = false
+                if (sessionId == activeSessionId) {
+                    runOnUiThread { hideStatus() }
+                }
+            }
         }
 
         claudeService!!.onSessionAdded = { session ->
@@ -135,8 +173,15 @@ class TerminalActivity : AppCompatActivity() {
 
         claudeService!!.onSessionEnded = { sessionId ->
             runOnUiThread {
+                val wasBusy = sessionBusy[sessionId] == true
+                sessionBusy[sessionId] = false
+
                 updateTabAlive(sessionId, false)
                 if (sessionId == activeSessionId) {
+                    if (wasBusy) {
+                        // Died while waiting for a reply — surface an error with Retry
+                        showStatusError("Connection lost — tap Retry or Restart")
+                    }
                     writeToTerminal("\r\n[33m[Claude Code session ended][0m\r\n")
                     binding.btnRestart.visibility = View.VISIBLE
                 }
@@ -144,6 +189,8 @@ class TerminalActivity : AppCompatActivity() {
             }
         }
     }
+
+    // ─── Session tab management ───────────────────────────────────────────────
 
     private fun addTabForSession(session: ClaudeService.ClaudeSession) {
         val btn = Button(this).apply {
@@ -208,12 +255,16 @@ class TerminalActivity : AppCompatActivity() {
     private fun switchToSession(id: Int, replay: Boolean) {
         if (id == activeSessionId && !replay) return
 
+        // Cancel any running timeout for the old session before switching
+        cancelThinkingTimeout()
+
         activeSessionId = id
         claudeService?.switchToSession(id)
 
         clearTerminal()
         binding.btnRestart.visibility = View.GONE
         updateTabActive(id)
+        updateStatusForSession(id)
 
         if (replay) {
             val output = claudeService?.getSession(id)?.getOutput() ?: ""
@@ -266,7 +317,7 @@ class TerminalActivity : AppCompatActivity() {
         binding.btnYes.setOnClickListener    { sendInput("y\r") }
         binding.btnNo.setOnClickListener     { sendInput("n\r") }
         binding.btnCancel.setOnClickListener { sendInput("") }   // Ctrl+C
-        binding.btnEsc.setOnClickListener    { sendInput("") }    // Escape
+        binding.btnEsc.setOnClickListener    { sendInput("") }   // Escape
         binding.btnTab.setOnClickListener    { sendInput("\t") }
         binding.btnEnter.setOnClickListener  { sendInput("\r") }
         binding.btnArrowUp.setOnClickListener   { sendInput("[A") }
@@ -274,6 +325,7 @@ class TerminalActivity : AppCompatActivity() {
 
         binding.btnRestart.setOnClickListener {
             binding.btnRestart.visibility = View.GONE
+            hideStatus()
             clearTerminal()
             claudeService?.restartSession(activeSessionId)
         }
@@ -284,7 +336,7 @@ class TerminalActivity : AppCompatActivity() {
         }
     }
 
-    // ─── Claude.ai-style input bar ────────────────────────────────────────────
+    // ─── Input bar ────────────────────────────────────────────────────────────
 
     private fun setupInputBar() {
         binding.btnSend.setOnClickListener { submitInput() }
@@ -297,10 +349,17 @@ class TerminalActivity : AppCompatActivity() {
     private fun submitInput() {
         val text = binding.etInput.text?.toString()?.trimEnd() ?: return
         if (text.isEmpty()) return
-        // No PTY → echo the typed text locally so the user can see it
+
+        // Local echo so the user immediately sees what they typed
         writeToTerminal("\r\n[32m❯ $text[0m\r\n")
         sendInput(text + "\r")
         binding.etInput.setText("")
+
+        // Mark this session as busy and start the 15 s thinking-timeout
+        lastSentMessage[activeSessionId] = text
+        sessionBusy[activeSessionId] = true
+        showStatusThinking()
+        startThinkingTimeout()
     }
 
     // ─── Header buttons ───────────────────────────────────────────────────────
@@ -310,6 +369,66 @@ class TerminalActivity : AppCompatActivity() {
             startActivity(Intent(this, SettingsActivity::class.java))
             overridePendingTransition(R.anim.fade_in, R.anim.fade_out)
         }
+    }
+
+    // ─── Status bar ───────────────────────────────────────────────────────────
+
+    private fun setupStatusBar() {
+        binding.btnRetryMessage.setOnClickListener { retryLastMessage() }
+    }
+
+    private fun showStatusThinking() {
+        binding.llStatus.visibility        = View.VISIBLE
+        binding.progressThinking.visibility = View.VISIBLE
+        binding.tvStatus.text              = "Thinking…"
+        binding.tvStatus.setTextColor(getColor(R.color.text_secondary))
+        binding.btnRetryMessage.visibility = View.GONE
+        binding.llStatus.setBackgroundColor(getColor(R.color.surface))
+    }
+
+    private fun showStatusError(msg: String) {
+        cancelThinkingTimeout()
+        binding.llStatus.visibility        = View.VISIBLE
+        binding.progressThinking.visibility = View.GONE
+        binding.tvStatus.text              = msg
+        binding.tvStatus.setTextColor(getColor(R.color.error_red))
+        binding.btnRetryMessage.visibility = View.VISIBLE
+        binding.llStatus.setBackgroundColor(getColor(R.color.warning_bg))
+    }
+
+    private fun hideStatus() {
+        cancelThinkingTimeout()
+        binding.llStatus.visibility = View.GONE
+    }
+
+    /** Restore correct status bar state after switching to a different session. */
+    private fun updateStatusForSession(sessionId: Int) {
+        if (sessionBusy[sessionId] == true) showStatusThinking() else hideStatus()
+    }
+
+    private fun startThinkingTimeout() {
+        cancelThinkingTimeout()
+        timeoutRunnable = Runnable {
+            sessionBusy[activeSessionId] = false
+            showStatusError("No response after 15 s — check your connection or tap Retry")
+        }
+        statusHandler.postDelayed(timeoutRunnable!!, THINKING_TIMEOUT_MS)
+    }
+
+    private fun cancelThinkingTimeout() {
+        timeoutRunnable?.let { statusHandler.removeCallbacks(it) }
+        timeoutRunnable = null
+    }
+
+    private fun retryLastMessage() {
+        val text = lastSentMessage[activeSessionId]
+        if (text.isNullOrEmpty()) return
+        hideStatus()
+        writeToTerminal("\r\n[32m❯ $text[0m  [33m[retry][0m\r\n")
+        sendInput(text + "\r")
+        sessionBusy[activeSessionId] = true
+        showStatusThinking()
+        startThinkingTimeout()
     }
 
     // ─── Input routing ────────────────────────────────────────────────────────
@@ -324,17 +443,6 @@ class TerminalActivity : AppCompatActivity() {
         val intent = Intent(this, ClaudeService::class.java)
         startForegroundService(intent)
         bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        if (serviceBound) {
-            claudeService?.onOutput = null
-            claudeService?.onSessionAdded = null
-            claudeService?.onSessionEnded = null
-            unbindService(serviceConnection)
-            serviceBound = false
-        }
     }
 
     // ─── JavaScript bridge ────────────────────────────────────────────────────

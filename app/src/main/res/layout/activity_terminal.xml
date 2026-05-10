@@ -111,6 +111,51 @@
         android:visibility="gone"
         android:layout_margin="8dp" />
 
+    <!-- ── Message status bar (thinking / timeout / error) ───────────────── -->
+    <LinearLayout
+        android:id="@+id/llStatus"
+        android:layout_width="match_parent"
+        android:layout_height="40dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="12dp"
+        android:paddingEnd="6dp"
+        android:background="@color/surface"
+        android:visibility="gone">
+
+        <ProgressBar
+            android:id="@+id/progressThinking"
+            style="?android:attr/progressBarStyleSmall"
+            android:layout_width="18dp"
+            android:layout_height="18dp"
+            android:indeterminateTint="@color/accent_orange" />
+
+        <TextView
+            android:id="@+id/tvStatus"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textColor="@color/text_secondary"
+            android:textSize="12sp"
+            android:paddingStart="8dp"
+            android:text="Thinking…" />
+
+        <Button
+            android:id="@+id/btnRetryMessage"
+            style="@style/Widget.Material3.Button.TextButton"
+            android:layout_width="wrap_content"
+            android:layout_height="30dp"
+            android:text="Retry"
+            android:textColor="@color/accent_orange"
+            android:textSize="12sp"
+            android:minHeight="0dp"
+            android:minWidth="0dp"
+            android:paddingHorizontal="12dp"
+            android:paddingVertical="0dp"
+            android:visibility="gone" />
+
+    </LinearLayout>
+
     <!-- ── Bottom input section ───────────────────────────────────────────── -->
     <LinearLayout
         android:layout_width="match_parent"
