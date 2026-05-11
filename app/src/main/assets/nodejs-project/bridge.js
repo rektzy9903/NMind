@@ -891,7 +891,18 @@ function runMessage(message, socket) {
     // So we pass the entire bootstrap as a -e string: set process.argv,
     // then import cli.js as a file:// URL (which honours "type":"module").
     const cliUrl = 'file://' + CLAUDE_CLI;
+    // Intercept process.exit so we can log the call site before the process dies.
+    // This is the only reliable way to see WHERE a silent exit(1) originates.
+    const exitLogPath = JSON.stringify(SETUP_LOG);
     const evalCode =
+        '(function(){' +
+        'var _origExit=process.exit.bind(process);' +
+        'process.exit=function(code){' +
+        'try{var fs=require("fs");' +
+        'fs.appendFileSync(' + exitLogPath + ',"[exit-intercept] code="+code+" stack="+new Error().stack.slice(0,600)+"\\n");}' +
+        'catch(_e){}' +
+        '_origExit(code);};' +
+        '})();' +
         'process.argv[1]=' + JSON.stringify(CLAUDE_CLI) + ';' +
         'process.argv[2]="--print";' +
         'process.argv[3]=' + JSON.stringify(message) + ';' +
