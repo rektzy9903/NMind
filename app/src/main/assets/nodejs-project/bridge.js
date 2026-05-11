@@ -746,6 +746,10 @@ function buildEnv() {
         : 'claude-3-5-sonnet-20241022';
 
     env.DISABLE_AUTOUPDATER = '1';
+    // Android has no /tmp — point Node.js temp files to app's files dir
+    env.TMPDIR = FILES_DIR;
+    env.TEMP   = FILES_DIR;
+    env.TMP    = FILES_DIR;
     return env;
 }
 
@@ -912,6 +916,38 @@ function openTcpBridge() {
                             'baseUrl  : ' + (cfg2.baseUrl || '?') + '\r\n' +
                             'provider : ' + (cfg2.providerUrl || '?') + '\x1b[0m\r\n');
                     } catch (_) {}
+                    continue;
+                }
+                // !test-cli — run cli.js --version (no API call) to check if the module loads
+                if (line === '!test-cli') {
+                    socket.write('\r\n\x1b[33mTesting cli.js module load (--version)…\x1b[0m\r\n');
+                    const env2 = buildEnv();
+                    let out2 = '', err2 = '';
+                    let c2;
+                    try {
+                        c2 = spawn(LAUNCHER, [CLAUDE_CLI, '--version'], { env: env2, cwd: FILES_DIR });
+                    } catch (e) {
+                        try { socket.write('\x1b[31mSpawn error: ' + e.message + '\x1b[0m\r\n'); } catch (_) {}
+                        continue;
+                    }
+                    c2.stdout.on('data', d => { out2 += d.toString(); });
+                    c2.stderr.on('data', d => { err2 += d.toString(); });
+                    const tid2 = setTimeout(() => {
+                        try { c2.kill(); } catch (_) {}
+                        try { socket.write('\x1b[31mTimeout after 15s\x1b[0m\r\n'); } catch (_) {}
+                    }, 15000);
+                    c2.on('close', code2 => {
+                        clearTimeout(tid2);
+                        log('[test-cli] exit=' + code2 + ' stdout=' + JSON.stringify(out2.slice(0,200)) + ' stderr=' + JSON.stringify(err2.slice(0,500)) + '\n');
+                        try {
+                            socket.write(
+                                (code2 === 0 ? '\x1b[32m✓' : '\x1b[31m✗') +
+                                ' exit=' + code2 + '\x1b[0m\r\n' +
+                                (out2 ? 'stdout: ' + out2.trim().replace(/\n/g,'\r\n') + '\r\n' : '') +
+                                (err2 ? '\x1b[31mstderr: ' + err2.trim().replace(/\n/g,'\r\n') + '\x1b[0m\r\n' : '')
+                            );
+                        } catch (_) {}
+                    });
                     continue;
                 }
 
