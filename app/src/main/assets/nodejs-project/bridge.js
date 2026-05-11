@@ -893,6 +893,25 @@ function sanitizeKey(key) {
     return key.slice(0, 6) + '…' + key.slice(-4);
 }
 
+// Strip ANSI escape codes so captured responses store clean text in history.
+function stripAnsi(str) {
+    return str.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '').replace(/\r/g, '').trim();
+}
+
+// Prepend prior conversation turns to the current message so --print mode
+// has context across multiple exchanges within the same socket session.
+// History entries: { role: 'user'|'assistant', content: string }
+// Capped at MAX_HISTORY messages (bridge.js enforces this on write).
+function buildMessageWithHistory(message, history) {
+    if (!history || history.length === 0) return message;
+    const ctx = history.map(m =>
+        (m.role === 'user' ? 'Human' : 'Assistant') + ': ' + m.content
+    ).join('\n\n');
+    return ctx + '\n\nHuman: ' + message;
+}
+
+const MAX_HISTORY = 20; // max stored messages (10 turns) per session
+
 /**
  * Run a quick launcher self-test. Spawns LAUNCHER with a trivial JS one-liner
  * and returns a promise that resolves to true (ok) or false (broken).
@@ -933,9 +952,12 @@ function testLauncher() {
     });
 }
 
-function runMessage(message, socket) {
+function runMessage(message, socket, history) {
     const env = buildEnv();
     const cfg = readConfig();
+
+    // Prepend prior turns so --print mode has conversation context
+    const fullMessage = buildMessageWithHistory(message, history);
 
     // Log sanitized config so the user can verify the right key/model/URL is active
     log('[config] mode=' + (cfg.mode || '?') +
@@ -945,7 +967,8 @@ function runMessage(message, socket) {
         ' providerUrl=' + (cfg.providerUrl || '(direct)') + '\n');
     log('[spawn] LAUNCHER=' + LAUNCHER + '\n');
     log('[spawn] CLAUDE_CLI_exists=' + fs.existsSync(CLAUDE_CLI) + '\n');
-    log('[spawn] message=' + message.slice(0, 80) + '\n');
+    log('[spawn] message=' + message.slice(0, 80) +
+        (history && history.length ? ' [history=' + history.length + ']' : '') + '\n');
 
     // The launcher binary can only load scripts via -e (inline eval).
     // Loading a script file by path always exits silently with code 1,
@@ -980,7 +1003,7 @@ function runMessage(message, socket) {
         intlShim +
         'process.argv[1]=' + JSON.stringify(CLAUDE_CLI) + ';' +
         'process.argv[2]="--print";' +
-        'process.argv[3]=' + JSON.stringify(message) + ';' +
+        'process.argv[3]=' + JSON.stringify(fullMessage) + ';' +
         'process.argv.length=4;' +
         'import(' + JSON.stringify(cliUrl) + ')' +
         '.then(function(){' +
@@ -1023,6 +1046,7 @@ function openTcpBridge() {
         let   busy      = false;
         let   current   = null;
         let   currentTid = null;  // safety-net timeout handle
+        let   history   = [];     // conversation turns for this session
 
         const startCfg = readConfig();
         const modeLabel = startCfg.mode === 'subscription' ? 'Anthropic' : (startCfg.providerUrl || 'proxy');
@@ -1089,6 +1113,19 @@ function openTcpBridge() {
                             'model    : ' + (cfg2.modelId || '?') + '\r\n' +
                             'baseUrl  : ' + (cfg2.baseUrl || '?') + '\r\n' +
                             'provider : ' + (cfg2.providerUrl || '?') + '\x1b[0m\r\n');
+                    } catch (_) {}
+                    continue;
+                }
+                if (line === '!clear') {
+                    history = [];
+                    try { socket.write('\r\n\x1b[32m✓ Conversation history cleared.\x1b[0m\r\n'); } catch (_) {}
+                    continue;
+                }
+                if (line === '!history') {
+                    const turns = Math.floor(history.length / 2);
+                    try {
+                        socket.write('\r\n\x1b[2mHistory: ' + history.length + ' messages (' + turns + ' turns). ' +
+                            'Type !clear to reset.\x1b[0m\r\n');
                     } catch (_) {}
                     continue;
                 }
@@ -1221,11 +1258,15 @@ function openTcpBridge() {
 
                 busy = true;
                 let responseStarted = false;
-                current = runMessage(line, socket);
+                let responseBuf = '';     // capture stdout for history
+                current = runMessage(line, socket, history);
 
                 // Detect whether any output actually arrived (used for error diagnosis)
                 current.stdout.once('data', () => { responseStarted = true; });
                 current.stderr.once('data', () => { responseStarted = true; });
+
+                // Buffer stdout so we can save the assistant reply to history
+                current.stdout.on('data', d => { responseBuf += d.toString(); });
 
                 // 60 s safety-net: kills the child and shows an actionable error if the
                 // provider never responds.  The Android UI adds its own 15 s overlay.
@@ -1245,6 +1286,17 @@ function openTcpBridge() {
                     if (currentTid) { clearTimeout(currentTid); currentTid = null; }
                     const stderr = current && current._stderrBuf ? current._stderrBuf() : '';
                     busy = false; current = null;
+
+                    // Save exchange to history only on a successful response
+                    if (responseStarted && (code === 0 || code === null)) {
+                        const reply = stripAnsi(responseBuf);
+                        if (reply) {
+                            history.push({ role: 'user',      content: line });
+                            history.push({ role: 'assistant', content: reply });
+                            if (history.length > MAX_HISTORY) history = history.slice(-MAX_HISTORY);
+                        }
+                    }
+                    responseBuf = '';
 
                     const rateLimited = (Date.now() - lastRateLimitMs) < 15000;
                     if (!responseStarted && rateLimited) {
