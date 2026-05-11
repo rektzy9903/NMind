@@ -1,28 +1,28 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Claude.ai dark theme -->
-    <color name="bg_dark">#1E1E2E</color>
-    <color name="surface">#27273A</color>
-    <color name="toolbar_bg">#27273A</color>
-    <color name="terminal_bg">#1E1E2E</color>
+    <!-- Aurora dark theme -->
+    <color name="bg_dark">#0a0618</color>
+    <color name="surface">#150d30</color>
+    <color name="toolbar_bg">#0d0820</color>
+    <color name="terminal_bg">#0a0618</color>
 
     <!-- Text -->
-    <color name="text_primary">#F0F0F0</color>
-    <color name="text_secondary">#9A9AB0</color>
+    <color name="text_primary">#c8b8ff</color>
+    <color name="text_secondary">#7c6fa0</color>
 
-    <!-- Claude coral/orange accent -->
-    <color name="accent_orange">#DA7756</color>
-    <color name="accent_orange_dark">#B85F42</color>
+    <!-- Aurora purple primary accent -->
+    <color name="accent_orange">#6440ff</color>
+    <color name="accent_orange_dark">#4828cc</color>
+    <color name="accent_green">#6440ff</color>
 
-    <!-- Keep accent_green for backward compat with any drawable refs -->
-    <color name="accent_green">#DA7756</color>
-    <color name="accent_blue">#7B8CDE</color>
+    <!-- Aurora cyan secondary accent -->
+    <color name="accent_blue">#00c8ff</color>
 
     <!-- Status -->
-    <color name="error_red">#E06C75</color>
-    <color name="warning_bg">#2D2200</color>
-    <color name="warning_text">#DA7756</color>
+    <color name="error_red">#ff4060</color>
+    <color name="warning_bg">#1a0030</color>
+    <color name="warning_text">#ff6080</color>
 
     <!-- Tab active indicator -->
-    <color name="tab_active">#DA7756</color>
+    <color name="tab_active">#6440ff</color>
 </resources>

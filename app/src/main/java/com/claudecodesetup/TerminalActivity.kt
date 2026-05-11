@@ -117,6 +117,18 @@ class TerminalActivity : AppCompatActivity() {
         wv.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView, url: String) {
                 binding.tvLoading.visibility = View.GONE
+                // Inject app name and active model into the terminal mini-header
+                val model = prefs.getModelId().let { m ->
+                    when {
+                        m.isEmpty() -> "claude"
+                        m.contains('/') -> m.substringAfterLast('/').removeSuffix(":free")
+                        else -> m
+                    }
+                }
+                val appName = getString(R.string.app_name)
+                val safeApp   = appName.replace("\\", "\\\\").replace("'", "\\'")
+                val safeModel = model.replace("\\", "\\\\").replace("'", "\\'")
+                view.evaluateJavascript("window.termSetMeta('$safeApp','$safeModel')", null)
             }
         }
 

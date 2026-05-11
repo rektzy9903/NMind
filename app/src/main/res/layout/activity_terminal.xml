@@ -15,23 +15,24 @@
         android:gravity="center_vertical"
         android:paddingStart="14dp"
         android:paddingEnd="4dp"
-        android:elevation="2dp">
+        android:elevation="4dp">
 
         <ImageView
-            android:layout_width="26dp"
-            android:layout_height="26dp"
+            android:layout_width="24dp"
+            android:layout_height="24dp"
             android:src="@drawable/ic_terminal"
-            android:tint="@color/accent_orange"
+            android:tint="@color/accent_blue"
             android:contentDescription="Claude Code" />
 
         <TextView
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="Claude Code"
+            android:text="@string/app_name"
             android:textColor="@color/text_primary"
-            android:textSize="15sp"
+            android:textSize="13sp"
             android:textStyle="bold"
+            android:letterSpacing="0.15"
             android:paddingStart="10dp" />
 
         <ImageButton
@@ -49,7 +50,7 @@
     <!-- ── Session tab strip ─────────────────────────────────────────────── -->
     <HorizontalScrollView
         android:layout_width="match_parent"
-        android:layout_height="38dp"
+        android:layout_height="40dp"
         android:background="@color/bg_dark"
         android:scrollbars="none"
         android:fillViewport="false">
@@ -61,17 +62,17 @@
             android:orientation="horizontal"
             android:gravity="center_vertical"
             android:paddingHorizontal="8dp"
-            android:paddingVertical="4dp">
+            android:paddingVertical="5dp">
 
             <!-- Session tabs added programmatically before this "+" button -->
             <Button
                 android:id="@+id/btnNewSession"
                 style="@style/Widget.Material3.Button.TextButton"
-                android:layout_width="32dp"
-                android:layout_height="28dp"
+                android:layout_width="34dp"
+                android:layout_height="30dp"
                 android:text="+"
-                android:textSize="18sp"
-                android:textColor="@color/accent_orange"
+                android:textSize="16sp"
+                android:textColor="@color/accent_blue"
                 android:padding="0dp"
                 android:minWidth="0dp"
                 android:minHeight="0dp" />

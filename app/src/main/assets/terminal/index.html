@@ -8,38 +8,283 @@
 * { margin:0; padding:0; box-sizing:border-box; }
 
 html, body {
-  width:100%; height:100%;
-  background:#12121e;
-  overflow:hidden;
-  -webkit-tap-highlight-color:transparent;
+  width:100%; height:100%; overflow:hidden;
+  font-family: 'Space Mono', 'Courier New', monospace;
+  background: linear-gradient(135deg, #0a0618 0%, #0d1a2e 50%, #0a0618 100%);
+  -webkit-tap-highlight-color: transparent;
 }
 
-#screen {
-  position:absolute;
-  top:0; left:0; right:0; bottom:0;
-  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code',
-               'Courier New', 'DejaVu Sans Mono', monospace;
-  font-size: 14px;
-  line-height: 1.55;
-  color: #dde1f0;
-  background: #12121e;
+/* ── Aurora background blobs ─────────────────────────────────────────────── */
+.blob {
+  position: fixed;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 0;
+}
+.blob-1 {
+  width: 300px; height: 300px;
+  top: -80px; left: -60px;
+  background: radial-gradient(circle, rgba(100,60,255,0.28) 0%, transparent 70%);
+  filter: blur(32px);
+  animation: drift 8s ease-in-out infinite alternate;
+}
+.blob-2 {
+  width: 260px; height: 260px;
+  top: -50px; right: -50px;
+  background: radial-gradient(circle, rgba(0,200,255,0.2) 0%, transparent 70%);
+  filter: blur(26px);
+  animation: drift 10s ease-in-out infinite alternate-reverse;
+}
+.blob-3 {
+  width: 340px; height: 220px;
+  bottom: 120px; left: 50%;
+  background: radial-gradient(circle, rgba(255,100,200,0.14) 0%, transparent 70%);
+  filter: blur(22px);
+  animation: drift3 12s ease-in-out infinite alternate;
+}
+@keyframes drift {
+  0%   { transform: translate(0,0) scale(1); }
+  100% { transform: translate(20px,15px) scale(1.1); }
+}
+@keyframes drift3 {
+  0%   { transform: translateX(-50%) translate(0,0) scale(1); }
+  100% { transform: translateX(-50%) translate(20px,15px) scale(1.1); }
+}
+
+/* ── Mini header ─────────────────────────────────────────────────────────── */
+#mini-header {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  height: 58px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  background: rgba(10,6,24,0.88);
+  border-bottom: 1px solid rgba(100,64,255,0.18);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  z-index: 50;
+}
+#header-left {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+#app-name {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 2.5px;
+  color: #c8b8ff;
+  text-shadow: 0 0 14px rgba(200,184,255,0.55);
+  text-transform: uppercase;
+  line-height: 1;
+}
+#model-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(0,200,255,0.08);
+  border: 1px solid rgba(0,200,255,0.22);
+  border-radius: 20px;
+  padding: 2px 8px 2px 6px;
+  width: fit-content;
+}
+.pill-dot {
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: #00c8ff;
+  flex-shrink: 0;
+  animation: glowPulse 2.2s ease-in-out infinite;
+}
+#model-label {
+  font-size: 9px;
+  letter-spacing: 1.2px;
+  color: rgba(0,200,255,0.75);
+  font-family: 'Space Mono', 'Courier New', monospace;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#connected-badge {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 9px;
+  letter-spacing: 1.5px;
+  color: rgba(80,220,120,0.8);
+  font-family: 'Space Mono', 'Courier New', monospace;
+}
+.conn-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: #50dc78;
+  flex-shrink: 0;
+  animation: glowPulse 1.8s ease-in-out infinite;
+}
+@keyframes glowPulse {
+  0%,100% { opacity:0.55; transform:scale(1); }
+  50%      { opacity:1;    transform:scale(1.35); }
+}
+
+/* ── Messages scroll area ────────────────────────────────────────────────── */
+#msgs {
+  position: fixed;
+  top: 58px; left: 0; right: 0; bottom: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 14px 12px 12px 12px;
-  white-space: pre-wrap;
-  word-break: break-all;
-  cursor: text;
-  -webkit-user-select: text;
-  user-select: text;
-  transition: bottom 0.15s ease;
+  padding: 12px 12px 130px 12px;
+  -webkit-overflow-scrolling: touch;
+  z-index: 10;
+}
+#msgs::-webkit-scrollbar { width: 3px; }
+#msgs::-webkit-scrollbar-track { background: transparent; }
+#msgs::-webkit-scrollbar-thumb { background: rgba(100,64,255,0.28); border-radius: 2px; }
+
+/* ── Message rows ────────────────────────────────────────────────────────── */
+.msg-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.user-row { flex-direction: row-reverse; }
+.ai-row   { flex-direction: row; }
+.sys-row  { justify-content: center; }
+
+/* ── Avatars ─────────────────────────────────────────────────────────────── */
+.avatar {
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  align-self: flex-end;
+  font-weight: 700;
+}
+.user-avatar {
+  background: linear-gradient(135deg, #6440ff 0%, #9060ff 100%);
+  color: #fff;
+  font-size: 11px;
+}
+.ai-avatar {
+  background: linear-gradient(135deg, #00a8d4 0%, #0088cc 100%);
+  color: #fff;
+  font-size: 15px;
+  line-height: 1;
 }
 
-/* Scrollbar */
-#screen::-webkit-scrollbar { width: 3px; }
-#screen::-webkit-scrollbar-track { background: transparent; }
-#screen::-webkit-scrollbar-thumb { background: rgba(218,119,86,0.25); border-radius: 2px; }
+/* ── Bubbles ─────────────────────────────────────────────────────────────── */
+.bubble {
+  max-width: calc(100% - 42px);
+  padding: 10px 14px;
+  font-size: 13px;
+  line-height: 1.65;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  font-family: 'Space Mono', 'Courier New', monospace;
+}
+.user-bubble {
+  background: linear-gradient(135deg, rgba(100,64,255,0.3) 0%, rgba(100,64,255,0.15) 100%);
+  border: 1px solid rgba(100,64,255,0.42);
+  border-radius: 16px 4px 16px 16px;
+  color: #e0d8ff;
+  white-space: pre-wrap;
+}
+.ai-bubble {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(0,200,255,0.2);
+  border-radius: 4px 16px 16px 16px;
+  color: #e0d8ff;
+  white-space: pre-wrap;
+  word-break: break-all;
+  min-width: 60px;
+}
+.sys-bubble {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 20px;
+  color: rgba(200,184,255,0.38);
+  font-size: 11px;
+  letter-spacing: 0.4px;
+  padding: 4px 14px;
+  font-family: 'Space Mono', 'Courier New', monospace;
+}
 
-/* ANSI 16-color classes */
+/* ── Thinking bubble ─────────────────────────────────────────────────────── */
+#thinking-bubble {
+  display: none;
+  flex-direction: row;
+  align-items: flex-end;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.thinking-content {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(0,200,255,0.2);
+  border-radius: 4px 16px 16px 16px;
+  padding: 12px 16px;
+  min-width: 120px;
+}
+.wave-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 26px;
+  margin-bottom: 10px;
+}
+.bar {
+  width: 3px;
+  background: linear-gradient(to top, #6440ff, #00c8ff);
+  border-radius: 2px;
+  box-shadow: 0 0 6px rgba(0,200,255,0.4);
+  animation: auroraWave 1.2s ease-in-out infinite;
+  height: 4px;
+  flex-shrink: 0;
+}
+.bar:nth-child(1){animation-delay:0s}
+.bar:nth-child(2){animation-delay:0.1s}
+.bar:nth-child(3){animation-delay:0.2s}
+.bar:nth-child(4){animation-delay:0.3s}
+.bar:nth-child(5){animation-delay:0.4s}
+.bar:nth-child(6){animation-delay:0.5s}
+.bar:nth-child(7){animation-delay:0.6s}
+.bar:nth-child(8){animation-delay:0.7s}
+@keyframes auroraWave {
+  0%,100% { height:4px; opacity:0.3; }
+  50%     { height:22px; opacity:1; }
+}
+.thinking-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.thinking-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: #00c8ff;
+  flex-shrink: 0;
+  animation: glowPulse 1.5s ease-in-out infinite;
+}
+.thinking-label {
+  font-size: 9px;
+  letter-spacing: 2px;
+  color: rgba(0,200,255,0.5);
+  font-family: 'Space Mono', 'Courier New', monospace;
+}
+.scan-line {
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(to right, #00c8ff, transparent);
+  transform-origin: left;
+  animation: scanLine 2s ease-in-out infinite;
+}
+@keyframes scanLine {
+  0%,100% { opacity:0.2; transform:scaleX(0.3); }
+  50%     { opacity:1;   transform:scaleX(1); }
+}
+
+/* ── ANSI color classes ───────────────────────────────────────────────────── */
 .f0{color:#21262D}.f1{color:#F28B82}.f2{color:#81C995}.f3{color:#FFD966}
 .f4{color:#82B4FF}.f5{color:#CF9FFF}.f6{color:#5DD6EB}.f7{color:#E2E8F0}
 .f8{color:#555570}.f9{color:#FF8A80}.f10{color:#A8FFB0}.f11{color:#FFE680}
@@ -47,7 +292,6 @@ html, body {
 .b0{background:#21262D}.b1{background:#F28B82}.b2{background:#81C995}
 .b3{background:#FFD966}.b4{background:#82B4FF}.b5{background:#CF9FFF}
 .b6{background:#5DD6EB}.b7{background:#E2E8F0}
-
 .bold{font-weight:700}
 .dim{opacity:0.42}
 .italic{font-style:italic}
@@ -55,80 +299,84 @@ html, body {
 .blink{animation:blink 1s step-end infinite}
 .inverse{filter:invert(100%)}
 .strikethrough{text-decoration:line-through}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
 
-@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
-
-/* Input line */
-#input-line { display:inline; white-space:pre-wrap; word-break:break-all; }
-.prompt-char { color:#DA7756; }
-
-#cursor {
-  display:inline-block;
-  width:2px; height:1.1em;
-  background:#DA7756;
-  animation: cursorBlink 1.2s step-end infinite;
-  vertical-align:text-bottom;
-  border-radius:1px;
-}
-@keyframes cursorBlink { 0%,66%{opacity:1} 67%,100%{opacity:0} }
-
-/* ── Thinking indicator ─────────────────────────────────────────────────── */
-#thinking-bar {
+/* ── Input bar ───────────────────────────────────────────────────────────── */
+#input-bar {
   position: fixed;
   left: 0; right: 0;
-  bottom: 0;          /* JS sets this above toolbar when needed */
-  height: 46px;
-  display: none;
-  align-items: center;
-  gap: 7px;
-  padding: 0 16px;
-  background: linear-gradient(135deg, rgba(26,22,40,0.97) 0%, rgba(20,18,36,0.97) 100%);
-  border-top: 1px solid rgba(218,119,86,0.18);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  z-index: 60;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  font-size: 13px;
-  color: rgba(218,119,86,0.85);
-  letter-spacing: 0.01em;
-}
-#thinking-bar.show { display: flex; }
-
-/* Bouncing dots */
-.td {
-  width: 5px; height: 5px;
-  border-radius: 50%;
-  background: #DA7756;
-  opacity: 0.25;
-  flex-shrink: 0;
-  animation: td-anim 1.4s ease-in-out infinite;
-}
-.td:nth-child(2) { animation-delay: 0.18s; }
-.td:nth-child(3) { animation-delay: 0.36s; }
-
-@keyframes td-anim {
-  0%, 60%, 100% { transform: translateY(0);    opacity: 0.25; }
-  30%            { transform: translateY(-5px); opacity: 1;    }
-}
-
-/* Pulsing ring around dots group */
-#thinking-dots {
+  bottom: 0;
   display: flex;
   align-items: center;
-  gap: 4px;
-  background: rgba(218,119,86,0.08);
-  border: 1px solid rgba(218,119,86,0.2);
-  border-radius: 20px;
-  padding: 5px 9px;
+  gap: 8px;
+  padding: 8px 12px;
+  background: rgba(10,6,24,0.93);
+  border-top: 1px solid rgba(150,120,255,0.15);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  z-index: 90;
+  transition: bottom 0.15s ease;
 }
+#input-wrap {
+  flex: 1;
+  min-height: 42px;
+  background: rgba(18,12,38,0.85);
+  border: 1px solid rgba(150,120,255,0.25);
+  border-radius: 12px;
+  padding: 10px 14px;
+  font-family: 'Space Mono', 'Courier New', monospace;
+  font-size: 13px;
+  color: #e0d8ff;
+  display: flex;
+  align-items: center;
+  cursor: text;
+  word-break: break-all;
+  overflow-wrap: anywhere;
+}
+#input-display {
+  flex: 1;
+  white-space: pre-wrap;
+  caret-color: #00c8ff;
+}
+#cursor {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  background: #00c8ff;
+  border-radius: 1px;
+  margin-left: 1px;
+  vertical-align: text-bottom;
+  animation: cursorBlink 1.2s step-end infinite;
+}
+@keyframes cursorBlink { 0%,66%{opacity:1} 67%,100%{opacity:0} }
+#send-btn {
+  width: 40px; height: 40px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #6440ff 0%, #00c8ff 100%);
+  box-shadow: 0 0 18px rgba(100,64,255,0.45);
+  border: none;
+  color: #fff;
+  font-size: 20px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  -webkit-tap-highlight-color: rgba(100,64,255,0.3);
+  transition: opacity 0.12s;
+  line-height: 1;
+}
+#send-btn:active { opacity: 0.65; }
 
-/* ── Toolbar ─────────────────────────────────────────────────────────────── */
+/* ── Keyboard toolbar ────────────────────────────────────────────────────── */
 #toolbar {
   position: fixed;
-  bottom: 0; left: 0; right: 0;
-  height: 46px;
-  background: linear-gradient(135deg, rgba(26,22,40,0.98) 0%, rgba(20,18,36,0.98) 100%);
-  border-top: 1px solid rgba(255,255,255,0.06);
+  left: 0; right: 0;
+  bottom: 0;
+  height: 44px;
+  background: rgba(10,6,24,0.96);
+  border-top: 1px solid rgba(100,64,255,0.14);
   display: none;
   flex-direction: row;
   align-items: center;
@@ -139,51 +387,84 @@ html, body {
   -webkit-overflow-scrolling: touch;
 }
 #toolbar::-webkit-scrollbar { display: none; }
-
 .tb-btn {
-  background: rgba(255,255,255,0.06);
-  color: #b8bcd8;
-  border: 1px solid rgba(255,255,255,0.09);
+  background: rgba(255,255,255,0.05);
+  color: #a090c8;
+  border: 1px solid rgba(150,120,255,0.14);
   border-radius: 8px;
-  padding: 5px 12px;
-  font-size: 12.5px;
-  font-family: inherit;
+  padding: 4px 12px;
+  font-size: 12px;
+  font-family: 'Space Mono', 'Courier New', monospace;
   cursor: pointer;
   white-space: nowrap;
   flex-shrink: 0;
-  -webkit-tap-highlight-color: rgba(218,119,86,0.2);
   user-select: none;
   -webkit-user-select: none;
-  transition: background 0.1s, border-color 0.1s;
+  transition: background 0.1s;
 }
-.tb-btn:active { background: rgba(255,255,255,0.12); border-color: rgba(218,119,86,0.4); }
-
-.tb-btn-accent {
-  background: rgba(218,119,86,0.12);
-  color: #DA7756;
-  border-color: rgba(218,119,86,0.28);
+.tb-btn:active { background: rgba(100,64,255,0.22); border-color: rgba(100,64,255,0.45); color: #c8b8ff; }
+.tb-accent {
+  background: rgba(100,64,255,0.14);
+  color: #c8b8ff;
+  border-color: rgba(100,64,255,0.3);
 }
-.tb-btn-accent:active { background: rgba(218,119,86,0.22); }
+.tb-accent:active { background: rgba(100,64,255,0.32); }
 </style>
 </head>
 <body>
 
-<div id="screen">
-  <span id="output"></span><span id="input-line"><span class="prompt-char">❯ </span><span id="typed-text"></span><span id="cursor"></span></span>
-</div>
+<!-- Aurora blobs -->
+<div class="blob blob-1"></div>
+<div class="blob blob-2"></div>
+<div class="blob blob-3"></div>
 
-<div id="thinking-bar">
-  <div id="thinking-dots">
-    <div class="td"></div>
-    <div class="td"></div>
-    <div class="td"></div>
+<!-- Mini header -->
+<div id="mini-header">
+  <div id="header-left">
+    <span id="app-name">CLAUDE CODE PROXY</span>
+    <div id="model-pill">
+      <span class="pill-dot"></span>
+      <span id="model-label">claude</span>
+    </div>
   </div>
-  <span>Claude is thinking…</span>
+  <div id="connected-badge">
+    <span class="conn-dot"></span>
+    <span>CONNECTED</span>
+  </div>
 </div>
 
+<!-- Messages -->
+<div id="msgs"></div>
+
+<!-- Thinking bubble (moved into #msgs when active) -->
+<div id="thinking-bubble">
+  <div class="avatar ai-avatar">◎</div>
+  <div class="thinking-content">
+    <div class="wave-bars">
+      <div class="bar"></div><div class="bar"></div><div class="bar"></div>
+      <div class="bar"></div><div class="bar"></div><div class="bar"></div>
+      <div class="bar"></div><div class="bar"></div>
+    </div>
+    <div class="thinking-footer">
+      <span class="thinking-dot"></span>
+      <span class="thinking-label">THINKING</span>
+      <div class="scan-line"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Input bar -->
+<div id="input-bar">
+  <div id="input-wrap">
+    <span id="input-display"></span><span id="cursor"></span>
+  </div>
+  <button id="send-btn">↑</button>
+</div>
+
+<!-- Keyboard toolbar -->
 <div id="toolbar">
-  <button class="tb-btn tb-btn-accent" id="btn-yes">Yes</button>
-  <button class="tb-btn tb-btn-accent" id="btn-no">No</button>
+  <button class="tb-btn tb-accent" id="btn-yes">Yes</button>
+  <button class="tb-btn tb-accent" id="btn-no">No</button>
   <button class="tb-btn" id="btn-ctrl-c">Ctrl+C</button>
   <button class="tb-btn" id="btn-tab">Tab</button>
   <button class="tb-btn" id="btn-enter">↵</button>
@@ -197,39 +478,29 @@ html, body {
 (function(){
 'use strict';
 
-// ── Layout helpers ────────────────────────────────────────────────────────────
+// ── Constants ─────────────────────────────────────────────────────────────────
+const INPUT_BAR_H = 58;   // px
+const TOOLBAR_H   = 44;   // px
 
-const screen       = document.getElementById('screen');
-const toolbar      = document.getElementById('toolbar');
-const thinkingBar  = document.getElementById('thinking-bar');
-const TB_H         = 46;   // toolbar height px
+// ── DOM refs ──────────────────────────────────────────────────────────────────
+const msgs       = document.getElementById('msgs');
+const inputBar   = document.getElementById('input-bar');
+const toolbar    = document.getElementById('toolbar');
+const thinkBub   = document.getElementById('thinking-bubble');
+const inputDisp  = document.getElementById('input-display');
+const inputWrap  = document.getElementById('input-wrap');
 
-let toolbarOpen  = false;
-let thinkingOpen = false;
+// ── Layout ────────────────────────────────────────────────────────────────────
+let toolbarOpen = false;
 
-function updateLayout(){
-  const baseBottom = toolbarOpen ? TB_H : 0;
-  screen.style.bottom      = (baseBottom + (thinkingOpen ? TB_H : 0)) + 'px';
-  thinkingBar.style.bottom = baseBottom + 'px';
+function updateLayout() {
+  const tbOff = toolbarOpen ? TOOLBAR_H : 0;
+  inputBar.style.bottom = tbOff + 'px';
+  toolbar.style.display = toolbarOpen ? 'flex' : 'none';
+  msgs.style.paddingBottom = (INPUT_BAR_H + tbOff + 20) + 'px';
 }
 
-function showThinking(){
-  if(thinkingOpen) return;
-  thinkingOpen = true;
-  thinkingBar.classList.add('show');
-  updateLayout();
-  scrollToBottom();
-}
-
-function hideThinking(){
-  if(!thinkingOpen) return;
-  thinkingOpen = false;
-  thinkingBar.classList.remove('show');
-  updateLayout();
-}
-
-// ── Palette ──────────────────────────────────────────────────────────────────
-
+// ── ANSI palette ──────────────────────────────────────────────────────────────
 const BASE_COLORS = [
   '#21262D','#F28B82','#81C995','#FFD966','#82B4FF','#CF9FFF','#5DD6EB','#E2E8F0',
   '#555570','#FF8A80','#A8FFB0','#FFE680','#A0CFFF','#E0BAFF','#80ECFF','#FFFFFF'
@@ -237,402 +508,425 @@ const BASE_COLORS = [
 
 function get256Color(n){
   if(n<16) return BASE_COLORS[n];
-  if(n>=232){ const g=Math.round((n-232)*10.92); return `rgb(${g},${g},${g})`; }
+  if(n>=232){ const g=Math.round((n-232)*10.92); return 'rgb('+g+','+g+','+g+')'; }
   n-=16;
   const b=n%6, g=Math.floor(n/6)%6, r=Math.floor(n/36);
-  const c=v=>v?v*40+55:0;
-  return `rgb(${c(r)},${c(g)},${c(b)})`;
+  const c=function(v){return v?v*40+55:0;};
+  return 'rgb('+c(r)+','+c(g)+','+c(b)+')';
 }
 
-// ── ANSI Parser State ─────────────────────────────────────────────────────────
-
-const MAX_SCROLLBACK = 6000;
-let attrs = resetAttrs();
-let savedAttrs = resetAttrs();
-let savedCursor = {row:0, col:0};
-let curRow = 0, curCol = 0;
-let altMode = false;
-let lines = [''];
-let altLines = [''];
+// ── ANSI state factory ────────────────────────────────────────────────────────
+function makeAnsiState(){
+  return {
+    attrs:resetAttrs(), lines:[''], curRow:0, curCol:0,
+    savedCursor:{row:0,col:0},
+    escState:'normal', csiParams:'', csiIntermediate:'', oscBuf:''
+  };
+}
 
 function resetAttrs(){
   return {bold:false,dim:false,italic:false,underline:false,
           blink:false,inverse:false,strike:false,fg:null,bg:null};
 }
 
-function currentLines(){ return altMode ? altLines : lines; }
-
-function ensureRow(r){
-  const ls = currentLines();
-  while(ls.length <= r) ls.push('');
-}
-
-// ── HTML span builder ─────────────────────────────────────────────────────────
-
-function attrsToSpan(a, text){
+function attrsToSpan(a,text){
   if(!text) return '';
-  const cls = [];
-  const style = [];
-  if(a.bold)      cls.push('bold');
-  if(a.dim)       cls.push('dim');
-  if(a.italic)    cls.push('italic');
+  const cls=[],style=[];
+  if(a.bold) cls.push('bold');
+  if(a.dim)  cls.push('dim');
+  if(a.italic) cls.push('italic');
   if(a.underline) cls.push('underline');
-  if(a.blink)     cls.push('blink');
-  if(a.inverse)   cls.push('inverse');
-  if(a.strike)    cls.push('strikethrough');
-
-  if(a.fg !== null){
-    if(typeof a.fg === 'number' && a.fg < 16) cls.push('f'+a.fg);
-    else style.push(`color:${typeof a.fg==='number'?get256Color(a.fg):a.fg}`);
+  if(a.blink) cls.push('blink');
+  if(a.inverse) cls.push('inverse');
+  if(a.strike) cls.push('strikethrough');
+  if(a.fg!==null){
+    if(typeof a.fg==='number'&&a.fg<16) cls.push('f'+a.fg);
+    else style.push('color:'+(typeof a.fg==='number'?get256Color(a.fg):a.fg));
   }
-  if(a.bg !== null){
-    if(typeof a.bg === 'number' && a.bg < 8) cls.push('b'+a.bg);
-    else style.push(`background:${typeof a.bg==='number'?get256Color(a.bg):a.bg}`);
+  if(a.bg!==null){
+    if(typeof a.bg==='number'&&a.bg<8) cls.push('b'+a.bg);
+    else style.push('background:'+(typeof a.bg==='number'?get256Color(a.bg):a.bg));
   }
-
-  const escaped = text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  if(!cls.length && !style.length) return escaped;
-  const c = cls.length ? ` class="${cls.join(' ')}"` : '';
-  const s = style.length ? ` style="${style.join(';')}"` : '';
-  return `<span${c}${s}>${escaped}</span>`;
+  const esc=text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  if(!cls.length&&!style.length) return esc;
+  const c=cls.length?' class="'+cls.join(' ')+'"':'';
+  const s=style.length?' style="'+style.join(';')+'"':'';
+  return '<span'+c+s+'>'+esc+'</span>';
 }
 
-// ── Write character ───────────────────────────────────────────────────────────
-
-function putChar(ch){
-  const ls = currentLines();
-  ensureRow(curRow);
-  ls[curRow] += attrsToSpan(attrs, ch);
-  curCol++;
+// ── ANSI byte processor ───────────────────────────────────────────────────────
+function processAnsiBytes(st,raw){
+  for(const ch of raw) processAnsiByte(st,ch);
 }
 
-function newLine(){
-  const ls = currentLines();
-  curRow++;
-  curCol = 0;
-  ensureRow(curRow);
-  if(ls.length > MAX_SCROLLBACK){
-    ls.splice(0, ls.length - MAX_SCROLLBACK);
-    curRow = Math.max(0, curRow - 1);
-  }
-}
-
-// ── OSC handler ───────────────────────────────────────────────────────────────
-
-function handleOSC(content){
-  if(content === '9;thinking-start')  showThinking();
-  else if(content === '9;thinking-done') hideThinking();
-}
-
-// ── ANSI escape parser ────────────────────────────────────────────────────────
-
-let escState = 'normal';
-let csiParams = '';
-let csiIntermediate = '';
-let oscBuf = '';
-
-function processByte(ch){
-  const code = ch.codePointAt(0);
-
-  if(escState === 'normal'){
-    if(code === 0x1B){ escState = 'esc'; return; }
-    if(code === 0x0A){ newLine(); return; }
-    if(code === 0x0D){ curCol = 0; return; }
-    if(code === 0x08){ if(curCol>0) curCol--; return; }
-    if(code === 0x09){
-      const next = (Math.floor(curCol/8)+1)*8;
-      const sp = ' '.repeat(next - curCol);
-      currentLines()[curRow] = (currentLines()[curRow]||'') + attrsToSpan(attrs, sp);
-      curCol = next;
-      return;
+function processAnsiByte(st,ch){
+  const code=ch.codePointAt(0);
+  if(st.escState==='normal'){
+    if(code===0x1B){st.escState='esc';return;}
+    if(code===0x0A){ansiNewLine(st);return;}
+    if(code===0x0D){st.curCol=0;return;}
+    if(code===0x08){if(st.curCol>0)st.curCol--;return;}
+    if(code===0x09){
+      const next=(Math.floor(st.curCol/8)+1)*8;
+      const sp=' '.repeat(next-st.curCol);
+      while(st.lines.length<=st.curRow)st.lines.push('');
+      st.lines[st.curRow]+= attrsToSpan(st.attrs,sp);
+      st.curCol=next;return;
     }
-    if(code === 0x07) return;
-    if(code < 0x20) return;
-    putChar(ch);
+    if(code===0x07||code<0x20)return;
+    ansiPutChar(st,ch);return;
+  }
+  if(st.escState==='esc'){
+    if(ch==='['){st.escState='csi';st.csiParams='';st.csiIntermediate='';return;}
+    if(ch===']'){st.escState='osc';st.oscBuf='';return;}
+    if(ch==='7'){st.savedCursor={row:st.curRow,col:st.curCol};st.escState='normal';return;}
+    if(ch==='8'){st.curRow=st.savedCursor.row;st.curCol=st.savedCursor.col;st.escState='normal';return;}
+    if(ch==='M'){if(st.curRow>0)st.curRow--;st.escState='normal';return;}
+    if(ch==='c'){
+      st.lines=[''];st.curRow=0;st.curCol=0;st.attrs=resetAttrs();
+      st.escState='normal';return;
+    }
+    st.escState='normal';return;
+  }
+  if(st.escState==='osc'){
+    if(code===0x07||code===0x1B){handleOSC(st.oscBuf);st.escState='normal';return;}
+    st.oscBuf+=ch;return;
+  }
+  if(st.escState==='str'){
+    if(code===0x07||code===0x1B){st.escState='normal';return;}
     return;
   }
-
-  if(escState === 'esc'){
-    if(ch === '[')  { escState='csi'; csiParams=''; csiIntermediate=''; return; }
-    if(ch === ']')  { escState='osc'; oscBuf=''; return; }
-    if(ch === 'P' || ch === 'X' || ch === '^' || ch === '_')
-                    { escState='str'; oscBuf=''; return; }
-    if(ch === '7')  { savedCursor={row:curRow,col:curCol}; escState='normal'; return; }
-    if(ch === '8')  { curRow=savedCursor.row; curCol=savedCursor.col; escState='normal'; return; }
-    if(ch === 'M')  { if(curRow>0) curRow--; escState='normal'; return; }
-    if(ch === 'c')  { resetTerminal(); escState='normal'; return; }
-    if(ch === '=' || ch === '>') { escState='normal'; return; }
-    escState='normal';
-    return;
-  }
-
-  if(escState === 'osc'){
-    if(code === 0x07){ handleOSC(oscBuf); escState='normal'; return; }
-    if(code === 0x1B){ handleOSC(oscBuf); escState='normal'; return; }
-    oscBuf += ch;
-    return;
-  }
-  if(escState === 'str'){
-    if(code===0x07 || code===0x1B){ escState='normal'; return; }
-    return;
-  }
-
-  if(escState === 'csi'){
-    if(code >= 0x30 && code <= 0x3F){ csiParams += ch; return; }
-    if(code >= 0x20 && code <= 0x2F){ csiIntermediate += ch; return; }
-    escState = 'normal';
-    handleCSI(csiParams, csiIntermediate, ch);
+  if(st.escState==='csi'){
+    if(code>=0x30&&code<=0x3F){st.csiParams+=ch;return;}
+    if(code>=0x20&&code<=0x2F){st.csiIntermediate+=ch;return;}
+    st.escState='normal';
+    handleAnsiCSI(st,st.csiParams,st.csiIntermediate,ch);
   }
 }
 
-function parseParams(raw, def){
-  if(!raw) return [def];
-  return raw.split(';').map(s => s===''?def : parseInt(s,10));
+function ansiPutChar(st,ch){
+  while(st.lines.length<=st.curRow)st.lines.push('');
+  st.lines[st.curRow]+=attrsToSpan(st.attrs,ch);
+  st.curCol++;
 }
 
-function handleCSI(params, inter, final){
+function ansiNewLine(st){
+  st.curRow++;st.curCol=0;
+  while(st.lines.length<=st.curRow)st.lines.push('');
+  if(st.lines.length>2000){
+    st.lines.splice(0,st.lines.length-2000);
+    st.curRow=Math.max(0,st.curRow-1);
+  }
+}
+
+function parseParams(raw,def){
+  if(!raw)return[def];
+  return raw.split(';').map(function(s){return s===''?def:parseInt(s,10);});
+}
+
+function handleAnsiCSI(st,params,inter,final){
   switch(final){
-    case 'm': handleSGR(params); break;
-    case 'H': case 'f': {
-      const [r,c] = parseParams(params||'1;1',1);
-      curRow = Math.max(0,(r||1)-1);
-      curCol = Math.max(0,(c||1)-1);
-      ensureRow(curRow);
+    case 'm':handleAnsiSGR(st,params);break;
+    case 'H':case 'f':{
+      const p=parseParams(params||'1;1',1);
+      st.curRow=Math.max(0,(p[0]||1)-1);
+      st.curCol=Math.max(0,(p[1]||1)-1);
+      while(st.lines.length<=st.curRow)st.lines.push('');
       break;
     }
-    case 'A': { const n=parseParams(params,1)[0]||1; curRow=Math.max(0,curRow-n); break; }
-    case 'B': { const n=parseParams(params,1)[0]||1; curRow+=n; ensureRow(curRow); break; }
-    case 'C': { const n=parseParams(params,1)[0]||1; curCol+=n; break; }
-    case 'D': { const n=parseParams(params,1)[0]||1; curCol=Math.max(0,curCol-n); break; }
-    case 'G': { const n=parseParams(params,1)[0]||1; curCol=Math.max(0,n-1); break; }
-    case 'd': { const n=parseParams(params,1)[0]||1; curRow=Math.max(0,n-1); ensureRow(curRow); break; }
-    case 'J': {
-      const n = parseParams(params,0)[0];
-      const ls = currentLines();
-      if(n===2||n===3){ ls.length=0; ls.push(''); curRow=0; curCol=0; }
-      else if(n===1){ for(let i=0;i<=curRow;i++) ls[i]=''; }
-      else { for(let i=curRow;i<ls.length;i++) ls[i]=''; }
+    case 'A':{const n=parseParams(params,1)[0]||1;st.curRow=Math.max(0,st.curRow-n);break;}
+    case 'B':{const n=parseParams(params,1)[0]||1;st.curRow+=n;while(st.lines.length<=st.curRow)st.lines.push('');break;}
+    case 'C':{const n=parseParams(params,1)[0]||1;st.curCol+=n;break;}
+    case 'D':{const n=parseParams(params,1)[0]||1;st.curCol=Math.max(0,st.curCol-n);break;}
+    case 'G':{const n=parseParams(params,1)[0]||1;st.curCol=Math.max(0,n-1);break;}
+    case 'J':{
+      const n=parseParams(params,0)[0];
+      if(n===2||n===3){st.lines=[''];st.curRow=0;st.curCol=0;}
+      else if(n===1){for(let i=0;i<=st.curRow;i++)st.lines[i]='';}
+      else{for(let i=st.curRow;i<st.lines.length;i++)st.lines[i]='';}
       break;
     }
-    case 'K': { const ls=currentLines(); ensureRow(curRow); ls[curRow]=''; break; }
-    case 'P': { const ls=currentLines(); ensureRow(curRow); ls[curRow]=''; break; }
-    case 'S': { const n=parseParams(params,1)[0]||1; for(let i=0;i<n;i++) newLine(); break; }
-    case 'T': { const n=parseParams(params,1)[0]||1; curRow=Math.max(0,curRow-n); break; }
-    case 's': { savedCursor={row:curRow,col:curCol}; break; }
-    case 'u': { curRow=savedCursor.row; curCol=savedCursor.col; break; }
-    case 'h': handleMode(params, true); break;
-    case 'l': handleMode(params, false); break;
-    default:  break;
+    case 'K':{while(st.lines.length<=st.curRow)st.lines.push('');st.lines[st.curRow]='';break;}
+    case 's':{st.savedCursor={row:st.curRow,col:st.curCol};break;}
+    case 'u':{st.curRow=st.savedCursor.row;st.curCol=st.savedCursor.col;break;}
+    case 'h':case 'l':break;
+    default:break;
   }
 }
 
-function handleMode(params, enable){
-  const p = params.startsWith('?') ? params.slice(1) : params;
-  const codes = p.split(';').map(Number);
-  for(const code of codes){
-    if(code===1049||code===47||code===1047){
-      if(enable && !altMode){
-        altMode=true; altLines=[''];
-        savedCursor={row:curRow,col:curCol};
-        curRow=0; curCol=0;
-      } else if(!enable && altMode){
-        altMode=false;
-        curRow=savedCursor.row; curCol=savedCursor.col;
-      }
-    }
-  }
-}
-
-function handleSGR(params){
-  const codes = parseParams(params,0);
+function handleAnsiSGR(st,params){
+  const codes=parseParams(params,0);
   let i=0;
   while(i<codes.length){
     const c=codes[i++];
-    if(c===0){ attrs=resetAttrs(); }
-    else if(c===1)  attrs.bold=true;
-    else if(c===2)  attrs.dim=true;
-    else if(c===3)  attrs.italic=true;
-    else if(c===4)  attrs.underline=true;
-    else if(c===5||c===6) attrs.blink=true;
-    else if(c===7)  attrs.inverse=true;
-    else if(c===8)  attrs.dim=true;
-    else if(c===9)  attrs.strike=true;
-    else if(c===22){ attrs.bold=false; attrs.dim=false; }
-    else if(c===23) attrs.italic=false;
-    else if(c===24) attrs.underline=false;
-    else if(c===25) attrs.blink=false;
-    else if(c===27) attrs.inverse=false;
-    else if(c===29) attrs.strike=false;
-    else if(c>=30&&c<=37) attrs.fg=c-30;
+    if(c===0){st.attrs=resetAttrs();}
+    else if(c===1) st.attrs.bold=true;
+    else if(c===2) st.attrs.dim=true;
+    else if(c===3) st.attrs.italic=true;
+    else if(c===4) st.attrs.underline=true;
+    else if(c===5||c===6) st.attrs.blink=true;
+    else if(c===7) st.attrs.inverse=true;
+    else if(c===9) st.attrs.strike=true;
+    else if(c===22){st.attrs.bold=false;st.attrs.dim=false;}
+    else if(c===23) st.attrs.italic=false;
+    else if(c===24) st.attrs.underline=false;
+    else if(c===25) st.attrs.blink=false;
+    else if(c===27) st.attrs.inverse=false;
+    else if(c===39) st.attrs.fg=null;
+    else if(c>=30&&c<=37) st.attrs.fg=c-30;
     else if(c===38){
-      if(codes[i]===5){ i++; attrs.fg=codes[i++]; }
-      else if(codes[i]===2){ i++; const r=codes[i++],g=codes[i++],b=codes[i++]; attrs.fg=`rgb(${r},${g},${b})`; }
+      if(codes[i]===5){i++;st.attrs.fg=codes[i++];}
+      else if(codes[i]===2){i++;const r=codes[i++],g=codes[i++],b=codes[i++];st.attrs.fg='rgb('+r+','+g+','+b+')';}
     }
-    else if(c===39) attrs.fg=null;
-    else if(c>=40&&c<=47) attrs.bg=c-40;
+    else if(c>=40&&c<=47) st.attrs.bg=c-40;
     else if(c===48){
-      if(codes[i]===5){ i++; attrs.bg=codes[i++]; }
-      else if(codes[i]===2){ i++; const r=codes[i++],g=codes[i++],b=codes[i++]; attrs.bg=`rgb(${r},${g},${b})`; }
+      if(codes[i]===5){i++;st.attrs.bg=codes[i++];}
+      else if(codes[i]===2){i++;const r=codes[i++],g=codes[i++],b=codes[i++];st.attrs.bg='rgb('+r+','+g+','+b+')';}
     }
-    else if(c===49) attrs.bg=null;
-    else if(c>=90&&c<=97)   attrs.fg=c-90+8;
-    else if(c>=100&&c<=107) attrs.bg=c-100+8;
+    else if(c===49) st.attrs.bg=null;
+    else if(c>=90&&c<=97)   st.attrs.fg=c-90+8;
+    else if(c>=100&&c<=107) st.attrs.bg=c-100+8;
   }
 }
 
-function resetTerminal(){
-  lines=[''];
-  altLines=[''];
-  altMode=false;
-  curRow=0; curCol=0;
-  attrs=resetAttrs();
+// ── Chat state machine ─────────────────────────────────────────────────────
+// IDLE     — no active response, user input ready
+// THINKING — thinking-start received, animation showing
+// RESPONDING — thinking-done received, AI bubble collecting output
+let chatState = 'IDLE';
+let currentAiBubble  = null;  // the .ai-bubble div
+let currentAiAnsi    = null;  // ANSI parser state for it
+let aiRenderQueued   = false;
+
+// System bubble — collects non-response output (errors, init messages)
+let sysEl            = null;
+let sysAnsi          = makeAnsiState();
+let sysRenderQueued  = false;
+
+function scrollToBottom(){
+  msgs.scrollTop = msgs.scrollHeight;
 }
 
-// ── Render ────────────────────────────────────────────────────────────────────
-
-let renderQueued = false;
-
-function scheduleRender(){
-  if(renderQueued) return;
-  renderQueued = true;
-  requestAnimationFrame(doRender);
+// ── OSC handler ───────────────────────────────────────────────────────────────
+function handleOSC(content){
+  if(content==='9;thinking-start'){
+    if(chatState==='RESPONDING') finalizeAiBubble();
+    chatState='THINKING';
+    thinkBub.style.display='flex';
+    msgs.appendChild(thinkBub);
+    scrollToBottom();
+  } else if(content==='9;thinking-done'){
+    thinkBub.style.display='none';
+    if(thinkBub.parentNode===msgs) msgs.removeChild(thinkBub);
+    chatState='RESPONDING';
+    startAiBubble();
+  }
 }
 
-function doRender(){
-  renderQueued = false;
-  document.getElementById('output').innerHTML = currentLines().join('\n');
+// ── Bubble creators ───────────────────────────────────────────────────────────
+function addUserBubble(text){
+  const row=document.createElement('div');
+  row.className='msg-row user-row';
+  const av=document.createElement('div');
+  av.className='avatar user-avatar';
+  av.textContent='U';
+  const bub=document.createElement('div');
+  bub.className='bubble user-bubble';
+  bub.textContent=text;
+  row.appendChild(bub);
+  row.appendChild(av);
+  msgs.appendChild(row);
   scrollToBottom();
 }
 
-function scrollToBottom(){
-  screen.scrollTop = screen.scrollHeight;
+function startAiBubble(){
+  const row=document.createElement('div');
+  row.className='msg-row ai-row';
+  const av=document.createElement('div');
+  av.className='avatar ai-avatar';
+  av.textContent='◎';
+  const bub=document.createElement('div');
+  bub.className='bubble ai-bubble';
+  row.appendChild(av);
+  row.appendChild(bub);
+  msgs.appendChild(row);
+  currentAiBubble=bub;
+  currentAiAnsi=makeAnsiState();
+  scrollToBottom();
 }
 
+function renderAiBubble(){
+  if(!currentAiBubble||!currentAiAnsi) return;
+  currentAiBubble.innerHTML=currentAiAnsi.lines.join('\n');
+  scrollToBottom();
+}
+
+function scheduleAiRender(){
+  if(aiRenderQueued) return;
+  aiRenderQueued=true;
+  requestAnimationFrame(function(){aiRenderQueued=false;renderAiBubble();});
+}
+
+function finalizeAiBubble(){
+  if(currentAiBubble){renderAiBubble();}
+  currentAiBubble=null;
+  currentAiAnsi=null;
+  chatState='IDLE';
+}
+
+function getSysBubble(){
+  if(!sysEl){
+    const row=document.createElement('div');
+    row.className='msg-row sys-row';
+    const bub=document.createElement('div');
+    bub.className='sys-bubble';
+    row.appendChild(bub);
+    msgs.appendChild(row);
+    sysEl=bub;
+    sysAnsi=makeAnsiState();
+  }
+  return sysEl;
+}
+
+function scheduleSysRender(){
+  if(sysRenderQueued) return;
+  sysRenderQueued=true;
+  requestAnimationFrame(function(){
+    sysRenderQueued=false;
+    if(sysEl&&sysAnsi){
+      sysEl.innerHTML=sysAnsi.lines.join('\n');
+      scrollToBottom();
+    }
+  });
+}
+
+// ── Public API ────────────────────────────────────────────────────────────────
+window.termWrite=function(raw){
+  if(chatState==='RESPONDING'){
+    processAnsiBytes(currentAiAnsi,raw);
+    scheduleAiRender();
+  } else {
+    getSysBubble();
+    processAnsiBytes(sysAnsi,raw);
+    scheduleSysRender();
+  }
+};
+
+window.termClear=function(){
+  msgs.innerHTML='';
+  sysEl=null;
+  sysAnsi=makeAnsiState();
+  currentAiBubble=null;
+  currentAiAnsi=null;
+  chatState='IDLE';
+  thinkBub.style.display='none';
+  document.body.appendChild(thinkBub);
+};
+
+window.termSendInput=function(text){
+  if(typeof Android!=='undefined') Android.sendInput(text);
+};
+
+window.termCopySelection=function(){
+  const sel=window.getSelection();
+  if(sel&&sel.toString()&&typeof Android!=='undefined') Android.copyText(sel.toString());
+};
+
+window.termSetMeta=function(name,model){
+  document.getElementById('app-name').textContent=(name||'CLAUDE CODE PROXY').toUpperCase();
+  document.getElementById('model-label').textContent=model||'claude';
+};
+
 // ── Input buffer ──────────────────────────────────────────────────────────────
+let inputBuffer='';
 
-let inputBuffer = '';
-
-function updateInputLine(){
-  document.getElementById('typed-text').textContent = inputBuffer;
+function updateInputDisp(){
+  inputDisp.textContent=inputBuffer;
   scrollToBottom();
 }
 
 function submitLine(text){
-  const msg = (text !== undefined ? text : inputBuffer).trim();
-  inputBuffer = '';
-  ghost.value = '';
-  updateInputLine();
+  const msg=(text!==undefined?text:inputBuffer).trim();
+  inputBuffer='';
+  ghost.value='';
+  updateInputDisp();
   if(!msg) return;
-  window.termWrite('\r\n\x1b[38;2;218;119;86m❯\x1b[0m \x1b[1m' + msg + '\x1b[0m\r\n');
-  if(typeof Android !== 'undefined') Android.submitMessage(msg);
+  if(chatState==='RESPONDING') finalizeAiBubble();
+  sysEl=null;
+  addUserBubble(msg);
+  if(typeof Android!=='undefined') Android.submitMessage(msg);
 }
 
 // ── Ghost textarea ────────────────────────────────────────────────────────────
-
-const ghost = document.createElement('textarea');
-ghost.id = 'ghost';
-ghost.rows = 1;
-ghost.style.cssText =
-  'position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;' +
-  'opacity:0;resize:none;border:none;outline:none;font-size:16px;';
-ghost.setAttribute('autocomplete', 'off');
-ghost.setAttribute('autocorrect', 'off');
-ghost.setAttribute('autocapitalize', 'none');
-ghost.setAttribute('spellcheck', 'false');
-ghost.setAttribute('enterkeyhint', 'send');
+const ghost=document.createElement('textarea');
+ghost.rows=1;
+ghost.style.cssText='position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;opacity:0;resize:none;border:none;outline:none;font-size:16px;';
+ghost.setAttribute('autocomplete','off');
+ghost.setAttribute('autocorrect','off');
+ghost.setAttribute('autocapitalize','none');
+ghost.setAttribute('spellcheck','false');
+ghost.setAttribute('enterkeyhint','send');
 document.body.appendChild(ghost);
 
-ghost.addEventListener('focus', function(){
-  toolbarOpen = true;
-  toolbar.style.display = 'flex';
+ghost.addEventListener('focus',function(){
+  toolbarOpen=true;
   updateLayout();
-  setTimeout(scrollToBottom, 50);
+  setTimeout(scrollToBottom,50);
 });
-
-ghost.addEventListener('blur', function(){
+ghost.addEventListener('blur',function(){
   setTimeout(function(){
-    if(toolbarOpen && document.activeElement !== ghost){
-      toolbarOpen = false;
-      toolbar.style.display = 'none';
+    if(document.activeElement!==ghost){
+      toolbarOpen=false;
       updateLayout();
     }
-  }, 200);
+  },200);
 });
-
-ghost.addEventListener('input', function(){
-  const val = ghost.value;
+ghost.addEventListener('input',function(){
+  const val=ghost.value;
   if(val.includes('\n')){
-    ghost.value = val.replace(/\n/g, '');
-    inputBuffer = ghost.value;
-    updateInputLine();
+    ghost.value=val.replace(/\n/g,'');
+    inputBuffer=ghost.value;
+    updateInputDisp();
     submitLine();
     return;
   }
-  inputBuffer = val;
-  updateInputLine();
+  inputBuffer=val;
+  updateInputDisp();
+});
+ghost.addEventListener('keydown',function(e){
+  if(e.key==='Enter'){e.preventDefault();submitLine();}
 });
 
-ghost.addEventListener('keydown', function(e){
-  if(e.key === 'Enter'){ e.preventDefault(); submitLine(); }
-});
-
-// ── Screen tap ────────────────────────────────────────────────────────────────
-
-screen.addEventListener('click', function(){ ghost.focus(); scrollToBottom(); });
+// Tap to focus keyboard
+inputWrap.addEventListener('click',function(){ghost.focus();});
+msgs.addEventListener('click',function(){ghost.focus();scrollToBottom();});
+document.getElementById('send-btn').addEventListener('click',function(){submitLine();ghost.focus();});
 
 // ── Toolbar buttons ───────────────────────────────────────────────────────────
-
 function tbRaw(key){
-  if(typeof Android !== 'undefined') Android.sendInput(key);
+  if(typeof Android!=='undefined') Android.sendInput(key);
   ghost.focus();
 }
-
-document.getElementById('btn-yes').addEventListener('click', function(){ submitLine('y'); });
-document.getElementById('btn-no').addEventListener('click', function(){ submitLine('n'); });
-document.getElementById('btn-ctrl-c').addEventListener('click', function(){ tbRaw('\x03'); });
-document.getElementById('btn-tab').addEventListener('click', function(){ tbRaw('\t'); });
-document.getElementById('btn-enter').addEventListener('click', function(){ tbRaw('\r'); });
-document.getElementById('btn-up').addEventListener('click', function(){ tbRaw('\x1b[A'); });
-document.getElementById('btn-down').addEventListener('click', function(){ tbRaw('\x1b[B'); });
-document.getElementById('btn-esc').addEventListener('click', function(){ tbRaw('\x1b'); });
-document.getElementById('btn-backspace').addEventListener('click', function(){
-  if(inputBuffer.length > 0){
-    inputBuffer = inputBuffer.slice(0, -1);
-    ghost.value = inputBuffer;
-    updateInputLine();
+document.getElementById('btn-yes').addEventListener('click',function(){submitLine('y');});
+document.getElementById('btn-no').addEventListener('click',function(){submitLine('n');});
+document.getElementById('btn-ctrl-c').addEventListener('click',function(){tbRaw('\x03');});
+document.getElementById('btn-tab').addEventListener('click',function(){tbRaw('\t');});
+document.getElementById('btn-enter').addEventListener('click',function(){tbRaw('\r');});
+document.getElementById('btn-up').addEventListener('click',function(){tbRaw('\x1b[A');});
+document.getElementById('btn-down').addEventListener('click',function(){tbRaw('\x1b[B');});
+document.getElementById('btn-esc').addEventListener('click',function(){tbRaw('\x1b');});
+document.getElementById('btn-backspace').addEventListener('click',function(){
+  if(inputBuffer.length>0){
+    inputBuffer=inputBuffer.slice(0,-1);
+    ghost.value=inputBuffer;
+    updateInputDisp();
   }
   ghost.focus();
 });
 
-// ── Public API ────────────────────────────────────────────────────────────────
-
-window.termWrite = function(raw){
-  for(const ch of raw) processByte(ch);
-  scheduleRender();
-};
-
-window.termCopySelection = function(){
-  const sel = window.getSelection();
-  if(sel && sel.toString()) Android.copyText(sel.toString());
-};
-
-window.termClear = function(){
-  resetTerminal();
-  doRender();
-};
-
-window.termSendInput = function(text){
-  if(typeof Android !== 'undefined') Android.sendInput(text);
-};
-
 // ── Init ──────────────────────────────────────────────────────────────────────
-
-if(typeof Android !== 'undefined') Android.onTerminalReady();
-
-window.termWrite(
-  '\x1b[38;2;218;119;86m\x1b[1mClaude Code Proxy\x1b[0m' +
-  '\x1b[2m — connecting…\x1b[0m\r\n'
-);
+updateLayout();
+if(typeof Android!=='undefined') Android.onTerminalReady();
 
 })();
 </script>
