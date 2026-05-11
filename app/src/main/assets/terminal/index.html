@@ -51,78 +51,6 @@ html, body {
   100% { transform: translateX(-50%) translate(20px,15px) scale(1.1); }
 }
 
-/* ── Mini header ─────────────────────────────────────────────────────────── */
-#mini-header {
-  position: fixed;
-  top: 0; left: 0; right: 0;
-  height: 58px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 16px;
-  background: rgba(10,6,24,0.88);
-  border-bottom: 1px solid rgba(100,64,255,0.18);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  z-index: 50;
-}
-#header-left {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-#app-name {
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 2.5px;
-  color: #c8b8ff;
-  text-shadow: 0 0 14px rgba(200,184,255,0.55);
-  text-transform: uppercase;
-  line-height: 1;
-}
-#model-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  background: rgba(0,200,255,0.08);
-  border: 1px solid rgba(0,200,255,0.22);
-  border-radius: 20px;
-  padding: 2px 8px 2px 6px;
-  width: fit-content;
-}
-.pill-dot {
-  width: 5px; height: 5px;
-  border-radius: 50%;
-  background: #00c8ff;
-  flex-shrink: 0;
-  animation: glowPulse 2.2s ease-in-out infinite;
-}
-#model-label {
-  font-size: 9px;
-  letter-spacing: 1.2px;
-  color: rgba(0,200,255,0.75);
-  font-family: 'Space Mono', 'Courier New', monospace;
-  max-width: 160px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-#connected-badge {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 9px;
-  letter-spacing: 1.5px;
-  color: rgba(80,220,120,0.8);
-  font-family: 'Space Mono', 'Courier New', monospace;
-}
-.conn-dot {
-  width: 6px; height: 6px;
-  border-radius: 50%;
-  background: #50dc78;
-  flex-shrink: 0;
-  animation: glowPulse 1.8s ease-in-out infinite;
-}
 @keyframes glowPulse {
   0%,100% { opacity:0.55; transform:scale(1); }
   50%      { opacity:1;    transform:scale(1.35); }
@@ -131,7 +59,7 @@ html, body {
 /* ── Messages scroll area ────────────────────────────────────────────────── */
 #msgs {
   position: fixed;
-  top: 58px; left: 0; right: 0; bottom: 0;
+  top: 0; left: 0; right: 0; bottom: 0;
   overflow-y: auto;
   overflow-x: hidden;
   padding: 12px 12px 130px 12px;
@@ -176,12 +104,14 @@ html, body {
 
 /* ── Bubbles ─────────────────────────────────────────────────────────────── */
 .bubble {
-  max-width: calc(100% - 42px);
+  /* min-width:0 lets the flex item shrink below content size so word-wrap works */
+  min-width: 0;
+  max-width: calc(100% - 44px); /* 28px avatar + 8px gap + 8px safety */
   padding: 10px 14px;
   font-size: 13px;
   line-height: 1.65;
+  overflow-wrap: anywhere;
   word-break: break-word;
-  overflow-wrap: break-word;
   font-family: 'Space Mono', 'Courier New', monospace;
 }
 .user-bubble {
@@ -197,7 +127,6 @@ html, body {
   border-radius: 4px 16px 16px 16px;
   color: #e0d8ff;
   white-space: pre-wrap;
-  word-break: break-all;
   min-width: 60px;
 }
 .sys-bubble {
@@ -417,21 +346,6 @@ html, body {
 <div class="blob blob-1"></div>
 <div class="blob blob-2"></div>
 <div class="blob blob-3"></div>
-
-<!-- Mini header -->
-<div id="mini-header">
-  <div id="header-left">
-    <span id="app-name">CLAUDE CODE PROXY</span>
-    <div id="model-pill">
-      <span class="pill-dot"></span>
-      <span id="model-label">claude</span>
-    </div>
-  </div>
-  <div id="connected-badge">
-    <span class="conn-dot"></span>
-    <span>CONNECTED</span>
-  </div>
-</div>
 
 <!-- Messages -->
 <div id="msgs"></div>
@@ -833,8 +747,7 @@ window.termCopySelection=function(){
 };
 
 window.termSetMeta=function(name,model){
-  document.getElementById('app-name').textContent=(name||'CLAUDE CODE PROXY').toUpperCase();
-  document.getElementById('model-label').textContent=model||'claude';
+  /* app name and model are now shown in the native Android header bar */
 };
 
 // ── Input buffer ──────────────────────────────────────────────────────────────

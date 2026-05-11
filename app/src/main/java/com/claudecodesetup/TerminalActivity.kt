@@ -117,7 +117,7 @@ class TerminalActivity : AppCompatActivity() {
         wv.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView, url: String) {
                 binding.tvLoading.visibility = View.GONE
-                // Inject app name and active model into the terminal mini-header
+                // Show the active model in the native header bar
                 val model = prefs.getModelId().let { m ->
                     when {
                         m.isEmpty() -> "claude"
@@ -125,10 +125,7 @@ class TerminalActivity : AppCompatActivity() {
                         else -> m
                     }
                 }
-                val appName = getString(R.string.app_name)
-                val safeApp   = appName.replace("\\", "\\\\").replace("'", "\\'")
-                val safeModel = model.replace("\\", "\\\\").replace("'", "\\'")
-                view.evaluateJavascript("window.termSetMeta('$safeApp','$safeModel')", null)
+                binding.tvModelName.text = model
             }
         }
 
