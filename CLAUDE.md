@@ -193,9 +193,11 @@ Providers are defined in two places:
 - Providers: Gemini (recommended for Malaysia), OpenRouter, DeepSeek, Kimi, NVIDIA NIM, Meta Llama, Ollama, Anthropic subscription.
 - Malaysian user UX path (Gemini fast-track recommendation).
 - Language support: English + Bahasa Malaysia (strings partially translated).
-- Diagnostic commands in terminal: `!log` (last 80 lines of setup.log), `!test` (launcher self-test), `!ver` (config dump).
+- Diagnostic commands in terminal: `!log` (last 80 lines of setup.log), `!test` (launcher self-test), `!ver` (config dump), `!test-cli` (5-step module-loader diagnostic).
 - Verbose stderr logging and actionable error hints on claude exit code 1.
-- **Fixed: proxy mode silent exit code 1** — `ANTHROPIC_MODEL` now always uses a valid Claude model name (`claude-3-5-sonnet-20241022`) in proxy mode instead of the provider model ID (e.g. `openai/gpt-oss-120b:free`). Claude-code v2.1.112 validates ANTHROPIC_MODEL against known Claude model names before any network call; a non-Claude model ID caused a silent exit. The proxy already substitutes `cfg.modelId` (the real provider model) when forwarding, so the actual API call still uses the correct model.
+- **Fixed: proxy mode silent exit code 1 (ANTHROPIC_MODEL)** — `ANTHROPIC_MODEL` now always uses a valid Claude model name (`claude-3-5-sonnet-20241022`) in proxy mode. A provider model ID like `openai/gpt-oss-120b:free` failed claude-code's internal model name validation before any network call, causing a silent exit.
+- **Fixed: launcher cannot load script files by path** — `libnode-launcher.so` silently exits with code 1 when given any `.js`, `.mjs`, or `--input-type=module` argument. Only `-e` (inline eval) works. `bridge.js` now spawns `LAUNCHER ['-e', evalCode]` where `evalCode` sets `process.argv` then calls `import('file://...cli.js')`. Dynamic `import()` from a CJS `-e` context works correctly — the event loop stays alive until the ESM module loads.
+- **Fixed: Unicode property escape SyntaxError** — Android's nodejs-mobile v18.20.4 V8 build has no `\p{...}` regex property escape support. `cli.js` uses 23 such patterns (`\p{L}`, `\p{N}`, `\p{P}`, `\p{S}`, `\p{M}`, `\p{Default_Ignorable_Code_Point}`, etc.) in its markdown parser, text normalizer, and @ mention detector. A `SyntaxError` during module parse caused silent exit code 1 with zero output. Fixed by `patchCliJsForAndroid()` in `bridge.js`, which runs once after install and replaces all 23 occurrences with equivalent explicit Unicode code-point ranges (`\xC0-ɏ`, `Ͱ-Ͽ`, `一-鿿`, etc.).
 
 ### Known gaps / TODO
 - `DownloadManager.kt` exists with resumable download + npm version fetching, but `fetchLatestClaudeVersion()` is not used — version is always the pinned constant. The class is partially unused.
@@ -226,3 +228,7 @@ Providers are defined in two places:
 7. **`AppPreferences.MODE_GEMINI` exists** as a constant but the actual routing uses `MODE_PROXY` for all non-Anthropic providers. Gemini is just another proxy-mode provider. The `MODE_GEMINI` constant appears unused in `ClaudeService`/`NodeBridgeManager` — only `MODE_SUBSCRIPTION` vs `MODE_PROXY` matters for behavior.
 
 8. **Provider list order in `Providers.ALL`**: `GEMINI, OPENROUTER, DEEPSEEK, KIMI, NVIDIA_NIM, META_LLAMA, OLLAMA` — Gemini is first (recommended default).
+
+9. **`libnode-launcher.so` can only run scripts via `-e`** — loading a script file by path (positional arg, `--input-type=module`, or any file extension) silently exits with code 1 on Android. Only `spawn(LAUNCHER, ['-e', code])` works. `bridge.js` uses this to bootstrap cli.js via `import('file://...')` inside the eval string.
+
+10. **`cli.js` must be patched after install** — `patchCliJsForAndroid()` in `bridge.js` replaces all 23 Unicode property escape regex literals (`/\p{L}/u` etc.) with explicit code-point ranges, because nodejs-mobile v18.20.4's V8 build doesn't support them. **If you clear only the app cache (not data), the patch won't re-run.** Full data clear → reinstall is needed to re-apply the patch to a fresh cli.js download.
