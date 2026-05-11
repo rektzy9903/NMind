@@ -945,12 +945,20 @@ function runMessage(message, socket) {
         'try{var fs=require("fs");' +
         'fs.appendFileSync(' + exitLogPath + ',"[exit-event] code="+code+"\\n");}' +
         'catch(_e){}});' +
+        // Capture unhandledRejections before cli.js installs its own handler.
+        // cli.js's handler calls process.exit(1) silently; ours logs the reason first.
+        'process.on("unhandledRejection",function(r){' +
+        'try{require("fs").appendFileSync(' + exitLogPath + ',' +
+        '"[unhandledRejection] "+String(r&&(r.stack||r.message)||r).slice(0,600)+"\\n");}' +
+        'catch(_){}});' +
         regexpShim +
         'process.argv[1]=' + JSON.stringify(CLAUDE_CLI) + ';' +
         'process.argv[2]="--print";' +
         'process.argv[3]=' + JSON.stringify(message) + ';' +
         'process.argv.length=4;' +
         'import(' + JSON.stringify(cliUrl) + ')' +
+        '.then(function(){' +
+        'try{require("fs").appendFileSync(' + exitLogPath + ',"[import-resolved]\\n");}catch(_){}})' +
         '.catch(function(e){process.stderr.write("import-err:"+String(e)+"\\n");process.exit(1)});';
 
     const child = spawn(LAUNCHER, ['-e', evalCode], { env, cwd: FILES_DIR });
@@ -962,7 +970,7 @@ function runMessage(message, socket) {
     child.stderr.on('data', d => {
         const s = d.toString();
         stderrBuf += s;
-        log('[claude-stderr] ' + s.slice(0, 300) + '\n');
+        log('[claude-stderr] ' + s.slice(0, 800) + '\n');
         try { socket.write(d); } catch (_) {}
     });
 
@@ -1159,10 +1167,14 @@ function openTcpBridge() {
                         'process.stderr.write("[eval-ok]\\n");' +
                         'process.on("exit",function(code){' +
                         'try{var fs=require("fs");fs.appendFileSync(' + JSON.stringify(SETUP_LOG) + ',"[exit-event] code="+code+"\\n");}catch(_e){}});' +
+                        'process.on("unhandledRejection",function(r){' +
+                        'try{require("fs").appendFileSync(' + JSON.stringify(SETUP_LOG) + ',' +
+                        '"[unhandledRejection] "+String(r&&(r.stack||r.message)||r).slice(0,600)+"\\n");}catch(_){}});' +
                         regexpShim +
                         'process.argv[1]=' + JSON.stringify(CLAUDE_CLI) + ';' +
                         'process.argv[2]="--print";process.argv[3]="hello";process.argv.length=4;' +
                         'import(' + JSON.stringify(cliUrl2) + ')' +
+                        '.then(function(){try{require("fs").appendFileSync(' + JSON.stringify(SETUP_LOG) + ',"[import-resolved]\\n");}catch(_){}})' +
                         '.catch(function(e){process.stderr.write("ERR:"+String(e)+"\\n");process.exit(1)});',
                     () => runEvalStep('[6] net: connect to proxy port ' + PROXY_PORT,
                         netTestCode,
