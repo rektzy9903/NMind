@@ -180,19 +180,72 @@ function forwardToProvider(oaiReq, res) {
   provReq.write(body); provReq.end();
 }
 
+// Short-circuit internal housekeeping requests so CI tests don't waste quota.
+// IMPORTANT: only apply when system prompt is short — Claude Code's main
+// user-message system prompt is 20KB+; those must always go to the provider.
+function tryOptimize(anthReq) {
+  function getSys(a) {
+    if (!a.system) return '';
+    return typeof a.system === 'string' ? a.system
+      : (a.system || []).filter(b => b.type === 'text').map(b => b.text).join('\n');
+  }
+  const sys = getSys(anthReq).toLowerCase();
+  if (sys.length > 800) return null; // real user request — forward to provider
+  if ((sys.includes('title') && (sys.includes('generate') || sys.includes('concise') || sys.includes('create'))) ||
+      sys.includes('short title') || sys.includes('conversation title')) return 'Claude Code Session';
+  if ((sys.includes('follow-up') || sys.includes('follow up')) && sys.includes('question')) return '';
+  if (sys.includes('suggest') && sys.includes('next action')) return '';
+  if (sys.includes('file path') && (sys.includes('extract') || sys.includes('identify'))) return '[]';
+  if (sys.includes('compact') && (sys.includes('conversation') || sys.includes('context'))) return '';
+  return null;
+}
+
+function sendMockStream(text, res) {
+  const msgId = 'msg_opt_' + Date.now();
+  const ev = (n, d) => { try { res.write('event: ' + n + '\ndata: ' + JSON.stringify(d) + '\n\n'); } catch(_) {} };
+  res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive' });
+  ev('message_start', { type: 'message_start', message: { id: msgId, type: 'message', role: 'assistant', content: [], model: 'claude-3-5-sonnet-20241022', stop_reason: null, stop_sequence: null, usage: { input_tokens: 10, output_tokens: 0 } } });
+  ev('content_block_start', { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } });
+  ev('ping', { type: 'ping' });
+  if (text) ev('content_block_delta', { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text } });
+  ev('content_block_stop', { type: 'content_block_stop', index: 0 });
+  ev('message_delta', { type: 'message_delta', delta: { stop_reason: 'end_turn', stop_sequence: null }, usage: { output_tokens: Math.max(1, Math.ceil(text.length / 4)) } });
+  ev('message_stop', { type: 'message_stop' });
+  try { res.end(); } catch(_) {}
+}
+
 function startProxy() {
   return new Promise((resolve, reject) => {
     const server = http.createServer((req, res) => {
-      if (req.method === 'GET' && req.url.includes('/models')) {
+      // count_tokens — handle locally
+      if (req.method === 'POST' && req.url.includes('/count_tokens')) {
+        let b = ''; req.on('data', c => b += c);
+        req.on('end', () => { res.writeHead(200, {'Content-Type':'application/json'}); res.end(JSON.stringify({input_tokens:1000})); });
+        return;
+      }
+      // HEAD / OPTIONS — CORS probe
+      if ((req.method === 'HEAD' || req.method === 'OPTIONS') && req.url.includes('/messages')) {
+        res.writeHead(200, {'Content-Type':'application/json','Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'POST,GET,OPTIONS,HEAD','Access-Control-Allow-Headers':'Content-Type,Authorization,x-api-key,anthropic-version,anthropic-beta'});
+        res.end('{}'); return;
+      }
+      if (req.method === 'GET' && req.url.startsWith('/v1/models')) {
         res.writeHead(200, {'Content-Type':'application/json'});
-        return res.end(JSON.stringify({data:[{id:MODEL_ID,display_name:MODEL_ID,created_at:''}]}));
+        return res.end(JSON.stringify({data:[{id:'claude-3-5-sonnet-20241022',display_name:'claude-3-5-sonnet-20241022',created_at:''}]}));
       }
       if (req.method === 'POST' && req.url.includes('/messages')) {
         let body = '';
         req.on('data', c => body += c);
         req.on('end', () => {
-          try { forwardToProvider(anthToOai(JSON.parse(body), MODEL_ID), res); }
-          catch(e) { try { res.writeHead(400); res.end('{}'); } catch(_) {} }
+          try {
+            const anthReq = JSON.parse(body);
+            const mockText = tryOptimize(anthReq);
+            if (mockText !== null) {
+              if (anthReq.stream) { sendMockStream(mockText, res); }
+              else { res.writeHead(200, {'Content-Type':'application/json'}); res.end(JSON.stringify({id:'msg_opt',type:'message',role:'assistant',content:[{type:'text',text:mockText}],model:'claude-3-5-sonnet-20241022',stop_reason:'end_turn',stop_sequence:null,usage:{input_tokens:10,output_tokens:5}})); }
+              return;
+            }
+            forwardToProvider(anthToOai(anthReq, MODEL_ID), res);
+          } catch(e) { try { res.writeHead(400); res.end('{}'); } catch(_) {} }
         });
         return;
       }
@@ -239,29 +292,48 @@ async function downloadClaudeCode(tmpDir) {
 async function runClaudeSession(cliJs, tmpDir) {
   console.log('\n── Step 3: spawn Claude Code --print (same as bridge.js) ──');
 
-  // Exactly what bridge.js now does: --print mode, message piped to stdin
+  // Mirror bridge.js exactly: same env vars, same -e evalCode bootstrap.
+  // ANTHROPIC_MODEL must be a valid Claude model name — bridge.js always sets this
+  // to 'claude-3-5-sonnet-20241022' in proxy mode so claude-code passes its internal
+  // model-name validation before making any API call.
+  const message = 'hello claude';
   const env = {
     HOME: tmpDir,
     TERM: 'xterm-256color',
     LANG: 'en_US.UTF-8',
-    LINES: '40',
+    LINES: '50',
     COLUMNS: '160',
     PATH: process.env.PATH,
-    ANTHROPIC_API_KEY: 'sk-ant-proxy000',
-    ANTHROPIC_BASE_URL: `http://${HOST}:${PROXY_PORT}`,
+    ANTHROPIC_API_KEY:   'sk-ant-proxy000',
+    ANTHROPIC_BASE_URL:  `http://${HOST}:${PROXY_PORT}`,
+    ANTHROPIC_MODEL:     'claude-3-5-sonnet-20241022',
     DISABLE_AUTOUPDATER: '1',
+    TMPDIR: tmpDir, TEMP: tmpDir, TMP: tmpDir,
   };
+
+  // bridge.js spawns LAUNCHER ['-e', evalCode] where evalCode sets process.argv
+  // then dynamic-imports cli.js as a file:// URL. On Linux the launcher is just
+  // the system node binary; on Android it is libnode-launcher.so.
+  const cliUrl  = 'file://' + cliJs;
+  const evalCode =
+    'process.argv[1]=' + JSON.stringify(cliJs) + ';' +
+    'process.argv[2]="--print";' +
+    'process.argv[3]=' + JSON.stringify(message) + ';' +
+    'process.argv.length=4;' +
+    'import(' + JSON.stringify(cliUrl) + ')' +
+    '.catch(function(e){process.stderr.write("import-err:"+String(e)+"\\n");process.exit(1)});';
 
   console.log('  env: ANTHROPIC_API_KEY=sk-ant-proxy000 (fake key — proxy ignores it)');
   console.log(`  env: ANTHROPIC_BASE_URL=http://${HOST}:${PROXY_PORT}`);
-  console.log(`  cmd: node cli.js --print "hello claude"`);
+  console.log(`  env: ANTHROPIC_MODEL=claude-3-5-sonnet-20241022`);
+  console.log(`  cmd: node -e <evalCode> (bridge.js method — import(cli.js) via file://)`);
 
   return new Promise((resolve) => {
-    const child  = spawn('node', [cliJs, '--print', 'hello claude'], { env, cwd: tmpDir });
+    const child  = spawn('node', ['-e', evalCode], { env, cwd: tmpDir });
     let   output = '';
     let   exited = false;
 
-    console.log('\n── Step 4: message passed as positional arg ──');
+    console.log('\n── Step 4: message set via process.argv in evalCode ──');
     child.stdin.end();
 
     child.stdout.on('data', d => {

@@ -485,9 +485,18 @@ function sendMockStream(text, model, res) {
 /**
  * Returns a mock reply string if the request is an internal claude-code
  * housekeeping call, or null if it should be forwarded to the provider.
+ *
+ * IMPORTANT: Only short-circuit when the system prompt is short (<= 800 chars).
+ * Claude Code's main user-message system prompt is 20 KB+. Title/followup/
+ * file-extraction prompts are brief focused instructions. Matching on the
+ * full system prompt caused every real user message to be incorrectly
+ * short-circuited (it contains words like "concise" and "title" too).
  */
 function tryOptimize(anthReq) {
     const sys = getSystemText(anthReq).toLowerCase();
+
+    // Guard: never short-circuit a long system prompt — that's the real user message.
+    if (sys.length > 800) return null;
 
     // Title generation — claude-code asks for a short conversation title
     if ((sys.includes('title') && (sys.includes('generate') || sys.includes('concise') || sys.includes('create'))) ||
