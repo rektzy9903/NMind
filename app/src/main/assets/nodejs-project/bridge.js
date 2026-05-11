@@ -812,26 +812,25 @@ function runMessage(message, socket) {
     log('[spawn] CLAUDE_CLI_exists=' + fs.existsSync(CLAUDE_CLI) + '\n');
     log('[spawn] message=' + message.slice(0, 80) + '\n');
 
-    // cli.js is an ES module ("type":"module" in its package.json) and uses
-    // top-level await. Node.js always treats .mjs files as ESM regardless of
-    // any surrounding package.json, so we write a tiny .mjs bootstrap that
-    // fixes process.argv and dynamically imports cli.js.
+    // The launcher binary can only load scripts via -e (inline eval).
+    // Loading a script file by path always exits silently with code 1,
+    // regardless of whether it's .js, .mjs, or uses --input-type=module.
     //
-    // Approaches that failed:
-    //   • Passing cli.js directly → CJS SyntaxError (silent exit 1)
-    //   • .cjs wrapper with import() → import() also failed silently
-    //   • --input-type=module + stdin → exit 1, no output (stdin pipe issue?)
+    // However, dynamic import() works fine inside a -e CJS expression:
+    // the event loop stays alive until the import() promise settles.
+    //
+    // So we pass the entire bootstrap as a -e string: set process.argv,
+    // then import cli.js as a file:// URL (which honours "type":"module").
     const cliUrl = 'file://' + CLAUDE_CLI;
-    const BOOT_MJS = path.join(FILES_DIR, 'claude-boot.mjs');
-    fs.writeFileSync(BOOT_MJS,
-        'process.argv[1]=' + JSON.stringify(CLAUDE_CLI) + ';\n' +
-        'process.argv[2]="--print";\n' +
-        'process.argv[3]=' + JSON.stringify(message) + ';\n' +
-        'process.argv.length=4;\n' +
-        'await import(' + JSON.stringify(cliUrl) + ');\n'
-    );
+    const evalCode =
+        'process.argv[1]=' + JSON.stringify(CLAUDE_CLI) + ';' +
+        'process.argv[2]="--print";' +
+        'process.argv[3]=' + JSON.stringify(message) + ';' +
+        'process.argv.length=4;' +
+        'import(' + JSON.stringify(cliUrl) + ')' +
+        '.catch(function(e){process.stderr.write("import-err:"+String(e)+"\n");process.exit(1)});';
 
-    const child = spawn(LAUNCHER, [BOOT_MJS], { env, cwd: FILES_DIR });
+    const child = spawn(LAUNCHER, ['-e', evalCode], { env, cwd: FILES_DIR });
     child.stdin.end();
 
     // Collect stderr separately so we can include it in error messages
@@ -936,45 +935,99 @@ function openTcpBridge() {
                     } catch (_) {}
                     continue;
                 }
-                // !test-cli — run cli.js --version (no API call) to check if the module loads
+                // !test-cli — step-by-step module-loader diagnostic
+                // Tests increasingly complex scenarios to find the exact failure point.
                 if (line === '!test-cli') {
-                    socket.write('\r\n\x1b[33mTesting cli.js load via .mjs bootstrap (--version)…\x1b[0m\r\n');
+                    socket.write('\r\n\x1b[33mRunning module-loader diagnostic (5 steps)…\x1b[0m\r\n');
                     const env2 = buildEnv();
                     const cliUrl2 = 'file://' + CLAUDE_CLI;
-                    const boot2 = path.join(FILES_DIR, 'claude-boot-test.mjs');
-                    fs.writeFileSync(boot2,
-                        'process.argv[1]=' + JSON.stringify(CLAUDE_CLI) + ';\n' +
-                        'process.argv[2]="--version";\n' +
-                        'process.argv.length=3;\n' +
-                        'await import(' + JSON.stringify(cliUrl2) + ');\n'
-                    );
-                    let out2 = '', err2 = '';
-                    let c2;
-                    try {
-                        c2 = spawn(LAUNCHER, [boot2], { env: env2, cwd: FILES_DIR });
-                        c2.stdin.end();
-                    } catch (e) {
-                        try { socket.write('\x1b[31mSpawn error: ' + e.message + '\x1b[0m\r\n'); } catch (_) {}
-                        continue;
-                    }
-                    c2.stdout.on('data', d => { out2 += d.toString(); });
-                    c2.stderr.on('data', d => { err2 += d.toString(); });
-                    const tid2 = setTimeout(() => {
-                        try { c2.kill(); } catch (_) {}
-                        try { socket.write('\x1b[31mTimeout after 15s\x1b[0m\r\n'); } catch (_) {}
-                    }, 15000);
-                    c2.on('close', code2 => {
-                        clearTimeout(tid2);
-                        log('[test-cli] exit=' + code2 + ' stdout=' + JSON.stringify(out2.slice(0,200)) + ' stderr=' + JSON.stringify(err2.slice(0,500)) + '\n');
+
+                    // File-based step: write file, spawn LAUNCHER [filepath]
+                    function runFileStep(label, scriptPath, scriptContent, cb) {
+                        fs.writeFileSync(scriptPath, scriptContent);
+                        let out = '', err = '';
+                        let child2;
                         try {
-                            socket.write(
-                                (code2 === 0 ? '\x1b[32m✓' : '\x1b[31m✗') +
-                                ' exit=' + code2 + '\x1b[0m\r\n' +
-                                (out2 ? 'stdout: ' + out2.trim().replace(/\n/g,'\r\n') + '\r\n' : '') +
-                                (err2 ? '\x1b[31mstderr: ' + err2.trim().replace(/\n/g,'\r\n') + '\x1b[0m\r\n' : '')
-                            );
-                        } catch (_) {}
-                    });
+                            child2 = spawn(LAUNCHER, [scriptPath], { env: env2, cwd: FILES_DIR });
+                            child2.stdin.end();
+                        } catch (e) {
+                            socket.write('\x1b[31m  ' + label + ': spawn-err ' + e.message + '\x1b[0m\r\n');
+                            cb(); return;
+                        }
+                        child2.stdout.on('data', d => { out += d.toString(); });
+                        child2.stderr.on('data', d => { err += d.toString(); });
+                        const tid = setTimeout(() => {
+                            try { child2.kill(); } catch (_) {}
+                            socket.write('\x1b[31m  ' + label + ': TIMEOUT\x1b[0m\r\n');
+                            cb();
+                        }, 10000);
+                        child2.on('close', code => {
+                            clearTimeout(tid);
+                            log('[test-cli] ' + label + ' exit=' + code +
+                                ' out=' + JSON.stringify(out.slice(0,200)) +
+                                ' err=' + JSON.stringify(err.slice(0,300)) + '\n');
+                            const mark = code === 0 ? '\x1b[32m✓' : '\x1b[31m✗';
+                            let msg2 = mark + ' ' + label + ' exit=' + code + '\x1b[0m';
+                            if (out.trim()) msg2 += '  out:' + out.trim().slice(0,80);
+                            if (err.trim()) msg2 += '\r\n    \x1b[31merr:' + err.trim().slice(0,200) + '\x1b[0m';
+                            socket.write('  ' + msg2 + '\r\n');
+                            cb();
+                        });
+                    }
+
+                    // Eval step: spawn LAUNCHER ['-e', evalCode]
+                    function runEvalStep(label, evalCode, cb) {
+                        let out = '', err = '';
+                        let child2;
+                        try {
+                            child2 = spawn(LAUNCHER, ['-e', evalCode], { env: env2, cwd: FILES_DIR });
+                            child2.stdin.end();
+                        } catch (e) {
+                            socket.write('\x1b[31m  ' + label + ': spawn-err ' + e.message + '\x1b[0m\r\n');
+                            cb(); return;
+                        }
+                        child2.stdout.on('data', d => { out += d.toString(); });
+                        child2.stderr.on('data', d => { err += d.toString(); });
+                        const tid = setTimeout(() => {
+                            try { child2.kill(); } catch (_) {}
+                            socket.write('\x1b[31m  ' + label + ': TIMEOUT\x1b[0m\r\n');
+                            cb();
+                        }, 30000);
+                        child2.on('close', code => {
+                            clearTimeout(tid);
+                            log('[test-cli] ' + label + ' exit=' + code +
+                                ' out=' + JSON.stringify(out.slice(0,200)) +
+                                ' err=' + JSON.stringify(err.slice(0,300)) + '\n');
+                            const mark = code === 0 ? '\x1b[32m✓' : '\x1b[31m✗';
+                            let msg2 = mark + ' ' + label + ' exit=' + code + '\x1b[0m';
+                            if (out.trim()) msg2 += '  out:' + out.trim().slice(0,80);
+                            if (err.trim()) msg2 += '\r\n    \x1b[31merr:' + err.trim().slice(0,200) + '\x1b[0m';
+                            socket.write('  ' + msg2 + '\r\n');
+                            cb();
+                        });
+                    }
+
+                    const t1 = path.join(FILES_DIR, 'diag1.js');
+                    const t2 = path.join(FILES_DIR, 'diag2.mjs');
+                    const t3 = path.join(FILES_DIR, 'diag3.mjs');
+
+                    runFileStep('[1] CJS .js file', t1,
+                        '"use strict"; process.stdout.write("cjs-ok\\n");\n',
+                    () => runFileStep('[2] .mjs (no await)', t2,
+                        'process.stdout.write("mjs-ok\\n");\n',
+                    () => runFileStep('[3] .mjs (top-level await)', t3,
+                        'await Promise.resolve();\nprocess.stdout.write("mjs-await-ok\\n");\n',
+                    () => runEvalStep('[4] -e import(cli.js) --version',
+                        'process.argv[1]=' + JSON.stringify(CLAUDE_CLI) + ';' +
+                        'process.argv[2]="--version";process.argv.length=3;' +
+                        'import(' + JSON.stringify(cliUrl2) + ')' +
+                        '.catch(function(e){process.stderr.write("ERR:"+String(e)+"\\n");process.exit(1)});',
+                    () => runEvalStep('[5] -e import(cli.js) --print hello',
+                        'process.argv[1]=' + JSON.stringify(CLAUDE_CLI) + ';' +
+                        'process.argv[2]="--print";process.argv[3]="hello";process.argv.length=4;' +
+                        'import(' + JSON.stringify(cliUrl2) + ')' +
+                        '.catch(function(e){process.stderr.write("ERR:"+String(e)+"\\n");process.exit(1)});',
+                    () => { socket.write('\x1b[33mDone. Check !log for details.\x1b[0m\r\n'); })))));
                     continue;
                 }
 
