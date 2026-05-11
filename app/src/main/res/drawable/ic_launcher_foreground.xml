@@ -1,27 +1,90 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Convergence Gate — foreground layer for adaptive icon (108×108dp, 72dp safe zone).
+  SVG source at assets/icons/app_icon.svg (viewBox 0 0 120 120).
+  All coordinates scaled by 0.9 (108/120) to fit 108dp viewport.
+-->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Terminal prompt ">" symbol -->
-    <path
-        android:pathData="M24,54L46,32"
-        android:strokeWidth="7"
-        android:strokeColor="#3FB950"
-        android:strokeLineCap="round"
-        android:fillColor="@android:color/transparent" />
-    <path
-        android:pathData="M24,54L46,76"
-        android:strokeWidth="7"
-        android:strokeColor="#3FB950"
-        android:strokeLineCap="round"
-        android:fillColor="@android:color/transparent" />
-    <!-- Underscore cursor -->
-    <path
-        android:pathData="M54,76L84,76"
-        android:strokeWidth="7"
-        android:strokeColor="#3FB950"
-        android:strokeLineCap="round"
-        android:fillColor="@android:color/transparent" />
+
+    <!-- Soft purple radial glow blob -->
+    <path android:pathData="M54,54m-47,0a47,47 0 1,0 94,0a47,47 0 1,0 -94,0">
+        <aapt:attr name="android:fillColor">
+            <gradient android:type="radial"
+                android:centerX="54" android:centerY="54"
+                android:gradientRadius="47"
+                android:startColor="#147c3aed"
+                android:endColor="#007c3aed" />
+        </aapt:attr>
+    </path>
+
+    <!-- Node connecting lines (25% opacity) -->
+    <path android:pathData="M16,20L54,54" android:strokeColor="#40f97316"
+        android:strokeWidth="0.8" android:fillColor="@android:color/transparent" android:strokeLineCap="round" />
+    <path android:pathData="M90,16L54,54" android:strokeColor="#4010b981"
+        android:strokeWidth="0.8" android:fillColor="@android:color/transparent" android:strokeLineCap="round" />
+    <path android:pathData="M97,63L54,54" android:strokeColor="#403b82f6"
+        android:strokeWidth="0.8" android:fillColor="@android:color/transparent" android:strokeLineCap="round" />
+    <path android:pathData="M81,94L54,54" android:strokeColor="#408b5cf6"
+        android:strokeWidth="0.8" android:fillColor="@android:color/transparent" android:strokeLineCap="round" />
+    <path android:pathData="M16,88L54,54" android:strokeColor="#40ef4444"
+        android:strokeWidth="0.8" android:fillColor="@android:color/transparent" android:strokeLineCap="round" />
+    <path android:pathData="M11,52L54,54" android:strokeColor="#4006b6d4"
+        android:strokeWidth="0.8" android:fillColor="@android:color/transparent" android:strokeLineCap="round" />
+
+    <!-- Outer node circles (r=6.3) -->
+    <path android:pathData="M16,20m-6.3,0a6.3,6.3 0 1,0 12.6,0a6.3,6.3 0 1,0 -12.6,0"
+        android:fillColor="#26f97316" android:strokeColor="#b3f97316" android:strokeWidth="0.9" />
+    <path android:pathData="M90,16m-6.3,0a6.3,6.3 0 1,0 12.6,0a6.3,6.3 0 1,0 -12.6,0"
+        android:fillColor="#2610b981" android:strokeColor="#b310b981" android:strokeWidth="0.9" />
+    <path android:pathData="M97,63m-6.3,0a6.3,6.3 0 1,0 12.6,0a6.3,6.3 0 1,0 -12.6,0"
+        android:fillColor="#263b82f6" android:strokeColor="#b33b82f6" android:strokeWidth="0.9" />
+    <path android:pathData="M81,94m-6.3,0a6.3,6.3 0 1,0 12.6,0a6.3,6.3 0 1,0 -12.6,0"
+        android:fillColor="#268b5cf6" android:strokeColor="#b38b5cf6" android:strokeWidth="0.9" />
+    <path android:pathData="M16,88m-6.3,0a6.3,6.3 0 1,0 12.6,0a6.3,6.3 0 1,0 -12.6,0"
+        android:fillColor="#26ef4444" android:strokeColor="#b3ef4444" android:strokeWidth="0.9" />
+    <path android:pathData="M11,52m-6.3,0a6.3,6.3 0 1,0 12.6,0a6.3,6.3 0 1,0 -12.6,0"
+        android:fillColor="#2606b6d4" android:strokeColor="#b306b6d4" android:strokeWidth="0.9" />
+
+    <!-- Diamond body with gradient fill -->
+    <path android:pathData="M54,32L72,54L54,76L36,54Z">
+        <aapt:attr name="android:fillColor">
+            <gradient android:type="linear"
+                android:startX="54" android:startY="32"
+                android:endX="54"   android:endY="76"
+                android:startColor="#ffe9d5ff"
+                android:centerColor="#ffa78bfa"
+                android:endColor="#665b21b6" />
+        </aapt:attr>
+    </path>
+
+    <!-- Diamond outer stroke -->
+    <path android:pathData="M54,32L72,54L54,76L36,54Z"
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#cca78bfa" android:strokeWidth="1.1" />
+
+    <!-- Inner highlight strip -->
+    <path android:pathData="M54,34L55.8,54L54,74L52.2,54Z"
+        android:fillColor="#0fffffff" />
+
+    <!-- Highlight ellipse -->
+    <path android:pathData="M49.5,43m-5.4,0a5.4,3.15 0 1,0 10.8,0a5.4,3.15 0 1,0 -10.8,0"
+        android:fillColor="#2effffff" />
+
+    <!-- Diamond soft glow outline -->
+    <path android:pathData="M54,32L72,54L54,76L36,54Z"
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#80e9d5ff" android:strokeWidth="2.5" />
+
+    <!-- Central white glow circle -->
+    <path android:pathData="M54,54m-7,0a7,7 0 1,0 14,0a7,7 0 1,0 -14,0"
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#60e9d5ff" android:strokeWidth="4" />
+    <path android:pathData="M54,54m-3.6,0a3.6,3.6 0 1,0 7.2,0a3.6,3.6 0 1,0 -7.2,0"
+        android:fillColor="#ffe9d5ff" />
+
 </vector>

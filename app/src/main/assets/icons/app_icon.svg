@@ -1,0 +1,60 @@
+<svg viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="cg-bg" cx="50%" cy="40%" r="70%">
+      <stop offset="0%" stop-color="#1a0533"/>
+      <stop offset="100%" stop-color="#090714"/>
+    </radialGradient>
+    <radialGradient id="cg-core" cx="40%" cy="35%" r="60%">
+      <stop offset="0%" stop-color="#e9d5ff"/>
+      <stop offset="50%" stop-color="#a78bfa"/>
+      <stop offset="100%" stop-color="#5b21b6" stop-opacity="0.4"/>
+    </radialGradient>
+    <filter id="cg-glow">
+      <feGaussianBlur stdDeviation="2.5" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="cg-soft">
+      <feGaussianBlur stdDeviation="4"/>
+    </filter>
+    <clipPath id="cg-clip">
+      <rect width="120" height="120" rx="26"/>
+    </clipPath>
+  </defs>
+
+  <g clip-path="url(#cg-clip)">
+    <!-- Background -->
+    <rect width="120" height="120" fill="url(#cg-bg)"/>
+
+    <!-- Soft purple blob -->
+    <circle cx="60" cy="60" r="52" fill="#7c3aed" opacity="0.08" filter="url(#cg-soft)"/>
+
+    <!-- Nodes with connecting lines -->
+    <!-- orange -->
+    <line x1="18" y1="22" x2="60" y2="60" stroke="#f97316" stroke-width="0.8" opacity="0.25" stroke-dasharray="3 3"/>
+    <circle cx="18" cy="22" r="7" fill="#f97316" opacity="0.15" stroke="#f97316" stroke-width="1" stroke-opacity="0.7"/>
+    <!-- green -->
+    <line x1="100" y1="18" x2="60" y2="60" stroke="#10b981" stroke-width="0.8" opacity="0.25" stroke-dasharray="3 3"/>
+    <circle cx="100" cy="18" r="7" fill="#10b981" opacity="0.15" stroke="#10b981" stroke-width="1" stroke-opacity="0.7"/>
+    <!-- blue -->
+    <line x1="108" y1="70" x2="60" y2="60" stroke="#3b82f6" stroke-width="0.8" opacity="0.25" stroke-dasharray="3 3"/>
+    <circle cx="108" cy="70" r="7" fill="#3b82f6" opacity="0.15" stroke="#3b82f6" stroke-width="1" stroke-opacity="0.7"/>
+    <!-- purple -->
+    <line x1="90" y1="104" x2="60" y2="60" stroke="#8b5cf6" stroke-width="0.8" opacity="0.25" stroke-dasharray="3 3"/>
+    <circle cx="90" cy="104" r="7" fill="#8b5cf6" opacity="0.15" stroke="#8b5cf6" stroke-width="1" stroke-opacity="0.7"/>
+    <!-- red -->
+    <line x1="18" y1="98" x2="60" y2="60" stroke="#ef4444" stroke-width="0.8" opacity="0.25" stroke-dasharray="3 3"/>
+    <circle cx="18" cy="98" r="7" fill="#ef4444" opacity="0.15" stroke="#ef4444" stroke-width="1" stroke-opacity="0.7"/>
+    <!-- cyan -->
+    <line x1="12" y1="58" x2="60" y2="60" stroke="#06b6d4" stroke-width="0.8" opacity="0.25" stroke-dasharray="3 3"/>
+    <circle cx="12" cy="58" r="7" fill="#06b6d4" opacity="0.15" stroke="#06b6d4" stroke-width="1" stroke-opacity="0.7"/>
+
+    <!-- Diamond gate -->
+    <polygon points="60,36 80,60 60,84 40,60" fill="url(#cg-core)" stroke="#a78bfa" stroke-width="1.2" stroke-opacity="0.8"/>
+    <polygon points="60,38 62,60 60,82 58,60" fill="rgba(255,255,255,0.06)"/>
+    <ellipse cx="55" cy="48" rx="6" ry="3.5" fill="white" opacity="0.18"/>
+    <polygon points="60,36 80,60 60,84 40,60" fill="none" stroke="#e9d5ff" stroke-width="0.5" opacity="0.5" filter="url(#cg-glow)"/>
+
+    <!-- Central glow -->
+    <circle cx="60" cy="60" r="4" fill="#e9d5ff" filter="url(#cg-glow)"/>
+  </g>
+</svg>
