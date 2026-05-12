@@ -622,9 +622,16 @@ function scrollToBottom(){
 }
 
 // ── OSC handler ───────────────────────────────────────────────────────────────
+function resetToIdle(){
+  if(chatState==='RESPONDING') finalizeAiBubble();
+  thinkBub.style.display='none';
+  if(thinkBub.parentNode===msgs) msgs.removeChild(thinkBub);
+  chatState='IDLE';
+}
+
 function handleOSC(content){
   if(content==='9;thinking-start'){
-    if(chatState==='RESPONDING') finalizeAiBubble();
+    if(chatState!=='IDLE') resetToIdle(); // clear any previous stuck state
     chatState='THINKING';
     thinkBub.style.display='flex';
     msgs.appendChild(thinkBub);
@@ -766,7 +773,7 @@ function submitLine(text){
   ghost.value='';
   updateInputDisp();
   if(!msg) return;
-  if(chatState==='RESPONDING') finalizeAiBubble();
+  resetToIdle(); // finalize any pending AI bubble and hide thinking animation
   sysEl=null;
   sysAnsi=makeAnsiState();
   addUserBubble(msg);

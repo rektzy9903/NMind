@@ -584,11 +584,24 @@ function handleProxyRequest(anthReq, res) {
     const pUrl = cfg.providerUrl || '';
     const key  = cfg.apiKey || '';
     const model = cfg.modelId || anthReq.model || '';
+    const stream = !!anthReq.stream;
 
     if (!pUrl) return proxyError(res, 500, 'No provider URL in config — check app settings');
 
-    const oaiReq = anthToOai(anthReq, model);
-    sendToProvider(pUrl, key, oaiReq, !!anthReq.stream, res);
+    const oaiReq  = anthToOai(anthReq, model);
+    const hasTools = !!(oaiReq.tools && oaiReq.tools.length);
+
+    // If provider rejects tools (HTTP 400), retry the same request stripped of
+    // tools/tool_choice so text responses still work on non-function-calling models.
+    function retryWithoutTools() {
+        log('[proxy] provider rejected tools (HTTP 400) — retrying as plain text request\n');
+        const plain = Object.assign({}, oaiReq);
+        delete plain.tools;
+        delete plain.tool_choice;
+        sendToProvider(pUrl, key, plain, stream, res, null);
+    }
+
+    sendToProvider(pUrl, key, oaiReq, stream, res, hasTools ? retryWithoutTools : null);
 }
 
 // Convert Anthropic Messages request → OpenAI Chat Completions request
@@ -696,7 +709,7 @@ function oaiToAnth(oai, model) {
     };
 }
 
-function sendToProvider(baseUrl, apiKey, oaiReq, stream, res) {
+function sendToProvider(baseUrl, apiKey, oaiReq, stream, res, onBadRequest) {
     let targetUrl;
     try {
         const base = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
@@ -739,6 +752,7 @@ function sendToProvider(baseUrl, apiKey, oaiReq, stream, res) {
                             parsed.error.message || JSON.stringify(parsed.error));
                     }
                     if (provRes.statusCode !== 200) {
+                        if (provRes.statusCode === 400 && onBadRequest) return onBadRequest();
                         if (provRes.statusCode === 429) lastRateLimitMs = Date.now();
                         return proxyError(res, provRes.statusCode,
                             'Provider HTTP ' + provRes.statusCode);
@@ -756,6 +770,8 @@ function sendToProvider(baseUrl, apiKey, oaiReq, stream, res) {
                 provRes.setEncoding('utf8');
                 provRes.on('data', c => { errBody += c; });
                 provRes.on('end', () => {
+                    // 400 with tools in request → retry without tools
+                    if (provRes.statusCode === 400 && onBadRequest) return onBadRequest();
                     let msg = 'Provider returned HTTP ' + provRes.statusCode;
                     if (provRes.statusCode === 429) {
                         lastRateLimitMs = Date.now();
