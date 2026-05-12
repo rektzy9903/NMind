@@ -358,3 +358,185 @@ Providers are defined in two places:
 22. **Markdown rendering accumulates raw text in `rawAiText`** — `termWrite()` appends to `rawAiText` whenever `chatState === 'RESPONDING'`. `startAiBubble()` resets it to `''`. `finalizeAiBubble()` checks `hasMarkdownStructures(rawAiText)` and calls `renderMarkdown()` instead of the ANSI line renderer when true. `rawAiText` includes raw ANSI escape sequences; `renderMarkdown()` strips them via regex before parsing. Do not reset `rawAiText` anywhere except `startAiBubble()` and `finalizeAiBubble()`.
 
 23. **Background response notification uses `CHANNEL_RESPONSE` and `RESPONSE_NOTIF_ID = 1002`** — The channel is created in `ClaudeApp.onCreate()` alongside `CHANNEL_RUNNING` and `CHANNEL_SETUP`. The debounce handler (`responseNotifHandler` + `responseNotifRunnable`) is module-level in `ClaudeService`. Call `cancelResponseNotification()` from `TerminalActivity` whenever the activity becomes visible to dismiss the pending notification and cancel the handler.
+
+---
+
+## Session progress log
+
+### Session 1 — Core foundation
+- Full end-to-end flow: install → provider selection → working Claude Code terminal
+- `--print` mode, Anthropic→OpenAI proxy, multi-session tabs, foreground service
+- EncryptedSharedPreferences for API keys, API key validation at login
+- Providers: Gemini, OpenRouter, DeepSeek, Kimi, NVIDIA NIM, Meta Llama, Ollama, Anthropic
+- Malaysian user UX path, Bahasa Malaysia language support
+- Diagnostic commands: `!log`, `!test`, `!ver`, `!test-cli`
+- Fixed: proxy silent exit (ANTHROPIC_MODEL), launcher script loading, Unicode regex, Intl shim
+- Fixed: tryOptimize false-positive matching real user messages
+- Fixed: stacking empty boxes on app restart, empty AI response bubbles
+- Fixed: proxy tool forwarding causing empty responses on free models
+
+### Session 2 — Quality & polish
+- Replaced app icon with Convergence Gate design (geometric diamond, 6 colored nodes)
+- Full Jetpack Compose login flow replacing LoginFlowActivity
+- Glassmorphic HomeScreen (main menu) with Chat Box, Testing Response, Settings cards
+- ModelTestScreen — tests all provider models with pass/fail/latency indicators
+- `$` shell prefix — run shell commands directly from the terminal
+- Conversation history injection (Option B) — per-socket `history[]` with `!clear`/`!history`
+- Session persistence — `last_session.json` with 24h TTL, `(resumed N turns)` on reconnect
+- `!help` command listing all terminal commands
+- Fixed: Settings "Change model" button navigation
+- Fixed: logos in terminal header and setup screen
+- Fixed: bluish-white text colors in Compose UI
+- Fixed: multi-session tab strip discoverability
+- Added: rate limit notification (HTTP 429 detection)
+- Added: agentic tool-calling loop (`!agentic on/off`)
+- Added: `!gh-auth <token>` and `!install-git` for isomorphic-git
+- Added: `$` toolbar button, inline tool-call indicators via stream-json
+- Added: markdown rendering for AI response bubbles
+- Added: search bar in ModelPickerScreen, `!log [N]` configurable line count
+- Added: `!update` command, background AI response notification
+- Added: 429 auto-retry + model fallback in proxy
+- Fixed: OpenRouter model picker — live-only fetch
+- Fixed: `moonshotai/kimi-k2:free` → `moonshotai/kimi-k2.5`
+- Fixed: model switch not taking effect after first session
+- Fixed: `!agentic` state persists across bridge restarts
+- Removed: `DownloadManager.fetchLatestClaudeVersion()` dead code
+
+### Session 3 — Feature expansion (13 features)
+- Voice input (mic button, SpeechRecognizer)
+- Quick-actions button (⚡) with 10 pre-built prompts
+- File browser (`📂 Files`) with in-app file content viewer
+- Project directory setting in Settings
+- Custom system prompt setting in Settings
+- `!fetch <url>` command (HTTP/HTTPS, strips HTML)
+- 429 countdown OSC (`\x1b]9;rate-limit:N\x07`) with animated timer
+- Working directory persistence (`last_cwd` file, survives restarts)
+- Share-to-Claude via Android ACTION_SEND intent
+- Auto-save code blocks (filename hint in fenced code, Save button)
+- `--output-format stream-json --print --verbose` inline tool indicators
+- Live fetch for OpenRouter models in ModelTestScreen
+- RECORD_AUDIO permission
+
+### Session 4 — Bug fixes
+- Fixed: HomeScreen routing (SplashActivity sent all users to TerminalActivity)
+- Fixed: cursor position (flex layout pushed cursor to far right)
+- Fixed: Malaysia "Don't ask again" checkbox with skipMalaysiaPrompt pref
+- Removed: PiP (Picture-in-Picture) — useless for terminal-type app
+- Fixed: blank response box — config guard before spawn, clear error message
+- Fixed: blank AI bubble between thinking and first text — pulsing loading dots
+
+### Session 5 — 8 major features
+- Toolbar cleanup — removed 14 symbol buttons accessible on standard keyboards
+- Storage Access Framework — MANAGE_EXTERNAL_STORAGE, folder browser in Settings
+- Project Manager — named workspaces with path + system prompt, HomeScreen card
+- MCP Server management — add HTTP/SSE servers, writes `~/.claude.json`
+- Live web preview — 🌐 button opens project's index.html in WebView
+- Built-in code editor — Edit button in file browser, monospace EditText + Save
+- Usage/cost tracker — `!stats` command (message count + token estimate)
+- Conversation import/export — `!export` → Markdown file, `!import <file>` restores history
+
+### Session 6 — AI behavior improvements
+- Rewrote AGENTIC_SYSTEM_PROMPT — explicit instructions to ask clarifying questions, check tools before using them, confirm language/framework before generating files
+- BASE_ASSISTANT_INSTRUCTION injected into every `--print` spawn (not just agentic)
+- Agentic loop pauses when Claude asks a question (question-pattern detection) instead of continuing tool turns without waiting for the answer
+
+### Session 7 — 7 major features (closes gap with Claude.ai)
+- Image input — 📷 button, gallery picker, base64 encode, vision-capable providers
+- Run-and-feedback loop — ▶ Run button on code blocks, executes on-device, auto-sends output back to Claude
+- TTS voice output — 🔊 toggle in terminal header, Android TextToSpeech, speaks AI responses
+- Follow-up suggestions — 3 tappable chips after each response (generated via proxy)
+- Device context injection — time, battery, device model auto-injected into system prompt
+- Offline detection — immediate error instead of silent hang when no internet
+- Response regeneration — ↺ button on each AI bubble to re-send last message
+
+### Session 8 — Navigation fix
+- After setup completes → routes to HomeScreen instead of jumping straight to login flow
+- SplashActivity no longer fast-tracks unconfigured users to ComposeActivity
+- HomeActivity checks isProviderConfigured() on Chat Box / Testing Response tap
+
+### Session 9 — P1 features: package manager, auto-compact, CLAUDE.md, undo
+- **Package manager** (`!install <name>`): static ARM64 binary catalog (busybox, curl, jq) + npm catalog (serve, http-server, typescript, nodemon, prettier, eslint, pm2, express, axios). BusyBox post-install creates 300+ symlinks. `!install` with no args shows catalog with install status.
+- **Auto-compact**: when history approaches MAX_HISTORY, oldest turns summarized via proxy and replaced with compact summary entry. Fires automatically in both --print and agentic paths.
+- **CLAUDE.md auto-read**: `buildMessageWithHistory()` now reads `<projectPath>/CLAUDE.md` (up to 15 KB) and prepends as `[CLAUDE.md — project instructions]` in every system prompt. Zero UI changes.
+- **Undo / file checkpoint**: `write_file` in agentic mode snapshots original to `filesDir/.undo/<ts>_<filename>` before overwriting. `!undo` restores most recent snapshot. Keeps 20 snapshots, repeated `!undo` steps back further.
+
+---
+
+## Roadmap — prioritized todo list
+
+### P1 — Critical (next to implement)
+
+- [x] **Package manager + ARM64 binary catalog** — DONE (Session 9)
+- [x] **Auto-compact (context summarization)** — DONE (Session 9)
+- [x] **CLAUDE.md auto-read** — DONE (Session 9)
+- [x] **Undo / file checkpoint** — DONE (Session 9)
+
+### P2 — High value
+
+- [ ] **Slash commands**
+  `/init` — scan project files and auto-generate CLAUDE.md
+  `/review` — review staged git diff
+  `/cost` — show session token usage and estimated cost
+  `/doctor` — diagnose environment (Node, npm, claude-code, config)
+  `/compact` — manually trigger context summarization
+
+- [ ] **LaTeX + Mermaid rendering**
+  Add KaTeX.js and Mermaid.js to `terminal/index.html`. Detect `$$...$$` / `$...$` for math and ` ```mermaid ` blocks for diagrams in `renderMarkdown()`. No backend changes.
+
+- [ ] **Context window indicator**
+  Show rough token count in terminal header (e.g. `~4.2k / 200k`). Estimate from history length × avg chars. Update on each message.
+
+- [ ] **Per-conversation system prompt via Projects**
+  When a Project is active (path matches current working directory), automatically apply that project's system prompt without the user having to set it manually in Settings.
+
+### P3 — Medium priority
+
+- [ ] **Document upload (PDF / CSV)**
+  File picker for text-extractable documents. PDF: extract text via Node.js pdf-parse or simple text extraction. CSV: read and format as markdown table. Inject as context block.
+
+- [ ] **stdio MCP servers**
+  Allow spawning local MCP server processes (Node.js scripts) as child processes from bridge.js. Extends MCP ecosystem beyond HTTP-only.
+
+- [ ] **Edit previous message**
+  Tap an existing user bubble to edit and re-submit. Truncate history from that point and re-run.
+
+- [ ] **Extended thinking visibility**
+  Parse `thinking` content blocks from stream-json output and display them in a collapsible section above the response.
+
+### P4 — Long term / hard
+
+- [ ] **Code diff visualization**
+  When Claude edits a file, show a before/after diff view.
+
+- [ ] **Sub-agents**
+  Spawn parallel tool-calling workstreams for complex multi-part tasks.
+
+- [ ] **Interactive PTY mode**
+  Replace `--print` per-message with a persistent PTY session. Requires replacing the Node.js bridge architecture. Fundamental Android limitation — may not be fully achievable.
+
+---
+
+## Capability comparison (current state)
+
+| Capability | Desktop Claude Code | This app |
+|---|---|---|
+| File read/write | ✅ | ✅ |
+| Shell commands | ✅ | ✅ |
+| npm / Node.js | ✅ | ✅ |
+| Conversation history | ✅ | ✅ (transcript injection) |
+| Agentic tool loop | ✅ | ✅ |
+| Voice input | ❌ | ✅ |
+| Image input | ✅ | ✅ (agentic mode) |
+| Follow-up suggestions | ❌ | ✅ |
+| TTS output | ❌ | ✅ |
+| MCP servers (HTTP) | ✅ | ✅ |
+| MCP servers (stdio) | ✅ | ❌ P3 |
+| Python / Ruby / Go | ✅ | ❌ P1 |
+| Real git binary | ✅ | ❌ P1 |
+| CLAUDE.md | ✅ | ❌ P1 |
+| Auto-compact | ✅ | ❌ P1 |
+| Undo/checkpoint | ✅ | ❌ P1 |
+| Slash commands | ✅ | ❌ P2 |
+| LaTeX / Mermaid | ❌ | ❌ P2 |
+| Interactive PTY | ✅ | ❌ P4 |
+| Docker | ✅ | ❌ permanent |
