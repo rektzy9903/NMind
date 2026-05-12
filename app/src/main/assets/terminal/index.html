@@ -140,6 +140,55 @@ html, body {
   font-family: 'Space Mono', 'Courier New', monospace;
 }
 
+/* ── Markdown rendering ──────────────────────────────────────────────────── */
+.ai-bubble { white-space: normal; }
+.md-code {
+  background: rgba(0,0,0,0.4);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin: 6px 0;
+  overflow-x: auto;
+  font-family: 'Space Mono','Courier New',monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre;
+  color: #e2e8f0;
+}
+.md-code code { background: none; padding: 0; }
+.md-inline-code {
+  background: rgba(255,255,255,0.1);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-family: 'Space Mono','Courier New',monospace;
+  font-size: 12px;
+  color: #7dd3fc;
+}
+.md-table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 6px 0;
+  font-size: 12px;
+}
+.md-table th, .md-table td {
+  border: 1px solid rgba(255,255,255,0.15);
+  padding: 5px 10px;
+  text-align: left;
+}
+.md-table th {
+  background: rgba(255,255,255,0.08);
+  color: #93c5fd;
+  font-weight: bold;
+}
+.md-table tr:nth-child(even) td { background: rgba(255,255,255,0.03); }
+.hl-kw     { color: #c084fc; }
+.hl-str    { color: #86efac; }
+.hl-comment{ color: #64748b; font-style: italic; }
+.md-h1 { font-size: 16px; font-weight: bold; color: #e2e8f0; margin: 6px 0 3px; }
+.md-h2 { font-size: 14px; font-weight: bold; color: #cbd5e1; margin: 5px 0 2px; }
+.md-h3 { font-size: 13px; font-weight: bold; color: #94a3b8; margin: 4px 0 2px; }
+.md-li { margin-left: 16px; }
+
 /* ── Thinking bubble ─────────────────────────────────────────────────────── */
 #thinking-bubble {
   display: none;
@@ -667,6 +716,81 @@ function addUserBubble(text){
   scrollToBottom();
 }
 
+// ── Markdown renderer ─────────────────────────────────────────────────────────
+let rawAiText='';
+
+function escHtml(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+function highlightCode(code,lang){
+  const kw={
+    javascript:'\\b(const|let|var|function|return|if|else|for|while|class|import|export|from|async|await|new|this|typeof|null|undefined|true|false|throw|try|catch|finally|of|do|switch|case|break|continue|delete|in|instanceof)\\b',
+    python:'\\b(def|class|import|from|return|if|elif|else|for|while|in|not|and|or|True|False|None|with|as|try|except|finally|lambda|yield|pass|break|continue|raise|global|nonlocal|del|assert|is)\\b',
+    kotlin:'\\b(fun|val|var|class|object|interface|return|if|else|when|for|while|in|is|as|null|true|false|override|private|public|protected|internal|suspend|data|sealed|companion|import|package|by|init|constructor|this|super|throw|try|catch|finally|operator|inline|reified|crossinline|noinline|typealias|enum|annotation|abstract|open|final|lateinit)\\b',
+    java:'\\b(class|interface|return|if|else|for|while|new|public|private|protected|static|final|void|null|true|false|import|package|extends|implements|throws|throw|try|catch|finally|this|super|abstract|synchronized|volatile|transient|instanceof|enum|int|long|double|float|boolean|char|byte|short)\\b',
+    bash:'\\b(if|then|else|elif|fi|for|while|do|done|in|case|esac|function|return|export|echo|read|exit|source|alias|unset|local|declare|shift|break|continue)\\b',
+  };
+  const pat=kw[lang]||kw['javascript'];
+  code=code.replace(new RegExp(pat,'g'),'<span class="hl-kw">$1</span>');
+  code=code.replace(/(&#34;(?:[^\\&#]|\\.)*?&#34;|&#39;(?:[^\\&#]|\\.)*?&#39;)/g,'<span class="hl-str">$1</span>');
+  code=code.replace(/(\/\/[^\n]*|#[^\n]*)/g,'<span class="hl-comment">$1</span>');
+  return code;
+}
+
+function renderInline(t){
+  t=t.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>');
+  t=t.replace(/__(.+?)__/g,'<strong>$1</strong>');
+  t=t.replace(/\*([^*\n]+?)\*/g,'<em>$1</em>');
+  t=t.replace(/`([^`\n]+?)`/g,'<code class="md-inline-code">$1</code>');
+  return t;
+}
+
+function parseTableRow(line){
+  const parts=line.split('|');
+  return parts.slice(1,parts.length-1).map(function(s){return s.trim();});
+}
+
+function renderMarkdown(raw){
+  const text=raw.replace(/\x1b\[[0-9;]*[mA-Za-z]/g,'').replace(/\x1b\][^\x07]*\x07/g,'');
+  const lines=text.split('\n');
+  let html='';let i=0;
+  while(i<lines.length){
+    const line=lines[i];
+    // Fenced code block
+    if(/^```/.test(line)){
+      const lang=line.slice(3).trim().toLowerCase();
+      let code='';i++;
+      while(i<lines.length&&!/^```/.test(lines[i])){code+=lines[i]+'\n';i++;}
+      i++;
+      html+='<pre class="md-code"><code>'+highlightCode(escHtml(code.trimEnd()),lang)+'</code></pre>';
+      continue;
+    }
+    // Table
+    if(line.indexOf('|')!==-1&&i+1<lines.length&&/^[\s|:+-]+$/.test(lines[i+1])){
+      const headers=parseTableRow(line);i+=2;
+      let rows=[];
+      while(i<lines.length&&lines[i].indexOf('|')!==-1){rows.push(parseTableRow(lines[i]));i++;}
+      html+='<table class="md-table"><thead><tr>'+headers.map(function(h){return'<th>'+renderInline(escHtml(h))+'</th>';}).join('')+'</tr></thead><tbody>'+rows.map(function(r){return'<tr>'+r.map(function(c){return'<td>'+renderInline(escHtml(c))+'</td>';}).join('')+'</tr>';}).join('')+'</tbody></table>';
+      continue;
+    }
+    // Headings
+    if(/^### /.test(line)){html+='<div class="md-h3">'+renderInline(escHtml(line.slice(4)))+'</div>';i++;continue;}
+    if(/^## /.test(line)){html+='<div class="md-h2">'+renderInline(escHtml(line.slice(3)))+'</div>';i++;continue;}
+    if(/^# /.test(line)){html+='<div class="md-h1">'+renderInline(escHtml(line.slice(2)))+'</div>';i++;continue;}
+    // List items
+    if(/^[-*] /.test(line)){html+='<div class="md-li">• '+renderInline(escHtml(line.slice(2)))+'</div>';i++;continue;}
+    if(/^\d+\. /.test(line)){const m=line.match(/^(\d+)\. (.*)/);html+='<div class="md-li">'+m[1]+'. '+renderInline(escHtml(m[2]))+'</div>';i++;continue;}
+    // Blank line = spacer
+    if(line.trim()===''){html+='<div style="height:6px"></div>';i++;continue;}
+    // Normal line
+    html+='<div>'+renderInline(escHtml(line))+'</div>';i++;
+  }
+  return html;
+}
+
+function hasMarkdownStructures(text){
+  return text.indexOf('```')!==-1||/\|.*\|/.test(text)||text.indexOf('**')!==-1||/^#{1,3} /m.test(text)||/^[-*] /m.test(text);
+}
+
 function startAiBubble(){
   const row=document.createElement('div');
   row.className='msg-row ai-row';
@@ -680,6 +804,7 @@ function startAiBubble(){
   msgs.appendChild(row);
   currentAiBubble=bub;
   currentAiAnsi=makeAnsiState();
+  rawAiText='';
   scrollToBottom();
 }
 
@@ -696,7 +821,15 @@ function scheduleAiRender(){
 }
 
 function finalizeAiBubble(){
-  if(currentAiBubble){renderAiBubble();}
+  if(currentAiBubble){
+    if(hasMarkdownStructures(rawAiText)){
+      currentAiBubble.innerHTML=renderMarkdown(rawAiText);
+    } else {
+      renderAiBubble();
+    }
+    scrollToBottom();
+  }
+  rawAiText='';
   currentAiBubble=null;
   currentAiAnsi=null;
   chatState='IDLE';
@@ -730,6 +863,7 @@ function scheduleSysRender(){
 // ── Public API ────────────────────────────────────────────────────────────────
 window.termWrite=function(raw){
   if(chatState==='RESPONDING'){
+    rawAiText+=raw;
     processAnsiBytes(currentAiAnsi,raw);
     scheduleAiRender();
   } else {

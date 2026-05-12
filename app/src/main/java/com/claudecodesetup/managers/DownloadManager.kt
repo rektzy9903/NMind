@@ -1,6 +1,5 @@
 package com.claudecodesetup.managers
 
-import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -11,17 +10,12 @@ import java.util.concurrent.TimeUnit
 
 class DownloadManager {
 
-    private val TAG = "DownloadManager"
+
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(120, TimeUnit.SECONDS)
         .followRedirects(true)
-        .build()
-
-    private val registryClient = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(10, TimeUnit.SECONDS)
         .build()
 
     data class DownloadResult(val success: Boolean, val error: String? = null)
@@ -89,28 +83,6 @@ class DownloadManager {
         if (primary.success) return primary
         dest.delete() // Don't try to resume a failed primary with a different URL
         return download(fallbackUrl, dest, onProgress)
-    }
-
-    /**
-     * Query the npm registry for the latest published version of @anthropic-ai/claude-code.
-     * Returns [PINNED_CLAUDE_VERSION] on any network or parse failure so setup never blocks.
-     */
-    suspend fun fetchLatestClaudeVersion(): String = withContext(Dispatchers.IO) {
-        try {
-            val req = Request.Builder()
-                .url("https://registry.npmjs.org/@anthropic-ai/claude-code/latest")
-                .header("Accept", "application/json")
-                .build()
-            val body = registryClient.newCall(req).execute().use { resp ->
-                if (!resp.isSuccessful) return@withContext PINNED_CLAUDE_VERSION
-                resp.body?.string() ?: return@withContext PINNED_CLAUDE_VERSION
-            }
-            Regex(""""version"\s*:\s*"([^"]+)"""").find(body)?.groupValues?.get(1)
-                ?: PINNED_CLAUDE_VERSION
-        } catch (e: Exception) {
-            Log.w(TAG, "Could not fetch latest Claude version, using pinned: ${e.message}")
-            PINNED_CLAUDE_VERSION
-        }
     }
 
     companion object {

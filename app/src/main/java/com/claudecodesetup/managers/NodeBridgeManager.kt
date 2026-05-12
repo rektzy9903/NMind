@@ -4,6 +4,8 @@ import android.content.Context
 import android.util.Log
 import com.claudecodesetup.NodeEngine
 import com.claudecodesetup.data.AppPreferences
+import com.claudecodesetup.data.Providers
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.net.Socket
@@ -61,8 +63,8 @@ class NodeBridgeManager(private val context: Context) {
 
     // ─── Start Node.js ────────────────────────────────────────────────────────
 
-    fun startBridge(mode: String, apiKey: String, modelId: String, baseUrl: String) {
-        writeConfig(mode, apiKey, modelId, baseUrl)
+    fun startBridge(mode: String, apiKey: String, modelId: String, baseUrl: String, providerId: String = "") {
+        writeConfig(mode, apiKey, modelId, baseUrl, providerId)
         startNodeEngine()
     }
 
@@ -71,10 +73,11 @@ class NodeBridgeManager(private val context: Context) {
      *  up the new model immediately. */
     fun refreshConfig(prefs: AppPreferences) {
         writeConfig(
-            mode    = prefs.getLoginMode(),
-            apiKey  = prefs.getApiKey(),
-            modelId = prefs.getModelId(),
-            baseUrl = prefs.getBaseUrl()
+            mode       = prefs.getLoginMode(),
+            apiKey     = prefs.getApiKey(),
+            modelId    = prefs.getModelId(),
+            baseUrl    = prefs.getBaseUrl(),
+            providerId = prefs.getProviderId()
         )
     }
 
@@ -112,15 +115,15 @@ class NodeBridgeManager(private val context: Context) {
         }
     }
 
-    private fun writeConfig(mode: String, apiKey: String, modelId: String, baseUrl: String) {
-        // Only Anthropic subscription talks directly; everything else routes through
-        // the local Anthropic→OpenAI proxy on port 8082 which converts the protocol.
+    private fun writeConfig(mode: String, apiKey: String, modelId: String, baseUrl: String, providerId: String = "") {
         val isSubscription = mode == AppPreferences.MODE_SUBSCRIPTION
         val authToken = if (!isSubscription) "freecc" else ""
         val effectiveBaseUrl = if (!isSubscription) "http://127.0.0.1:8082" else baseUrl
-        // providerUrl carries the real OpenAI-compatible endpoint so bridge.js knows
-        // where to forward after converting from Anthropic to OpenAI format.
         val providerUrl = if (!isSubscription) baseUrl else ""
+        // Build model list for fallback: use the provider's static model list.
+        // bridge.js uses this to auto-switch on persistent 429s.
+        val models = Providers.byId(providerId)?.models ?: emptyList()
+        val modelList = JSONArray().apply { models.forEach { put(it.modelId) } }
         val json = JSONObject().apply {
             put("mode",        mode)
             put("apiKey",      apiKey)
@@ -128,6 +131,7 @@ class NodeBridgeManager(private val context: Context) {
             put("baseUrl",     effectiveBaseUrl)
             put("authToken",   authToken)
             put("providerUrl", providerUrl)
+            put("modelList",   modelList)
         }
         try {
             File(context.filesDir, CONFIG_FILE).writeText(json.toString())

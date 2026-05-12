@@ -41,6 +41,7 @@ const SETUP_LOG     = path.join(FILES_DIR, 'setup.log');
 const SETUP_DONE    = path.join(FILES_DIR, 'setup_done');
 const SETUP_FAILED  = path.join(FILES_DIR, 'setup_failed');
 const SESSION_FILE  = path.join(FILES_DIR, 'last_session.json');
+const AGENTIC_FILE  = path.join(FILES_DIR, 'agentic_state');
 
 const PORT       = 8083;
 const PROXY_PORT = 8082;
@@ -109,7 +110,7 @@ function log(msg) {
 // When enabled, user messages go through a direct tool-calling loop instead of
 // claude --print. Tools: bash, read_file, write_file, list_dir.
 
-let agenticEnabled = false;
+let agenticEnabled = (() => { try { return fs.existsSync(AGENTIC_FILE); } catch (_) { return false; } })();
 
 const AGENTIC_TOOLS = [
     {
@@ -879,28 +880,53 @@ function tryOptimize(anthReq) {
 }
 
 function handleProxyRequest(anthReq, res) {
-    const cfg  = readConfig();
-    const pUrl = cfg.providerUrl || '';
-    const key  = cfg.apiKey || '';
-    const model = cfg.modelId || anthReq.model || '';
+    const cfg   = readConfig();
+    const pUrl  = cfg.providerUrl || '';
+    const key   = cfg.apiKey || '';
     const stream = !!anthReq.stream;
 
     if (!pUrl) return proxyError(res, 500, 'No provider URL in config — check app settings');
 
-    const oaiReq  = anthToOai(anthReq, model);
-    const hasTools = !!(oaiReq.tools && oaiReq.tools.length);
+    const baseModel = cfg.modelId || anthReq.model || '';
+    const modelList = Array.isArray(cfg.modelList) ? cfg.modelList : [];
+    const oaiBase   = anthToOai(anthReq, baseModel);
+    const hasTools  = !!(oaiBase.tools && oaiBase.tools.length);
 
-    // If provider rejects tools (HTTP 400), retry the same request stripped of
-    // tools/tool_choice so text responses still work on non-function-calling models.
-    function retryWithoutTools() {
-        log('[proxy] provider rejected tools (HTTP 400) — retrying as plain text request\n');
-        const plain = Object.assign({}, oaiReq);
-        delete plain.tools;
-        delete plain.tool_choice;
-        sendToProvider(pUrl, key, plain, stream, res, null);
+    // attempt(modelId, retriesLeft, delayMs)
+    // Retries the same model up to 3x with exponential backoff on 429,
+    // then falls through to the next model in modelList.
+    function attempt(modelId, retriesLeft, delayMs) {
+        const oaiReq = Object.assign({}, oaiBase, { model: modelId });
+
+        function retryWithoutTools() {
+            log('[proxy] provider rejected tools (HTTP 400) — retrying as plain text request\n');
+            const plain = Object.assign({}, oaiReq);
+            delete plain.tools;
+            delete plain.tool_choice;
+            sendToProvider(pUrl, key, plain, stream, res, null, on429);
+        }
+
+        function on429() {
+            lastRateLimitMs = Date.now();
+            if (retriesLeft > 0) {
+                log('[proxy] 429 — retrying ' + modelId + ' in ' + delayMs + 's (' + retriesLeft + ' left)\n');
+                setTimeout(() => attempt(modelId, retriesLeft - 1, delayMs * 2), delayMs * 1000);
+            } else {
+                const idx  = modelList.indexOf(modelId);
+                const next = modelList[idx + 1];
+                if (next && next !== modelId) {
+                    log('[proxy] 429 exhausted — switching to ' + next + '\n');
+                    attempt(next, 2, 2);
+                } else {
+                    proxyError(res, 429, 'Rate limited. All fallback models exhausted — switch provider in Settings.');
+                }
+            }
+        }
+
+        sendToProvider(pUrl, key, oaiReq, stream, res, hasTools ? retryWithoutTools : null, on429);
     }
 
-    sendToProvider(pUrl, key, oaiReq, stream, res, hasTools ? retryWithoutTools : null);
+    attempt(baseModel, 3, 2);
 }
 
 // Convert Anthropic Messages request → OpenAI Chat Completions request
@@ -993,7 +1019,7 @@ function oaiToAnth(oai, model) {
     };
 }
 
-function sendToProvider(baseUrl, apiKey, oaiReq, stream, res, onBadRequest) {
+function sendToProvider(baseUrl, apiKey, oaiReq, stream, res, onBadRequest, on429) {
     let targetUrl;
     try {
         const base = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
@@ -1037,6 +1063,7 @@ function sendToProvider(baseUrl, apiKey, oaiReq, stream, res, onBadRequest) {
                     }
                     if (provRes.statusCode !== 200) {
                         if (provRes.statusCode === 400 && onBadRequest) return onBadRequest();
+                        if (provRes.statusCode === 429 && on429) return on429();
                         if (provRes.statusCode === 429) lastRateLimitMs = Date.now();
                         return proxyError(res, provRes.statusCode,
                             'Provider HTTP ' + provRes.statusCode);
@@ -1058,6 +1085,7 @@ function sendToProvider(baseUrl, apiKey, oaiReq, stream, res, onBadRequest) {
                     if (provRes.statusCode === 400 && onBadRequest) return onBadRequest();
                     let msg = 'Provider returned HTTP ' + provRes.statusCode;
                     if (provRes.statusCode === 429) {
+                        if (on429) return on429();
                         lastRateLimitMs = Date.now();
                         msg = 'Rate limited (HTTP 429) — wait a moment or switch models in Settings';
                     }
@@ -1522,12 +1550,13 @@ function openTcpBridge() {
                 if (!line) continue;
 
                 // ── Built-in diagnostic commands ──────────────────────────────
-                if (line === '!log') {
+                if (line === '!log' || line.startsWith('!log ')) {
                     try {
+                        const count   = parseInt(line.slice(4).trim()) || 80;
                         const logText = fs.readFileSync(SETUP_LOG, 'utf8');
                         const lines   = logText.split('\n');
-                        const tail    = lines.slice(-80).join('\n');
-                        socket.write('\r\n\x1b[2m── setup.log (last 80 lines) ──\x1b[0m\r\n' +
+                        const tail    = lines.slice(-count).join('\n');
+                        socket.write('\r\n\x1b[2m── setup.log (last ' + count + ' lines) ──\x1b[0m\r\n' +
                             tail.replace(/\n/g, '\r\n') + '\r\n\x1b[2m──────────────\x1b[0m\r\n');
                     } catch (e) {
                         socket.write('\r\n[log read error: ' + e.message + ']\r\n');
@@ -1604,6 +1633,10 @@ function openTcpBridge() {
                     if (arg === 'on')  agenticEnabled = true;
                     else if (arg === 'off') agenticEnabled = false;
                     else agenticEnabled = !agenticEnabled;
+                    try {
+                        if (agenticEnabled) fs.writeFileSync(AGENTIC_FILE, '1');
+                        else try { fs.unlinkSync(AGENTIC_FILE); } catch (_) {}
+                    } catch (_) {}
                     try {
                         socket.write(agenticEnabled
                             ? '\x1b[35m[AGENTIC ON]\x1b[0m The AI can now run bash, read/write files, chain tool calls.\r\n' +
@@ -1690,6 +1723,25 @@ function openTcpBridge() {
                     continue;
                 }
 
+                if (line === '!update') {
+                    try {
+                        const pkgDir = path.dirname(CLAUDE_CLI);
+                        socket.write('\r\n\x1b[33m⟳ Re-installing claude-code v2.1.112…\x1b[0m\r\n');
+                        try { fs.rmSync(pkgDir, { recursive: true, force: true }); } catch (_) {}
+                        try { fs.unlinkSync(SETUP_DONE); } catch (_) {}
+                        installClaudeCode(ok => {
+                            try {
+                                socket.write(ok
+                                    ? '\x1b[32m✓ Update complete. Your next message will use the fresh install.\x1b[0m\r\n\r\n'
+                                    : '\x1b[31m✗ Update failed. Check !log for details.\x1b[0m\r\n\r\n');
+                            } catch (_) {}
+                        });
+                    } catch (e) {
+                        try { socket.write('\r\n\x1b[31m✗ Update error: ' + e.message + '\x1b[0m\r\n\r\n'); } catch (_) {}
+                    }
+                    continue;
+                }
+
                 if (line === '!help') {
                     try {
                         socket.write(
@@ -1702,13 +1754,14 @@ function openTcpBridge() {
                             '  \x1b[33m!clear\x1b[0m        Clear conversation history\r\n' +
                             '  \x1b[33m!history\x1b[0m      Show number of turns in memory\r\n' +
                             '\r\n\x1b[1mDiagnostics:\x1b[0m\r\n' +
-                            '  \x1b[33m!log\x1b[0m          Show last 80 lines of setup.log\r\n' +
+                            '  \x1b[33m!log [N]\x1b[0m      Show last N lines of setup.log (default 80)\r\n' +
                             '  \x1b[33m!ver\x1b[0m          Show version and config info\r\n' +
                             '  \x1b[33m!test\x1b[0m         Test Node.js launcher\r\n' +
                             '  \x1b[33m!test-cli\x1b[0m     Run module-loader diagnostic\r\n' +
                             '  \x1b[33m!install-git\x1b[0m  Install git (isomorphic-git) for $ git commands\r\n' +
                             '  \x1b[33m!gh-auth <tok>\x1b[0m Save GitHub token for git push/clone\r\n' +
-                            '  \x1b[33m!agentic [on|off]\x1b[0m Toggle agentic tool-calling mode\r\n' +
+                            '  \x1b[33m!agentic [on|off]\x1b[0m Toggle agentic tool-calling mode (persists across restarts)\r\n' +
+                            '  \x1b[33m!update\x1b[0m       Re-install claude-code v2.1.112 (no data clear needed)\r\n' +
                             '  \x1b[33m!help\x1b[0m         Show this message\r\n\r\n'
                         );
                     } catch (_) {}

@@ -20,7 +20,8 @@ class ClaudeApp : Application() {
                 prefs.getLoginMode(),
                 prefs.getApiKey(),
                 prefs.getModelId(),
-                prefs.getBaseUrl()
+                prefs.getBaseUrl(),
+                prefs.getProviderId()
             )
         }
     }
@@ -44,10 +45,19 @@ class ClaudeApp : Application() {
         ).apply {
             description = "First-time setup notifications"
         }.also { manager.createNotificationChannel(it) }
+
+        NotificationChannel(
+            CHANNEL_RESPONSE,
+            "AI Response Ready",
+            NotificationManager.IMPORTANCE_HIGH
+        ).apply {
+            description = "Notifies when the AI finishes responding while the app is in the background"
+        }.also { manager.createNotificationChannel(it) }
     }
 
     companion object {
-        const val CHANNEL_RUNNING = "claude_running"
-        const val CHANNEL_SETUP   = "claude_setup"
+        const val CHANNEL_RUNNING  = "claude_running"
+        const val CHANNEL_SETUP    = "claude_setup"
+        const val CHANNEL_RESPONSE = "claude_response"
     }
 }

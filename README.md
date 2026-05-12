@@ -2,7 +2,7 @@
 
 > Run Claude Code on Android — no terminal, no manual installs, no tech knowledge required.
 
-[![Build APK](https://github.com/YOUR_USERNAME/ClaudeCodeSetup/actions/workflows/build.yml/badge.svg)](https://github.com/YOUR_USERNAME/ClaudeCodeSetup/actions/workflows/build.yml)
+[![Build APK](https://github.com/rektzy9903/ClaudeCodeSetup/actions/workflows/build.yml/badge.svg)](https://github.com/rektzy9903/ClaudeCodeSetup/actions/workflows/build.yml)
 
 **[Bahasa Malaysia](#bahasa-malaysia-)**
 
@@ -170,7 +170,7 @@ GitHub Actions will build the signed APK and create a Release page with a downlo
 ### Option C — Local build (requires Android Studio)
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/ClaudeCodeSetup
+git clone https://github.com/rektzy9903/ClaudeCodeSetup
 cd ClaudeCodeSetup
 echo "sdk.dir=$HOME/Android/Sdk" > local.properties
 ./gradlew assembleDebug

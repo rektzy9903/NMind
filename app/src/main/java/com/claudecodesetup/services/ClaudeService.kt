@@ -5,7 +5,9 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
 import android.os.Binder
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.os.PowerManager
 import android.util.Log
 import androidx.lifecycle.LifecycleService
@@ -40,6 +42,14 @@ class ClaudeService : LifecycleService() {
 
     // Start the bridge only once per service lifecycle
     private var bridgeStartedThisSession = false
+
+    // Tracks whether TerminalActivity is currently visible; used to suppress
+    // background response notifications when the user is already watching.
+    var isActivityVisible = false
+
+    private val responseNotifHandler = Handler(Looper.getMainLooper())
+    private val responseNotifRunnable = Runnable { fireResponseNotification() }
+    private var responseNotifPending = false
 
     // ─── Callbacks (set by TerminalActivity) ─────────────────────────────────
 
@@ -201,7 +211,8 @@ class ClaudeService : LifecycleService() {
                 currentMode,
                 prefs.getApiKey(),
                 prefs.getModelId(),
-                prefs.getBaseUrl()
+                prefs.getBaseUrl(),
+                prefs.getProviderId()
             )
         } else {
             bridge.refreshConfig(prefs)
@@ -245,6 +256,12 @@ class ClaudeService : LifecycleService() {
                 val chunk = String(buf, 0, n, Charsets.UTF_8)
                 session.appendOutput(chunk)
                 onOutput?.invoke(session.id, chunk)
+                // Schedule a background notification if the user isn't watching.
+                // Debounced: fires 1.5 s after the last chunk (response likely done).
+                if (!isActivityVisible && !responseNotifPending) {
+                    responseNotifPending = true
+                    responseNotifHandler.postDelayed(responseNotifRunnable, 1500)
+                }
             }
         } catch (_: IOException) {
             // Normal socket close
@@ -275,7 +292,7 @@ class ClaudeService : LifecycleService() {
         bridgeStartedThisSession = false
         lifecycleScope.launch(Dispatchers.IO) {
             val mode = prefs.getLoginMode()
-            bridge.startBridge(mode, prefs.getApiKey(), prefs.getModelId(), prefs.getBaseUrl())
+            bridge.startBridge(mode, prefs.getApiKey(), prefs.getModelId(), prefs.getBaseUrl(), prefs.getProviderId())
         }
     }
 
@@ -316,6 +333,32 @@ class ClaudeService : LifecycleService() {
         getSystemService(NotificationManager::class.java).notify(NOTIF_ID, buildNotification(text))
     }
 
+    fun cancelResponseNotification() {
+        responseNotifHandler.removeCallbacks(responseNotifRunnable)
+        responseNotifPending = false
+        getSystemService(NotificationManager::class.java).cancel(RESPONSE_NOTIF_ID)
+    }
+
+    private fun fireResponseNotification() {
+        responseNotifPending = false
+        if (isActivityVisible) return
+        val openIntent = PendingIntent.getActivity(
+            this, 2,
+            Intent(this, TerminalActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            },
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+        val notif = Notification.Builder(this, ClaudeApp.CHANNEL_RESPONSE)
+            .setSmallIcon(R.drawable.ic_terminal)
+            .setContentTitle("Claude Code")
+            .setContentText("AI response ready — tap to view")
+            .setContentIntent(openIntent)
+            .setAutoCancel(true)
+            .build()
+        getSystemService(NotificationManager::class.java).notify(RESPONSE_NOTIF_ID, notif)
+    }
+
     private fun updateNotificationSessionCount() {
         val alive = sessions.values.count { it.alive }
         val text  = when {
@@ -327,7 +370,8 @@ class ClaudeService : LifecycleService() {
     }
 
     companion object {
-        const val NOTIF_ID = 1001
+        const val NOTIF_ID          = 1001
+        const val RESPONSE_NOTIF_ID = 1002
         const val ACTION_STOP           = "com.claudecodesetup.STOP"
         const val ACTION_RESTART_BRIDGE = "com.claudecodesetup.RESTART_BRIDGE"
         const val MAX_SESSIONS = 4

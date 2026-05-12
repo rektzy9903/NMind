@@ -20,9 +20,11 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Divider
 import androidx.compose.material3.Text
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -165,13 +167,19 @@ fun ModelPickerScreen(
     }
 
     var filter by remember { mutableStateOf("All") }
+    var searchQuery by remember { mutableStateOf("") }
     var page by remember { mutableStateOf(0) }
     var selectedModel by remember { mutableStateOf<AiModel?>(displays.firstOrNull()?.model) }
 
-    val filtered = remember(filter, displays) {
-        if (filter == "All") displays else displays.filter { it.category == filter }
+    val filtered = remember(filter, searchQuery, displays) {
+        var list = if (filter == "All") displays else displays.filter { it.category == filter }
+        if (searchQuery.isNotBlank()) {
+            val q = searchQuery.trim().lowercase()
+            list = list.filter { it.model.name.lowercase().contains(q) || it.model.modelId.lowercase().contains(q) }
+        }
+        list
     }
-    LaunchedEffect(filter) { page = 0 }
+    LaunchedEffect(filter, searchQuery) { page = 0 }
 
     val totalPages = remember(filtered) { maxOf(1, ceil(filtered.size / PAGE_SIZE.toFloat()).toInt()) }
     val paged = filtered.drop(page * PAGE_SIZE).take(PAGE_SIZE)
@@ -275,6 +283,33 @@ fun ModelPickerScreen(
                     }
                 }
             }
+
+            // ── Search bar ────────────────────────────────────────────────────
+            BasicTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                singleLine = true,
+                textStyle = TextStyle(
+                    color = Color.White, fontSize = 13.sp, fontFamily = DmSansFamily
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 4.dp)
+                    .background(Color(0x14FFFFFF), RoundedCornerShape(10.dp))
+                    .border(1.dp, Color(0x20FFFFFF), RoundedCornerShape(10.dp))
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                decorationBox = { inner ->
+                    if (searchQuery.isEmpty()) {
+                        Text(
+                            "Search models…",
+                            color = Color(0xFF475569),
+                            fontSize = 13.sp,
+                            fontFamily = DmSansFamily
+                        )
+                    }
+                    inner()
+                }
+            )
 
             // ── Filter chips (only when categories are meaningful) ────────────
             if (categories.size > 2) {

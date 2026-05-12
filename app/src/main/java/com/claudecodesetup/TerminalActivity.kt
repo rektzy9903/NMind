@@ -56,6 +56,8 @@ class TerminalActivity : AppCompatActivity() {
             val b = binder as ClaudeService.LocalBinder
             claudeService = b.getService()
             serviceBound = true
+            claudeService!!.isActivityVisible = true
+            claudeService!!.cancelResponseNotification()
             attachServiceCallbacks()
 
             val existing = claudeService!!.getAllSessions()
@@ -90,10 +92,22 @@ class TerminalActivity : AppCompatActivity() {
         startAndBindService()
     }
 
+    override fun onResume() {
+        super.onResume()
+        claudeService?.isActivityVisible = true
+        claudeService?.cancelResponseNotification()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        claudeService?.isActivityVisible = false
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         cancelThinkingTimeout()
         if (serviceBound) {
+            claudeService?.isActivityVisible = false
             claudeService?.onOutput = null
             claudeService?.onSessionAdded = null
             claudeService?.onSessionEnded = null
