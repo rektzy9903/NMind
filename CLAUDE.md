@@ -460,6 +460,18 @@ Providers are defined in two places:
 - **CLAUDE.md auto-read**: `buildMessageWithHistory()` now reads `<projectPath>/CLAUDE.md` (up to 15 KB) and prepends as `[CLAUDE.md — project instructions]` in every system prompt. Zero UI changes.
 - **Undo / file checkpoint**: `write_file` in agentic mode snapshots original to `filesDir/.undo/<ts>_<filename>` before overwriting. `!undo` restores most recent snapshot. Keeps 20 snapshots, repeated `!undo` steps back further.
 
+### Session 10 — All remaining P2/P3/P4 items
+- **Slash commands**: `/init` `/review` `/cost` `/doctor` `/compact` fully implemented in bridge.js socket handler. `/init` scans project files and generates CLAUDE.md via AI. `/review` runs git diff and sends to AI. `/cost` shows token/cost estimate. `/doctor` checks Node/npm/claude-code/config health. `/compact` forces context compaction.
+- **LaTeX rendering**: KaTeX 0.16.9 CDN in index.html. `$...$` inline and `$$...$$` display math detected in `renderMarkdown()` / `renderInline()`. Graceful fallback to raw text when CDN unavailable (offline).
+- **Mermaid.js diagrams**: Mermaid 10.6.1 CDN. ` ```mermaid ` blocks in `renderMarkdown()` use `renderMermaidBlock()` with `requestAnimationFrame` deferred rendering. Silent fallback to raw text on CDN miss or render error.
+- **Context window indicator**: `#token-counter` fixed div in terminal top-right. Updated via `9;tokens:N` OSC fired after each response. Turns orange when > 150k tokens. `formatTokens()` helper for K/M display.
+- **Per-project system prompt**: `buildMessageWithHistory()` reads `filesDir/projects.json`, finds project whose `path` is a prefix of `shellCwd` (read from `CWD_FILE`), injects its `systemPrompt` as `[Project: name]` section. `NodeBridgeManager.writeProjectsForBridge()` writes the file; called in both `startBridge()` and `refreshConfig()`.
+- **Document upload (`!attach <path>`)**: Reads text/code files (max 100 KB) and CSV (formatted as markdown table, 50 rows). Stores as `pendingAttachment`; prepended to the next user message in both agentic and --print paths. Resets after first use.
+- **stdio MCP servers**: Full MCP JSON-RPC 2.0 over stdin/stdout in bridge.js. `loadMcpStdioServers()` reads `filesDir/mcp_stdio.json`, spawns child processes, performs MCP handshake, discovers tools via `tools/list`. Tools exposed to agentic loop via `getMcpStdioTools()`. Tool calls dispatched via `callMcpStdioTool()`. `!mcp-stdio [list|reload]` terminal command. `McpScreen.kt` updated with HTTP/SSE vs Stdio type toggle. `AppPreferences` adds `KEY_MCP_STDIO_SERVERS`. `NodeBridgeManager.writeMcpStdioConfig()` writes the JSON file; called in `startBridge()` and `refreshConfig()`.
+- **Edit previous message (tap-to-edit)**: User bubbles have `cursor:pointer` and a click listener that pre-fills input with bubble text. Selection-aware guard prevents triggering on text selection.
+- **Extended thinking visibility**: `thinking` content blocks from stream-json events encoded as base64 and sent via `9;think-block:<b64>` OSC. index.html decodes with `atob()` and inserts collapsible `<details class="thinking-details">` above the AI response bubble.
+- **Code diff visualization**: `executeTool write_file` snapshots original, calls `lineDiff()`, returns `diff` field. `runAgentic()` renders colored +/- lines via ANSI after tool execution.
+
 ---
 
 ## Roadmap — prioritized todo list
@@ -473,43 +485,39 @@ Providers are defined in two places:
 
 ### P2 — High value
 
-- [ ] **Slash commands**
-  `/init` — scan project files and auto-generate CLAUDE.md
-  `/review` — review staged git diff
-  `/cost` — show session token usage and estimated cost
-  `/doctor` — diagnose environment (Node, npm, claude-code, config)
-  `/compact` — manually trigger context summarization
+- [x] **Slash commands** — DONE (Session 10)
+  `/init` `/review` `/cost` `/doctor` `/compact` all implemented in bridge.js
 
-- [ ] **LaTeX + Mermaid rendering**
-  Add KaTeX.js and Mermaid.js to `terminal/index.html`. Detect `$$...$$` / `$...$` for math and ` ```mermaid ` blocks for diagrams in `renderMarkdown()`. No backend changes.
+- [x] **LaTeX + Mermaid rendering** — DONE (Session 10)
+  KaTeX CDN + Mermaid CDN in index.html. `$...$` and `$$...$$` math, ` ```mermaid ` diagrams. Graceful fallback when offline.
 
-- [ ] **Context window indicator**
-  Show rough token count in terminal header (e.g. `~4.2k / 200k`). Estimate from history length × avg chars. Update on each message.
+- [x] **Context window indicator** — DONE (Session 10)
+  `#token-counter` in terminal header, updated via `9;tokens:N` OSC on each response.
 
-- [ ] **Per-conversation system prompt via Projects**
-  When a Project is active (path matches current working directory), automatically apply that project's system prompt without the user having to set it manually in Settings.
+- [x] **Per-conversation system prompt via Projects** — DONE (Session 10)
+  `buildMessageWithHistory()` reads `projects.json`, matches cwd prefix, injects project's system prompt.
 
 ### P3 — Medium priority
 
-- [ ] **Document upload (PDF / CSV)**
-  File picker for text-extractable documents. PDF: extract text via Node.js pdf-parse or simple text extraction. CSV: read and format as markdown table. Inject as context block.
+- [x] **Document upload (text / CSV)** — DONE (Session 10)
+  `!attach <path>` injects file content as context in next message. CSV formatted as markdown table (50 rows). Code/text as fenced blocks. Max 100 KB. Agentic + print paths supported.
 
-- [ ] **stdio MCP servers**
-  Allow spawning local MCP server processes (Node.js scripts) as child processes from bridge.js. Extends MCP ecosystem beyond HTTP-only.
+- [x] **stdio MCP servers** — DONE (Session 10)
+  Full MCP JSON-RPC 2.0 stdio client in bridge.js. `McpScreen.kt` supports HTTP/SSE and stdio types. Tools auto-discovered via `tools/list` and injected into agentic loop. `!mcp-stdio [list|reload]` terminal command.
 
-- [ ] **Edit previous message**
-  Tap an existing user bubble to edit and re-submit. Truncate history from that point and re-run.
+- [x] **Edit previous message** — DONE (Session 10)
+  Tap any user bubble to pre-fill the input. Selection-aware (won't trigger on text selection).
 
-- [ ] **Extended thinking visibility**
-  Parse `thinking` content blocks from stream-json output and display them in a collapsible section above the response.
+- [x] **Extended thinking visibility** — DONE (Session 10)
+  `thinking` blocks base64-encoded via `9;think-block:` OSC, displayed as collapsible `<details>` above AI response.
 
 ### P4 — Long term / hard
 
-- [ ] **Code diff visualization**
-  When Claude edits a file, show a before/after diff view.
+- [x] **Code diff visualization** — DONE (Session 10)
+  `write_file` in agentic mode snapshots original and shows colored +/- diff inline via ANSI.
 
 - [ ] **Sub-agents**
-  Spawn parallel tool-calling workstreams for complex multi-part tasks.
+  Spawn parallel tool-calling workstreams for complex multi-part tasks. Too complex to implement now.
 
 - [ ] **Interactive PTY mode**
   Replace `--print` per-message with a persistent PTY session. Requires replacing the Node.js bridge architecture. Fundamental Android limitation — may not be fully achievable.

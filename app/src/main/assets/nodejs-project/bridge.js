@@ -269,14 +269,16 @@ function executeTool(name, input, cwd) {
         } else if (name === 'write_file') {
             try {
                 const fp = path.resolve(cwd, input.path);
-                // Snapshot original before overwriting so !undo can restore it
+                let diffText = null;
+                // Snapshot original before overwriting
                 if (fs.existsSync(fp)) {
                     try {
+                        const oldContent = fs.readFileSync(fp, 'utf8');
+                        diffText = lineDiff(oldContent, input.content);
                         fs.mkdirSync(UNDO_DIR, { recursive: true });
                         const safeName = path.basename(fp).replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 80);
                         const snap = path.join(UNDO_DIR, Date.now() + '_' + safeName);
                         fs.copyFileSync(fp, snap);
-                        // Keep only the 20 most recent snapshots
                         const snaps = fs.readdirSync(UNDO_DIR).sort();
                         if (snaps.length > 20) {
                             for (const old of snaps.slice(0, snaps.length - 20)) {
@@ -287,7 +289,7 @@ function executeTool(name, input, cwd) {
                 }
                 fs.mkdirSync(path.dirname(fp), { recursive: true });
                 fs.writeFileSync(fp, input.content, 'utf8');
-                resolve({ content: 'Wrote ' + fp, isError: false, newCwd: cwd });
+                resolve({ content: 'Wrote ' + fp, isError: false, newCwd: cwd, diff: diffText });
             } catch(e) { resolve({ content: 'Error: ' + e.message, isError: true, newCwd: cwd }); }
         } else if (name === 'list_dir') {
             try {
@@ -296,6 +298,13 @@ function executeTool(name, input, cwd) {
                 const lines = entries.map(e => (e.isDirectory() ? 'd ' : 'f ') + e.name).join('\n');
                 resolve({ content: lines || '(empty)', isError: false, newCwd: cwd });
             } catch(e) { resolve({ content: 'Error: ' + e.message, isError: true, newCwd: cwd }); }
+        } else if (name.startsWith('mcp_')) {
+            // Delegate to stdio MCP server
+            callMcpStdioTool(name, input).then(content => {
+                resolve({ content: content || '(no output)', isError: false, newCwd: cwd });
+            }).catch(e => {
+                resolve({ content: 'MCP error: ' + e.message, isError: true, newCwd: cwd });
+            });
         } else {
             resolve({ content: 'Unknown tool: ' + name, isError: true, newCwd: cwd });
         }
@@ -447,8 +456,9 @@ async function runAgentic(socket, userMessage, history, shellCwd, pendingImage) 
     let currentCwd = shellCwd;
 
     try {
+        const allTools = [...AGENTIC_TOOLS, ...getMcpStdioTools()];
         for (let turn = 0; turn < MAX_TURNS; turn++) {
-            const resp = await callProxyStreaming(socket, messages, AGENTIC_TOOLS, signalThinkingDone);
+            const resp = await callProxyStreaming(socket, messages, allTools, signalThinkingDone);
             if (!resp || !resp.content) throw new Error('Empty response from proxy');
 
             // Collect this turn's text separately so we can inspect it for questions
@@ -489,6 +499,14 @@ async function runAgentic(socket, userMessage, history, shellCwd, pendingImage) 
                 }
                 const preview = result.content.slice(0, 2000);
                 try { socket.write('\x1b[2m' + preview + (result.content.length > 2000 ? '\n…(truncated)' : '') + '\x1b[0m\r\n'); } catch(_) {}
+                // Show code diff for file writes
+                if (result.diff && result.diff.trim()) {
+                    const diffDisplay = result.diff.split('\n').map(l =>
+                        l.startsWith('+') ? '\x1b[32m' + l + '\x1b[0m' :
+                        l.startsWith('-') ? '\x1b[31m' + l + '\x1b[0m' : l
+                    ).join('\r\n');
+                    try { socket.write('\x1b[2m── diff ──\x1b[0m\r\n' + diffDisplay + '\r\n\x1b[2m──────────\x1b[0m\r\n'); } catch(_) {}
+                }
                 log('[agentic] tool=' + tu.name + ' cwd=' + currentCwd + ' isError=' + result.isError + '\n');
                 toolResults.push({
                     type: 'tool_result', tool_use_id: tu.id,
@@ -1492,6 +1510,145 @@ function stripAnsi(str) {
     return str.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '').replace(/\r/g, '').trim();
 }
 
+// Simple line-diff for code diff visualization (shows +/- lines between old and new text)
+function lineDiff(oldText, newText) {
+    const o = (oldText || '').split('\n');
+    const n = (newText || '').split('\n');
+    const result = [];
+    let oi = 0, ni = 0;
+    while (oi < o.length || ni < n.length) {
+        const ol = o[oi], nl = n[ni];
+        if (oi < o.length && ni < n.length && ol === nl) { oi++; ni++; }
+        else if (oi < o.length && (ni >= n.length || ol !== nl)) {
+            result.push('-' + ol); oi++;
+            if (ni < n.length && nl !== ol) { result.push('+' + nl); ni++; }
+        } else {
+            result.push('+' + nl); ni++;
+        }
+    }
+    return result.filter(l => l[0] === '+' || l[0] === '-').slice(0, 60).join('\n');
+}
+
+// ── stdio MCP client ──────────────────────────────────────────────────────────
+// Manages child processes that speak MCP JSON-RPC 2.0 over stdin/stdout.
+// Each server entry in filesDir/mcp_stdio.json: { name, command, args[] }
+// Tools discovered via `tools/list` are injected into the agentic tool list.
+
+const MCP_STDIO_CONFIG = path.join(FILES_DIR, 'mcp_stdio.json');
+const mcpStdioServers = new Map(); // name → { proc, tools, pendingCbs, msgId, buf }
+
+function mcpSend(srv, method, params) {
+    return new Promise((resolve, reject) => {
+        if (!srv.proc || srv.proc.exitCode !== null) return reject(new Error('MCP process not running'));
+        const id = ++srv.msgId;
+        srv.pendingCbs.set(id, { resolve, reject });
+        const msg = JSON.stringify({ jsonrpc: '2.0', id, method, params: params || {} });
+        try { srv.proc.stdin.write(msg + '\n'); } catch(e) { reject(e); }
+        setTimeout(() => {
+            if (srv.pendingCbs.has(id)) {
+                srv.pendingCbs.delete(id);
+                reject(new Error('MCP timeout: ' + method));
+            }
+        }, 10000);
+    });
+}
+
+function mcpHandleData(srv, chunk) {
+    srv.buf += chunk.toString();
+    const lines = srv.buf.split('\n');
+    srv.buf = lines.pop(); // keep incomplete last line
+    for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+            const msg = JSON.parse(line);
+            if (msg.id !== undefined && srv.pendingCbs.has(msg.id)) {
+                const cb = srv.pendingCbs.get(msg.id);
+                srv.pendingCbs.delete(msg.id);
+                if (msg.error) cb.reject(new Error(msg.error.message || JSON.stringify(msg.error)));
+                else cb.resolve(msg.result);
+            }
+        } catch(_) {}
+    }
+}
+
+async function startMcpStdioServer(entry) {
+    if (mcpStdioServers.has(entry.name)) return; // already running
+    const srv = { proc: null, tools: [], pendingCbs: new Map(), msgId: 0, buf: '' };
+    try {
+        const args = entry.args || [];
+        const cmd = entry.command;
+        // Resolve relative command paths
+        const resolvedCmd = path.isAbsolute(cmd) ? cmd :
+            (fs.existsSync(path.join(BIN_DIR, cmd)) ? path.join(BIN_DIR, cmd) : cmd);
+        srv.proc = spawn(resolvedCmd, args, {
+            env: Object.assign({}, buildEnv()),
+            stdio: ['pipe', 'pipe', 'pipe']
+        });
+        srv.proc.stdout.on('data', d => mcpHandleData(srv, d));
+        srv.proc.stderr.on('data', d => log('[mcp-stdio:' + entry.name + '] stderr: ' + d.toString().slice(0,200) + '\n'));
+        srv.proc.on('exit', code => {
+            log('[mcp-stdio:' + entry.name + '] exited code=' + code + '\n');
+            mcpStdioServers.delete(entry.name);
+        });
+        mcpStdioServers.set(entry.name, srv);
+        // MCP handshake
+        await mcpSend(srv, 'initialize', {
+            protocolVersion: '2024-11-05',
+            capabilities: { tools: {} },
+            clientInfo: { name: 'ClaudeCodeSetup', version: '1.0' }
+        });
+        srv.proc.stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized', params: {} }) + '\n');
+        // Discover tools
+        const toolsResult = await mcpSend(srv, 'tools/list', {});
+        srv.tools = (toolsResult.tools || []).map(t => ({
+            name: 'mcp_' + entry.name + '_' + t.name,
+            description: (t.description || '') + ' [MCP:' + entry.name + ']',
+            input_schema: t.inputSchema || { type: 'object', properties: {} },
+            _mcpServer: entry.name,
+            _mcpTool: t.name
+        }));
+        log('[mcp-stdio:' + entry.name + '] ready, ' + srv.tools.length + ' tools\n');
+    } catch(e) {
+        log('[mcp-stdio:' + entry.name + '] start failed: ' + e.message + '\n');
+        mcpStdioServers.delete(entry.name);
+    }
+}
+
+function getMcpStdioTools() {
+    const tools = [];
+    for (const srv of mcpStdioServers.values()) {
+        tools.push(...srv.tools);
+    }
+    return tools;
+}
+
+async function callMcpStdioTool(toolName, args) {
+    // toolName is like "mcp_<server>_<tool>"
+    for (const [name, srv] of mcpStdioServers.entries()) {
+        const found = srv.tools.find(t => t.name === toolName);
+        if (found) {
+            const result = await mcpSend(srv, 'tools/call', { name: found._mcpTool, arguments: args });
+            const content = result.content || [];
+            return content.map(c => c.text || JSON.stringify(c)).join('\n');
+        }
+    }
+    return 'MCP tool not found: ' + toolName;
+}
+
+async function loadMcpStdioServers() {
+    try {
+        if (!fs.existsSync(MCP_STDIO_CONFIG)) return;
+        const entries = JSON.parse(fs.readFileSync(MCP_STDIO_CONFIG, 'utf8'));
+        for (const entry of (Array.isArray(entries) ? entries : [])) {
+            if (entry.name && entry.command) {
+                await startMcpStdioServer(entry).catch(e => log('[mcp-stdio] ' + e.message + '\n'));
+            }
+        }
+    } catch(e) {
+        log('[mcp-stdio] loadMcpStdioServers error: ' + e.message + '\n');
+    }
+}
+
 // Prepend prior conversation turns to the current message so --print mode
 // has context across multiple exchanges within the same socket session.
 // Also prepends customSystemPrompt if configured.
@@ -1521,15 +1678,31 @@ function buildMessageWithHistory(message, history) {
         ? BASE_ASSISTANT_INSTRUCTION + '\n\n[Custom Instructions]\n' + customPrompt
         : BASE_ASSISTANT_INSTRUCTION;
 
-    // Auto-read CLAUDE.md from project path (or current shellCwd equivalent)
+    // Auto-read CLAUDE.md from project path
     const projectPath = cfg.projectPath || '';
     if (projectPath) {
         const claudeMdPath = path.join(projectPath, 'CLAUDE.md');
         try {
             const stat = fs.statSync(claudeMdPath);
             if (stat.isFile() && stat.size < 60000) {
-                const claudeMd = fs.readFileSync(claudeMdPath, 'utf8');
-                sysPrompt += '\n\n[CLAUDE.md — project instructions]\n' + claudeMd.slice(0, 15000);
+                sysPrompt += '\n\n[CLAUDE.md — project instructions]\n' + fs.readFileSync(claudeMdPath, 'utf8').slice(0, 15000);
+            }
+        } catch(_) {}
+    }
+
+    // Per-project system prompt: read projects.json, find project whose path matches cwd
+    if (!customPrompt) {
+        try {
+            let activeCwd = '';
+            try { activeCwd = fs.readFileSync(CWD_FILE, 'utf8').trim(); } catch(_) {}
+            if (activeCwd) {
+                const projects = JSON.parse(fs.readFileSync(path.join(FILES_DIR, 'projects.json'), 'utf8'));
+                if (Array.isArray(projects)) {
+                    const proj = projects.find(p => p.path && activeCwd.startsWith(p.path));
+                    if (proj && (proj.systemPrompt || '').trim()) {
+                        sysPrompt += '\n\n[Project: ' + proj.name + ']\n' + proj.systemPrompt.trim().slice(0, 5000);
+                    }
+                }
             }
         } catch(_) {}
     }
@@ -1687,12 +1860,14 @@ function runMessage(message, socket, history) {
                 for (const block of (event.message && event.message.content) || []) {
                     if (block.type === 'text' && block.text) {
                         try { socket.write(block.text); } catch (_) {}
+                    } else if (block.type === 'thinking' && block.thinking) {
+                        // Extended thinking: send via OSC as base64 so index.html can show collapsible
+                        const enc = Buffer.from(block.thinking.slice(0, 3000)).toString('base64');
+                        try { socket.write('\x1b]9;think-block:' + enc + '\x07'); } catch (_) {}
                     } else if (block.type === 'tool_use') {
-                        // Show inline tool-call indicator (cyan ▶ name args)
                         const argsRaw = JSON.stringify(block.input || {});
                         const argsPreview = argsRaw.length > 100 ? argsRaw.slice(0, 97) + '…' : argsRaw;
-                        const indicator = '\x1b[36m▶ ' + (block.name || 'tool') + '\x1b[0m ' + argsPreview + '\r\n';
-                        try { socket.write(indicator); } catch (_) {}
+                        try { socket.write('\x1b[36m▶ ' + (block.name || 'tool') + '\x1b[0m ' + argsPreview + '\r\n'); } catch (_) {}
                     }
                 }
             }
@@ -1756,6 +1931,7 @@ function openTcpBridge() {
         })();
 
         let contextBlock = '';   // injected into next message via !context command
+        let pendingAttachment = null; // injected into next message via !attach command
 
         // Register countdown notifier for this socket (replaces any previous one)
         on429CountdownNotify = function(delaySecs) {
@@ -2140,6 +2316,198 @@ function openTcpBridge() {
                     continue;
                 }
 
+                // ── Slash commands: /init /review /cost /doctor /compact ─────────
+                if (line.startsWith('/') && !line.startsWith('$ ')) {
+                    const slashFull = line.slice(1).trim();
+                    const slashCmd  = slashFull.split(/\s+/)[0].toLowerCase();
+
+                    if (slashCmd === 'cost') {
+                        const PRICING = {
+                            'claude-3-5-sonnet': { in: 3, out: 15 },
+                            'claude-3-haiku':    { in: 0.25, out: 1.25 },
+                            'claude-3-opus':     { in: 15, out: 75 },
+                            'gemini-1.5-flash':  { in: 0.075, out: 0.30 },
+                            'gemini-1.5-pro':    { in: 1.25, out: 5 },
+                            'gemini-2.0-flash':  { in: 0.10, out: 0.40 },
+                            'gpt-4o':            { in: 2.50, out: 10 },
+                            'gpt-4o-mini':       { in: 0.15, out: 0.60 },
+                        };
+                        const cfg2 = readConfig();
+                        const mid  = (cfg2.modelId || '').toLowerCase();
+                        const pkey = Object.keys(PRICING).find(k => mid.includes(k));
+                        const p    = pkey ? PRICING[pkey] : null;
+                        const inTok  = Math.round(sessionTokenEstimate * 0.6);
+                        const outTok = Math.round(sessionTokenEstimate * 0.4);
+                        const costStr = p
+                            ? '$' + ((inTok * p.in + outTok * p.out) / 1e6).toFixed(4)
+                            : '(pricing N/A for this provider)';
+                        try { socket.write(
+                            '\r\n\x1b[36m📊 Session cost\x1b[0m\r\n' +
+                            '  Messages  : ' + sessionMsgCount + '\r\n' +
+                            '  Tokens est: ~' + sessionTokenEstimate + ' (~' + inTok + ' in, ~' + outTok + ' out)\r\n' +
+                            '  History   : ' + history.length + ' messages\r\n' +
+                            '  Provider  : ' + (cfg2.providerUrl || cfg2.baseUrl || 'direct') + '\r\n' +
+                            '  Model     : ' + (cfg2.modelId || '?') + '\r\n' +
+                            '  Est. cost : ' + costStr + '\r\n\r\n'
+                        ); } catch(_) {}
+                        continue;
+                    }
+
+                    if (slashCmd === 'doctor') {
+                        const cfg2 = readConfig();
+                        const checks = [
+                            ['Launcher', fs.existsSync(LAUNCHER) ? '✓ ' + path.basename(LAUNCHER) : '✗ missing: ' + LAUNCHER],
+                            ['Claude CLI', fs.existsSync(CLAUDE_CLI) ? '✓ exists' : '✗ not installed (run setup)'],
+                            ['Config mode', cfg2.mode || '(not set)'],
+                            ['API key', sanitizeKey(cfg2.apiKey)],
+                            ['Model', cfg2.modelId || '(not set)'],
+                            ['Provider URL', cfg2.providerUrl || '(not set)'],
+                            ['cwd', shellCwd],
+                            ['BusyBox', fs.existsSync(path.join(BIN_DIR, 'busybox')) ? '✓ installed' : '✗ run !install busybox'],
+                            ['git', fs.existsSync(path.join(BIN_DIR, 'git')) ? '✓ installed' : '✗ run !install-git'],
+                            ['CLAUDE.md', (() => { const p2 = path.join(shellCwd, 'CLAUDE.md'); return fs.existsSync(p2) ? '✓ found' : '✗ not found (run /init)'; })()],
+                        ];
+                        let msg = '\r\n\x1b[1m/doctor — Environment\x1b[0m\r\n';
+                        for (const [label, val] of checks) {
+                            const ok = val.startsWith('✓');
+                            msg += '  ' + (ok ? '\x1b[32m' : '\x1b[33m') + label + ':\x1b[0m ' + val + '\r\n';
+                        }
+                        try { socket.write(msg + '\r\n'); } catch(_) {}
+                        continue;
+                    }
+
+                    if (slashCmd === 'compact') {
+                        try { socket.write('\x1b[33m/compact — forcing context compaction…\x1b[0m\r\n'); } catch(_) {}
+                        const COMPACT_THRESHOLD_orig = MAX_HISTORY - 4;
+                        // Force compact regardless of threshold by temporarily pretending we're full
+                        const fakeHist = history.concat([
+                            { role: 'user', content: '__compact__' },
+                            { role: 'assistant', content: '__compact__' },
+                            { role: 'user', content: '__compact__' },
+                            { role: 'assistant', content: '__compact__' },
+                        ]);
+                        autoCompact(fakeHist, socket).then(compacted => {
+                            // Remove the fake entries we added
+                            history = compacted.filter(h => h.content !== '__compact__');
+                            saveSession(history);
+                            try { socket.write('\x1b[32m✓ Compacted. History: ' + history.length + ' messages.\x1b[0m\r\n\r\n'); } catch(_) {}
+                        }).catch(() => {
+                            try { socket.write('\x1b[31m✗ Compact failed (provider may be offline).\x1b[0m\r\n\r\n'); } catch(_) {}
+                        });
+                        continue;
+                    }
+
+                    if (slashCmd === 'review') {
+                        if (busy) { try { socket.write('\x1b[33mBusy — wait for current response.\x1b[0m\r\n'); } catch(_) {} continue; }
+                        try { socket.write('\x1b[33mFetching git diff…\x1b[0m\r\n'); } catch(_) {}
+                        const diffEnv = buildEnv();
+                        const diffCmd = 'git diff --staged 2>/dev/null; git diff HEAD 2>/dev/null | head -300';
+                        let diffOut = '';
+                        const dc = spawn('/system/bin/sh', ['-c', diffCmd], { env: diffEnv, cwd: shellCwd });
+                        dc.stdout.on('data', d => { diffOut += d.toString(); });
+                        dc.on('close', () => {
+                            if (!diffOut.trim()) {
+                                try { socket.write('\x1b[33mNo git changes found.\x1b[0m\r\n\r\n'); } catch(_) {}
+                                return;
+                            }
+                            const revMsg = 'Review the following code diff for quality, bugs, security, and improvements:\n\n```diff\n' + diffOut.slice(0, 8000) + '\n```';
+                            try { socket.write('\x1b]9;thinking-start\x07'); } catch(_) {}
+                            busy = true; sessionMsgCount++;
+                            let rBuf = ''; let rStarted = false;
+                            current = runMessage(revMsg, socket, history);
+                            current.stdout.once('data', () => { rStarted = true; });
+                            current.stdout.on('data', d => { rBuf += d.toString(); });
+                            currentTid = setTimeout(() => {
+                                if (!busy) return;
+                                try { if (current) current.kill('SIGTERM'); } catch(_) {}
+                                try { socket.write('\x1b]9;thinking-done\x07\r\n\x1b[31m✗ Review timed out.\x1b[0m\r\n'); } catch(_) {}
+                                busy = false; current = null; currentTid = null;
+                            }, 90000);
+                            current.on('close', code => {
+                                if (currentTid) { clearTimeout(currentTid); currentTid = null; }
+                                try { socket.write('\x1b]9;thinking-done\x07'); } catch(_) {}
+                                if (rStarted && (code === 0 || code === null)) {
+                                    const reply = stripAnsi(rBuf);
+                                    if (reply) {
+                                        history.push({ role: 'user', content: revMsg });
+                                        history.push({ role: 'assistant', content: reply });
+                                        if (history.length > MAX_HISTORY) history = history.slice(-MAX_HISTORY);
+                                        saveSession(history);
+                                    }
+                                }
+                                rBuf = ''; busy = false; current = null;
+                                try { socket.write('\r\n'); } catch(_) {}
+                            });
+                        });
+                        dc.on('error', () => { try { socket.write('\x1b[31m✗ git not available. Run !install-git first.\x1b[0m\r\n\r\n'); } catch(_) {} });
+                        continue;
+                    }
+
+                    if (slashCmd === 'init') {
+                        if (busy) { try { socket.write('\x1b[33mBusy — wait for current response.\x1b[0m\r\n'); } catch(_) {} continue; }
+                        try { socket.write('\x1b[33mScanning project for /init…\x1b[0m\r\n'); } catch(_) {}
+                        let projInfo = 'Project directory: ' + shellCwd + '\n\nFiles:\n';
+                        const listD = (dir, pfx, depth) => {
+                            try {
+                                for (const e of fs.readdirSync(dir, { withFileTypes: true }).slice(0, 40)) {
+                                    if (e.name.startsWith('.') || e.name === 'node_modules' || e.name === 'build' || e.name === 'dist') continue;
+                                    projInfo += pfx + (e.isDirectory() ? '📂 ' : '📄 ') + e.name + '\n';
+                                    if (depth < 1 && e.isDirectory()) listD(path.join(dir, e.name), pfx + '  ', depth + 1);
+                                }
+                            } catch(_) {}
+                        };
+                        listD(shellCwd, '', 0);
+                        for (const fn of ['package.json', 'README.md', 'build.gradle', 'requirements.txt', 'go.mod', 'Makefile', 'Cargo.toml']) {
+                            try {
+                                const fp2 = path.join(shellCwd, fn);
+                                const st = fs.statSync(fp2);
+                                if (st.isFile() && st.size < 4000) projInfo += '\n### ' + fn + '\n' + fs.readFileSync(fp2, 'utf8').slice(0, 2000) + '\n';
+                            } catch(_) {}
+                        }
+                        const initMsg =
+                            'Analyze this project and write a CLAUDE.md file with these sections:\n' +
+                            '1. What this project does (2-3 sentences)\n2. Tech stack / key dependencies\n' +
+                            '3. Folder structure overview\n4. How to build/run/test\n' +
+                            '5. Key patterns and conventions\n6. Things to always remember (gotchas, constraints)\n\n' +
+                            'Project info:\n' + projInfo.slice(0, 6000) + '\n\nReply with ONLY the CLAUDE.md markdown content.';
+                        try { socket.write('\x1b]9;thinking-start\x07'); } catch(_) {}
+                        busy = true; sessionMsgCount++;
+                        let iBuf = ''; let iStarted = false;
+                        current = runMessage(initMsg, socket, []);
+                        current.stdout.once('data', () => { iStarted = true; });
+                        current.stdout.on('data', d => { iBuf += d.toString(); });
+                        currentTid = setTimeout(() => {
+                            if (!busy) return;
+                            try { if (current) current.kill('SIGTERM'); } catch(_) {}
+                            try { socket.write('\x1b]9;thinking-done\x07\r\n\x1b[31m✗ /init timed out.\x1b[0m\r\n'); } catch(_) {}
+                            busy = false; current = null; currentTid = null;
+                        }, 90000);
+                        current.on('close', code => {
+                            if (currentTid) { clearTimeout(currentTid); currentTid = null; }
+                            try { socket.write('\x1b]9;thinking-done\x07'); } catch(_) {}
+                            if (iStarted && (code === 0 || code === null)) {
+                                const reply = stripAnsi(iBuf);
+                                if (reply.trim()) {
+                                    const cmp = path.join(shellCwd, 'CLAUDE.md');
+                                    try {
+                                        fs.writeFileSync(cmp, reply.trim() + '\n', 'utf8');
+                                        try { socket.write('\x1b[32m✓ CLAUDE.md written:\x1b[0m ' + cmp + '\r\n\r\n'); } catch(_) {}
+                                    } catch(e2) {
+                                        try { socket.write('\x1b[31m✗ Write failed: ' + e2.message + '\x1b[0m\r\n\r\n'); } catch(_) {}
+                                    }
+                                }
+                            }
+                            iBuf = ''; busy = false; current = null;
+                            try { socket.write('\r\n'); } catch(_) {}
+                        });
+                        continue;
+                    }
+
+                    // Unknown slash command
+                    try { socket.write('\x1b[33mSlash commands:\x1b[0m /init  /review  /cost  /doctor  /compact\r\n\r\n'); } catch(_) {}
+                    continue;
+                }
+
                 // !install [package] — install binary or npm package from catalog
                 if (line === '!install' || line.startsWith('!install ')) {
                     const arg = line.slice(8).trim().toLowerCase();
@@ -2211,34 +2579,125 @@ function openTcpBridge() {
                     continue;
                 }
 
+                // !mcp-stdio — manage stdio MCP servers
+                if (line.startsWith('!mcp-stdio') || line === '!mcp-stdio') {
+                    const arg = line.slice(10).trim();
+                    if (!arg || arg === 'list') {
+                        if (mcpStdioServers.size === 0) {
+                            try { socket.write('\x1b[33mNo stdio MCP servers running.\x1b[0m\r\nAdd servers in filesDir/mcp_stdio.json:\r\n[\r\n  { "name": "my-server", "command": "node", "args": ["/path/to/server.js"] }\r\n]\r\nThen run \x1b[33m!mcp-stdio reload\x1b[0m\r\n\r\n'); } catch(_) {}
+                        } else {
+                            let msg = '\r\n\x1b[1mstdio MCP servers:\x1b[0m\r\n';
+                            for (const [name, srv] of mcpStdioServers.entries()) {
+                                msg += '  \x1b[32m' + name + '\x1b[0m  ' + srv.tools.length + ' tools\r\n';
+                                for (const t of srv.tools) msg += '    \x1b[2m' + t.name + '\x1b[0m — ' + (t.description || '') + '\r\n';
+                            }
+                            try { socket.write(msg + '\r\n'); } catch(_) {}
+                        }
+                    } else if (arg === 'reload') {
+                        // Kill all running servers and reload config
+                        for (const srv of mcpStdioServers.values()) {
+                            try { srv.proc && srv.proc.kill(); } catch(_) {}
+                        }
+                        mcpStdioServers.clear();
+                        try { socket.write('\x1b[33mReloading stdio MCP servers…\x1b[0m\r\n'); } catch(_) {}
+                        loadMcpStdioServers().then(() => {
+                            const n = mcpStdioServers.size;
+                            try { socket.write('\x1b[32m✓ Loaded ' + n + ' server(s)\x1b[0m\r\n\r\n'); } catch(_) {}
+                        }).catch(e => {
+                            try { socket.write('\x1b[31m✗ ' + e.message + '\x1b[0m\r\n\r\n'); } catch(_) {}
+                        });
+                    } else {
+                        try { socket.write('\x1b[33mUsage: !mcp-stdio [list|reload]\x1b[0m\r\n\r\n'); } catch(_) {}
+                    }
+                    continue;
+                }
+
+                // !attach <path> — inject document content as context
+                if (line.startsWith('!attach ') || line === '!attach') {
+                    const filePath = line.slice(8).trim();
+                    if (!filePath) {
+                        try { socket.write('\x1b[33mUsage: !attach <filepath>\x1b[0m\r\nSupported: .txt .md .csv .json .js .py .kt .html .xml .yaml .yml\r\n\r\n'); } catch(_) {}
+                        continue;
+                    }
+                    const resolvedPath = path.isAbsolute(filePath) ? filePath : path.join(shellCwd, filePath);
+                    try {
+                        if (!fs.existsSync(resolvedPath)) {
+                            try { socket.write('\x1b[31m✗ File not found: ' + resolvedPath + '\x1b[0m\r\n\r\n'); } catch(_) {}
+                            continue;
+                        }
+                        const stat = fs.statSync(resolvedPath);
+                        const MAX_ATTACH = 100 * 1024; // 100 KB limit
+                        if (stat.size > MAX_ATTACH) {
+                            try { socket.write('\x1b[31m✗ File too large (' + Math.round(stat.size/1024) + ' KB). Max 100 KB.\x1b[0m\r\n\r\n'); } catch(_) {}
+                            continue;
+                        }
+                        const ext = path.extname(resolvedPath).toLowerCase();
+                        let content = fs.readFileSync(resolvedPath, 'utf8');
+                        let formatted;
+                        if (ext === '.csv') {
+                            // Format CSV as a readable markdown table (up to 50 rows)
+                            const lines = content.split('\n').filter(l => l.trim());
+                            const rows = lines.slice(0, 51).map(l => l.split(',').map(c => c.trim().replace(/^"|"$/g, '')));
+                            if (rows.length > 1) {
+                                const header = rows[0];
+                                const sep = header.map(() => '---');
+                                const tableRows = rows.slice(1, 50);
+                                const mdTable = [header, sep, ...tableRows].map(r => '| ' + r.join(' | ') + ' |').join('\n');
+                                formatted = '[Attached CSV: ' + path.basename(resolvedPath) + ']\n' + mdTable;
+                                if (lines.length > 51) formatted += '\n*(truncated — ' + (lines.length - 51) + ' more rows)*';
+                            } else {
+                                formatted = '[Attached CSV: ' + path.basename(resolvedPath) + ']\n' + content.slice(0, 8000);
+                            }
+                        } else {
+                            // Plain text / code — inject as fenced block
+                            const langHint = { '.js':'js','.ts':'ts','.py':'python','.kt':'kotlin',
+                                '.java':'java','.html':'html','.xml':'xml','.json':'json',
+                                '.yaml':'yaml','.yml':'yaml','.sh':'bash','.md':'markdown' }[ext] || '';
+                            content = content.slice(0, 8000);
+                            formatted = '[Attached file: ' + path.basename(resolvedPath) + ']\n```' + langHint + '\n' + content + '\n```';
+                        }
+                        // Inject as the next pending context prefix (appended to next user message)
+                        pendingAttachment = formatted;
+                        const sz = Math.round(stat.size / 1024 * 10) / 10;
+                        try { socket.write('\x1b[32m✓ Attached:\x1b[0m ' + path.basename(resolvedPath) + ' (' + sz + ' KB)\r\nContent will be included in your next message.\r\n\r\n'); } catch(_) {}
+                    } catch(e) {
+                        try { socket.write('\x1b[31m✗ Attach failed: ' + e.message + '\x1b[0m\r\n\r\n'); } catch(_) {}
+                    }
+                    continue;
+                }
+
                 if (line === '!help') {
                     try {
                         socket.write(
+                            '\r\n\x1b[1mSlash commands (AI tasks):\x1b[0m\r\n' +
+                            '  \x1b[36m/init\x1b[0m         Scan project and generate CLAUDE.md\r\n' +
+                            '  \x1b[36m/review\x1b[0m       Review staged git diff with AI\r\n' +
+                            '  \x1b[36m/cost\x1b[0m         Show token usage and estimated API cost\r\n' +
+                            '  \x1b[36m/doctor\x1b[0m       Check environment health\r\n' +
+                            '  \x1b[36m/compact\x1b[0m      Manually summarize and compact context\r\n' +
                             '\r\n\x1b[1mShell commands:\x1b[0m\r\n' +
-                            '  \x1b[33m$ <command>\x1b[0m   Run any shell command (ls, cat, npm, node, git…)\r\n' +
-                            '  \x1b[33m$ cd <dir>\x1b[0m    Change working directory (persists in this session)\r\n' +
-                            '  \x1b[33m$ pwd\x1b[0m         Print current working directory\r\n' +
+                            '  \x1b[33m$ <command>\x1b[0m   Run any shell command\r\n' +
+                            '  \x1b[33m$ cd <dir>\x1b[0m    Change working directory\r\n' +
                             '\r\n\x1b[1mAI conversation:\x1b[0m\r\n' +
                             '  Type normally to chat with the AI model\r\n' +
                             '  \x1b[33m!clear\x1b[0m        Clear conversation history\r\n' +
-                            '  \x1b[33m!history\x1b[0m      Show number of turns in memory\r\n' +
-                            '  \x1b[33m!context [path]\x1b[0m Load directory tree + key files as context for next message\r\n' +
-                            '  \x1b[33m!context clear\x1b[0m Remove loaded context\r\n' +
-                            '  \x1b[33m!fetch <url>\x1b[0m  Fetch URL and inject content as context for next message\r\n' +
-                            '  \x1b[33m!stats\x1b[0m        Show session message count and token estimate\r\n' +
-                            '  \x1b[33m!export\x1b[0m       Export conversation to Markdown file\r\n' +
-                            '  \x1b[33m!import <file>\x1b[0m Import conversation from exported Markdown file\r\n' +
-                            '\r\n\x1b[1mDiagnostics:\x1b[0m\r\n' +
-                            '  \x1b[33m!log [N]\x1b[0m      Show last N lines of setup.log (default 80)\r\n' +
-                            '  \x1b[33m!ver\x1b[0m          Show version and config info\r\n' +
-                            '  \x1b[33m!test\x1b[0m         Test Node.js launcher\r\n' +
-                            '  \x1b[33m!test-cli\x1b[0m     Run module-loader diagnostic\r\n' +
-                            '  \x1b[33m!install [name]\x1b[0m Install binary or npm package (no args = list all)\r\n' +
+                            '  \x1b[33m!history\x1b[0m      Show history turn count\r\n' +
+                            '  \x1b[33m!context [path]\x1b[0m Load directory + key files as context\r\n' +
+                            '  \x1b[33m!attach <file>\x1b[0m Attach document/CSV as next-message context\r\n' +
+                            '  \x1b[33m!fetch <url>\x1b[0m  Fetch URL and inject as context\r\n' +
+                            '  \x1b[33m!stats\x1b[0m        Session stats (same as /cost)\r\n' +
+                            '  \x1b[33m!export\x1b[0m       Export conversation to Markdown\r\n' +
+                            '  \x1b[33m!import <file>\x1b[0m Restore exported conversation\r\n' +
                             '  \x1b[33m!undo\x1b[0m         Restore most recently overwritten file\r\n' +
-                            '  \x1b[33m!install-git\x1b[0m  Install git (isomorphic-git) for $ git commands\r\n' +
+                            '\r\n\x1b[1mSetup & tools:\x1b[0m\r\n' +
+                            '  \x1b[33m!install [name]\x1b[0m Install binary or npm pkg (no args = catalog)\r\n' +
+                            '  \x1b[33m!install-git\x1b[0m  Install isomorphic-git for $ git commands\r\n' +
                             '  \x1b[33m!gh-auth <tok>\x1b[0m Save GitHub token for git push/clone\r\n' +
-                            '  \x1b[33m!agentic [on|off]\x1b[0m Toggle agentic tool-calling mode (persists across restarts)\r\n' +
-                            '  \x1b[33m!update\x1b[0m       Re-install claude-code v2.1.112 (no data clear needed)\r\n' +
+                            '  \x1b[33m!agentic [on|off]\x1b[0m Toggle agentic tool-calling loop\r\n' +
+                            '  \x1b[33m!mcp-stdio [list|reload]\x1b[0m Manage stdio MCP servers\r\n' +
+                            '  \x1b[33m!update\x1b[0m       Re-install claude-code v2.1.112\r\n' +
+                            '  \x1b[33m!log [N]\x1b[0m      Show last N lines of setup.log\r\n' +
+                            '  \x1b[33m!ver\x1b[0m / \x1b[33m!test\x1b[0m / \x1b[33m!test-cli\x1b[0m  Diagnostics\r\n' +
                             '  \x1b[33m!help\x1b[0m         Show this message\r\n\r\n'
                         );
                     } catch (_) {}
@@ -2437,8 +2896,9 @@ function openTcpBridge() {
                 // ── Agentic mode: streaming tool-calling loop via proxy ───────
                 if (agenticEnabled) {
                     busy = true;
-                    const agMsg = contextBlock ? '[Context]\n' + contextBlock + '\n[Message]\n' + line : line;
+                    let agMsg = contextBlock ? '[Context]\n' + contextBlock + '\n[Message]\n' + line : line;
                     contextBlock = '';
+                    if (pendingAttachment) { agMsg = pendingAttachment + '\n\n' + agMsg; pendingAttachment = null; }
                     // Check for pending image attachment
                     let agPendingImage = null;
                     const imgB64File = path.join(FILES_DIR, 'pending_image.b64');
@@ -2466,6 +2926,9 @@ function openTcpBridge() {
                                 generateSuggestions(socket, history).catch(() => {});
                             }
                         }
+                        // Token count for context window indicator
+                        if (result.text) sessionTokenEstimate += Math.round(result.text.length / 4);
+                        try { socket.write('\x1b]9;tokens:' + sessionTokenEstimate + '\x07'); } catch(_) {}
                         // Propagate cwd changes from AI tool calls back to shell
                         if (result.cwd && result.cwd !== shellCwd) shellCwd = result.cwd;
                         busy = false; current = null;
@@ -2496,8 +2959,10 @@ function openTcpBridge() {
                 busy = true;
                 let responseStarted = false;
                 let responseBuf = '';     // capture stdout for history
-                const printMsg = (contextBlock ? '[Context]\n' + contextBlock + '\n[Message]\n' + line : line) + printImageNote;
+                let printBase = (contextBlock ? '[Context]\n' + contextBlock + '\n[Message]\n' + line : line);
                 contextBlock = '';
+                if (pendingAttachment) { printBase = pendingAttachment + '\n\n' + printBase; pendingAttachment = null; }
+                const printMsg = printBase + printImageNote;
                 current = runMessage(printMsg, socket, history);
 
                 // Detect whether any output actually arrived (used for error diagnosis)
@@ -2556,6 +3021,8 @@ function openTcpBridge() {
                         }
                     }
                     responseBuf = '';
+                    // Send token count for context window indicator
+                    try { socket.write('\x1b]9;tokens:' + sessionTokenEstimate + '\x07'); } catch(_) {}
 
                     const rateLimited = (Date.now() - lastRateLimitMs) < 15000;
                     if (!responseStarted && rateLimited) {
@@ -2810,7 +3277,11 @@ async function autoCompact(history, socket) {
 function startBridgeServer() {
     // Start proxy first — port 8082 must be listening before Claude Code spawns,
     // otherwise its first API call gets ECONNREFUSED and it exits immediately.
-    startProxyServer(() => openTcpBridge());
+    startProxyServer(() => {
+        openTcpBridge();
+        // Load stdio MCP servers after the bridge is up (non-blocking)
+        loadMcpStdioServers().catch(e => log('[mcp-stdio] startup error: ' + e.message + '\n'));
+    });
 }
 
 // ─── Entry point ──────────────────────────────────────────────────────────────

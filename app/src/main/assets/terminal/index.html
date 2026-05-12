@@ -4,6 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
 <title>Terminal</title>
+<!-- KaTeX for math rendering ($$...$$) -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" crossorigin="anonymous">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js" crossorigin="anonymous"></script>
+<!-- Mermaid for diagram rendering (```mermaid blocks) -->
+<script defer src="https://cdn.jsdelivr.net/npm/mermaid@10.6.1/dist/mermaid.min.js" crossorigin="anonymous"
+  onload="mermaid.initialize({startOnLoad:false,theme:'dark',securityLevel:'loose'})"></script>
 <style>
 * { margin:0; padding:0; box-sizing:border-box; }
 
@@ -408,6 +414,63 @@ html, body {
 }
 .tb-accent:active { background: rgba(100,64,255,0.32); }
 
+/* ── Extended thinking collapsible ──────────────────────────────────────── */
+.thinking-details {
+  border: 1px solid rgba(0,200,255,0.15);
+  border-radius: 6px;
+  margin-bottom: 8px;
+  background: rgba(0,200,255,0.04);
+}
+.thinking-details summary {
+  cursor: pointer;
+  padding: 4px 10px;
+  font-size: 11px;
+  color: rgba(0,200,255,0.5);
+  letter-spacing: 1px;
+  list-style: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.thinking-details summary::-webkit-details-marker { display: none; }
+.thinking-details .think-body {
+  padding: 6px 10px 8px;
+  font-size: 11px;
+  color: rgba(255,255,255,0.38);
+  white-space: pre-wrap;
+  max-height: 200px;
+  overflow-y: auto;
+  border-top: 1px solid rgba(0,200,255,0.08);
+}
+
+/* ── Context window token counter ────────────────────────────────────────── */
+#token-counter {
+  position: fixed;
+  top: 8px; right: 8px;
+  font-size: 9px;
+  letter-spacing: 1px;
+  color: rgba(0,200,255,0.35);
+  font-family: 'Space Mono','Courier New',monospace;
+  z-index: 200;
+  pointer-events: none;
+  transition: color 0.3s;
+}
+#token-counter.warn { color: rgba(255,160,60,0.6); }
+
+/* ── Mermaid diagrams ─────────────────────────────────────────────────────── */
+.md-mermaid {
+  background: rgba(0,0,0,0.3);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 8px;
+  padding: 12px;
+  margin: 6px 0;
+  overflow-x: auto;
+}
+.md-mermaid svg { max-width: 100%; }
+
+/* ── User bubble tap-to-edit ─────────────────────────────────────────────── */
+.user-bubble { cursor: pointer; }
+.user-bubble:active { opacity: 0.75; }
+
 /* ── Code block copy button ──────────────────────────────────────────────── */
 .code-wrap { position: relative; }
 .code-copy-btn {
@@ -441,6 +504,9 @@ html, body {
 <div class="blob blob-1"></div>
 <div class="blob blob-2"></div>
 <div class="blob blob-3"></div>
+
+<!-- Token counter (top-right, shown after first response) -->
+<div id="token-counter"></div>
 
 <!-- Messages -->
 <div id="msgs"></div>
@@ -753,6 +819,12 @@ function stopThinkingTimer() {
   thinkingTimerEl.textContent = '';
 }
 
+// ── Token formatter ───────────────────────────────────────────────────────
+function formatTokens(n){
+  if(n>=1000) return (n/1000).toFixed(1)+'k';
+  return ''+n;
+}
+
 // ── Code copy / save helpers ──────────────────────────────────────────────
 function copyCode(btn) {
   var code = btn.nextElementSibling.querySelector('code').textContent;
@@ -841,6 +913,30 @@ function handleOSC(content){
       var suggestions=JSON.parse(content.slice(14));
       showSuggestions(suggestions);
     }catch(_){}
+  } else if(content.startsWith('9;tokens:')){
+    var toks=parseInt(content.slice(9))||0;
+    var tokEl=document.getElementById('token-counter');
+    if(tokEl&&toks>0){
+      tokEl.textContent='~'+formatTokens(toks)+' tokens';
+      tokEl.className=toks>150000?'warn':'';
+    }
+  } else if(content.startsWith('9;think-block:')){
+    var enc=content.slice(14);
+    var thinkText='';
+    try{ thinkText=atob(enc); }catch(_){}
+    if(thinkText&&currentAiBubble){
+      var det=document.createElement('details');
+      det.className='thinking-details';
+      var sum=document.createElement('summary');
+      sum.textContent='💭 Extended thinking';
+      var body=document.createElement('div');
+      body.className='think-body';
+      body.textContent=thinkText;
+      det.appendChild(sum);
+      det.appendChild(body);
+      currentAiBubble.insertBefore(det,currentAiBubble.firstChild);
+      scrollToBottom();
+    }
   }
 }
 
@@ -854,6 +950,14 @@ function addUserBubble(text){
   const bub=document.createElement('div');
   bub.className='bubble user-bubble';
   bub.textContent=text;
+  bub.title='Tap to edit';
+  bub.addEventListener('click',function(){
+    if(window.getSelection&&window.getSelection().toString()) return;
+    inputBuffer=bub.textContent;
+    ghost.value=inputBuffer;
+    updateInputDisp();
+    ghost.focus();
+  });
   row.appendChild(av);
   row.appendChild(bub);
   msgs.appendChild(row);
@@ -881,6 +985,8 @@ function highlightCode(code,lang){
 }
 
 function renderInline(t){
+  // Inline math $...$ (avoid matching $$ which is handled as block)
+  t=t.replace(/(?<!\$)\$(?!\$)([^$\n]+?)\$(?!\$)/g,function(_,expr){return renderMath(expr,false);});
   t=t.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>');
   t=t.replace(/__(.+?)__/g,'<strong>$1</strong>');
   t=t.replace(/\*([^*\n]+?)\*/g,'<em>$1</em>');
@@ -933,6 +1039,30 @@ function showSuggestions(suggestions){
   scrollToBottom();
 }
 
+// ── Mermaid rendering ─────────────────────────────────────────────────────
+var mermaidCounter=0;
+function renderMermaidBlock(code){
+  var id='mmd-'+(++mermaidCounter);
+  var wrap='<div class="md-mermaid" id="'+id+'">'+escHtml(code)+'</div>';
+  // Defer render until after DOM insertion
+  requestAnimationFrame(function(){
+    var el=document.getElementById(id);
+    if(!el) return;
+    if(typeof mermaid==='undefined') return; // CDN not loaded yet (offline)
+    try{
+      mermaid.render('mmd-svg-'+mermaidCounter, el.textContent, function(svg){el.innerHTML=svg;});
+    }catch(_){} // leave as text if mermaid fails
+  });
+  return wrap;
+}
+
+// ── KaTeX math rendering ──────────────────────────────────────────────────
+function renderMath(expr, display){
+  if(typeof katex==='undefined') return (display?'$$':'$')+escHtml(expr)+(display?'$$':'$');
+  try{ return katex.renderToString(expr,{displayMode:display,throwOnError:false}); }
+  catch(_){ return escHtml(expr); }
+}
+
 function renderMarkdown(raw){
   const text=raw.replace(/\x1b\[[0-9;]*[mA-Za-z]/g,'').replace(/\x1b\][^\x07]*\x07/g,'');
   const lines=text.split('\n');
@@ -944,19 +1074,29 @@ function renderMarkdown(raw){
       const meta=line.slice(3).trim();
       const parts=meta.split(/\s+/);
       const lang=(parts[0]||'').toLowerCase();
+      let code='';i++;
+      while(i<lines.length&&!/^```/.test(lines[i])){code+=lines[i]+'\n';i++;}
+      i++;
+      // Mermaid diagram — render as diagram, not code
+      if(lang==='mermaid'){html+=renderMermaidBlock(code.trimEnd());continue;}
       // Filename hint: ```lang filename.ext or ```filename.ext
       const hasExt=function(s){return/\.[a-zA-Z0-9]{1,6}$/.test(s);};
       let fname=parts.length>1&&hasExt(parts[1])?parts[1]:
                 parts.length===1&&hasExt(parts[0])&&parts[0].indexOf('/')===-1?parts[0]:'';
-      let code='';i++;
-      while(i<lines.length&&!/^```/.test(lines[i])){code+=lines[i]+'\n';i++;}
-      i++;
       const codeEsc=highlightCode(escHtml(code.trimEnd()),lang);
       const saveBtn=fname?'<button class="code-copy-btn" style="right:52px" onclick="saveCode(this,\''+escHtml(fname)+'\')">Save</button>':'';
       const isRunnable=['bash','sh','shell','javascript','js','python','py','node'].includes(lang);
       const runBtn=isRunnable?'<button class="code-copy-btn run-btn" style="right:'+(fname?'98px':'52px')+';background:rgba(0,200,100,0.2);border-color:rgba(0,200,100,0.4);color:#86efac;" onclick="runCodeBlock(this)" data-code="'+escHtml(code.trimEnd())+'" data-lang="'+lang+'">▶ Run</button>':'';
       html+='<div class="code-wrap">'+runBtn+saveBtn+'<button class="code-copy-btn" onclick="copyCode(this)">Copy</button>' +
             '<pre class="md-code"><code data-raw="'+escHtml(code.trimEnd())+'">'+codeEsc+'</code></pre></div>';
+      continue;
+    }
+    // Display math block $$...$$
+    if(line.trim()==='$$'){
+      let mathExpr='';i++;
+      while(i<lines.length&&lines[i].trim()!=='$$'){mathExpr+=lines[i]+'\n';i++;}
+      i++;
+      html+='<div style="margin:6px 0;overflow-x:auto;">'+renderMath(mathExpr.trim(),true)+'</div>';
       continue;
     }
     // Table
@@ -983,7 +1123,9 @@ function renderMarkdown(raw){
 }
 
 function hasMarkdownStructures(text){
-  return text.indexOf('```')!==-1||/\|.*\|/.test(text)||text.indexOf('**')!==-1||/^#{1,3} /m.test(text)||/^[-*] /m.test(text);
+  return text.indexOf('```')!==-1||/\|.*\|/.test(text)||text.indexOf('**')!==-1||
+         /^#{1,3} /m.test(text)||/^[-*] /m.test(text)||
+         text.indexOf('$$')!==-1||/\$[^$\n]+\$/.test(text);
 }
 
 function startAiBubble(){

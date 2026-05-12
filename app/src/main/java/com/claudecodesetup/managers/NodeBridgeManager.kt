@@ -64,9 +64,13 @@ class NodeBridgeManager(private val context: Context) {
     // ─── Start Node.js ────────────────────────────────────────────────────────
 
     fun startBridge(mode: String, apiKey: String, modelId: String, baseUrl: String, providerId: String = "",
-                    projectPath: String = "", customSystemPrompt: String = "") {
+                    projectPath: String = "", customSystemPrompt: String = "", prefs: AppPreferences? = null) {
         writeConfig(mode, apiKey, modelId, baseUrl, providerId, projectPath, customSystemPrompt)
         writeDeviceContext()
+        if (prefs != null) {
+            writeProjectsForBridge(prefs)
+            writeMcpStdioConfig(prefs)
+        }
         startNodeEngine()
     }
 
@@ -96,6 +100,36 @@ class NodeBridgeManager(private val context: Context) {
         }
     }
 
+    fun writeMcpStdioConfig(prefs: AppPreferences) {
+        try {
+            val serversJson = prefs.getMcpStdioServersJson()
+            val arr = org.json.JSONArray(serversJson)
+            if (arr.length() == 0) {
+                File(context.filesDir, "mcp_stdio.json").delete()
+                return
+            }
+            val out = org.json.JSONArray()
+            for (i in 0 until arr.length()) {
+                val server = arr.getJSONObject(i)
+                val name = server.optString("name")
+                val command = server.optString("command")
+                val argsStr = server.optString("args")
+                if (name.isNotEmpty() && command.isNotEmpty()) {
+                    val argsArr = org.json.JSONArray()
+                    argsStr.trim().split("\\s+".toRegex()).filter { it.isNotEmpty() }.forEach { argsArr.put(it) }
+                    out.put(org.json.JSONObject().apply {
+                        put("name", name)
+                        put("command", command)
+                        put("args", argsArr)
+                    })
+                }
+            }
+            File(context.filesDir, "mcp_stdio.json").writeText(out.toString())
+        } catch (e: Exception) {
+            Log.e(TAG, "Could not write stdio MCP config", e)
+        }
+    }
+
     /** Re-write bridge_config.json from current prefs without restarting Node.js.
      *  bridge.js reads the config fresh on every spawn, so the next message picks
      *  up the new model immediately. */
@@ -110,6 +144,18 @@ class NodeBridgeManager(private val context: Context) {
             customSystemPrompt = prefs.getCustomSystemPrompt()
         )
         writeDeviceContext()
+        writeProjectsForBridge(prefs)
+        writeMcpStdioConfig(prefs)
+    }
+
+    /** Write projects.json so bridge.js can auto-apply per-project system prompts. */
+    fun writeProjectsForBridge(prefs: AppPreferences) {
+        try {
+            val json = prefs.getProjectsJson().ifBlank { "[]" }
+            java.io.File(context.filesDir, "projects.json").writeText(json)
+        } catch (e: Exception) {
+            Log.e(TAG, "Could not write projects.json", e)
+        }
     }
 
     fun writeDeviceContext() {

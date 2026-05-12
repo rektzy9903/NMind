@@ -20,6 +20,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 data class McpServer(val name: String, val url: String)
+data class McpStdioServer(val name: String, val command: String, val args: String)
 
 @Composable
 fun McpScreen(
@@ -27,8 +28,10 @@ fun McpScreen(
     onBack: () -> Unit
 ) {
     var servers by remember { mutableStateOf(loadMcpServers(prefs)) }
+    var stdioServers by remember { mutableStateOf(loadMcpStdioServers(prefs)) }
     var showAddDialog by remember { mutableStateOf(false) }
     var confirmDeleteIndex by remember { mutableStateOf(-1) }
+    var confirmDeleteStdioIndex by remember { mutableStateOf(-1) }
 
     AppBackground {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -71,15 +74,15 @@ fun McpScreen(
                 }
             }
 
-            // Info text
             Text(
-                "MCP servers extend Claude with custom tools (databases, APIs, etc). Add HTTP/SSE server URLs here.",
+                "MCP servers extend Claude with custom tools. HTTP/SSE for remote servers, stdio for local Node.js scripts.",
                 fontFamily = DmSansFamily, fontSize = 12.sp,
                 color = Color(0xFF6B7280),
                 modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp)
             )
 
-            if (servers.isEmpty()) {
+            val allEmpty = servers.isEmpty() && stdioServers.isEmpty()
+            if (allEmpty) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
@@ -101,35 +104,36 @@ fun McpScreen(
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    items(servers.indices.toList()) { i ->
-                        val s = servers[i]
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(Color(0x0FFFFFFF), RoundedCornerShape(14.dp))
-                                .border(1.dp, Color(0x17FFFFFF), RoundedCornerShape(14.dp))
-                                .padding(14.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(
-                                modifier = Modifier.weight(1f),
-                                verticalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Text(
-                                    s.name, fontFamily = DmSansFamily, fontSize = 15.sp,
-                                    fontWeight = FontWeight.SemiBold, color = Color.White
-                                )
-                                Text(
-                                    s.url, fontFamily = SpaceMonoFamily,
-                                    fontSize = 10.sp, color = Color(0xFF6B7280)
-                                )
-                            }
+                    if (servers.isNotEmpty()) {
+                        item {
                             Text(
-                                "🗑", fontSize = 18.sp,
-                                modifier = Modifier
-                                    .clickable { confirmDeleteIndex = i }
-                                    .padding(8.dp)
+                                "HTTP / SSE", fontFamily = SpaceMonoFamily, fontSize = 9.sp,
+                                letterSpacing = 2.sp, color = Color(0xFF60A5FA),
+                                modifier = Modifier.padding(top = 4.dp, bottom = 2.dp)
+                            )
+                        }
+                        items(servers.indices.toList()) { i ->
+                            val s = servers[i]
+                            McpServerCard(
+                                name = s.name, subtitle = s.url,
+                                onDelete = { confirmDeleteIndex = i }
+                            )
+                        }
+                    }
+                    if (stdioServers.isNotEmpty()) {
+                        item {
+                            Text(
+                                "STDIO (local process)", fontFamily = SpaceMonoFamily, fontSize = 9.sp,
+                                letterSpacing = 2.sp, color = Color(0xFF34D399),
+                                modifier = Modifier.padding(top = 8.dp, bottom = 2.dp)
+                            )
+                        }
+                        items(stdioServers.indices.toList()) { i ->
+                            val s = stdioServers[i]
+                            McpServerCard(
+                                name = s.name,
+                                subtitle = s.command + if (s.args.isNotBlank()) " ${s.args}" else "",
+                                onDelete = { confirmDeleteStdioIndex = i }
                             )
                         }
                     }
@@ -140,8 +144,11 @@ fun McpScreen(
 
         // Add server dialog
         if (showAddDialog) {
+            var isStdio by remember { mutableStateOf(false) }
             var newName by remember { mutableStateOf("") }
             var newUrl by remember { mutableStateOf("") }
+            var newCommand by remember { mutableStateOf("node") }
+            var newArgs by remember { mutableStateOf("") }
             AlertDialog(
                 onDismissRequest = { showAddDialog = false },
                 title = {
@@ -149,26 +156,84 @@ fun McpScreen(
                 },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        // Type toggle
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .background(
+                                        if (!isStdio) Color(0xFF3B82F6) else Color(0x22FFFFFF),
+                                        RoundedCornerShape(8.dp)
+                                    )
+                                    .clickable { isStdio = false }
+                                    .padding(vertical = 8.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("HTTP / SSE", fontFamily = DmSansFamily, fontSize = 12.sp,
+                                    color = Color.White, fontWeight = FontWeight.SemiBold)
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .background(
+                                        if (isStdio) Color(0xFF059669) else Color(0x22FFFFFF),
+                                        RoundedCornerShape(8.dp)
+                                    )
+                                    .clickable { isStdio = true }
+                                    .padding(vertical = 8.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("Stdio", fontFamily = DmSansFamily, fontSize = 12.sp,
+                                    color = Color.White, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
                         OutlinedTextField(
                             value = newName, onValueChange = { newName = it },
                             label = { Text("Server name") }, singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
-                        OutlinedTextField(
-                            value = newUrl, onValueChange = { newUrl = it },
-                            label = { Text("URL (e.g. https://my-mcp-server.com/sse)") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
+                        if (!isStdio) {
+                            OutlinedTextField(
+                                value = newUrl, onValueChange = { newUrl = it },
+                                label = { Text("URL (e.g. https://my-server.com/sse)") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        } else {
+                            OutlinedTextField(
+                                value = newCommand, onValueChange = { newCommand = it },
+                                label = { Text("Command (e.g. node)") }, singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            OutlinedTextField(
+                                value = newArgs, onValueChange = { newArgs = it },
+                                label = { Text("Args (e.g. /path/to/server.js)") }, singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            Text(
+                                "The command will run as a child process speaking MCP JSON-RPC over stdin/stdout.",
+                                fontFamily = DmSansFamily, fontSize = 11.sp, color = Color(0xFF6B7280)
+                            )
+                        }
                     }
                 },
                 confirmButton = {
                     TextButton(onClick = {
-                        if (newName.isNotBlank() && newUrl.isNotBlank()) {
-                            val updated = servers + McpServer(newName.trim(), newUrl.trim())
-                            saveMcpServers(prefs, updated)
-                            servers = updated
-                            showAddDialog = false
+                        if (newName.isNotBlank()) {
+                            if (!isStdio && newUrl.isNotBlank()) {
+                                val updated = servers + McpServer(newName.trim(), newUrl.trim())
+                                saveMcpServers(prefs, updated)
+                                servers = updated
+                                showAddDialog = false
+                            } else if (isStdio && newCommand.isNotBlank()) {
+                                val updated = stdioServers + McpStdioServer(newName.trim(), newCommand.trim(), newArgs.trim())
+                                saveMcpStdioServers(prefs, updated)
+                                stdioServers = updated
+                                showAddDialog = false
+                            }
                         }
                     }) { Text("Add") }
                 },
@@ -178,7 +243,7 @@ fun McpScreen(
             )
         }
 
-        // Confirm delete dialog
+        // Confirm delete HTTP server
         if (confirmDeleteIndex >= 0) {
             AlertDialog(
                 onDismissRequest = { confirmDeleteIndex = -1 },
@@ -202,6 +267,64 @@ fun McpScreen(
                 }
             )
         }
+
+        // Confirm delete stdio server
+        if (confirmDeleteStdioIndex >= 0) {
+            AlertDialog(
+                onDismissRequest = { confirmDeleteStdioIndex = -1 },
+                title = { Text("Remove server?", fontFamily = DmSansFamily) },
+                text = {
+                    Text(
+                        "\"${stdioServers[confirmDeleteStdioIndex].name}\" will be removed.",
+                        fontFamily = DmSansFamily
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        val updated = stdioServers.toMutableList().also { it.removeAt(confirmDeleteStdioIndex) }
+                        saveMcpStdioServers(prefs, updated)
+                        stdioServers = updated
+                        confirmDeleteStdioIndex = -1
+                    }) { Text("Remove", color = Color(0xFFEF4444)) }
+                },
+                dismissButton = {
+                    TextButton(onClick = { confirmDeleteStdioIndex = -1 }) { Text("Cancel") }
+                }
+            )
+        }
+    }
+}
+
+@Composable
+private fun McpServerCard(name: String, subtitle: String, onDelete: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color(0x0FFFFFFF), RoundedCornerShape(14.dp))
+            .border(1.dp, Color(0x17FFFFFF), RoundedCornerShape(14.dp))
+            .padding(14.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Text(
+                name, fontFamily = DmSansFamily, fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold, color = Color.White
+            )
+            Text(
+                subtitle, fontFamily = SpaceMonoFamily,
+                fontSize = 10.sp, color = Color(0xFF6B7280)
+            )
+        }
+        Text(
+            "🗑", fontSize = 18.sp,
+            modifier = Modifier
+                .clickable(onClick = onDelete)
+                .padding(8.dp)
+        )
     }
 }
 
@@ -223,4 +346,30 @@ private fun saveMcpServers(prefs: AppPreferences, list: List<McpServer>) {
         })
     }
     prefs.saveMcpServersJson(arr.toString())
+}
+
+private fun loadMcpStdioServers(prefs: AppPreferences): List<McpStdioServer> {
+    return try {
+        val arr = JSONArray(prefs.getMcpStdioServersJson())
+        (0 until arr.length()).map {
+            val o = arr.getJSONObject(it)
+            McpStdioServer(
+                o.optString("name"),
+                o.optString("command"),
+                o.optString("args")
+            )
+        }
+    } catch (_: Exception) { emptyList() }
+}
+
+private fun saveMcpStdioServers(prefs: AppPreferences, list: List<McpStdioServer>) {
+    val arr = JSONArray()
+    list.forEach { s ->
+        arr.put(JSONObject().apply {
+            put("name", s.name)
+            put("command", s.command)
+            put("args", s.args)
+        })
+    }
+    prefs.saveMcpStdioServersJson(arr.toString())
 }
