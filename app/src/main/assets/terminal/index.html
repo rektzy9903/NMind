@@ -639,8 +639,14 @@ function handleOSC(content){
   } else if(content==='9;thinking-done'){
     thinkBub.style.display='none';
     if(thinkBub.parentNode===msgs) msgs.removeChild(thinkBub);
-    chatState='RESPONDING';
-    startAiBubble();
+    // Guard: only open a new AI bubble if not already RESPONDING.
+    // The close-handler sends a second thinking-done as a fallback for error
+    // cases; when text already triggered the first thinking-done we must not
+    // start a fresh empty bubble on top of the one already being filled.
+    if(chatState!=='RESPONDING'){
+      chatState='RESPONDING';
+      startAiBubble();
+    }
   }
 }
 

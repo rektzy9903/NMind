@@ -1137,7 +1137,17 @@ function runMessage(message, socket, history) {
 
     // Collect stderr separately so we can include it in error messages
     let stderrBuf = '';
-    child.stdout.on('data', d => { try { socket.write(d); } catch (_) {} });
+    // Send thinking-done BEFORE the first byte of text so the terminal
+    // transitions from THINKING → RESPONDING before the text renders.
+    // Without this, text arrives while chatState===THINKING and is silently dropped.
+    let thinkingDoneSent = false;
+    child.stdout.on('data', d => {
+        if (!thinkingDoneSent) {
+            thinkingDoneSent = true;
+            try { socket.write('\x1b]9;thinking-done\x07'); } catch (_) {}
+        }
+        try { socket.write(d); } catch (_) {}
+    });
     child.stderr.on('data', d => {
         const s = d.toString();
         stderrBuf += s;
