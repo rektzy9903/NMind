@@ -182,7 +182,7 @@ class SetupActivity : AppCompatActivity() {
     }
 
     private fun proceedToNext() {
-        startActivity(Intent(this, LoginFlowActivity::class.java))
+        startActivity(Intent(this, com.claudecodesetup.ui.ComposeActivity::class.java))
         finish()
     }
 

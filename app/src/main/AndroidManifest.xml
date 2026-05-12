@@ -42,13 +42,6 @@
             android:screenOrientation="portrait"
             android:theme="@style/Theme.ClaudeCodeSetup" />
 
-        <!-- Provider / login selection -->
-        <activity
-            android:name=".LoginFlowActivity"
-            android:exported="false"
-            android:screenOrientation="portrait"
-            android:theme="@style/Theme.ClaudeCodeSetup" />
-
         <!-- Main terminal -->
         <activity
             android:name=".TerminalActivity"
@@ -57,7 +50,7 @@
             android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.ClaudeCodeSetup.Terminal" />
 
-        <!-- Compose UI: API Key + Model Picker -->
+        <!-- Provider / login selection (Compose) -->
         <activity
             android:name=".ui.ComposeActivity"
             android:exported="false"

@@ -75,7 +75,7 @@ class SettingsActivity : AppCompatActivity() {
     private fun setupActions() {
         binding.btnChangeProvider.setOnClickListener {
             prefs.clearProviderOnly()
-            startActivity(Intent(this, LoginFlowActivity::class.java))
+            startActivity(Intent(this, com.claudecodesetup.ui.ComposeActivity::class.java))
             finish()
         }
 
@@ -88,7 +88,7 @@ class SettingsActivity : AppCompatActivity() {
                 .setPositiveButton("Clear") { _, _ ->
                     prefs.clearProviderOnly()
                     Toast.makeText(this, "Settings cleared", Toast.LENGTH_SHORT).show()
-                    startActivity(Intent(this, LoginFlowActivity::class.java))
+                    startActivity(Intent(this, com.claudecodesetup.ui.ComposeActivity::class.java))
                     finish()
                 }
                 .setNegativeButton("Cancel", null)

@@ -33,19 +33,89 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.claudecodesetup.data.Provider
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import java.util.concurrent.TimeUnit
 
 enum class KeyStatus { IDLE, LOADING, SUCCESS, ERROR }
 
+private val httpClient by lazy {
+    OkHttpClient.Builder()
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(10, TimeUnit.SECONDS)
+        .build()
+}
+
+private suspend fun validateKey(provider: Provider, key: String): String? {
+    if (!provider.requiresApiKey || key.isEmpty()) return null
+    return withContext(Dispatchers.IO) {
+        try {
+            val req = buildRequest(provider, key) ?: return@withContext null
+            val resp = httpClient.newCall(req).execute()
+            val code = resp.code
+            resp.body?.close()
+            when {
+                code in 200..299 -> null
+                code == 429 -> null // rate-limited but key is valid
+                code == 401 || code == 403 -> "Invalid API key (HTTP $code)"
+                else -> "Validation failed (HTTP $code) — check key and try again"
+            }
+        } catch (e: Exception) {
+            "Network error — check your connection"
+        }
+    }
+}
+
+private fun buildRequest(provider: Provider, key: String): Request? {
+    val builder = Request.Builder()
+    return when (provider.id) {
+        "anthropic" -> builder
+            .url("https://api.anthropic.com/v1/models")
+            .header("x-api-key", key)
+            .header("anthropic-version", "2023-06-01")
+            .build()
+        "gemini" -> builder
+            .url("https://generativelanguage.googleapis.com/v1beta/models?key=$key")
+            .build()
+        "openrouter" -> builder
+            .url("https://openrouter.ai/api/v1/auth/key")
+            .header("Authorization", "Bearer $key")
+            .build()
+        "nvidia_nim" -> builder
+            .url("https://integrate.api.nvidia.com/v1/models")
+            .header("Authorization", "Bearer $key")
+            .build()
+        "meta_llama" -> builder
+            .url("https://api.llama.com/v1/models")
+            .header("Authorization", "Bearer $key")
+            .build()
+        "deepseek" -> builder
+            .url("https://api.deepseek.com/models")
+            .header("Authorization", "Bearer $key")
+            .build()
+        "kimi" -> builder
+            .url("https://api.moonshot.ai/v1/models")
+            .header("Authorization", "Bearer $key")
+            .build()
+        else -> null
+    }
+}
+
 @Composable
-fun ApiKeyScreen(onSuccess: (String) -> Unit) {
+fun ApiKeyScreen(provider: Provider, onSuccess: (String) -> Unit, onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     var apiKey by remember { mutableStateOf("") }
     var status by remember { mutableStateOf(KeyStatus.IDLE) }
+    var errorMessage by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
 
-    // ── Entry animation ───────────────────────────────────────────────────────
+    val (_, accentColor, _) = providerDisplayInfo(provider.id)
+
     var entered by remember { mutableStateOf(false) }
     val entryAlpha by animateFloatAsState(if (entered) 1f else 0f,
         tween(500, easing = FastOutSlowInEasing), label = "alpha")
@@ -53,7 +123,6 @@ fun ApiKeyScreen(onSuccess: (String) -> Unit) {
         tween(500, easing = FastOutSlowInEasing), label = "offset")
     LaunchedEffect(Unit) { entered = true }
 
-    // ── Border / glow colors ──────────────────────────────────────────────────
     val borderColor by animateColorAsState(
         when (status) {
             KeyStatus.IDLE    -> Color(0x1FFFFFFF)
@@ -71,7 +140,6 @@ fun ApiKeyScreen(onSuccess: (String) -> Unit) {
         }, tween(250), label = "glow"
     )
 
-    // ── Icon animations ───────────────────────────────────────────────────────
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
     val pulseScale by infiniteTransition.animateFloat(
         initialValue = 1f, targetValue = 1.08f,
@@ -98,7 +166,6 @@ fun ApiKeyScreen(onSuccess: (String) -> Unit) {
         else              -> "🔑"
     }
 
-    // ── Button ────────────────────────────────────────────────────────────────
     val buttonInteraction = remember { MutableInteractionSource() }
     val isPressed by buttonInteraction.collectIsPressedAsState()
     val buttonScale by animateFloatAsState(if (isPressed) 0.97f else 1f, tween(150), label = "btn_scale")
@@ -110,168 +177,213 @@ fun ApiKeyScreen(onSuccess: (String) -> Unit) {
     val isDisabled = status == KeyStatus.LOADING || status == KeyStatus.SUCCESS
 
     fun validate() {
-        if (apiKey.isBlank()) { status = KeyStatus.ERROR; return }
+        if (apiKey.isBlank() && provider.requiresApiKey) {
+            status = KeyStatus.ERROR
+            errorMessage = "Please enter your API key"
+            return
+        }
         status = KeyStatus.LOADING
         scope.launch {
-            delay(1600)
-            status = if (apiKey.startsWith("sk-") || apiKey.length >= 20) KeyStatus.SUCCESS else KeyStatus.ERROR
-            if (status == KeyStatus.SUCCESS) { delay(700); onSuccess(apiKey) }
+            val error = validateKey(provider, apiKey)
+            if (error == null) {
+                status = KeyStatus.SUCCESS
+                delay(700)
+                onSuccess(apiKey)
+            } else {
+                status = KeyStatus.ERROR
+                errorMessage = error
+            }
         }
     }
 
     AppBackground {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            // Back button row
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 12.dp)
+            ) {
+                Text(
+                    "←", fontSize = 20.sp, color = Color(0xFF60A5FA),
+                    modifier = Modifier
+                        .clickable(onClick = onBack)
+                        .padding(end = 10.dp, top = 4.dp, bottom = 4.dp)
+                )
+            }
+
             Box(
                 modifier = Modifier
-                    .widthIn(max = 360.dp)
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
-                    .graphicsLayer {
-                        alpha = entryAlpha
-                        translationY = entryOffset * density
-                    }
-                    .glowShadow(Color(0x1A3B82F6), 20.dp, 24.dp)
-                    .background(Color(0x12FFFFFF), RoundedCornerShape(24.dp))
-                    .border(1.dp, Color(0x1AFFFFFF), RoundedCornerShape(24.dp))
-                    .padding(32.dp)
+                    .weight(1f)
+                    .fillMaxWidth(),
+                contentAlignment = Alignment.Center
             ) {
-                Column(verticalArrangement = Arrangement.spacedBy(24.dp)) {
-
-                    // ── 1. Icon block ─────────────────────────────────────────
-                    Column(
-                        Modifier.fillMaxWidth(),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(14.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(62.dp)
-                                .graphicsLayer { scaleX = iconScale; scaleY = iconScale }
-                                .background(
-                                    Brush.linearGradient(listOf(Color(0x3860A5FA), Color(0x2E8B5CF6))),
-                                    RoundedCornerShape(18.dp)
-                                )
-                                .border(1.dp, Color(0x4D60A5FA), RoundedCornerShape(18.dp)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(iconEmoji, fontSize = 26.sp)
+                Box(
+                    modifier = Modifier
+                        .widthIn(max = 360.dp)
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp)
+                        .graphicsLayer {
+                            alpha = entryAlpha
+                            translationY = entryOffset * density
                         }
-                        Text("OPENROUTER",
-                            fontFamily = SpaceMonoFamily, fontSize = 8.sp,
-                            letterSpacing = 3.sp, color = Color(0xFF60A5FA))
-                        Text("Enter your API Key",
-                            fontFamily = DmSansFamily, fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold, color = Color(0xFFF1F5F9))
-                        Text("Required to access free & paid models",
-                            fontFamily = DmSansFamily, fontSize = 12.sp,
-                            color = Color(0xFF4B5563), textAlign = TextAlign.Center)
-                    }
+                        .glowShadow(Color(0x1A3B82F6), 20.dp, 24.dp)
+                        .background(Color(0x12FFFFFF), RoundedCornerShape(24.dp))
+                        .border(1.dp, Color(0x1AFFFFFF), RoundedCornerShape(24.dp))
+                        .padding(32.dp)
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(24.dp)) {
 
-                    // ── 2. Input field ────────────────────────────────────────
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .glowShadow(glowColor, 8.dp, 12.dp)
-                                .background(Color(0x0AFFFFFF), RoundedCornerShape(12.dp))
-                                .border(1.dp, borderColor, RoundedCornerShape(12.dp))
-                                .padding(start = 14.dp, end = 4.dp, top = 12.dp, bottom = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                        Column(
+                            Modifier.fillMaxWidth(),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(14.dp)
                         ) {
-                            BasicTextField(
-                                value = apiKey,
-                                onValueChange = {
-                                    apiKey = it
-                                    if (status == KeyStatus.ERROR) status = KeyStatus.IDLE
-                                },
-                                modifier = Modifier.weight(1f),
-                                textStyle = TextStyle(
-                                    fontFamily = SpaceMonoFamily,
-                                    fontSize = 13.sp,
-                                    color = Color(0xFFE5E7EB),
-                                    letterSpacing = if (!passwordVisible && apiKey.isNotEmpty()) 3.sp else 0.sp
-                                ),
-                                visualTransformation = if (passwordVisible)
-                                    VisualTransformation.None else PasswordVisualTransformation(),
-                                keyboardOptions = KeyboardOptions.Default,
-                                singleLine = true,
-                                decorationBox = { inner ->
-                                    Box(contentAlignment = Alignment.CenterStart) {
-                                        if (apiKey.isEmpty()) {
-                                            Text("sk-or-v1-…", fontFamily = SpaceMonoFamily,
-                                                fontSize = 13.sp, color = Color(0x55FFFFFF))
-                                        }
-                                        inner()
-                                    }
-                                }
-                            )
-                            IconButton(
-                                onClick = { passwordVisible = !passwordVisible },
-                                modifier = Modifier.size(40.dp)
+                            Box(
+                                modifier = Modifier
+                                    .size(62.dp)
+                                    .graphicsLayer { scaleX = iconScale; scaleY = iconScale }
+                                    .background(
+                                        Brush.linearGradient(
+                                            listOf(accentColor.copy(alpha = 0.22f), accentColor.copy(alpha = 0.12f))
+                                        ),
+                                        RoundedCornerShape(18.dp)
+                                    )
+                                    .border(1.dp, accentColor.copy(alpha = 0.4f), RoundedCornerShape(18.dp)),
+                                contentAlignment = Alignment.Center
                             ) {
-                                Text(if (passwordVisible) "👁" else "🙈", fontSize = 15.sp)
-                            }
-                        }
-                        AnimatedVisibility(
-                            visible = status == KeyStatus.ERROR,
-                            enter = fadeIn(tween(200)),
-                            exit = fadeOut(tween(200))
-                        ) {
-                            Text("Invalid key — must be 20+ characters or start with sk-",
-                                fontFamily = DmSansFamily, fontSize = 11.sp, color = Color(0xFFEF4444))
-                        }
-                    }
-
-                    // ── 3. CTA button ─────────────────────────────────────────
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(50.dp)
-                            .graphicsLayer { scaleX = buttonScale; scaleY = buttonScale }
-                            .glowShadow(buttonGlowColor, 12.dp, 13.dp)
-                            .background(buttonGradient, RoundedCornerShape(13.dp))
-                            .clickable(
-                                interactionSource = buttonInteraction,
-                                indication = null,
-                                enabled = !isDisabled
-                            ) { validate() },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            if (status == KeyStatus.LOADING) {
-                                CircularProgressIndicator(
-                                    Modifier.size(14.dp), color = Color.White, strokeWidth = 2.dp)
+                                Text(iconEmoji, fontSize = 26.sp)
                             }
                             Text(
-                                text = when (status) {
-                                    KeyStatus.IDLE, KeyStatus.ERROR -> "Continue →"
-                                    KeyStatus.LOADING               -> "Validating…"
-                                    KeyStatus.SUCCESS               -> "✓  Validated!"
+                                provider.name.uppercase(),
+                                fontFamily = SpaceMonoFamily, fontSize = 8.sp,
+                                letterSpacing = 3.sp, color = accentColor
+                            )
+                            Text(
+                                if (provider.requiresApiKey) "Enter your API Key"
+                                else "No API Key Required",
+                                fontFamily = DmSansFamily, fontSize = 20.sp,
+                                fontWeight = FontWeight.Bold, color = Color(0xFFF1F5F9)
+                            )
+                            Text(
+                                if (provider.requiresApiKey) "Required to access ${provider.name} models"
+                                else "Tap Continue to connect to ${provider.name}",
+                                fontFamily = DmSansFamily, fontSize = 12.sp,
+                                color = Color(0xFF4B5563), textAlign = TextAlign.Center
+                            )
+                        }
+
+                        if (provider.requiresApiKey) {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .glowShadow(glowColor, 8.dp, 12.dp)
+                                        .background(Color(0x0AFFFFFF), RoundedCornerShape(12.dp))
+                                        .border(1.dp, borderColor, RoundedCornerShape(12.dp))
+                                        .padding(start = 14.dp, end = 4.dp, top = 12.dp, bottom = 12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    BasicTextField(
+                                        value = apiKey,
+                                        onValueChange = {
+                                            apiKey = it
+                                            if (status == KeyStatus.ERROR) status = KeyStatus.IDLE
+                                        },
+                                        modifier = Modifier.weight(1f),
+                                        textStyle = TextStyle(
+                                            fontFamily = SpaceMonoFamily,
+                                            fontSize = 13.sp,
+                                            color = Color(0xFFE5E7EB),
+                                            letterSpacing = if (!passwordVisible && apiKey.isNotEmpty()) 3.sp else 0.sp
+                                        ),
+                                        visualTransformation = if (passwordVisible)
+                                            VisualTransformation.None else PasswordVisualTransformation(),
+                                        keyboardOptions = KeyboardOptions.Default,
+                                        singleLine = true,
+                                        decorationBox = { inner ->
+                                            Box(contentAlignment = Alignment.CenterStart) {
+                                                if (apiKey.isEmpty()) {
+                                                    Text(
+                                                        "Enter API key…", fontFamily = SpaceMonoFamily,
+                                                        fontSize = 13.sp, color = Color(0x55FFFFFF)
+                                                    )
+                                                }
+                                                inner()
+                                            }
+                                        }
+                                    )
+                                    IconButton(
+                                        onClick = { passwordVisible = !passwordVisible },
+                                        modifier = Modifier.size(40.dp)
+                                    ) {
+                                        Text(if (passwordVisible) "👁" else "🙈", fontSize = 15.sp)
+                                    }
+                                }
+                                AnimatedVisibility(
+                                    visible = status == KeyStatus.ERROR,
+                                    enter = fadeIn(tween(200)),
+                                    exit = fadeOut(tween(200))
+                                ) {
+                                    Text(
+                                        errorMessage, fontFamily = DmSansFamily,
+                                        fontSize = 11.sp, color = Color(0xFFEF4444)
+                                    )
+                                }
+                            }
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(50.dp)
+                                .graphicsLayer { scaleX = buttonScale; scaleY = buttonScale }
+                                .glowShadow(buttonGlowColor, 12.dp, 13.dp)
+                                .background(buttonGradient, RoundedCornerShape(13.dp))
+                                .clickable(
+                                    interactionSource = buttonInteraction,
+                                    indication = null,
+                                    enabled = !isDisabled
+                                ) { validate() },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                if (status == KeyStatus.LOADING) {
+                                    CircularProgressIndicator(
+                                        Modifier.size(14.dp), color = Color.White, strokeWidth = 2.dp)
+                                }
+                                Text(
+                                    text = when (status) {
+                                        KeyStatus.IDLE, KeyStatus.ERROR -> "Continue →"
+                                        KeyStatus.LOADING               -> "Validating…"
+                                        KeyStatus.SUCCESS               -> "✓  Validated!"
+                                    },
+                                    fontFamily = DmSansFamily, fontSize = 15.sp,
+                                    fontWeight = FontWeight.SemiBold, color = Color.White
+                                )
+                            }
+                        }
+
+                        if (provider.requiresApiKey) {
+                            Text(
+                                text = buildAnnotatedString {
+                                    withStyle(SpanStyle(color = Color(0xFF9CA3AF), fontSize = 11.sp,
+                                        fontFamily = DmSansFamily)) {
+                                        append("Don't have a key? ")
+                                    }
+                                    withStyle(SpanStyle(color = Color(0xFF60A5FA), fontSize = 11.sp,
+                                        fontFamily = DmSansFamily)) {
+                                        append("Get one free at ${provider.signupUrl} →")
+                                    }
                                 },
-                                fontFamily = DmSansFamily, fontSize = 15.sp,
-                                fontWeight = FontWeight.SemiBold, color = Color.White
+                                modifier = Modifier.fillMaxWidth(),
+                                textAlign = TextAlign.Center
                             )
                         }
                     }
-
-                    // ── 4. Footer ─────────────────────────────────────────────
-                    Text(
-                        text = buildAnnotatedString {
-                            withStyle(SpanStyle(color = Color(0xFF9CA3AF), fontSize = 11.sp,
-                                fontFamily = DmSansFamily)) {
-                                append("Don't have a key? ")
-                            }
-                            withStyle(SpanStyle(color = Color(0xFF60A5FA), fontSize = 11.sp,
-                                fontFamily = DmSansFamily)) {
-                                append("Get one free at openrouter.ai →")
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        textAlign = TextAlign.Center
-                    )
                 }
             }
         }
