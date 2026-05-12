@@ -57,6 +57,10 @@ ClaudeCodeSetup/
 │   │       ├── NodeEngine.kt         — Kotlin singleton; wraps JNI nativeStart()
 │   │       ├── ui/
 │   │       │   ├── ComposeActivity.kt    — hosts full Compose login flow; supports start_at intent extra
+│   │       │   ├── HomeActivity.kt       — entry point after setup; hosts HomeScreen composable
+│   │       │   ├── HomeScreen.kt         — glassmorphic main menu: Chat Box, Testing Response, Setting cards
+│   │       │   ├── ModelTestActivity.kt  — reads prefs, hosts ModelTestScreen composable
+│   │       │   ├── ModelTestScreen.kt    — tests all provider models via OkHttp; shows pass/fail/latency
 │   │       │   ├── LoginScreens.kt       — SubscriptionScreen, MalaysiaScreen, GeminiRecommendScreen, ProviderListScreen
 │   │       │   ├── ApiKeyScreen.kt       — glassmorphic key entry + OkHttp validation per provider
 │   │       │   ├── ModelPickerScreen.kt  — 3-col grid picker; live fetch for OpenRouter
@@ -141,14 +145,18 @@ No Android unit tests exist yet. Instrumentation tests are wired up but empty (E
 ```
 SplashActivity (routing only)
     ↓  first run               ↓  provider not set    ↓  ready
-SetupActivity         ComposeActivity              TerminalActivity
-(Node install)        (6-screen Compose flow)      (sessions + WebView)
-                        subscription → malaysia          ↕
-                        → gemini_recommend           SettingsActivity
-                        → providers → key → picker   (Change model → ComposeActivity start_at=picker)
+SetupActivity         ComposeActivity              HomeActivity (main menu)
+(Node install)        (6-screen Compose flow)          ↓ Chat Box
+                        subscription → malaysia     TerminalActivity
+                        → gemini_recommend          (sessions + WebView)
+                        → providers → key → picker       ↕
+                                                    SettingsActivity
+                                                    (Change model → ComposeActivity start_at=picker)
+                                                    ↓ Testing Response
+                                                    ModelTestActivity
 ```
 
-`SplashActivity` always decides the next screen based on two prefs: `isNodeSetupComplete()` and `isProviderConfigured()`. `LoginFlowActivity` has been deleted — `ComposeActivity` is the sole login flow entry point.
+`SplashActivity` always decides the next screen based on two prefs: `isNodeSetupComplete()` and `isProviderConfigured()`. When provider is configured it routes to `HomeActivity` (main menu). `LoginFlowActivity` has been deleted — `ComposeActivity` is the sole login flow entry point.
 
 ### Session model
 
@@ -235,6 +243,20 @@ Providers are defined in two places:
 
 - **Fixed: Settings "Change model" button** — Previously showed an in-app dialog with a live OpenRouter model fetch. Now navigates to `ComposeActivity` with `start_at=picker`, which loads the current provider/key from prefs and shows the full Compose model picker (works for all providers, not just OpenRouter). Visibility condition changed from `providerId == "openrouter"` to `provider.models.size > 1`. Dead code (`startModelRefresh`, `showModelPickerDialog`) removed from `SettingsActivity`.
 
+- **Added: glassmorphic HomeScreen (main menu)** — `HomeScreen.kt` + `HomeActivity.kt` added. Animated dark-purple background with 3 floating orbs (purple/navy/cyan) and a dot-grid canvas overlay. App icon rendered via Bitmap canvas (required for adaptive icons — `painterResource(R.mipmap.ic_launcher)` crashes on API 26+ adaptive icons). Pulsing green "All systems online" status dot. Three staggered `AnimatedVisibility` menu cards: **Chat Box** → `TerminalActivity`, **Testing Response** → `ModelTestActivity`, **Setting** → `SettingsActivity`. `SplashActivity` now routes to `HomeActivity` (instead of directly to `TerminalActivity`) when provider is configured.
+
+- **Added: ModelTestScreen** — `ModelTestScreen.kt` + `ModelTestActivity.kt`. Tests all models for the active provider by sending `{"messages":[{"role":"user","content":"hi"}],"max_tokens":8}` via OkHttp. Shows per-model status: PASS / EMPTY / RATE_LIMITED (429) / FAIL / TIMEOUT with color-coded indicators and latency in ms. Sequential tests with 300ms gap between models. Gemini uses its own `generativelanguage.googleapis.com` endpoint; all others use OpenAI-compat `/chat/completions`. "Test All" button with disabled state while running.
+
+- **Added: `$` shell prefix in terminal** — Typing `$ <command>` (or just `$` alone) runs the command directly in `/system/bin/sh` instead of sending it to the AI. `cd` is handled in-process to update `shellCwd` (persists across commands in the same session). stdout goes to terminal directly; stderr in yellow. Shell env inherits `PATH`, `HOME`, `TMPDIR`, `FILES_DIR`. Busy sessions are interrupted (SIGTERM) before a new shell command runs.
+
+- **Added: `!help` command** — Lists all built-in terminal commands (`!log`, `!test`, `!ver`, `!test-cli`, `!clear`, `!history`, `!help`, `$ <cmd>`).
+
+- **Fixed: stacking empty boxes on app restart** — When `TerminalActivity` reconnects to a running `ClaudeService`, it replays the session buffer. The buffer contained `thinking-start`/`thinking-done` OSC sequences from prior AI responses; replaying them into a fresh WebView created N empty bubbles (N = number of previous responses). Fixed in `ClaudeSession.appendOutput()`: strips `\x1b]9;thinking-start\x07` and `\x1b]9;thinking-done\x07` before storing in the buffer. The real-time `onOutput` callback still receives the original data, so live thinking indicators still work.
+
+- **Fixed: empty AI response bubbles (root cause)** — `thinking-done` was only sent after the child process exited (after all stdout). The terminal discards data while `chatState === THINKING`. Fix: in `runMessage`, send `\x1b]9;thinking-done\x07` on the **first stdout byte** (before forwarding it) using a `thinkingDoneSent` flag. Also guarded `handleOSC thinking-done` in `index.html` against double-invocation to prevent creating a second empty bubble.
+
+- **Fixed: proxy tool forwarding causing empty responses** — The proxy was forwarding Claude Code's tool definitions (bash, file read/write, etc.) to free OpenAI-compat models. Most free models either don't support tools or return an empty `content` when tools are present. Removed tool forwarding from `anthToOai()` — only the user message content is forwarded. Free models respond correctly without tool definitions.
+
 ### Known gaps / TODO
 - `DownloadManager.kt` exists with resumable download + npm version fetching, but `fetchLatestClaudeVersion()` is not used — version is always the pinned constant. The class is partially unused.
 - `ProvidersRepository.REMOTE_URL` is empty — live provider updates are wired but disabled.
@@ -247,6 +269,8 @@ Providers are defined in two places:
 - **Models have no internet access** — providers are stateless LLMs; no web search or tool use is wired. In proxy mode (all non-Anthropic providers), Claude Code tool calls are not forwarded and may be silently dropped.
 - **No persistent memory across sessions** — `history[]` in `bridge.js` is per-socket only; lost on socket close, app restart, or model switch. Cross-session memory (save/load `session_memory.json` in `filesDir`) is not yet implemented.
 - **No agentic/shell execution** — the app uses `claude --print` only. Claude Code's agentic loop (file read/write, shell commands, git, etc.) does not run. Enabling it would require switching to interactive PTY mode and bundling ARM64 binaries (`git`, `gh`, etc.).
+- **`!install-git` not yet implemented** — `$ git` commands work if git is installed, but there is no in-app installer for a static ARM64 git binary. Planned: download a pre-built ARM64 git binary to `filesDir/bin/` and prepend it to PATH.
+- **Proxy models cannot execute tools autonomously** — In proxy mode, Claude Code tool calls (bash, file read/write, etc.) are stripped before forwarding to the provider. The model can converse but cannot autonomously run shell commands or interact with GitHub. Full agentic tool forwarding would require: (1) forwarding tool definitions to the model, (2) executing tool results in the bridge shell, (3) sending results back as tool_result messages in a loop.
 
 ---
 
@@ -281,3 +305,9 @@ Providers are defined in two places:
 14. **`Intl` is missing from nodejs-mobile v18.20.4** — The build has no ICU, so `global.Intl` is undefined. An `intlShim` stub (defined at module scope in `bridge.js`) is injected into every eval bootstrap before `import(cli.js)`. If you see `[intl-shim] installing` in `!log`, the shim is running. If a specific `Intl` method crashes at runtime, extend the stub in `intlShim`.
 
 15. **`regexpShim` and `intlShim` must be module-scope** — They are injected as strings into eval bootstraps from both `runMessage()` and the `!test-cli` diagnostic handler. If they were local to `runMessage()`, the `!test-cli` step 5 callback would throw `ReferenceError: regexpShim is not defined` the moment step 4 completes, crashing the Node.js process and restarting the Android app.
+
+16. **Never use `painterResource(R.mipmap.ic_launcher)` in Compose** — On API 26+ devices, `ic_launcher` resolves to an `<adaptive-icon>` XML which is not a rasterized asset. `painterResource()` throws `IllegalArgumentException`. Always render adaptive icons via `ContextCompat.getDrawable()` + Android `Canvas` onto a `Bitmap`, then use `bitmap.asImageBitmap()`.
+
+17. **OSC thinking sequences are ephemeral — never buffer them** — `\x1b]9;thinking-start\x07` and `\x1b]9;thinking-done\x07` are UI state signals only. `ClaudeSession.appendOutput()` strips them before storing so they are never replayed to a reconnecting `TerminalActivity`. The real-time `onOutput` callback receives the original data (live thinking indicator still works). If you add new OSC state sequences, strip them in `appendOutput` too.
+
+18. **`thinking-done` must fire before the first stdout byte** — In `runMessage()`, a `thinkingDoneSent` flag sends `\x1b]9;thinking-done\x07` on the first data event of `child.stdout`. This transitions `chatState` from THINKING → RESPONDING before any text arrives. Without this, all model output is discarded (terminal ignores data while THINKING). The `handleOSC thinking-done` in `index.html` is guarded against double-invocation with `if(chatState!=='RESPONDING')`.

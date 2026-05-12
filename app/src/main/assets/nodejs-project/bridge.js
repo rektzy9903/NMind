@@ -1271,6 +1271,79 @@ function openTcpBridge() {
                     } catch (_) {}
                     continue;
                 }
+                // !install-git — install isomorphic-git as a $ git command (pure JS, no native binary)
+                if (line === '!install-git') {
+                    const gitBin  = path.join(FILES_DIR, 'bin', 'git');
+                    const gitJs   = path.join(FILES_DIR, 'bin', 'git.js');
+                    const binDir  = path.join(FILES_DIR, 'bin');
+                    if (fs.existsSync(gitBin)) {
+                        try { socket.write('\x1b[32mgit already installed.\x1b[0m Run \x1b[33m$ git --version\x1b[0m to verify.\r\n\r\n'); } catch(_) {}
+                        continue;
+                    }
+                    try { fs.mkdirSync(binDir, { recursive: true }); } catch(_) {}
+                    try { socket.write('\x1b[33mInstalling isomorphic-git… (may take ~30 s on first run)\x1b[0m\r\n'); } catch(_) {}
+                    log('[install-git] npm install isomorphic-git\n');
+
+                    const igEnv = buildEnv();
+                    const installCmd = 'npm install --prefix ' + JSON.stringify(path.join(FILES_DIR, 'npm-global'))
+                        + ' isomorphic-git';
+                    const ic = spawn('/system/bin/sh', ['-c', installCmd], { env: igEnv, cwd: FILES_DIR });
+                    ic.stdout.on('data', d => { try { socket.write(d); } catch(_) {} });
+                    ic.stderr.on('data', d => { try { socket.write('\x1b[2m' + d.toString() + '\x1b[0m'); } catch(_) {} });
+                    ic.on('close', code => {
+                        if (code !== 0) {
+                            try { socket.write('\x1b[31m✗ npm install failed (exit ' + code + ')\x1b[0m\r\n\r\n'); } catch(_) {}
+                            return;
+                        }
+                        // Write git.js — a proper isomorphic-git CLI
+                        const igPath = path.join(FILES_DIR, 'npm-global', 'node_modules', 'isomorphic-git');
+                        const gitJsContent = [
+'#!/usr/bin/env node',
+'"use strict";',
+'const git  = require(' + JSON.stringify(igPath) + ');',
+'const http = require(' + JSON.stringify(igPath + '/http/node') + ');',
+'const fs   = require("fs");',
+'const path = require("path");',
+'const args = process.argv.slice(2);',
+'const dir  = process.cwd();',
+'const sub  = args[0];',
+'if (!sub || sub === "--version") { console.log("git version 2.x (isomorphic-git)"); process.exit(0); }',
+'const author = { name: process.env.GIT_AUTHOR_NAME || "user", email: process.env.GIT_AUTHOR_EMAIL || "user@device" };',
+'const opts = { fs, http, dir, author };',
+'function run(p) { p.then(r => { if (r !== undefined) console.log(JSON.stringify(r, null, 2)); }).catch(e => { process.stderr.write(e.message + "\\n"); process.exit(1); }); }',
+'switch(sub) {',
+'  case "init":    run(git.init(opts)); break;',
+'  case "clone":   run(git.clone({ ...opts, url: args[1], depth: 1 })); break;',
+'  case "status":  run(git.statusMatrix(opts).then(m => { m.forEach(([f,h,w,s]) => { const st = h===0?"?":w===h?"=":"M"; console.log(st + " " + f); }); })); break;',
+'  case "add":     run(Promise.all((args.slice(1).length?args.slice(1):["."]).map(f => git.add({ ...opts, filepath: f === "." ? undefined : f })))); break;',
+'  case "commit":  { const mi = args.indexOf("-m"); run(git.commit({ ...opts, message: mi>=0 ? args.slice(mi+1).join(" ") : "commit" })); break; }',
+'  case "push":    run(git.push({ ...opts, remote: args[1]||"origin", remoteRef: args[2]||undefined })); break;',
+'  case "pull":    run(git.pull({ ...opts, remote: args[1]||"origin" })); break;',
+'  case "fetch":   run(git.fetch({ ...opts, remote: args[1]||"origin" })); break;',
+'  case "log":     run(git.log(opts).then(commits => commits.slice(0,20).forEach(c => console.log(c.oid.slice(0,7) + " " + c.commit.message.split("\\n")[0])))); break;',
+'  case "branch":  if(args[1]&&args[1]!=="-l"){run(git.branch({...opts,ref:args[1]}));}else{run(git.currentBranch(opts).then(b=>console.log("* "+b)));} break;',
+'  case "checkout":run(git.checkout({...opts,ref:args[args.indexOf("-b")>=0?args[args.indexOf("-b")+1]:args[1]]})); break;',
+'  case "diff":    run(git.statusMatrix(opts).then(m=>{m.filter(([,h,w])=>w!==h).forEach(([f])=>console.log("M "+f));})); break;',
+'  case "remote":  if(args[1]==="add"){run(git.addRemote({...opts,remote:args[2],url:args[3]}));}else{run(git.listRemotes(opts).then(rs=>rs.forEach(r=>console.log(r.remote+"\t"+r.url))));} break;',
+'  case "tag":     if(args[1])run(git.tag({...opts,ref:args[1]}));else run(git.listTags(opts).then(ts=>ts.forEach(t=>console.log(t)))); break;',
+'  default: process.stderr.write("git: \'" + sub + "\' is not a git command\\n"); process.exit(1);',
+'}',
+                        ].join('\n');
+                        try {
+                            fs.writeFileSync(gitJs, gitJsContent, 'utf8');
+                            // Shell wrapper so `git` resolves as a command
+                            const wrapper = '#!/system/bin/sh\nexec node ' + JSON.stringify(gitJs) + ' "$@"\n';
+                            fs.writeFileSync(gitBin, wrapper, { mode: 0o755 });
+                            try { socket.write('\x1b[32m✓ git installed.\x1b[0m\r\n' +
+                                              'Try: \x1b[33m$ git --version\x1b[0m  or  \x1b[33m$ git init\x1b[0m\r\n' +
+                                              '\x1b[2mPowered by isomorphic-git (pure JS — no native binary needed)\x1b[0m\r\n\r\n'); } catch(_) {}
+                        } catch(e) {
+                            try { socket.write('\x1b[31m✗ Could not write git: ' + e.message + '\x1b[0m\r\n\r\n'); } catch(_) {}
+                        }
+                    });
+                    continue;
+                }
+
                 if (line === '!help') {
                     try {
                         socket.write(
@@ -1287,6 +1360,7 @@ function openTcpBridge() {
                             '  \x1b[33m!ver\x1b[0m          Show version and config info\r\n' +
                             '  \x1b[33m!test\x1b[0m         Test Node.js launcher\r\n' +
                             '  \x1b[33m!test-cli\x1b[0m     Run module-loader diagnostic\r\n' +
+                            '  \x1b[33m!install-git\x1b[0m  Install git (isomorphic-git) for $ git commands\r\n' +
                             '  \x1b[33m!help\x1b[0m         Show this message\r\n\r\n'
                         );
                     } catch (_) {}

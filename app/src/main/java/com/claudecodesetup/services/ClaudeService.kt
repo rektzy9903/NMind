@@ -57,7 +57,13 @@ class ClaudeService : LifecycleService() {
         private val buffer = StringBuilder()
 
         @Synchronized fun appendOutput(text: String) {
-            buffer.append(text)
+            // Strip ephemeral thinking OSC sequences before buffering so they
+            // aren't replayed when TerminalActivity reconnects (would create
+            // empty bubbles for every previous AI response).
+            val stripped = text
+                .replace("]9;thinking-start", "")
+                .replace("]9;thinking-done", "")
+            buffer.append(stripped)
             if (buffer.length > MAX_BUFFER_CHARS) {
                 buffer.delete(0, buffer.length - MAX_BUFFER_CHARS)
             }
