@@ -192,7 +192,8 @@ class ClaudeService : LifecycleService() {
     ) = withContext(Dispatchers.IO) {
         val currentMode = mode ?: prefs.getLoginMode()
 
-        // Start/refresh the Node.js bridge once per service lifecycle
+        // Start/refresh the Node.js bridge once per service lifecycle.
+        // Always refresh config so model/key changes from Settings take effect.
         if (!bridgeStartedThisSession) {
             bridgeStartedThisSession = true
             updateNotification("Starting Claude bridge…")
@@ -202,6 +203,8 @@ class ClaudeService : LifecycleService() {
                 prefs.getModelId(),
                 prefs.getBaseUrl()
             )
+        } else {
+            bridge.refreshConfig(prefs)
         }
 
         // Wait up to 60 s for bridge.js to open port 8083

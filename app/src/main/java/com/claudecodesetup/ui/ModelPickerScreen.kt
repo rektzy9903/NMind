@@ -136,28 +136,28 @@ fun ModelPickerScreen(
     val isOpenRouter = provider.id == "openrouter"
     var liveModels by remember { mutableStateOf<List<AiModel>?>(null) }
     var isRefreshing by remember { mutableStateOf(isOpenRouter) }
+    var fetchError by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     fun fetchLive() {
         scope.launch {
             isRefreshing = true
+            fetchError = false
             try {
                 val fetched = ProvidersRepository.fetchOpenRouterFreeModels(apiKey)
-                if (fetched.isNotEmpty()) {
-                    // Merge: hardcoded list first (preserves known models like kimi-k2.5),
-                    // then append any live models not already in the hardcoded list.
-                    val hardcodedIds = provider.models.map { it.modelId }.toSet()
-                    val extra = fetched.filter { it.modelId !in hardcodedIds }
-                    liveModels = provider.models + extra
-                }
-            } catch (_: Exception) {}
+                liveModels = fetched
+            } catch (_: Exception) {
+                fetchError = true
+                if (liveModels == null) liveModels = emptyList()
+            }
             isRefreshing = false
         }
     }
 
     if (isOpenRouter) LaunchedEffect(Unit) { fetchLive() }
 
-    val modelList = liveModels ?: provider.models
+    // OpenRouter: live-only (no hardcoded fallback). Other providers: static list.
+    val modelList = if (isOpenRouter) (liveModels ?: emptyList()) else provider.models
     val displays = remember(modelList) { modelList.map { toDisplay(it) } }
     val categories = remember(displays) {
         val cats = displays.map { it.category }.distinct()
@@ -306,6 +306,62 @@ fun ModelPickerScreen(
                     }
                 }
             }
+
+            // ── Empty / error state (OpenRouter only, while loading or on error) ──
+            if (isOpenRouter && !isRefreshing && modelList.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Text(
+                            if (fetchError) "⚠ Could not load models" else "No free models found",
+                            fontFamily = DmSansFamily, fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold, color = Color.White
+                        )
+                        Text(
+                            if (fetchError) "Check your API key and internet connection, then tap Refresh."
+                            else "Tap ↻ Refresh to try again.",
+                            fontFamily = DmSansFamily, fontSize = 12.sp,
+                            color = Color(0xFF6B7280)
+                        )
+                        Box(
+                            modifier = Modifier
+                                .background(Color(0x1F8B5CF6), RoundedCornerShape(8.dp))
+                                .border(1.dp, Color(0x508B5CF6), RoundedCornerShape(8.dp))
+                                .clickable { fetchLive() }
+                                .padding(horizontal = 20.dp, vertical = 8.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("↻ Retry", fontFamily = DmSansFamily, fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold, color = Color(0xFF8B5CF6))
+                        }
+                    }
+                }
+            } else if (isOpenRouter && isRefreshing && liveModels == null) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        CircularProgressIndicator(
+                            Modifier.size(32.dp), color = Color(0xFF8B5CF6), strokeWidth = 2.dp)
+                        Text("Loading free models…", fontFamily = DmSansFamily, fontSize = 13.sp,
+                            color = Color(0xFF6B7280))
+                    }
+                }
+            } else
 
             // ── Model grid ────────────────────────────────────────────────────
             LazyVerticalGrid(

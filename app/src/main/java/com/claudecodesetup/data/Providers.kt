@@ -56,7 +56,7 @@ object Providers {
         requiresProxy = true,
         models = listOf(
             // Confirmed working free models — always shown even if live fetch fails
-            AiModel("Kimi K2.5 ⭐ (Recommended)", "moonshotai/kimi-k2:free"),
+            AiModel("Kimi K2.5 ⭐ (Recommended)", "moonshotai/kimi-k2.5"),
             AiModel("GPT-OSS 120B", "openai/gpt-oss-120b:free"),
             AiModel("GPT-OSS 20B", "openai/gpt-oss-20b:free"),
             AiModel("MiniMax M2.5", "minimax/minimax-m2.5:free"),
