@@ -257,20 +257,41 @@ Providers are defined in two places:
 
 - **Fixed: proxy tool forwarding causing empty responses** — The proxy was forwarding Claude Code's tool definitions (bash, file read/write, etc.) to free OpenAI-compat models. Most free models either don't support tools or return an empty `content` when tools are present. Removed tool forwarding from `anthToOai()` — only the user message content is forwarded. Free models respond correctly without tool definitions.
 
+- **Added: agentic tool-calling loop** — `!agentic on/off` toggles a direct tool loop that bypasses `claude --print`. Bridge calls the proxy at port 8082 non-streaming with 4 tools: `bash`, `read_file`, `write_file`, `list_dir`. Runs up to 12 tool turns per message. Each tool call shown inline with `▶ tool_name {args}` + output. `agenticEnabled` is module-scope (persists across messages in one Node.js session but resets on bridge restart). Best providers: Gemini, Anthropic subscription.
+
+- **Added: `!gh-auth <token>`** — Saves GitHub PAT to `filesDir/.gh_token` (mode 0600). `git.js` reads it and passes as `onAuth` callback to all isomorphic-git operations (push, clone, fetch, pull) enabling private repo access. `!gh-auth` with no args shows current auth status.
+
+- **Added: `!install-git`** — npm installs `isomorphic-git` into `NPM_PREFIX`, then writes `filesDir/bin/git.js` (full CLI wrapper: init, clone, status, add, commit, push, pull, fetch, log, branch, checkout, diff, remote, tag) and a shell shim `filesDir/bin/git`. Uses stored `!gh-auth` token for HTTPS auth. `filesDir/bin` is already on PATH via `buildEnv()`.
+
+- **Added: `$` toolbar button** — Tapping `$ ` in the keyboard toolbar prepends `$ ` to the current input. Shell commands are one tap away without typing the prefix manually.
+
 ### Known gaps / TODO
-- `DownloadManager.kt` exists with resumable download + npm version fetching, but `fetchLatestClaudeVersion()` is not used — version is always the pinned constant. The class is partially unused.
-- `ProvidersRepository.REMOTE_URL` is empty — live provider updates are wired but disabled.
-- No Android unit or instrumentation tests written.
-- `BootReceiver` exists but doesn't automatically restart a session after boot (only starts the service).
-- `SettingsActivity` references `DownloadManager.PINNED_CLAUDE_VERSION` for display but the installed version tracking (`getInstalledClaudeVersion`) is never written after install.
-- No `CHANGELOG.md` (referenced in `release.yml`).
-- `build.gradle` ABI filter is `arm64-v8a, armeabi-v7a` only — x86/x86_64 not supported despite README mentioning them.
-- README still has `YOUR_USERNAME` placeholders in GitHub URLs.
-- **Models have no internet access** — providers are stateless LLMs; no web search or tool use is wired. In proxy mode (all non-Anthropic providers), Claude Code tool calls are not forwarded and may be silently dropped.
-- **No persistent memory across sessions** — `history[]` in `bridge.js` is per-socket only; lost on socket close, app restart, or model switch. Cross-session memory (save/load `session_memory.json` in `filesDir`) is not yet implemented.
-- **No agentic/shell execution** — the app uses `claude --print` only. Claude Code's agentic loop (file read/write, shell commands, git, etc.) does not run. Enabling it would require switching to interactive PTY mode and bundling ARM64 binaries (`git`, `gh`, etc.).
-- **`!install-git` not yet implemented** — `$ git` commands work if git is installed, but there is no in-app installer for a static ARM64 git binary. Planned: download a pre-built ARM64 git binary to `filesDir/bin/` and prepend it to PATH.
-- **Proxy models cannot execute tools autonomously** — In proxy mode, Claude Code tool calls (bash, file read/write, etc.) are stripped before forwarding to the provider. The model can converse but cannot autonomously run shell commands or interact with GitHub. Full agentic tool forwarding would require: (1) forwarding tool definitions to the model, (2) executing tool results in the bridge shell, (3) sending results back as tool_result messages in a loop.
+
+#### 🔴 Fix gaps in recently shipped features (do first)
+- **Agentic mode has no system prompt** — The model doesn't know it has tools or what they do. Need to inject a brief system prompt when `agenticEnabled=true`: *"You are running on an Android device. You have tools: bash (run shell commands), read_file, write_file, list_dir. Use them proactively to complete tasks."* Without this the model mostly just talks instead of acting.
+- **Agentic responses not streamed** — `callProxyOnce` is non-streaming. User sees blank thinking indicator for the entire response duration. Should stream text blocks in real-time using SSE or chunked response.
+- **No visual indicator that agentic mode is ON** — Once enabled, there's no persistent UI signal. The terminal welcome line and/or a status chip in the header should show `[AGENTIC]` when active.
+- **Agentic cwd not chained between tool calls** — If the AI runs `bash {command:"cd /some/dir"}` it doesn't persist; next tool call starts from the original `shellCwd`. Each `bash` tool result should track the resulting cwd and pass it to the next call.
+
+#### 🟠 High value
+- **Session persistence across restarts** — `history[]` is per-socket only; lost on close/restart/model switch. Save/load `session_memory.json` to `filesDir` (per session ID). 10–20 turns of JSON, loaded on socket connect, saved after each exchange.
+- **Auto-retry + model fallback on 429** — Free models rate-limit constantly. Should retry with exponential backoff (2 s → 4 s → 8 s) up to 3 times, then auto-switch to next model in provider list. Currently just shows a warning and stops.
+- **Setup screen progress streaming** — First-run `npm install` shows a spinner with no detail. Stream `setup.log` lines live to `SetupActivity` so users see what's happening and don't think the app froze.
+
+#### 🟡 Medium
+- **Notification when AI finishes while backgrounded** — No signal arrives when the response lands while the user is in another app. One local `NotificationManager` notification on response complete solves this.
+- **Model picker search bar** — 50+ OpenRouter models with no filtering. Add a `TextField` at the top of `ModelPickerScreen` to filter by name.
+- **`!agentic` state survives bridge restarts** — `agenticEnabled` resets when Node.js restarts (e.g. app kill). Persist it to `bridge_config.json` or a small state file in `filesDir`.
+- **`!log` configurable line count** — `!log 200` variant; currently hardcoded 80 lines.
+- **`!update` command** — Re-runs the install flow for the latest pinned claude-code version without clearing app data.
+
+#### 🟢 Quality of life
+- **Markdown rendering** — Hand-rolled ANSI renderer handles bold/color but not tables, fenced code blocks with syntax highlighting. Consider a dedicated markdown view for AI response bubbles.
+- **Multi-session tab visibility** — Tab bar exists in `TerminalActivity` but is not discoverable. Add a visible "+ New Session" button or make the tab strip always shown.
+- **App size** — Shipping both `arm64-v8a` and `armeabi-v7a` `libnode.so` doubles native lib size. Switch to AAB (Android App Bundle) to serve only the device's ABI.
+- **README placeholders** — `YOUR_USERNAME` still in GitHub URLs in README.
+- **`DownloadManager.kt` partially unused** — `fetchLatestClaudeVersion()` is never called; version always uses pinned constant. Either wire it up or remove dead code.
+- **`ProvidersRepository.REMOTE_URL` wired but empty** — Live provider updates disabled. Enable to push new models/providers without an app update.
 
 ---
 
