@@ -798,6 +798,40 @@ function sendToProvider(baseUrl, apiKey, oaiReq, stream, res, onBadRequest) {
                 catch (_) {}
             }
 
+            let finished = false; // prevents duplicate stop events
+
+            function finishStream(stopReason) {
+                if (finished) return;
+                finished = true;
+                sendEvent('content_block_stop', { type: 'content_block_stop', index: 0 });
+                for (const tb of Object.values(tcBlocks)) {
+                    sendEvent('content_block_stop', { type: 'content_block_stop', index: tb.blockIdx });
+                }
+                sendEvent('message_delta', {
+                    type: 'message_delta',
+                    delta: { stop_reason: stopReason || 'end_turn', stop_sequence: null },
+                    usage: { output_tokens: outTokens },
+                });
+                sendEvent('message_stop', { type: 'message_stop' });
+                try { res.end(); } catch (_) {}
+            }
+
+            function ensureOpened() {
+                if (headersSent) return;
+                headersSent = true;
+                sendEvent('message_start', {
+                    type: 'message_start',
+                    message: { id: msgId, type: 'message', role: 'assistant',
+                               content: [], model: oaiReq.model, stop_reason: null,
+                               usage: { input_tokens: 0, output_tokens: 0 } },
+                });
+                sendEvent('content_block_start', {
+                    type: 'content_block_start', index: 0,
+                    content_block: { type: 'text', text: '' },
+                });
+                sendEvent('ping', { type: 'ping' });
+            }
+
             provRes.setEncoding('utf8');
             provRes.on('data', chunk => {
                 buffer += chunk;
@@ -812,30 +846,18 @@ function sendToProvider(baseUrl, apiKey, oaiReq, stream, res, onBadRequest) {
 
                     let event;
                     try { event = JSON.parse(raw); } catch (_) { continue; }
-                    if (event.error) { log('Provider stream error: ' + JSON.stringify(event.error) + '\n'); continue; }
-
-                    if (!headersSent) {
-                        headersSent = true;
-                        sendEvent('message_start', {
-                            type: 'message_start',
-                            message: { id: msgId, type: 'message', role: 'assistant',
-                                       content: [], model: oaiReq.model, stop_reason: null,
-                                       usage: { input_tokens: 0, output_tokens: 0 } },
-                        });
-                        // Always open a text block at index 0 (may be empty if model only uses tools)
-                        sendEvent('content_block_start', {
-                            type: 'content_block_start', index: 0,
-                            content_block: { type: 'text', text: '' },
-                        });
-                        sendEvent('ping', { type: 'ping' });
+                    if (event.error) {
+                        log('[proxy] stream error from provider: ' + JSON.stringify(event.error).slice(0, 200) + '\n');
+                        continue;
                     }
+
+                    ensureOpened();
 
                     const choice     = (event.choices || [])[0] || {};
                     const delta      = choice.delta || {};
                     const text       = delta.content || '';
                     const finishCode = choice.finish_reason;
 
-                    // Text delta
                     if (text) {
                         outTokens++;
                         sendEvent('content_block_delta', {
@@ -849,19 +871,16 @@ function sendToProvider(baseUrl, apiKey, oaiReq, stream, res, onBadRequest) {
                         for (const tc of delta.tool_calls) {
                             const tcIdx = tc.index !== undefined ? tc.index : 0;
                             if (!tcBlocks[tcIdx]) {
-                                // First chunk for this tool call: open a new content block
                                 const blockIdx = nextBlockIdx++;
                                 tcBlocks[tcIdx] = { id: tc.id, name: (tc.function || {}).name || '', blockIdx };
                                 sendEvent('content_block_start', {
                                     type: 'content_block_start', index: blockIdx,
                                     content_block: {
-                                        type: 'tool_use',
-                                        id: tc.id,
-                                        name: (tc.function || {}).name || '',
-                                        input: {}
+                                        type: 'tool_use', id: tc.id,
+                                        name: (tc.function || {}).name || '', input: {}
                                     }
                                 });
-                                log('[proxy] stream: tool_use block opened — ' + tcBlocks[tcIdx].name + '\n');
+                                log('[proxy] stream: tool_use block — ' + tcBlocks[tcIdx].name + '\n');
                             }
                             const args = (tc.function || {}).arguments || '';
                             if (args) {
@@ -874,47 +893,32 @@ function sendToProvider(baseUrl, apiKey, oaiReq, stream, res, onBadRequest) {
                     }
 
                     if (finishCode) {
-                        // Close text block
-                        sendEvent('content_block_stop', { type: 'content_block_stop', index: 0 });
-                        // Close any open tool_use blocks
-                        for (const tb of Object.values(tcBlocks)) {
-                            sendEvent('content_block_stop', { type: 'content_block_stop', index: tb.blockIdx });
-                        }
                         const stopReason = finishCode === 'tool_calls' ? 'tool_use'
                                          : finishCode === 'length'     ? 'max_tokens'
                                          : 'end_turn';
-                        sendEvent('message_delta', {
-                            type: 'message_delta',
-                            delta: { stop_reason: stopReason, stop_sequence: null },
-                            usage: { output_tokens: outTokens },
-                        });
-                        sendEvent('message_stop', { type: 'message_stop' });
+                        finishStream(stopReason);
                     }
                 }
             });
 
             provRes.on('end', () => {
-                if (!headersSent) {
-                    // Provider sent nothing — emit a minimal valid stream
-                    sendEvent('message_start', {
-                        type: 'message_start',
-                        message: { id: msgId, type: 'message', role: 'assistant',
-                                   content: [], model: oaiReq.model, stop_reason: null,
-                                   usage: { input_tokens: 0, output_tokens: 0 } },
-                    });
-                    sendEvent('content_block_start', {
-                        type: 'content_block_start', index: 0,
-                        content_block: { type: 'text', text: '' },
-                    });
+                if (!finished) {
+                    // Stream ended without a finish_reason — or provider sent nothing at all.
+                    // If no text was produced, inject a visible error so the user gets feedback
+                    // instead of an empty bubble.
+                    if (outTokens === 0 && Object.keys(tcBlocks).length === 0) {
+                        log('[proxy] empty stream (outTokens=0, no tool calls) — injecting error text\n');
+                        ensureOpened();
+                        const errText = headersSent
+                            ? '⚠ Model returned empty response. It may be busy or not support this prompt. Try again or switch models in Settings.'
+                            : '⚠ Provider sent no data. Check your API key or try a different model.';
+                        sendEvent('content_block_delta', {
+                            type: 'content_block_delta', index: 0,
+                            delta: { type: 'text_delta', text: errText }
+                        });
+                    }
+                    finishStream('end_turn');
                 }
-                sendEvent('content_block_stop',  { type: 'content_block_stop', index: 0 });
-                sendEvent('message_delta', {
-                    type: 'message_delta',
-                    delta: { stop_reason: 'end_turn', stop_sequence: null },
-                    usage: { output_tokens: outTokens },
-                });
-                sendEvent('message_stop', { type: 'message_stop' });
-                try { res.end(); } catch (_) {}
             });
         }
 
