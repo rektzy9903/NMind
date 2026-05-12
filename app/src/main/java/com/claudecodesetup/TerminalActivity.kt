@@ -2,14 +2,12 @@ package com.claudecodesetup
 
 import android.app.Activity
 import android.app.AlertDialog
-import android.app.PictureInPictureParams
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
 import android.content.res.ColorStateList
 import android.graphics.Color
-import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.IBinder
@@ -109,15 +107,6 @@ class TerminalActivity : AppCompatActivity() {
         setupHeaderButtons()
         setupStatusBar()
         startAndBindService()
-    }
-
-    override fun onUserLeaveHint() {
-        super.onUserLeaveHint()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            try {
-                enterPictureInPictureMode(PictureInPictureParams.Builder().build())
-            } catch (_: Exception) {}
-        }
     }
 
     override fun onResume() {

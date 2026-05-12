@@ -21,13 +21,12 @@ class SplashActivity : AppCompatActivity() {
         val next: Class<*> = when {
             !prefs.isNodeSetupComplete()  -> SetupActivity::class.java
             !prefs.isProviderConfigured() -> com.claudecodesetup.ui.ComposeActivity::class.java
-            else                          -> TerminalActivity::class.java
+            sharedText != null            -> TerminalActivity::class.java
+            else                          -> com.claudecodesetup.ui.HomeActivity::class.java
         }
 
         val nextIntent = Intent(this, next)
-        if (sharedText != null && next == TerminalActivity::class.java) {
-            nextIntent.putExtra("shared_text", sharedText)
-        }
+        if (sharedText != null) nextIntent.putExtra("shared_text", sharedText)
 
         startActivity(nextIntent)
         finish()

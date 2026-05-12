@@ -56,11 +56,11 @@ private fun AppRoot(
                 selectedProvider = Providers.ANTHROPIC
                 screen = "key"
             },
-            onNo = { screen = "malaysia" }
+            onNo = { screen = if (prefs.getSkipMalaysiaPrompt()) "providers" else "malaysia" }
         )
         "malaysia" -> MalaysiaScreen(
-            onYes = { screen = "gemini_recommend" },
-            onNo = { screen = "providers" }
+            onYes = { skip -> if (skip) prefs.setSkipMalaysiaPrompt(true); screen = "gemini_recommend" },
+            onNo  = { skip -> if (skip) prefs.setSkipMalaysiaPrompt(true); screen = "providers" }
         )
         "gemini_recommend" -> GeminiRecommendScreen(
             onUseGemini = {

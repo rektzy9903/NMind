@@ -65,6 +65,9 @@ class AppPreferences(context: Context) {
     fun getCustomSystemPrompt(): String = prefs.getString(KEY_CUSTOM_SYSTEM_PROMPT, "") ?: ""
     fun setCustomSystemPrompt(prompt: String) = prefs.edit().putString(KEY_CUSTOM_SYSTEM_PROMPT, prompt).apply()
 
+    fun getSkipMalaysiaPrompt(): Boolean = prefs.getBoolean(KEY_SKIP_MALAYSIA, false)
+    fun setSkipMalaysiaPrompt(skip: Boolean) = prefs.edit().putBoolean(KEY_SKIP_MALAYSIA, skip).apply()
+
     // ─── Misc ────────────────────────────────────────────────────────────────
 
     fun getInstalledClaudeVersion(): String = prefs.getString(KEY_CLAUDE_VERSION, "") ?: ""
@@ -102,6 +105,7 @@ class AppPreferences(context: Context) {
         private const val KEY_CLAUDE_VERSION      = "claude_version"
         private const val KEY_PROJECT_PATH        = "project_path"
         private const val KEY_CUSTOM_SYSTEM_PROMPT = "custom_system_prompt"
+        private const val KEY_SKIP_MALAYSIA        = "skip_malaysia_prompt"
 
         const val MODE_SUBSCRIPTION = "subscription"
         const val MODE_PROXY        = "proxy"

@@ -2128,6 +2128,19 @@ function openTcpBridge() {
                     busy = false;
                 }
 
+                // ── Guard: abort early if provider is not configured ─────────
+                {
+                    const cfgCheck = readConfig();
+                    if (cfgCheck.mode !== 'subscription' && !cfgCheck.providerUrl) {
+                        try {
+                            socket.write('\x1b]9;thinking-done\x07\r\n' +
+                                '\x1b[31m✗ No provider configured.\x1b[0m\r\n' +
+                                'Open \x1b[33mSettings\x1b[0m and enter your API key.\r\n');
+                        } catch (_) {}
+                        continue;
+                    }
+                }
+
                 // ── Agentic mode: streaming tool-calling loop via proxy ───────
                 if (agenticEnabled) {
                     busy = true;

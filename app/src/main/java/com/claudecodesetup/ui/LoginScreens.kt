@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -45,16 +47,44 @@ fun SubscriptionScreen(onYes: () -> Unit, onNo: () -> Unit) {
 }
 
 @Composable
-fun MalaysiaScreen(onYes: () -> Unit, onNo: () -> Unit) {
+fun MalaysiaScreen(onYes: (Boolean) -> Unit, onNo: (Boolean) -> Unit) {
+    var dontAskAgain by remember { mutableStateOf(false) }
     QuestionCard(
         icon = "🌏",
         question = "Are you in Malaysia?",
         subtitle = "We'll recommend the best free provider for your region",
         primaryLabel = "Yes, I'm in Malaysia",
         secondaryLabel = "No, other country",
-        onPrimary = onYes,
-        onSecondary = onNo,
-        accentColor = Color(0xFF3B82F6)
+        onPrimary = { onYes(dontAskAgain) },
+        onSecondary = { onNo(dontAskAgain) },
+        accentColor = Color(0xFF3B82F6),
+        extraContent = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) { dontAskAgain = !dontAskAgain }
+                    .padding(top = 4.dp)
+            ) {
+                Checkbox(
+                    checked = dontAskAgain,
+                    onCheckedChange = { dontAskAgain = it },
+                    colors = CheckboxDefaults.colors(
+                        checkedColor = Color(0xFF3B82F6),
+                        uncheckedColor = Color(0xFF6B7280)
+                    )
+                )
+                Text(
+                    "Don't ask me again",
+                    fontFamily = DmSansFamily,
+                    fontSize = 13.sp,
+                    color = Color(0xFF9CA3AF)
+                )
+            }
+        }
     )
 }
 
@@ -81,7 +111,8 @@ private fun QuestionCard(
     secondaryLabel: String,
     onPrimary: () -> Unit,
     onSecondary: () -> Unit,
-    accentColor: Color
+    accentColor: Color,
+    extraContent: (@Composable () -> Unit)? = null
 ) {
     var entered by remember { mutableStateOf(false) }
     val alpha by animateFloatAsState(if (entered) 1f else 0f, tween(400), label = "alpha")
@@ -133,6 +164,8 @@ private fun QuestionCard(
                         color = Color(0xFF9CA3AF), textAlign = TextAlign.Center
                     )
                 }
+
+                if (extraContent != null) extraContent()
 
                 Column(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
