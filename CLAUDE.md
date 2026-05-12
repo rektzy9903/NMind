@@ -265,16 +265,23 @@ Providers are defined in two places:
 
 - **Added: `$` toolbar button** — Tapping `$ ` in the keyboard toolbar prepends `$ ` to the current input. Shell commands are one tap away without typing the prefix manually.
 
+- **Fixed: agentic mode — system prompt, streaming, cwd chaining, visual indicator** — Four red gaps resolved:
+  1. `AGENTIC_SYSTEM_PROMPT` constant injected into every proxy call when `agenticEnabled=true` so the model knows it has tools and uses them proactively.
+  2. `callProxyStreaming()` replaces the blocking `callProxyOnce()` — full SSE parser emits `text_delta` events to the socket in real time so the user sees output as it arrives.
+  3. `bash` tool wraps commands with `; echo "__CWD__:$(pwd)"` suffix to detect `cd` changes; `executeTool()` parses the marker and returns `newCwd`; `runAgentic()` propagates it back to `shellCwd` across tool turns.
+  4. Welcome line shows `[AGENTIC]` tag when active; `!agentic on/off` toggle prints a magenta banner.
+
+- **Added: session persistence across restarts** — `loadSession()` / `saveSession(history)` read/write `filesDir/last_session.json` (24 h TTL). History is loaded on every socket connect and saved after every exchange (both `--print` and agentic paths). `!clear` also wipes the file. Welcome line shows `(resumed N turns)` when history is restored.
+
+- **Fixed: OpenRouter model picker — live-only fetch, no hardcoded fallback** — `ModelPickerScreen` now shows only live-fetched models from OpenRouter's `/api/v1/models` endpoint. While fetching, a full-screen spinner is shown. If the fetch fails or returns nothing, an error card with a ↻ Retry button is shown. The hardcoded model list in `Providers.kt` is no longer used as a fallback in the picker (it remains as a `ProvidersRepository` parse fallback only).
+
+- **Fixed: `moonshotai/kimi-k2:free` → `moonshotai/kimi-k2.5`** — The `:free` suffix for the Kimi model does not exist on OpenRouter; requests returned HTTP 404 "No endpoints found". Corrected the model ID in `Providers.kt`.
+
+- **Fixed: model switch not taking effect after first session** — `ClaudeService.connectSession()` now calls `bridge.refreshConfig(prefs)` whenever the bridge is already running, so model/key changes saved in Settings immediately update `bridge_config.json` before the next message. Previously `writeConfig()` was only called inside `startBridge()` which runs once per service lifecycle, leaving the config stale after any provider or model change.
+
 ### Known gaps / TODO
 
-#### 🔴 Fix gaps in recently shipped features (do first)
-- **Agentic mode has no system prompt** — The model doesn't know it has tools or what they do. Need to inject a brief system prompt when `agenticEnabled=true`: *"You are running on an Android device. You have tools: bash (run shell commands), read_file, write_file, list_dir. Use them proactively to complete tasks."* Without this the model mostly just talks instead of acting.
-- **Agentic responses not streamed** — `callProxyOnce` is non-streaming. User sees blank thinking indicator for the entire response duration. Should stream text blocks in real-time using SSE or chunked response.
-- **No visual indicator that agentic mode is ON** — Once enabled, there's no persistent UI signal. The terminal welcome line and/or a status chip in the header should show `[AGENTIC]` when active.
-- **Agentic cwd not chained between tool calls** — If the AI runs `bash {command:"cd /some/dir"}` it doesn't persist; next tool call starts from the original `shellCwd`. Each `bash` tool result should track the resulting cwd and pass it to the next call.
-
 #### 🟠 High value
-- **Session persistence across restarts** — `history[]` is per-socket only; lost on close/restart/model switch. Save/load `session_memory.json` to `filesDir` (per session ID). 10–20 turns of JSON, loaded on socket connect, saved after each exchange.
 - **Auto-retry + model fallback on 429** — Free models rate-limit constantly. Should retry with exponential backoff (2 s → 4 s → 8 s) up to 3 times, then auto-switch to next model in provider list. Currently just shows a warning and stops.
 - **Setup screen progress streaming** — First-run `npm install` shows a spinner with no detail. Stream `setup.log` lines live to `SetupActivity` so users see what's happening and don't think the app froze.
 
