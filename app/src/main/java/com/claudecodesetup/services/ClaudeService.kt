@@ -209,6 +209,7 @@ class ClaudeService : LifecycleService() {
         if (!bridgeStartedThisSession) {
             bridgeStartedThisSession = true
             updateNotification("Starting Claude bridge…")
+            bridge.writeMcpConfig(prefs)
             bridge.startBridge(
                 currentMode,
                 prefs.getApiKey(),

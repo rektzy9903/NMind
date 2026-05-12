@@ -16,7 +16,8 @@ class HomeActivity : ComponentActivity() {
                 appName = getString(R.string.app_name),
                 onChatBox  = { startActivity(Intent(this, TerminalActivity::class.java)) },
                 onTesting  = { startActivity(Intent(this, ModelTestActivity::class.java)) },
-                onSettings = { startActivity(Intent(this, SettingsActivity::class.java)) }
+                onSettings = { startActivity(Intent(this, SettingsActivity::class.java)) },
+                onProjects = { startActivity(Intent(this, ProjectManagerActivity::class.java)) }
             )
         }
     }

@@ -4,6 +4,8 @@ import android.app.AlertDialog
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.os.Environment
+import android.provider.Settings
 import android.view.MenuItem
 import android.view.View
 import android.widget.Toast
@@ -12,6 +14,7 @@ import com.claudecodesetup.data.AppPreferences
 import com.claudecodesetup.data.Providers
 import com.claudecodesetup.databinding.ActivitySettingsBinding
 import com.claudecodesetup.managers.NodeBridgeManager
+import java.io.File
 
 class SettingsActivity : AppCompatActivity() {
 
@@ -126,9 +129,59 @@ class SettingsActivity : AppCompatActivity() {
                     Uri.parse("https://github.com/Alishahryar1/free-claude-code/issues/new"))
             )
         }
+
+        binding.btnGrantStorage.setOnClickListener {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                if (!Environment.isExternalStorageManager()) {
+                    startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                        Uri.parse("package:$packageName")))
+                } else {
+                    Toast.makeText(this, "Storage access already granted", Toast.LENGTH_SHORT).show()
+                }
+            } else {
+                Toast.makeText(this, "Storage access already granted on this Android version", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        binding.btnBrowseFolder.setOnClickListener {
+            val canAccess = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                Environment.isExternalStorageManager()
+            } else {
+                true
+            }
+            if (canAccess) {
+                showFolderPicker(Environment.getExternalStorageDirectory())
+            } else {
+                Toast.makeText(this, "Grant storage access first", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        binding.btnMcpServers.setOnClickListener {
+            startActivity(Intent(this, com.claudecodesetup.ui.McpActivity::class.java))
+        }
     }
 
-    // ─── Reset ────────────────────────────────────────────────────────────────
+    private fun showFolderPicker(dir: File) {
+        val subdirs = dir.listFiles()?.filter { it.isDirectory }?.sortedBy { it.name } ?: emptyList()
+        val items = mutableListOf(".. (go up)", "→ Select this folder") + subdirs.map { it.name }
+        AlertDialog.Builder(this)
+            .setTitle(dir.absolutePath)
+            .setItems(items.toTypedArray()) { _, which ->
+                when (which) {
+                    0 -> showFolderPicker(dir.parentFile ?: dir)
+                    1 -> {
+                        binding.etProjectPath.setText(dir.absolutePath)
+                        prefs.setProjectPath(dir.absolutePath)
+                        Toast.makeText(this, "Project folder set", Toast.LENGTH_SHORT).show()
+                    }
+                    else -> showFolderPicker(subdirs[which - 2])
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    // ─── Reset ─────────────────────────────────────────────────────────────────
 
     private fun resetEverything() {
         prefs.clearAll()

@@ -69,6 +69,32 @@ class NodeBridgeManager(private val context: Context) {
         startNodeEngine()
     }
 
+    fun writeMcpConfig(prefs: AppPreferences) {
+        try {
+            val serversJson = prefs.getMcpServersJson()
+            val arr = org.json.JSONArray(serversJson)
+            if (arr.length() == 0) return
+            val mcpServers = org.json.JSONObject()
+            for (i in 0 until arr.length()) {
+                val server = arr.getJSONObject(i)
+                val name = server.optString("name")
+                val url = server.optString("url")
+                if (name.isNotEmpty() && url.isNotEmpty()) {
+                    mcpServers.put(name, org.json.JSONObject().apply {
+                        put("url", url)
+                        put("type", "sse")
+                    })
+                }
+            }
+            val config = org.json.JSONObject().apply {
+                put("mcpServers", mcpServers)
+            }
+            File(context.filesDir, ".claude.json").writeText(config.toString())
+        } catch (e: Exception) {
+            Log.e(TAG, "Could not write MCP config", e)
+        }
+    }
+
     /** Re-write bridge_config.json from current prefs without restarting Node.js.
      *  bridge.js reads the config fresh on every spawn, so the next message picks
      *  up the new model immediately. */

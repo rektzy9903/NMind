@@ -485,24 +485,9 @@ html, body {
   <button class="tb-btn" id="btn-down">↓</button>
   <button class="tb-btn" id="btn-esc">Esc</button>
   <button class="tb-btn" id="btn-backspace">⌫</button>
-  <div style="width:1px;height:22px;background:rgba(255,255,255,0.08);flex-shrink:0;margin:0 2px"></div>
-  <button class="tb-btn" id="btn-slash">/</button>
-  <button class="tb-btn" id="btn-backslash">\</button>
-  <button class="tb-btn" id="btn-pipe">|</button>
-  <button class="tb-btn" id="btn-dash">-</button>
-  <button class="tb-btn" id="btn-underscore">_</button>
-  <button class="tb-btn" id="btn-tilde">~</button>
-  <button class="tb-btn" id="btn-lbrace">{</button>
-  <button class="tb-btn" id="btn-rbrace">}</button>
-  <button class="tb-btn" id="btn-lbracket">[</button>
-  <button class="tb-btn" id="btn-rbracket">]</button>
-  <button class="tb-btn" id="btn-lparen">(</button>
-  <button class="tb-btn" id="btn-rparen">)</button>
-  <button class="tb-btn" id="btn-semicolon">;</button>
-  <button class="tb-btn" id="btn-quote">"</button>
-  <div style="width:1px;height:22px;background:rgba(255,255,255,0.08);flex-shrink:0;margin:0 2px"></div>
   <button class="tb-btn" id="btn-export" style="color:#86efac">⇪ Export</button>
   <button class="tb-btn" id="btn-files" style="color:#7dd3fc">📂 Files</button>
+  <button class="tb-btn" id="btn-preview" style="color:#7dd3fc">🌐 Preview</button>
 </div>
 
 <script>
@@ -1187,24 +1172,6 @@ document.getElementById('btn-backspace').addEventListener('click',function(){
   ghost.focus();
 });
 
-// Special character keys — insert into inputBuffer
-(function(){
-  var chars={
-    'btn-slash':'/','btn-backslash':'\\','btn-pipe':'|','btn-dash':'-',
-    'btn-underscore':'_','btn-tilde':'~','btn-lbrace':'{','btn-rbrace':'}',
-    'btn-lbracket':'[','btn-rbracket':']','btn-lparen':'(','btn-rparen':')',
-    'btn-semicolon':';','btn-quote':'"'
-  };
-  Object.keys(chars).forEach(function(id){
-    document.getElementById(id).addEventListener('click',function(){
-      inputBuffer+=chars[id];
-      ghost.value=inputBuffer;
-      updateInputDisp();
-      ghost.focus();
-    });
-  });
-})();
-
 document.getElementById('btn-export').addEventListener('click',function(){
   var text=exportConversation();
   if(typeof Android!=='undefined') Android.shareText(text);
@@ -1213,6 +1180,11 @@ document.getElementById('btn-export').addEventListener('click',function(){
 
 document.getElementById('btn-files').addEventListener('click',function(){
   if(typeof Android!=='undefined') Android.browseFiles();
+  ghost.focus();
+});
+
+document.getElementById('btn-preview').addEventListener('click',function(){
+  if(typeof Android!=='undefined') Android.openPreview();
   ghost.focus();
 });
 

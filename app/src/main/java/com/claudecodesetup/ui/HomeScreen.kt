@@ -43,6 +43,7 @@ fun HomeScreen(
     onChatBox: () -> Unit,
     onTesting: () -> Unit,
     onSettings: () -> Unit,
+    onProjects: () -> Unit = {},
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "home")
 
@@ -70,10 +71,12 @@ fun HomeScreen(
     var card1Visible by remember { mutableStateOf(false) }
     var card2Visible by remember { mutableStateOf(false) }
     var card3Visible by remember { mutableStateOf(false) }
+    var card4Visible by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         delay(250L); card1Visible = true
         delay(130L); card2Visible = true
         delay(130L); card3Visible = true
+        delay(130L); card4Visible = true
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -273,6 +276,22 @@ fun HomeScreen(
                     subtitle = "Manage your preferences & app options",
                     accentColor = Color(0xFF6D28D9),
                     onClick = onSettings,
+                )
+            }
+
+            Spacer(Modifier.height(12.dp))
+
+            // Card 4 — Projects
+            AnimatedVisibility(
+                visible = card4Visible,
+                enter = fadeIn(tween(400)) + slideInVertically(tween(400, easing = EaseOutCubic)) { it / 3 }
+            ) {
+                MenuCard(
+                    iconRes = R.drawable.ic_settings,
+                    title = "Projects",
+                    subtitle = "Switch between saved project workspaces",
+                    accentColor = Color(0xFF10B981),
+                    onClick = onProjects,
                 )
             }
 

@@ -1566,6 +1566,8 @@ function openTcpBridge() {
         let   current   = null;
         let   currentTid = null;  // safety-net timeout handle
         let   history   = loadSession();  // load persisted history from last session
+        let   sessionMsgCount = 0;
+        let   sessionTokenEstimate = 0;
 
         // Working dir: prefer last saved cwd, then projectPath from config, then FILES_DIR
         let   shellCwd  = (() => {
@@ -1923,6 +1925,48 @@ function openTcpBridge() {
                     continue;
                 }
 
+                if (line === '!stats') {
+                    try {
+                        socket.write('\x1b[36m📊 Session stats: ' + sessionMsgCount + ' messages • ~' + sessionTokenEstimate + ' tokens estimated\x1b[0m\r\n');
+                    } catch (_) {}
+                    continue;
+                }
+
+                if (line === '!export') {
+                    const ts = new Date().toISOString().replace(/[:.]/g,'-').slice(0,19);
+                    const fname = path.join(FILES_DIR, 'session_' + ts + '.md');
+                    let md = '# Claude Code Session Export\n\n';
+                    history.forEach(h => {
+                        md += '## ' + (h.role === 'user' ? 'You' : 'Claude') + '\n\n' + h.content + '\n\n---\n\n';
+                    });
+                    try { fs.writeFileSync(fname, md, 'utf8'); } catch(_) {}
+                    try { socket.write('\x1b[32m✓ Session exported to:\x1b[0m ' + fname + '\r\n'); } catch(_) {}
+                    continue;
+                }
+
+                if (line.startsWith('!import ')) {
+                    const fname = line.slice(8).trim();
+                    try {
+                        const content = fs.readFileSync(fname, 'utf8');
+                        const blocks = content.split(/^## /m).slice(1);
+                        const loaded = [];
+                        blocks.forEach(b => {
+                            const firstLine = b.split('\n')[0].trim();
+                            const bodyLines = b.split('\n').slice(2);
+                            const end = bodyLines.findIndex(l => l.trim() === '---');
+                            const body = bodyLines.slice(0, end >= 0 ? end : undefined).join('\n').trim();
+                            if (firstLine === 'You') loaded.push({ role: 'user', content: body });
+                            else if (firstLine === 'Claude') loaded.push({ role: 'assistant', content: body });
+                        });
+                        history = loaded;
+                        saveSession(history);
+                        socket.write('\x1b[32m✓ Imported ' + loaded.length + ' messages from ' + fname + '\x1b[0m\r\n');
+                    } catch(e) {
+                        socket.write('\x1b[31m✗ Import failed: ' + e.message + '\x1b[0m\r\n');
+                    }
+                    continue;
+                }
+
                 if (line === '!help') {
                     try {
                         socket.write(
@@ -1937,6 +1981,9 @@ function openTcpBridge() {
                             '  \x1b[33m!context [path]\x1b[0m Load directory tree + key files as context for next message\r\n' +
                             '  \x1b[33m!context clear\x1b[0m Remove loaded context\r\n' +
                             '  \x1b[33m!fetch <url>\x1b[0m  Fetch URL and inject content as context for next message\r\n' +
+                            '  \x1b[33m!stats\x1b[0m        Show session message count and token estimate\r\n' +
+                            '  \x1b[33m!export\x1b[0m       Export conversation to Markdown file\r\n' +
+                            '  \x1b[33m!import <file>\x1b[0m Import conversation from exported Markdown file\r\n' +
                             '\r\n\x1b[1mDiagnostics:\x1b[0m\r\n' +
                             '  \x1b[33m!log [N]\x1b[0m      Show last N lines of setup.log (default 80)\r\n' +
                             '  \x1b[33m!ver\x1b[0m          Show version and config info\r\n' +
@@ -2164,6 +2211,10 @@ function openTcpBridge() {
                 // Signal terminal HTML to show animated thinking indicator
                 try { socket.write('\x1b]9;thinking-start\x07'); } catch (_) {}
 
+                // Track session stats
+                sessionMsgCount++;
+                sessionTokenEstimate += Math.round(line.length / 4);
+
                 busy = true;
                 let responseStarted = false;
                 let responseBuf = '';     // capture stdout for history
@@ -2199,6 +2250,9 @@ function openTcpBridge() {
                     try { socket.write('\x1b]9;thinking-done\x07'); } catch (_) {}
                     const stderr = current && current._stderrBuf ? current._stderrBuf() : '';
                     busy = false; current = null;
+
+                    // Track response token estimate
+                    sessionTokenEstimate += Math.round(responseBuf.length / 4);
 
                     // Save exchange to history only on a successful response
                     if (responseStarted && (code === 0 || code === null)) {

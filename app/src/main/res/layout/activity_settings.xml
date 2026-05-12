@@ -143,6 +143,28 @@
                     android:background="@android:color/transparent"
                     android:padding="4dp" />
 
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginTop="8dp">
+                    <Button
+                        android:id="@+id/btnBrowseFolder"
+                        style="@style/Widget.Material3.Button.OutlinedButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Browse"
+                        android:textColor="@color/text_primary" />
+                    <Button
+                        android:id="@+id/btnGrantStorage"
+                        style="@style/Widget.Material3.Button.TextButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Grant storage access"
+                        android:textColor="@color/accent_blue"
+                        android:layout_marginStart="8dp" />
+                </LinearLayout>
+
             </LinearLayout>
 
             <!-- Custom system prompt -->
@@ -194,6 +216,20 @@
                 android:entries="@array/language_options"
                 android:background="@drawable/bg_spinner"
                 android:layout_marginBottom="24dp" />
+
+            <!-- MCP Servers -->
+            <TextView
+                style="@style/SectionHeader"
+                android:text="MCP Servers" />
+
+            <Button
+                android:id="@+id/btnMcpServers"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="24dp"
+                android:text="Manage MCP Servers"
+                android:textColor="@color/text_primary" />
 
             <!-- Data management -->
             <TextView

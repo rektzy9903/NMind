@@ -598,11 +598,41 @@ class TerminalActivity : AppCompatActivity() {
                 val ctxMsg = "Here is the content of ${file.name}:\\n$escaped"
                 binding.webViewTerminal.evaluateJavascript("window.termSetInput(\"$ctxMsg\")", null)
             }
-            .setNeutralButton("Copy Path") { _, _ ->
-                val cm = getSystemService(android.content.ClipboardManager::class.java)
-                cm.setPrimaryClip(android.content.ClipData.newPlainText("File Path", file.absolutePath))
-            }
+            .setNeutralButton("Edit") { _, _ -> openCodeEditor(file) }
             .setNegativeButton("Close", null)
+            .show()
+    }
+
+    private fun openCodeEditor(file: File) {
+        val content = try { file.readText(Charsets.UTF_8) } catch (e: Exception) { return }
+        val editText = android.widget.EditText(this).apply {
+            setText(content)
+            setTextColor(Color.WHITE)
+            setBackgroundColor(android.graphics.Color.parseColor("#0d1a2e"))
+            textSize = 12f
+            typeface = android.graphics.Typeface.MONOSPACE
+            setPadding(24, 24, 24, 24)
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                    android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE or
+                    android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+            minLines = 10
+            gravity = android.view.Gravity.TOP
+        }
+        val scroll = ScrollView(this)
+        scroll.addView(editText)
+
+        AlertDialog.Builder(this)
+            .setTitle("Edit: ${file.name}")
+            .setView(scroll)
+            .setPositiveButton("Save") { _, _ ->
+                try {
+                    file.writeText(editText.text.toString(), Charsets.UTF_8)
+                    android.widget.Toast.makeText(this, "Saved", android.widget.Toast.LENGTH_SHORT).show()
+                } catch (e: Exception) {
+                    android.widget.Toast.makeText(this, "Save failed: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setNegativeButton("Cancel", null)
             .show()
     }
 
@@ -715,5 +745,17 @@ class TerminalActivity : AppCompatActivity() {
                 showFileBrowser(path)
             }
         }
+
+        @JavascriptInterface
+        fun openPreview() {
+            runOnUiThread { this@TerminalActivity.openWebPreview() }
+        }
+    }
+
+    private fun openWebPreview() {
+        val projectPath = prefs.getProjectPath().ifEmpty { filesDir.absolutePath }
+        val intent = android.content.Intent(this, com.claudecodesetup.ui.PreviewActivity::class.java)
+            .putExtra("project_path", projectPath)
+        startActivity(intent)
     }
 }
