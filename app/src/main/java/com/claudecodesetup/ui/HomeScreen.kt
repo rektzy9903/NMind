@@ -1,5 +1,7 @@
 package com.claudecodesetup.ui
 
+import android.graphics.Canvas as AndroidCanvas
+import android.graphics.Bitmap
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.*
@@ -24,11 +26,14 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import com.claudecodesetup.R
 import kotlinx.coroutines.delay
 
@@ -145,7 +150,19 @@ fun HomeScreen(
         ) {
             Spacer(Modifier.height(72.dp))
 
-            // App icon
+            // App icon — loaded as Bitmap to support adaptive icons (API 26+)
+            val context = LocalContext.current
+            val appIconBitmap = remember {
+                try {
+                    val drawable = ContextCompat.getDrawable(context, R.mipmap.ic_launcher)
+                    val px = 192
+                    val bmp = Bitmap.createBitmap(px, px, Bitmap.Config.ARGB_8888)
+                    val canvas = AndroidCanvas(bmp)
+                    drawable?.setBounds(0, 0, px, px)
+                    drawable?.draw(canvas)
+                    bmp
+                } catch (_: Exception) { null }
+            }
             Box(
                 modifier = Modifier
                     .size(80.dp)
@@ -153,11 +170,13 @@ fun HomeScreen(
                     .border(1.dp, Color(0x25FFFFFF), RoundedCornerShape(20.dp)),
                 contentAlignment = Alignment.Center
             ) {
-                Image(
-                    painter = painterResource(R.mipmap.ic_launcher),
-                    contentDescription = "App icon",
-                    modifier = Modifier.size(56.dp)
-                )
+                if (appIconBitmap != null) {
+                    Image(
+                        bitmap = appIconBitmap.asImageBitmap(),
+                        contentDescription = "App icon",
+                        modifier = Modifier.size(56.dp)
+                    )
+                }
             }
 
             Spacer(Modifier.height(18.dp))
