@@ -893,6 +893,15 @@ function sendToProvider(baseUrl, apiKey, oaiReq, stream, res, onBadRequest) {
                     }
 
                     if (finishCode) {
+                        // Model finished but sent no text and no tool calls → inject visible error
+                        if (outTokens === 0 && Object.keys(tcBlocks).length === 0) {
+                            log('[proxy] finish_reason=' + finishCode + ' outTokens=0 — injecting empty-response error\n');
+                            sendEvent('content_block_delta', {
+                                type: 'content_block_delta', index: 0,
+                                delta: { type: 'text_delta',
+                                         text: '⚠ Model returned empty response. It may be busy or overloaded — try again or switch models in Settings.' }
+                            });
+                        }
                         const stopReason = finishCode === 'tool_calls' ? 'tool_use'
                                          : finishCode === 'length'     ? 'max_tokens'
                                          : 'end_turn';
