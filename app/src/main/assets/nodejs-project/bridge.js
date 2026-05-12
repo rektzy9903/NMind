@@ -43,6 +43,71 @@ const SETUP_FAILED  = path.join(FILES_DIR, 'setup_failed');
 const SESSION_FILE  = path.join(FILES_DIR, 'last_session.json');
 const AGENTIC_FILE  = path.join(FILES_DIR, 'agentic_state');
 const CWD_FILE      = path.join(FILES_DIR, 'last_cwd');
+const UNDO_DIR      = path.join(FILES_DIR, '.undo');
+const BIN_DIR       = path.join(FILES_DIR, 'bin');
+
+// ─── Package catalog ──────────────────────────────────────────────────────────
+// Static ARM64 Android binaries and npm packages installable via !install.
+// Binary entries: download to BIN_DIR, chmod +x.
+// npm entries: npm install --prefix NPM_PREFIX.
+const PACKAGE_CATALOG = {
+    // ── Static ARM64 binaries ──
+    'busybox': {
+        desc: 'BusyBox — wget, tar, grep, sed, awk, find, gzip, nano and 300+ Unix tools in one binary',
+        size: '~1.1 MB',
+        url: 'https://busybox.net/downloads/binaries/latest-stable/busybox-armv8l',
+        bin: 'busybox', type: 'binary', post: 'busybox'
+    },
+    'curl': {
+        desc: 'curl — transfer data with URLs (HTTPS, FTP, ...)',
+        size: '~3 MB',
+        url: 'https://github.com/moparisthebest/static-curl/releases/latest/download/curl-aarch64',
+        bin: 'curl', type: 'binary'
+    },
+    'jq': {
+        desc: 'jq — lightweight command-line JSON processor',
+        size: '~1 MB',
+        url: 'https://github.com/jqlang/jq/releases/latest/download/jq-linux-arm64',
+        bin: 'jq', type: 'binary'
+    },
+    // ── npm packages ──
+    'serve': {
+        desc: 'serve — zero-config static HTTP file server (serve . -p 8080)',
+        type: 'npm', pkg: 'serve'
+    },
+    'http-server': {
+        desc: 'http-server — simple HTTP server for any directory',
+        type: 'npm', pkg: 'http-server'
+    },
+    'typescript': {
+        desc: 'TypeScript — typed JavaScript compiler (tsc)',
+        type: 'npm', pkg: 'typescript'
+    },
+    'nodemon': {
+        desc: 'nodemon — auto-restart Node.js on file changes',
+        type: 'npm', pkg: 'nodemon'
+    },
+    'prettier': {
+        desc: 'prettier — opinionated code formatter (JS/TS/HTML/CSS/JSON)',
+        type: 'npm', pkg: 'prettier'
+    },
+    'eslint': {
+        desc: 'eslint — JavaScript/TypeScript linter',
+        type: 'npm', pkg: 'eslint'
+    },
+    'pm2': {
+        desc: 'pm2 — process manager: run Node apps in background',
+        type: 'npm', pkg: 'pm2'
+    },
+    'express': {
+        desc: 'express — fast minimalist web framework for Node.js',
+        type: 'npm', pkg: 'express'
+    },
+    'axios': {
+        desc: 'axios — promise-based HTTP client for Node.js',
+        type: 'npm', pkg: 'axios'
+    },
+};
 
 const PORT       = 8083;
 const PROXY_PORT = 8082;
@@ -204,6 +269,22 @@ function executeTool(name, input, cwd) {
         } else if (name === 'write_file') {
             try {
                 const fp = path.resolve(cwd, input.path);
+                // Snapshot original before overwriting so !undo can restore it
+                if (fs.existsSync(fp)) {
+                    try {
+                        fs.mkdirSync(UNDO_DIR, { recursive: true });
+                        const safeName = path.basename(fp).replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 80);
+                        const snap = path.join(UNDO_DIR, Date.now() + '_' + safeName);
+                        fs.copyFileSync(fp, snap);
+                        // Keep only the 20 most recent snapshots
+                        const snaps = fs.readdirSync(UNDO_DIR).sort();
+                        if (snaps.length > 20) {
+                            for (const old of snaps.slice(0, snaps.length - 20)) {
+                                try { fs.unlinkSync(path.join(UNDO_DIR, old)); } catch(_) {}
+                            }
+                        }
+                    } catch(_) {}
+                }
                 fs.mkdirSync(path.dirname(fp), { recursive: true });
                 fs.writeFileSync(fp, input.content, 'utf8');
                 resolve({ content: 'Wrote ' + fp, isError: false, newCwd: cwd });
@@ -1440,6 +1521,19 @@ function buildMessageWithHistory(message, history) {
         ? BASE_ASSISTANT_INSTRUCTION + '\n\n[Custom Instructions]\n' + customPrompt
         : BASE_ASSISTANT_INSTRUCTION;
 
+    // Auto-read CLAUDE.md from project path (or current shellCwd equivalent)
+    const projectPath = cfg.projectPath || '';
+    if (projectPath) {
+        const claudeMdPath = path.join(projectPath, 'CLAUDE.md');
+        try {
+            const stat = fs.statSync(claudeMdPath);
+            if (stat.isFile() && stat.size < 60000) {
+                const claudeMd = fs.readFileSync(claudeMdPath, 'utf8');
+                sysPrompt += '\n\n[CLAUDE.md — project instructions]\n' + claudeMd.slice(0, 15000);
+            }
+        } catch(_) {}
+    }
+
     // Inject device context
     const deviceCtx = readDeviceContext();
     if (deviceCtx) {
@@ -2046,6 +2140,77 @@ function openTcpBridge() {
                     continue;
                 }
 
+                // !install [package] — install binary or npm package from catalog
+                if (line === '!install' || line.startsWith('!install ')) {
+                    const arg = line.slice(8).trim().toLowerCase();
+                    if (!arg) {
+                        const entries = Object.entries(PACKAGE_CATALOG);
+                        let msg = '\r\n\x1b[1mAvailable packages\x1b[0m\r\n';
+                        const binaries = entries.filter(([,v]) => v.type === 'binary');
+                        const npms = entries.filter(([,v]) => v.type === 'npm');
+                        if (binaries.length) {
+                            msg += '\r\n\x1b[36mStatic ARM64 binaries:\x1b[0m\r\n';
+                            for (const [k, v] of binaries) {
+                                const installed = fs.existsSync(path.join(BIN_DIR, v.bin || k));
+                                msg += '  \x1b[33m!install ' + k + '\x1b[0m' + (installed ? ' \x1b[32m✓\x1b[0m' : '') + '  — ' + v.desc + '\r\n';
+                            }
+                        }
+                        if (npms.length) {
+                            msg += '\r\n\x1b[36mnpm packages:\x1b[0m\r\n';
+                            for (const [k, v] of npms) {
+                                msg += '  \x1b[33m!install ' + k + '\x1b[0m  — ' + v.desc + '\r\n';
+                            }
+                        }
+                        msg += '\r\nUsage: \x1b[33m!install <name>\x1b[0m\r\n\r\n';
+                        try { socket.write(msg); } catch(_) {}
+                    } else {
+                        installPackage(arg, socket);
+                    }
+                    continue;
+                }
+
+                // !undo — restore the most recently snapshotted file
+                if (line === '!undo') {
+                    try {
+                        if (!fs.existsSync(UNDO_DIR)) {
+                            socket.write('\x1b[33mNo undo snapshots available.\x1b[0m\r\n\r\n');
+                            continue;
+                        }
+                        const snaps = fs.readdirSync(UNDO_DIR).sort().reverse();
+                        if (!snaps.length) {
+                            socket.write('\x1b[33mNo undo snapshots available.\x1b[0m\r\n\r\n');
+                            continue;
+                        }
+                        const latest = snaps[0];
+                        const snapPath = path.join(UNDO_DIR, latest);
+                        // Reconstruct original file path from snapshot name (ts_filename)
+                        const origName = latest.replace(/^\d+_/, '');
+                        // Search for the file in shellCwd tree
+                        let targetPath = null;
+                        const findFile = (dir, name, depth) => {
+                            if (depth > 4 || targetPath) return;
+                            try {
+                                for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+                                    if (e.name === name && e.isFile()) { targetPath = path.join(dir, name); return; }
+                                    if (e.isDirectory() && !e.name.startsWith('.') && !e.name.startsWith('node_modules'))
+                                        findFile(path.join(dir, e.name), name, depth + 1);
+                                }
+                            } catch(_) {}
+                        };
+                        findFile(shellCwd, origName, 0);
+                        if (!targetPath) targetPath = path.join(shellCwd, origName);
+                        fs.copyFileSync(snapPath, targetPath);
+                        fs.unlinkSync(snapPath);
+                        socket.write('\x1b[32m✓ Restored:\x1b[0m ' + targetPath + '\r\n' +
+                            '\x1b[2m(from snapshot ' + latest + ')\x1b[0m\r\n' +
+                            (snaps.length > 1 ? '\x1b[2m' + (snaps.length - 1) + ' older snapshots remain. Run !undo again to go further back.\x1b[0m\r\n' : '') +
+                            '\r\n');
+                    } catch(e) {
+                        try { socket.write('\x1b[31m✗ Undo failed: ' + e.message + '\x1b[0m\r\n\r\n'); } catch(_) {}
+                    }
+                    continue;
+                }
+
                 if (line === '!help') {
                     try {
                         socket.write(
@@ -2068,6 +2233,8 @@ function openTcpBridge() {
                             '  \x1b[33m!ver\x1b[0m          Show version and config info\r\n' +
                             '  \x1b[33m!test\x1b[0m         Test Node.js launcher\r\n' +
                             '  \x1b[33m!test-cli\x1b[0m     Run module-loader diagnostic\r\n' +
+                            '  \x1b[33m!install [name]\x1b[0m Install binary or npm package (no args = list all)\r\n' +
+                            '  \x1b[33m!undo\x1b[0m         Restore most recently overwritten file\r\n' +
                             '  \x1b[33m!install-git\x1b[0m  Install git (isomorphic-git) for $ git commands\r\n' +
                             '  \x1b[33m!gh-auth <tok>\x1b[0m Save GitHub token for git push/clone\r\n' +
                             '  \x1b[33m!agentic [on|off]\x1b[0m Toggle agentic tool-calling mode (persists across restarts)\r\n' +
@@ -2286,10 +2453,12 @@ function openTcpBridge() {
                             if (fs.existsSync(imgMimeFile)) fs.unlinkSync(imgMimeFile);
                         } catch(_) {}
                     }
-                    runAgentic(socket, agMsg, history.slice(), shellCwd, agPendingImage).then(result => {
+                    runAgentic(socket, agMsg, history.slice(), shellCwd, agPendingImage).then(async result => {
                         if (result.text) {
                             history.push({ role: 'user',      content: agMsg });
                             history.push({ role: 'assistant', content: result.text });
+                            // Auto-compact if approaching MAX_HISTORY
+                            history = await autoCompact(history, socket).catch(() => history);
                             if (history.length > MAX_HISTORY) history = history.slice(-MAX_HISTORY);
                             saveSession(history);
                             // Generate follow-up suggestions
@@ -2369,12 +2538,21 @@ function openTcpBridge() {
                         if (reply) {
                             history.push({ role: 'user',      content: line });
                             history.push({ role: 'assistant', content: reply });
-                            if (history.length > MAX_HISTORY) history = history.slice(-MAX_HISTORY);
-                            saveSession(history);
-                            // Generate follow-up suggestions
-                            if (history.length >= 2) {
-                                generateSuggestions(socket, history).catch(() => {});
-                            }
+                            // Auto-compact if approaching MAX_HISTORY
+                            autoCompact(history, socket).then(compacted => {
+                                history = compacted;
+                                if (history.length > MAX_HISTORY) history = history.slice(-MAX_HISTORY);
+                                saveSession(history);
+                                if (history.length >= 2) {
+                                    generateSuggestions(socket, history).catch(() => {});
+                                }
+                            }).catch(() => {
+                                if (history.length > MAX_HISTORY) history = history.slice(-MAX_HISTORY);
+                                saveSession(history);
+                                if (history.length >= 2) {
+                                    generateSuggestions(socket, history).catch(() => {});
+                                }
+                            });
                         }
                     }
                     responseBuf = '';
@@ -2488,6 +2666,144 @@ async function generateSuggestions(socket, history) {
         req.on('error', () => resolve());
         req.write(body);
         req.end();
+    });
+}
+
+// ─── Package installer ────────────────────────────────────────────────────────
+// Downloads static ARM64 binaries or npm installs packages, writing to BIN_DIR.
+
+function installPackage(name, socket) {
+    const pkg = PACKAGE_CATALOG[name];
+    if (!pkg) {
+        const names = Object.keys(PACKAGE_CATALOG).join(', ');
+        try { socket.write('\x1b[31m✗ Unknown package: ' + name + '\x1b[0m\r\n' +
+            '\x1b[2mAvailable: ' + names + '\x1b[0m\r\n\r\n'); } catch(_) {}
+        return;
+    }
+
+    const binPath = path.join(BIN_DIR, pkg.bin || name);
+
+    if (pkg.type === 'binary') {
+        if (fs.existsSync(binPath)) {
+            try { socket.write('\x1b[32m✓ ' + name + ' already installed.\x1b[0m Run \x1b[33m$ ' + (pkg.bin || name) + ' --help\x1b[0m to verify.\r\n\r\n'); } catch(_) {}
+            return;
+        }
+        try { fs.mkdirSync(BIN_DIR, { recursive: true }); } catch(_) {}
+        try { socket.write('\x1b[33mDownloading ' + name + ' (' + (pkg.size || '?') + ')…\x1b[0m\r\n'); } catch(_) {}
+        log('[install] downloading ' + name + ' from ' + pkg.url + '\n');
+
+        const tmpPath = binPath + '.tmp';
+        downloadFile(pkg.url, tmpPath).then(() => {
+            try { fs.renameSync(tmpPath, binPath); } catch(e) {
+                try { fs.unlinkSync(tmpPath); } catch(_) {}
+                throw e;
+            }
+            // chmod +x
+            try { fs.chmodSync(binPath, 0o755); } catch(_) {}
+            // BusyBox post-install: create symlinks for all applets
+            if (pkg.post === 'busybox') {
+                const child = spawn(binPath, ['--list'], { env: buildEnv(), cwd: BIN_DIR });
+                let appletList = '';
+                child.stdout.on('data', d => { appletList += d.toString(); });
+                child.on('close', () => {
+                    const applets = appletList.split('\n').map(l => l.trim()).filter(Boolean);
+                    let linked = 0;
+                    for (const applet of applets) {
+                        const link = path.join(BIN_DIR, applet);
+                        if (!fs.existsSync(link)) {
+                            try { fs.symlinkSync(binPath, link); linked++; } catch(_) {}
+                        }
+                    }
+                    try { socket.write('\x1b[32m✓ busybox installed.\x1b[0m ' + linked + ' symlinks created.\r\n' +
+                        '\x1b[2mNow available: wget, tar, gzip, grep, sed, awk, find, nano, and more.\x1b[0m\r\n\r\n'); } catch(_) {}
+                    log('[install] busybox: ' + linked + ' symlinks created\n');
+                });
+            } else {
+                try { socket.write('\x1b[32m✓ ' + name + ' installed.\x1b[0m Run \x1b[33m$ ' + (pkg.bin || name) + ' --help\x1b[0m to verify.\r\n\r\n'); } catch(_) {}
+                log('[install] ' + name + ' installed at ' + binPath + '\n');
+            }
+        }).catch(e => {
+            try { fs.unlinkSync(tmpPath); } catch(_) {}
+            try { socket.write('\x1b[31m✗ Download failed: ' + e.message + '\x1b[0m\r\n\r\n'); } catch(_) {}
+            log('[install] ' + name + ' download failed: ' + e.message + '\n');
+        });
+
+    } else if (pkg.type === 'npm') {
+        try { socket.write('\x1b[33mInstalling ' + name + ' via npm…\x1b[0m\r\n'); } catch(_) {}
+        const npmCmd = 'npm install --prefix ' + JSON.stringify(NPM_PREFIX) + ' ' + pkg.pkg;
+        const child = spawn('/system/bin/sh', ['-c', npmCmd], { env: buildEnv(), cwd: FILES_DIR });
+        child.stdout.on('data', d => { try { socket.write(d); } catch(_) {} });
+        child.stderr.on('data', d => { try { socket.write('\x1b[2m' + d.toString() + '\x1b[0m'); } catch(_) {} });
+        child.on('close', code => {
+            if (code !== 0) {
+                try { socket.write('\x1b[31m✗ npm install failed (exit ' + code + ')\x1b[0m\r\n\r\n'); } catch(_) {}
+            } else {
+                try { socket.write('\x1b[32m✓ ' + name + ' installed.\x1b[0m\r\n\r\n'); } catch(_) {}
+                log('[install] npm package ' + pkg.pkg + ' installed\n');
+            }
+        });
+    }
+}
+
+// ─── Auto-compact (context summarization) ────────────────────────────────────
+// When history nears MAX_HISTORY, summarize the oldest half via the proxy and
+// replace it with a single compact entry so context never silently degrades.
+
+async function autoCompact(history, socket) {
+    const COMPACT_THRESHOLD = MAX_HISTORY - 4;
+    if (history.length < COMPACT_THRESHOLD) return history;
+
+    const cfg = readConfig();
+    if (!cfg.providerUrl && cfg.mode !== 'subscription') return history;
+
+    const keepTail = history.slice(-6);
+    const toSummarize = history.slice(0, -6);
+    if (toSummarize.length < 4) return history;
+
+    try { socket.write('\x1b[2m[compacting context…]\x1b[0m\r\n'); } catch(_) {}
+    log('[compact] summarizing ' + toSummarize.length + ' messages\n');
+
+    const transcript = toSummarize.map(h =>
+        (h.role === 'user' ? 'User' : 'AI') + ': ' + (h.content || '').slice(0, 800)
+    ).join('\n\n');
+
+    const body = JSON.stringify({
+        model: 'claude-3-5-sonnet-20241022',
+        max_tokens: 600,
+        messages: [{ role: 'user', content:
+            'Summarize this conversation in concise bullet points. Preserve: key decisions, file paths mentioned, code written, problems solved, and any context still relevant:\n\n' +
+            transcript + '\n\nReply with just the summary bullets, no preamble.'
+        }]
+    });
+
+    return new Promise(resolve => {
+        const apiKey = cfg.mode === 'subscription' ? (cfg.apiKey || 'sk-ant-key') : 'sk-ant-proxy000';
+        const req = http.request({
+            hostname: HOST, port: PROXY_PORT, path: '/v1/messages', method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey,
+                       'anthropic-version': '2023-06-01', 'Content-Length': Buffer.byteLength(body) }
+        }, res => {
+            let data = '';
+            res.on('data', c => { data += c; });
+            res.on('end', () => {
+                try {
+                    const resp = JSON.parse(data);
+                    const text = ((resp.content || []).find(b => b.type === 'text') || {}).text || '';
+                    if (text.trim()) {
+                        const summaryEntry = { role: 'assistant', content: '[Previous conversation summary]\n' + text.trim() };
+                        const compacted = [summaryEntry, ...keepTail];
+                        log('[compact] reduced ' + history.length + ' → ' + compacted.length + ' messages\n');
+                        try { socket.write('\x1b[2m[context compacted: ' + history.length + ' → ' + compacted.length + ' messages]\x1b[0m\r\n'); } catch(_) {}
+                        resolve(compacted);
+                    } else {
+                        resolve(history);
+                    }
+                } catch(_) { resolve(history); }
+            });
+        });
+        req.setTimeout(12000, () => { req.destroy(); resolve(history); });
+        req.on('error', () => resolve(history));
+        req.write(body); req.end();
     });
 }
 
