@@ -98,6 +98,7 @@ private fun toDisplay(model: AiModel): ModelDisplay {
     }
     val badge = when {
         ":free" in id -> "Free"
+        "kimi-k2" in id || "kimi-k2.5" in id -> "Free"
         "flash" in id || "fast" in id -> "Fast"
         "reason" in id || "r1" in id -> "Smart"
         "preview" in id -> "Preview"
@@ -142,7 +143,13 @@ fun ModelPickerScreen(
             isRefreshing = true
             try {
                 val fetched = ProvidersRepository.fetchOpenRouterFreeModels(apiKey)
-                if (fetched.isNotEmpty()) liveModels = fetched
+                if (fetched.isNotEmpty()) {
+                    // Merge: hardcoded list first (preserves known models like kimi-k2.5),
+                    // then append any live models not already in the hardcoded list.
+                    val hardcodedIds = provider.models.map { it.modelId }.toSet()
+                    val extra = fetched.filter { it.modelId !in hardcodedIds }
+                    liveModels = provider.models + extra
+                }
             } catch (_: Exception) {}
             isRefreshing = false
         }

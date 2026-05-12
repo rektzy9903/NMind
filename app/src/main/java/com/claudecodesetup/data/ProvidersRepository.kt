@@ -118,9 +118,9 @@ object ProvidersRepository {
                 val m       = data.getJSONObject(i)
                 val id      = m.getString("id")
                 val pricing = m.optJSONObject("pricing")
-                val prompt  = pricing?.optString("prompt", "1") ?: "1"
-                val compl   = pricing?.optString("completion", "1") ?: "1"
-                val isFree  = id.endsWith(":free") || (prompt == "0" && compl == "0")
+                val prompt  = pricing?.optString("prompt", "1")?.toDoubleOrNull() ?: 1.0
+                val compl   = pricing?.optString("completion", "1")?.toDoubleOrNull() ?: 1.0
+                val isFree  = id.endsWith(":free") || (prompt == 0.0 && compl == 0.0)
                 if (isFree) {
                     val name = m.optString("name", "").ifEmpty { id }
                     free.add(AiModel(name, id))

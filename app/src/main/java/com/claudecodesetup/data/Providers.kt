@@ -55,20 +55,28 @@ object Providers {
         baseUrl = "https://openrouter.ai/api/v1",
         requiresProxy = true,
         models = listOf(
-            // Confirmed working 2025-05-10 — all returned a real reply to "hello claude"
-            AiModel("GPT-OSS 120B (Recommended)", "openai/gpt-oss-120b:free"),
+            // Confirmed working free models — always shown even if live fetch fails
+            AiModel("Kimi K2.5 ⭐ (Recommended)", "moonshotai/kimi-k2:free"),
+            AiModel("GPT-OSS 120B", "openai/gpt-oss-120b:free"),
             AiModel("GPT-OSS 20B", "openai/gpt-oss-20b:free"),
+            AiModel("MiniMax M2.5", "minimax/minimax-m2.5:free"),
             AiModel("Nemotron Super 120B", "nvidia/nemotron-3-super-120b-a12b:free"),
             AiModel("Nemotron Nano Omni 30B", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"),
             AiModel("Nemotron Nano 12B VL", "nvidia/nemotron-nano-12b-v2-vl:free"),
             AiModel("Nemotron Nano 9B", "nvidia/nemotron-nano-9b-v2:free"),
-            AiModel("MiniMax M2.5", "minimax/minimax-m2.5:free"),
-            AiModel("Kimi K2.5 (Moonshot)", "moonshotai/kimi-k2.5"),
+            AiModel("Llama 4 Scout", "meta-llama/llama-4-scout:free"),
+            AiModel("Llama 4 Maverick", "meta-llama/llama-4-maverick:free"),
+            AiModel("Llama 3.3 70B", "meta-llama/llama-3.3-70b-instruct:free"),
+            AiModel("DeepSeek R1 (free)", "deepseek/deepseek-r1:free"),
+            AiModel("DeepSeek V3 (free)", "deepseek/deepseek-chat-v3-5:free"),
+            AiModel("Qwen 3 235B A22B", "qwen/qwen3-235b-a22b:free"),
+            AiModel("Qwen 3 30B A3B", "qwen/qwen3-30b-a3b:free"),
+            AiModel("Mistral Small 3.2", "mistralai/mistral-small-3.2-24b-instruct:free"),
+            AiModel("Gemma 3 27B", "google/gemma-3-27b-it:free"),
+            AiModel("Gemma 3 12B", "google/gemma-3-12b-it:free"),
             AiModel("Laguna M.1 (Poolside)", "poolside/laguna-m.1:free"),
-            AiModel("Laguna XS.2 (Poolside)", "poolside/laguna-xs.2:free"),
-            AiModel("LFM 2.5 1.2B (Liquid)", "liquid/lfm-2.5-1.2b-instruct:free"),
             AiModel("Cobuddy (Baidu)", "baidu/cobuddy:free"),
-            AiModel("Qianfan OCR Fast (Baidu)", "baidu/qianfan-ocr-fast:free")
+            AiModel("LFM 2.5 1.2B (Liquid)", "liquid/lfm-2.5-1.2b-instruct:free")
         )
     )
 
