@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.claudecodesetup.data.AiModel
 import com.claudecodesetup.data.Providers
+import com.claudecodesetup.data.ProvidersRepository
 import kotlinx.coroutines.*
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaType
@@ -141,11 +142,12 @@ private fun testGemini(apiKey: String, model: AiModel): TestStatus {
     }
 }
 
-// ── Model list helper ──────────────────────────────────────────────────────────
+// ── Model load state ───────────────────────────────────────────────────────────
 
-private fun modelsForProvider(providerId: String): List<AiModel> {
-    val provider = Providers.byId(providerId) ?: Providers.OPENROUTER
-    return provider.models
+private sealed class ModelLoadState {
+    object Loading : ModelLoadState()
+    data class Loaded(val models: List<AiModel>) : ModelLoadState()
+    data class Error(val message: String) : ModelLoadState()
 }
 
 // ── Composable ─────────────────────────────────────────────────────────────────
@@ -158,14 +160,45 @@ fun ModelTestScreen(
     onBack: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
-    val models = remember(providerId) { modelsForProvider(providerId) }
 
-    var results by remember {
-        mutableStateOf(models.map { ModelTestResult(it) })
+    var loadState by remember {
+        mutableStateOf<ModelLoadState>(
+            if (providerId == "openrouter") ModelLoadState.Loading
+            else {
+                val models = Providers.byId(providerId)?.models ?: emptyList()
+                ModelLoadState.Loaded(models)
+            }
+        )
     }
+
+    var results by remember { mutableStateOf<List<ModelTestResult>>(emptyList()) }
     var isTesting by remember { mutableStateOf(false) }
 
+    fun fetchModels() {
+        loadState = ModelLoadState.Loading
+        scope.launch {
+            try {
+                val models = ProvidersRepository.fetchOpenRouterFreeModels(apiKey)
+                loadState = if (models.isEmpty()) ModelLoadState.Error("No free models found")
+                            else ModelLoadState.Loaded(models)
+            } catch (e: Exception) {
+                loadState = ModelLoadState.Error(e.message ?: "Fetch failed")
+            }
+        }
+    }
+
+    LaunchedEffect(providerId) {
+        if (providerId == "openrouter") fetchModels()
+    }
+
+    LaunchedEffect(loadState) {
+        if (loadState is ModelLoadState.Loaded) {
+            results = (loadState as ModelLoadState.Loaded).models.map { ModelTestResult(it) }
+        }
+    }
+
     fun runAllTests() {
+        val models = (loadState as? ModelLoadState.Loaded)?.models ?: return
         if (isTesting) return
         isTesting = true
         results = models.map { ModelTestResult(it, TestStatus.PENDING) }
@@ -178,7 +211,7 @@ fun ModelTestScreen(
                 results = results.toMutableList().also {
                     it[i] = it[i].copy(status = status, latencyMs = latency)
                 }
-                delay(300L) // small gap between tests
+                delay(300L)
             }
             isTesting = false
         }
@@ -234,39 +267,70 @@ fun ModelTestScreen(
                     )
                 }
                 Spacer(Modifier.weight(1f))
-                // Run all button
+                if (providerId == "openrouter") {
+                    TestButton(
+                        label = "↻",
+                        enabled = loadState !is ModelLoadState.Loading && !isTesting,
+                        color = Color(0xFF818CF8),
+                        onClick = ::fetchModels
+                    )
+                    Spacer(Modifier.width(8.dp))
+                }
                 TestButton(
                     label = if (isTesting) "Testing…" else "Test All",
-                    enabled = !isTesting,
+                    enabled = loadState is ModelLoadState.Loaded && !isTesting,
                     color = Color(0xFF06B6D4),
                     onClick = ::runAllTests
                 )
             }
 
-            // Legend
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                LegendDot(Color(0xFF22C55E), "Pass")
-                LegendDot(Color(0xFFF59E0B), "Empty / Rate limit")
-                LegendDot(Color(0xFFEF4444), "Fail")
-            }
-
-            Spacer(Modifier.height(8.dp))
-
-            // Results list
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(results, key = { it.model.modelId }) { result ->
-                    ModelResultRow(result)
+            when (val state = loadState) {
+                is ModelLoadState.Loading -> {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            CircularProgressIndicator(color = Color(0xFF06B6D4), strokeWidth = 2.dp)
+                            Spacer(Modifier.height(12.dp))
+                            Text("Fetching models…", fontSize = 13.sp, color = Color(0xFF64748B), fontFamily = DmSansFamily)
+                        }
+                    }
                 }
-                item { Spacer(Modifier.height(24.dp)) }
+                is ModelLoadState.Error -> {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("Failed to load models", fontSize = 14.sp, color = Color(0xFFEF4444), fontFamily = DmSansFamily)
+                            Spacer(Modifier.height(6.dp))
+                            Text(state.message, fontSize = 11.sp, color = Color(0xFF475569), fontFamily = SpaceMonoFamily)
+                            Spacer(Modifier.height(16.dp))
+                            TestButton(label = "↻ Retry", enabled = true, color = Color(0xFF06B6D4), onClick = ::fetchModels)
+                        }
+                    }
+                }
+                is ModelLoadState.Loaded -> {
+                    // Legend
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        LegendDot(Color(0xFF22C55E), "Pass")
+                        LegendDot(Color(0xFFF59E0B), "Empty / Rate limit")
+                        LegendDot(Color(0xFFEF4444), "Fail")
+                    }
+
+                    Spacer(Modifier.height(8.dp))
+
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(results, key = { it.model.modelId }) { result ->
+                            ModelResultRow(result)
+                        }
+                        item { Spacer(Modifier.height(24.dp)) }
+                    }
+                }
             }
         }
     }
