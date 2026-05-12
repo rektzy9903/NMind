@@ -58,6 +58,20 @@
             android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.ClaudeCodeSetup" />
 
+        <!-- Home screen (main menu) -->
+        <activity
+            android:name=".ui.HomeActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.ClaudeCodeSetup" />
+
+        <!-- Model response tester -->
+        <activity
+            android:name=".ui.ModelTestActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.ClaudeCodeSetup" />
+
         <!-- Settings -->
         <activity
             android:name=".SettingsActivity"

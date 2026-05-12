@@ -15,7 +15,7 @@ class SplashActivity : AppCompatActivity() {
         val next: Class<*> = when {
             !prefs.isNodeSetupComplete()  -> SetupActivity::class.java
             !prefs.isProviderConfigured() -> com.claudecodesetup.ui.ComposeActivity::class.java
-            else                          -> TerminalActivity::class.java
+            else                          -> com.claudecodesetup.ui.HomeActivity::class.java
         }
 
         startActivity(Intent(this, next))
