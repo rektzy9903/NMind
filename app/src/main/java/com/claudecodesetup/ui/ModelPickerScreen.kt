@@ -37,91 +37,108 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.claudecodesetup.data.AiModel
+import com.claudecodesetup.data.Cap
 import com.claudecodesetup.data.Provider
+import com.claudecodesetup.data.Providers
 import com.claudecodesetup.data.ProvidersRepository
 import kotlinx.coroutines.launch
 import kotlin.math.ceil
 
 // ── Model display helpers ─────────────────────────────────────────────────────
 
+// Capability filter chips shown at top of picker
+val CAP_FILTERS = listOf(
+    "All"          to null,
+    "🔧 Tools"     to Cap.TOOLS,
+    "👁 Vision"    to Cap.VISION,
+    "🧠 Reasoning" to Cap.REASONING,
+    "⚡ Fast"      to Cap.FAST,
+    "🆓 Free"      to Cap.FREE,
+    "💻 Coding"    to Cap.CODING,
+    "📜 Long Ctx"  to Cap.LONG_CTX
+)
+
+// Ordered list of caps shown as pills on each card
+val CAP_PILL_ORDER = listOf(
+    Cap.TOOLS     to "🔧",
+    Cap.VISION    to "👁",
+    Cap.REASONING to "🧠",
+    Cap.FAST      to "⚡",
+    Cap.LONG_CTX  to "📜",
+    Cap.CODING    to "💻",
+    Cap.FREE      to "🆓"
+)
+
 private data class ModelDisplay(
     val model: AiModel,
+    val effectiveCaps: Set<String>,
     val emoji: String,
     val color: Color,
     val speed: Int,
     val badge: String,
-    val tokens: String,
-    val category: String
+    val tokens: String
 )
 
 private fun toDisplay(model: AiModel): ModelDisplay {
     val id = model.modelId.lowercase()
+    val caps = model.caps.ifEmpty { Providers.deriveCaps(model.modelId) }
     val emoji = when {
-        "flash" in id || "fast" in id -> "⚡"
-        "reason" in id || "r1" in id || "think" in id -> "🧠"
-        "vision" in id || "vl" in id -> "👁"
-        "coder" in id || "code" in id -> "💻"
-        "llama" in id -> "🦙"
-        "gemini" in id -> "✨"
-        "gpt" in id -> "🧬"
-        "kimi" in id || "moonshot" in id -> "🌙"
-        "deepseek" in id -> "🔍"
-        "qwen" in id -> "🌟"
+        Cap.REASONING in caps && Cap.FAST !in caps -> "🧠"
+        Cap.CODING    in caps                      -> "💻"
+        Cap.VISION    in caps && Cap.TOOLS in caps -> "👁"
+        Cap.FAST      in caps                      -> "⚡"
+        "llama"   in id -> "🦙"
+        "gemini"  in id -> "✨"
+        "gpt"     in id -> "🧬"
+        "kimi"    in id || "moonshot" in id -> "🌙"
+        "deepseek"in id -> "🔍"
+        "qwen"    in id -> "🌟"
         "mistral" in id || "mixtral" in id -> "🌀"
-        "claude" in id -> "🎭"
-        "nemotron" in id || "nvidia" in id -> "⚡"
+        "claude"  in id -> "🎭"
+        "nemotron"in id || "nvidia" in id -> "⚡"
         "minimax" in id -> "🔮"
-        "baidu" in id || "cobuddy" in id || "qianfan" in id -> "🔵"
-        "poolside" in id || "laguna" in id -> "🏊"
-        "liquid" in id || "lfm" in id -> "💧"
+        "baidu"   in id || "cobuddy" in id -> "🔵"
+        "poolside"in id || "laguna"  in id -> "🏊"
+        "liquid"  in id || "lfm"     in id -> "💧"
         else -> "🤖"
     }
     val color = when {
-        "gemini" in id -> Color(0xFF10B981)
-        "claude" in id -> Color(0xFF8B5CF6)
-        "gpt" in id || "openai" in id -> Color(0xFF3B82F6)
-        "llama" in id || "meta" in id -> Color(0xFFF97316)
-        "deepseek" in id -> Color(0xFF06B6D4)
-        "kimi" in id || "moonshot" in id -> Color(0xFFF59E0B)
-        "nemotron" in id || "nvidia" in id -> Color(0xFF76B900)
-        "qwen" in id -> Color(0xFFF59E0B)
-        "mistral" in id || "mixtral" in id -> Color(0xFF22D3EE)
+        "gemini"  in id -> Color(0xFF10B981)
+        "claude"  in id -> Color(0xFF8B5CF6)
+        "gpt"     in id || "openai"   in id -> Color(0xFF3B82F6)
+        "llama"   in id || "meta"     in id -> Color(0xFFF97316)
+        "deepseek"in id -> Color(0xFF06B6D4)
+        "kimi"    in id || "moonshot" in id -> Color(0xFFF59E0B)
+        "nemotron"in id || "nvidia"   in id -> Color(0xFF76B900)
+        "qwen"    in id -> Color(0xFFF59E0B)
+        "mistral" in id || "mixtral"  in id -> Color(0xFF22D3EE)
         "minimax" in id -> Color(0xFFA78BFA)
         else -> Color(0xFF60A5FA)
     }
     val speed = when {
-        "flash" in id || "fast" in id -> 92
-        "1.2b" in id || "tiny" in id -> 95
-        "nano" in id || "8b" in id || "mini" in id -> 87
-        "235b" in id || "120b" in id -> 58
+        Cap.FAST in caps && "1.2b" in id -> 97
+        Cap.FAST in caps && ("8b" in id || "nano" in id || "mini" in id) -> 90
+        Cap.FAST in caps -> 85
+        Cap.REASONING in caps -> 50
+        "120b" in id || "235b" in id -> 55
         "70b" in id -> 65
-        "reason" in id || "r1" in id -> 52
         else -> 75
     }
     val badge = when {
-        ":free" in id -> "Free"
-        "kimi-k2" in id || "kimi-k2.5" in id -> "Free"
-        "flash" in id || "fast" in id -> "Fast"
-        "reason" in id || "r1" in id -> "Smart"
-        "preview" in id -> "Preview"
+        Cap.FREE      in caps && Cap.REASONING in caps -> "Free · Smart"
+        Cap.FREE      in caps -> "Free"
+        Cap.REASONING in caps -> "Reasoning"
+        Cap.FAST      in caps -> "Fast"
+        "preview"     in id   -> "Preview"
         else -> "Pro"
     }
     val tokens = when {
-        "gemini" in id -> "1M"
-        "claude" in id -> "200K"
-        "kimi-k2" in id -> "1M"
+        Cap.LONG_CTX in caps && ("gemini" in id || "kimi" in id) -> "1M"
+        Cap.LONG_CTX in caps -> "200K+"
         "deepseek" in id && "r1" in id -> "64K"
         else -> "128K"
     }
-    val category = when {
-        "flash" in id || "fast" in id -> "Fast"
-        "reason" in id || "r1" in id || "think" in id -> "Reasoning"
-        "vision" in id || "vl" in id -> "Vision"
-        "coder" in id || "code" in id -> "Coding"
-        "nano" in id || "mini" in id || "8b" in id -> "Compact"
-        else -> "General"
-    }
-    return ModelDisplay(model, emoji, color, speed, badge, tokens, category)
+    return ModelDisplay(model, caps, emoji, color, speed, badge, tokens)
 }
 
 private const val PAGE_SIZE = 9
@@ -161,25 +178,26 @@ fun ModelPickerScreen(
     // OpenRouter: live-only (no hardcoded fallback). Other providers: static list.
     val modelList = if (isOpenRouter) (liveModels ?: emptyList()) else provider.models
     val displays = remember(modelList) { modelList.map { toDisplay(it) } }
-    val categories = remember(displays) {
-        val cats = displays.map { it.category }.distinct()
-        if (cats.size > 1) listOf("All") + cats else emptyList()
+
+    // Only show cap filters that actually have matching models
+    val activeCapFilters = remember(displays) {
+        CAP_FILTERS.filter { (_, cap) -> cap == null || displays.any { cap in it.effectiveCaps } }
     }
 
-    var filter by remember { mutableStateOf("All") }
+    var selectedCap by remember { mutableStateOf<String?>(null) }
     var searchQuery by remember { mutableStateOf("") }
     var page by remember { mutableStateOf(0) }
     var selectedModel by remember { mutableStateOf<AiModel?>(displays.firstOrNull()?.model) }
 
-    val filtered = remember(filter, searchQuery, displays) {
-        var list = if (filter == "All") displays else displays.filter { it.category == filter }
+    val filtered = remember(selectedCap, searchQuery, displays) {
+        var list = if (selectedCap == null) displays else displays.filter { selectedCap in it.effectiveCaps }
         if (searchQuery.isNotBlank()) {
             val q = searchQuery.trim().lowercase()
             list = list.filter { it.model.name.lowercase().contains(q) || it.model.modelId.lowercase().contains(q) }
         }
         list
     }
-    LaunchedEffect(filter, searchQuery) { page = 0 }
+    LaunchedEffect(selectedCap, searchQuery) { page = 0 }
 
     val totalPages = remember(filtered) { maxOf(1, ceil(filtered.size / PAGE_SIZE.toFloat()).toInt()) }
     val paged = filtered.drop(page * PAGE_SIZE).take(PAGE_SIZE)
@@ -311,15 +329,15 @@ fun ModelPickerScreen(
                 }
             )
 
-            // ── Filter chips (only when categories are meaningful) ────────────
-            if (categories.size > 2) {
+            // ── Capability filter chips ───────────────────────────────────────
+            if (activeCapFilters.size > 1) {
                 LazyRow(
                     contentPadding = PaddingValues(horizontal = 10.dp),
                     horizontalArrangement = Arrangement.spacedBy(5.dp),
                     modifier = Modifier.padding(bottom = 8.dp)
                 ) {
-                    items(categories) { cat ->
-                        val isActive = cat == filter
+                    items(activeCapFilters) { (label, cap) ->
+                        val isActive = selectedCap == cap
                         val chipBg by animateColorAsState(
                             if (isActive) Color(0x2E60A5FA) else Color(0x0DFFFFFF), tween(150), label = "chip_bg")
                         val chipBorder by animateColorAsState(
@@ -330,11 +348,11 @@ fun ModelPickerScreen(
                             modifier = Modifier
                                 .background(chipBg, RoundedCornerShape(20.dp))
                                 .border(1.dp, chipBorder, RoundedCornerShape(20.dp))
-                                .clickable { filter = cat }
+                                .clickable { selectedCap = cap }
                                 .padding(horizontal = 11.dp, vertical = 4.dp)
                         ) {
                             Text(
-                                cat, fontFamily = DmSansFamily, fontSize = 10.sp,
+                                label, fontFamily = DmSansFamily, fontSize = 10.sp,
                                 fontWeight = FontWeight.SemiBold, color = chipText
                             )
                         }
@@ -551,10 +569,17 @@ private fun ModelCard(display: ModelDisplay, isSelected: Boolean, onSelect: () -
                     fontWeight = FontWeight.Bold, color = Color.White,
                     maxLines = 1, overflow = TextOverflow.Ellipsis, lineHeight = 14.sp
                 )
-                Text(
-                    display.category, fontFamily = DmSansFamily, fontSize = 10.sp,
-                    color = Color(0xFF374151), maxLines = 1, overflow = TextOverflow.Ellipsis
-                )
+                // Capability pills — small emoji icons showing what this model can do
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                    modifier = Modifier.padding(top = 3.dp)
+                ) {
+                    CAP_PILL_ORDER.forEach { (cap, icon) ->
+                        if (cap in display.effectiveCaps) {
+                            Text(icon, fontSize = 9.sp)
+                        }
+                    }
+                }
             }
 
             Box(

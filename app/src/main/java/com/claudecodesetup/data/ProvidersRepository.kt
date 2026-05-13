@@ -123,7 +123,7 @@ object ProvidersRepository {
                 val isFree  = id.endsWith(":free") || (prompt == 0.0 && compl == 0.0)
                 if (isFree) {
                     val name = m.optString("name", "").ifEmpty { id }
-                    free.add(AiModel(name, id))
+                    free.add(AiModel(name, id, Providers.deriveCaps(id)))
                 }
             }
             free.sortedBy { it.modelId }
