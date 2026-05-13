@@ -45,6 +45,11 @@ class AppPreferences(context: Context) {
     fun getApiKey(): String = prefs.getString(KEY_API_KEY, "") ?: ""
     fun setApiKey(key: String) = prefs.edit().putString(KEY_API_KEY, key).apply()
 
+    fun getApiKeyForProvider(providerId: String): String =
+        prefs.getString("api_key_$providerId", "") ?: ""
+    fun setApiKeyForProvider(providerId: String, key: String) =
+        prefs.edit().putString("api_key_$providerId", key).apply()
+
     fun getModelId(): String = prefs.getString(KEY_MODEL_ID, "") ?: ""
     fun setModelId(id: String) = prefs.edit().putString(KEY_MODEL_ID, id).apply()
 

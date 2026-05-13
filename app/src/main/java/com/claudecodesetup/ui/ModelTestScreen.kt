@@ -155,6 +155,270 @@ private sealed class ModelLoadState {
 @Composable
 fun ModelTestScreen(
     apiKey: String,
+    orApiKey: String = "",
+    nvApiKey: String = "",
+    providerId: String,
+    providerUrl: String,
+    onBack: () -> Unit,
+) {
+    val isLiveFetch = providerId == "openrouter" || providerId == "nvidia_nim"
+    if (isLiveFetch) {
+        TabbedModelTestScreen(
+            orApiKey = orApiKey.ifEmpty { if (providerId == "openrouter") apiKey else "" },
+            nvApiKey = nvApiKey.ifEmpty { if (providerId == "nvidia_nim") apiKey else "" },
+            initialTab = if (providerId == "nvidia_nim") 1 else 0,
+            onBack = onBack
+        )
+    } else {
+        SingleProviderTestScreen(
+            apiKey = apiKey,
+            providerId = providerId,
+            providerUrl = providerUrl,
+            onBack = onBack
+        )
+    }
+}
+
+// ── Tabbed screen (OpenRouter + NVIDIA NIM) ────────────────────────────────────
+
+@Composable
+private fun TabbedModelTestScreen(
+    orApiKey: String,
+    nvApiKey: String,
+    initialTab: Int,
+    onBack: () -> Unit,
+) {
+    val scope = rememberCoroutineScope()
+    var selectedTab by remember { mutableStateOf(initialTab) }
+
+    // OpenRouter state
+    var orLoad by remember { mutableStateOf<ModelLoadState>(ModelLoadState.Loading) }
+    var orResults by remember { mutableStateOf<List<ModelTestResult>>(emptyList()) }
+    var orTesting by remember { mutableStateOf(false) }
+
+    // NVIDIA state
+    var nvLoad by remember { mutableStateOf<ModelLoadState>(ModelLoadState.Loading) }
+    var nvResults by remember { mutableStateOf<List<ModelTestResult>>(emptyList()) }
+    var nvTesting by remember { mutableStateOf(false) }
+
+    fun fetchOr() {
+        orLoad = ModelLoadState.Loading
+        scope.launch {
+            try {
+                if (orApiKey.isEmpty()) { orLoad = ModelLoadState.Error("No OpenRouter key configured"); return@launch }
+                val models = ProvidersRepository.fetchOpenRouterFreeModels(orApiKey)
+                orLoad = if (models.isEmpty()) ModelLoadState.Error("No free models found")
+                         else ModelLoadState.Loaded(models)
+            } catch (e: Exception) {
+                orLoad = ModelLoadState.Error(e.message ?: "Fetch failed")
+            }
+        }
+    }
+
+    fun fetchNv() {
+        nvLoad = ModelLoadState.Loading
+        scope.launch {
+            try {
+                if (nvApiKey.isEmpty()) { nvLoad = ModelLoadState.Error("No NVIDIA key configured"); return@launch }
+                val models = ProvidersRepository.fetchNvidiaFreeModels(nvApiKey)
+                nvLoad = if (models.isEmpty()) ModelLoadState.Error("No models found")
+                         else ModelLoadState.Loaded(models)
+            } catch (e: Exception) {
+                nvLoad = ModelLoadState.Error(e.message ?: "Fetch failed")
+            }
+        }
+    }
+
+    LaunchedEffect(orLoad) {
+        if (orLoad is ModelLoadState.Loaded)
+            orResults = (orLoad as ModelLoadState.Loaded).models.map { ModelTestResult(it) }
+    }
+    LaunchedEffect(nvLoad) {
+        if (nvLoad is ModelLoadState.Loaded)
+            nvResults = (nvLoad as ModelLoadState.Loaded).models.map { ModelTestResult(it) }
+    }
+
+    LaunchedEffect(Unit) {
+        fetchOr()
+        fetchNv()
+    }
+
+    fun runOrTests() {
+        val models = (orLoad as? ModelLoadState.Loaded)?.models ?: return
+        if (orTesting) return
+        orTesting = true
+        orResults = models.map { ModelTestResult(it, TestStatus.PENDING) }
+        scope.launch {
+            models.forEachIndexed { i, model ->
+                orResults = orResults.toMutableList().also { it[i] = it[i].copy(status = TestStatus.TESTING) }
+                val (status, latency) = testModel("openrouter", Providers.OPENROUTER.baseUrl, orApiKey, model)
+                orResults = orResults.toMutableList().also { it[i] = it[i].copy(status = status, latencyMs = latency) }
+                delay(300L)
+            }
+            orTesting = false
+        }
+    }
+
+    fun runNvTests() {
+        val models = (nvLoad as? ModelLoadState.Loaded)?.models ?: return
+        if (nvTesting) return
+        nvTesting = true
+        nvResults = models.map { ModelTestResult(it, TestStatus.PENDING) }
+        scope.launch {
+            models.forEachIndexed { i, model ->
+                nvResults = nvResults.toMutableList().also { it[i] = it[i].copy(status = TestStatus.TESTING) }
+                val (status, latency) = testModel("nvidia_nim", Providers.NVIDIA_NIM.baseUrl, nvApiKey, model)
+                nvResults = nvResults.toMutableList().also { it[i] = it[i].copy(status = status, latencyMs = latency) }
+                delay(300L)
+            }
+            nvTesting = false
+        }
+    }
+
+    val activeLoad   = if (selectedTab == 0) orLoad   else nvLoad
+    val activeResults = if (selectedTab == 0) orResults else nvResults
+    val activeTesting = if (selectedTab == 0) orTesting else nvTesting
+    val onFetch      = if (selectedTab == 0) ::fetchOr   else ::fetchNv
+    val onTestAll    = if (selectedTab == 0) ::runOrTests else ::runNvTests
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Brush.verticalGradient(0f to Color(0xFF08041A), 1f to Color(0xFF060210)))
+        )
+        Column(modifier = Modifier.fillMaxSize()) {
+            // Header
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier.size(36.dp).clip(CircleShape)
+                        .background(Color(0x1AFFFFFF), CircleShape).clickable(onClick = onBack),
+                    contentAlignment = Alignment.Center
+                ) { Text("‹", fontSize = 22.sp, color = Color.White, fontFamily = DmSansFamily) }
+                Spacer(Modifier.width(12.dp))
+                Column {
+                    Text("Testing Response", fontSize = 18.sp, fontWeight = FontWeight.Bold,
+                        color = Color.White, fontFamily = DmSansFamily)
+                    Text("Free models · live fetch", fontSize = 12.sp,
+                        color = Color(0xFF64748B), fontFamily = DmSansFamily)
+                }
+                Spacer(Modifier.weight(1f))
+                TestButton(
+                    label = "↻",
+                    enabled = activeLoad !is ModelLoadState.Loading && !activeTesting,
+                    color = Color(0xFF818CF8),
+                    onClick = onFetch
+                )
+                Spacer(Modifier.width(8.dp))
+                TestButton(
+                    label = if (activeTesting) "Testing…" else "Test All",
+                    enabled = activeLoad is ModelLoadState.Loaded && !activeTesting,
+                    color = Color(0xFF06B6D4),
+                    onClick = onTestAll
+                )
+            }
+
+            // Tab bar
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .padding(bottom = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                listOf("OpenRouter", "NVIDIA NIM").forEachIndexed { idx, label ->
+                    val isSelected = selectedTab == idx
+                    val tabColor = if (idx == 0) Color(0xFF818CF8) else Color(0xFF22C55E)
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(if (isSelected) tabColor.copy(alpha = 0.18f) else Color(0x08FFFFFF))
+                            .border(1.dp,
+                                if (isSelected) tabColor.copy(alpha = 0.6f) else Color(0x15FFFFFF),
+                                RoundedCornerShape(10.dp))
+                            .clickable { selectedTab = idx }
+                            .padding(vertical = 9.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            label,
+                            fontSize = 13.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                            color = if (isSelected) tabColor else Color(0xFF64748B),
+                            fontFamily = DmSansFamily
+                        )
+                    }
+                }
+            }
+
+            // Tab content
+            ModelLoadContent(
+                loadState = activeLoad,
+                results = activeResults,
+                onRetry = onFetch
+            )
+        }
+    }
+}
+
+@Composable
+private fun ModelLoadContent(
+    loadState: ModelLoadState,
+    results: List<ModelTestResult>,
+    onRetry: () -> Unit,
+) {
+    when (val state = loadState) {
+        is ModelLoadState.Loading -> {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    CircularProgressIndicator(color = Color(0xFF06B6D4), strokeWidth = 2.dp)
+                    Spacer(Modifier.height(12.dp))
+                    Text("Fetching models…", fontSize = 13.sp, color = Color(0xFF64748B), fontFamily = DmSansFamily)
+                }
+            }
+        }
+        is ModelLoadState.Error -> {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("Failed to load models", fontSize = 14.sp, color = Color(0xFFEF4444), fontFamily = DmSansFamily)
+                    Spacer(Modifier.height(6.dp))
+                    Text(state.message, fontSize = 11.sp, color = Color(0xFF475569), fontFamily = SpaceMonoFamily)
+                    Spacer(Modifier.height(16.dp))
+                    TestButton(label = "↻ Retry", enabled = true, color = Color(0xFF06B6D4), onClick = onRetry)
+                }
+            }
+        }
+        is ModelLoadState.Loaded -> {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                LegendDot(Color(0xFF22C55E), "Pass")
+                LegendDot(Color(0xFFF59E0B), "Empty / Rate limit")
+                LegendDot(Color(0xFFEF4444), "Fail")
+            }
+            Spacer(Modifier.height(8.dp))
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(results, key = { it.model.modelId }) { result -> ModelResultRow(result) }
+                item { Spacer(Modifier.height(24.dp)) }
+            }
+        }
+    }
+}
+
+// ── Single-provider screen (non-live providers) ────────────────────────────────
+
+@Composable
+private fun SingleProviderTestScreen(
+    apiKey: String,
     providerId: String,
     providerUrl: String,
     onBack: () -> Unit,
@@ -163,38 +427,16 @@ fun ModelTestScreen(
 
     var loadState by remember {
         mutableStateOf<ModelLoadState>(
-            if (providerId == "openrouter") ModelLoadState.Loading
-            else {
-                val models = Providers.byId(providerId)?.models ?: emptyList()
-                ModelLoadState.Loaded(models)
-            }
+            ModelLoadState.Loaded(Providers.byId(providerId)?.models ?: emptyList())
         )
     }
 
     var results by remember { mutableStateOf<List<ModelTestResult>>(emptyList()) }
     var isTesting by remember { mutableStateOf(false) }
 
-    fun fetchModels() {
-        loadState = ModelLoadState.Loading
-        scope.launch {
-            try {
-                val models = ProvidersRepository.fetchOpenRouterFreeModels(apiKey)
-                loadState = if (models.isEmpty()) ModelLoadState.Error("No free models found")
-                            else ModelLoadState.Loaded(models)
-            } catch (e: Exception) {
-                loadState = ModelLoadState.Error(e.message ?: "Fetch failed")
-            }
-        }
-    }
-
-    LaunchedEffect(providerId) {
-        if (providerId == "openrouter") fetchModels()
-    }
-
     LaunchedEffect(loadState) {
-        if (loadState is ModelLoadState.Loaded) {
+        if (loadState is ModelLoadState.Loaded)
             results = (loadState as ModelLoadState.Loaded).models.map { ModelTestResult(it) }
-        }
     }
 
     fun runAllTests() {
@@ -204,13 +446,9 @@ fun ModelTestScreen(
         results = models.map { ModelTestResult(it, TestStatus.PENDING) }
         scope.launch {
             models.forEachIndexed { i, model ->
-                results = results.toMutableList().also {
-                    it[i] = it[i].copy(status = TestStatus.TESTING)
-                }
+                results = results.toMutableList().also { it[i] = it[i].copy(status = TestStatus.TESTING) }
                 val (status, latency) = testModel(providerId, providerUrl, apiKey, model)
-                results = results.toMutableList().also {
-                    it[i] = it[i].copy(status = status, latencyMs = latency)
-                }
+                results = results.toMutableList().also { it[i] = it[i].copy(status = status, latencyMs = latency) }
                 delay(300L)
             }
             isTesting = false
@@ -218,64 +456,29 @@ fun ModelTestScreen(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-
-        // Background
         Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        0f to Color(0xFF08041A),
-                        1f to Color(0xFF060210)
-                    )
-                )
+            modifier = Modifier.fillMaxSize().background(
+                Brush.verticalGradient(0f to Color(0xFF08041A), 1f to Color(0xFF060210))
+            )
         )
-
         Column(modifier = Modifier.fillMaxSize()) {
-
-            // Header
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Box(
-                    modifier = Modifier
-                        .size(36.dp)
-                        .clip(CircleShape)
-                        .background(Color(0x1AFFFFFF), CircleShape)
-                        .clickable(onClick = onBack),
+                    modifier = Modifier.size(36.dp).clip(CircleShape)
+                        .background(Color(0x1AFFFFFF), CircleShape).clickable(onClick = onBack),
                     contentAlignment = Alignment.Center
-                ) {
-                    Text("‹", fontSize = 22.sp, color = Color.White, fontFamily = DmSansFamily)
-                }
+                ) { Text("‹", fontSize = 22.sp, color = Color.White, fontFamily = DmSansFamily) }
                 Spacer(Modifier.width(12.dp))
                 Column {
-                    Text(
-                        "Testing Response",
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White,
-                        fontFamily = DmSansFamily,
-                    )
-                    Text(
-                        "Provider: ${Providers.byId(providerId)?.name ?: providerId}",
-                        fontSize = 12.sp,
-                        color = Color(0xFF64748B),
-                        fontFamily = DmSansFamily,
-                    )
+                    Text("Testing Response", fontSize = 18.sp, fontWeight = FontWeight.Bold,
+                        color = Color.White, fontFamily = DmSansFamily)
+                    Text("Provider: ${Providers.byId(providerId)?.name ?: providerId}",
+                        fontSize = 12.sp, color = Color(0xFF64748B), fontFamily = DmSansFamily)
                 }
                 Spacer(Modifier.weight(1f))
-                if (providerId == "openrouter") {
-                    TestButton(
-                        label = "↻",
-                        enabled = loadState !is ModelLoadState.Loading && !isTesting,
-                        color = Color(0xFF818CF8),
-                        onClick = ::fetchModels
-                    )
-                    Spacer(Modifier.width(8.dp))
-                }
                 TestButton(
                     label = if (isTesting) "Testing…" else "Test All",
                     enabled = loadState is ModelLoadState.Loaded && !isTesting,
@@ -283,55 +486,7 @@ fun ModelTestScreen(
                     onClick = ::runAllTests
                 )
             }
-
-            when (val state = loadState) {
-                is ModelLoadState.Loading -> {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            CircularProgressIndicator(color = Color(0xFF06B6D4), strokeWidth = 2.dp)
-                            Spacer(Modifier.height(12.dp))
-                            Text("Fetching models…", fontSize = 13.sp, color = Color(0xFF64748B), fontFamily = DmSansFamily)
-                        }
-                    }
-                }
-                is ModelLoadState.Error -> {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text("Failed to load models", fontSize = 14.sp, color = Color(0xFFEF4444), fontFamily = DmSansFamily)
-                            Spacer(Modifier.height(6.dp))
-                            Text(state.message, fontSize = 11.sp, color = Color(0xFF475569), fontFamily = SpaceMonoFamily)
-                            Spacer(Modifier.height(16.dp))
-                            TestButton(label = "↻ Retry", enabled = true, color = Color(0xFF06B6D4), onClick = ::fetchModels)
-                        }
-                    }
-                }
-                is ModelLoadState.Loaded -> {
-                    // Legend
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        LegendDot(Color(0xFF22C55E), "Pass")
-                        LegendDot(Color(0xFFF59E0B), "Empty / Rate limit")
-                        LegendDot(Color(0xFFEF4444), "Fail")
-                    }
-
-                    Spacer(Modifier.height(8.dp))
-
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        items(results, key = { it.model.modelId }) { result ->
-                            ModelResultRow(result)
-                        }
-                        item { Spacer(Modifier.height(24.dp)) }
-                    }
-                }
-            }
+            ModelLoadContent(loadState = loadState, results = results, onRetry = {})
         }
     }
 }

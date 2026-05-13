@@ -10,10 +10,19 @@ class ModelTestActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val prefs = AppPreferences(this)
+        val currentProviderId = prefs.getProviderId()
+        val currentKey = prefs.getApiKey()
+        // Fall back to current key if the provider was configured before per-provider storage was added
+        val orKey = prefs.getApiKeyForProvider("openrouter")
+            .ifEmpty { if (currentProviderId == "openrouter") currentKey else "" }
+        val nvKey = prefs.getApiKeyForProvider("nvidia_nim")
+            .ifEmpty { if (currentProviderId == "nvidia_nim") currentKey else "" }
         setContent {
             ModelTestScreen(
-                apiKey      = prefs.getApiKey(),
-                providerId  = prefs.getProviderId(),
+                apiKey      = currentKey,
+                orApiKey    = orKey,
+                nvApiKey    = nvKey,
+                providerId  = currentProviderId,
                 providerUrl = prefs.getBaseUrl(),
                 onBack      = { finish() }
             )

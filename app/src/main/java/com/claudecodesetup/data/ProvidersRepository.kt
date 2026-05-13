@@ -129,6 +129,35 @@ object ProvidersRepository {
             free.sortedBy { it.modelId }
         }
 
+    /**
+     * Fetch all models from NVIDIA NIM's OpenAI-compatible /v1/models endpoint.
+     * All returned models are free-tier accessible (rate-limited).
+     */
+    suspend fun fetchNvidiaFreeModels(apiKey: String): List<AiModel> =
+        withContext(Dispatchers.IO) {
+            val req = Request.Builder()
+                .url("https://integrate.api.nvidia.com/v1/models")
+                .header("Authorization", "Bearer $apiKey")
+                .header("Accept", "application/json")
+                .build()
+            val body = http.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) throw Exception("HTTP ${resp.code}")
+                resp.body?.string() ?: throw Exception("Empty response")
+            }
+            val data = JSONObject(body).getJSONArray("data")
+            val seen = mutableSetOf<String>()
+            val models = mutableListOf<AiModel>()
+            for (i in 0 until data.length()) {
+                val m = data.getJSONObject(i)
+                val id = m.getString("id")
+                if (!seen.add(id)) continue
+                val rawName = id.substringAfterLast("/")
+                val name = rawName.split("-").joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
+                models.add(AiModel(name, id, Providers.deriveCaps(id) + Cap.FREE))
+            }
+            models.sortedBy { it.modelId }
+        }
+
     // Update REMOTE_URL at runtime (e.g. from settings)
     fun remoteUrl(): String = REMOTE_URL
 }

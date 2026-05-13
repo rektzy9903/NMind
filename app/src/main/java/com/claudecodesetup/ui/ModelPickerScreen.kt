@@ -153,8 +153,10 @@ fun ModelPickerScreen(
     onBack: () -> Unit
 ) {
     val isOpenRouter = provider.id == "openrouter"
+    val isNvidia = provider.id == "nvidia_nim"
+    val isLive = isOpenRouter || isNvidia
     var liveModels by remember { mutableStateOf<List<AiModel>?>(null) }
-    var isRefreshing by remember { mutableStateOf(isOpenRouter) }
+    var isRefreshing by remember { mutableStateOf(isLive) }
     var fetchError by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
@@ -163,7 +165,10 @@ fun ModelPickerScreen(
             isRefreshing = true
             fetchError = false
             try {
-                val fetched = ProvidersRepository.fetchOpenRouterFreeModels(apiKey)
+                val fetched = if (isOpenRouter)
+                    ProvidersRepository.fetchOpenRouterFreeModels(apiKey)
+                else
+                    ProvidersRepository.fetchNvidiaFreeModels(apiKey)
                 liveModels = fetched
             } catch (_: Exception) {
                 fetchError = true
@@ -173,10 +178,10 @@ fun ModelPickerScreen(
         }
     }
 
-    if (isOpenRouter) LaunchedEffect(Unit) { fetchLive() }
+    if (isLive) LaunchedEffect(Unit) { fetchLive() }
 
-    // OpenRouter: live-only (no hardcoded fallback). Other providers: static list.
-    val modelList = if (isOpenRouter) (liveModels ?: emptyList()) else provider.models
+    // Live providers: live-only (no hardcoded fallback). Other providers: static list.
+    val modelList = if (isLive) (liveModels ?: emptyList()) else provider.models
     val displays = remember(modelList) { modelList.map { toDisplay(it) } }
 
     // Only show cap filters that actually have matching models
@@ -240,7 +245,7 @@ fun ModelPickerScreen(
                     }
                 }
                 Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    if (isOpenRouter) {
+                    if (isLive) {
                         Box(
                             modifier = Modifier
                                 .background(
@@ -360,8 +365,8 @@ fun ModelPickerScreen(
                 }
             }
 
-            // ── Empty / error state (OpenRouter only, while loading or on error) ──
-            if (isOpenRouter && !isRefreshing && modelList.isEmpty()) {
+            // ── Empty / error state (live providers only, while loading or on error) ──
+            if (isLive && !isRefreshing && modelList.isEmpty()) {
                 Box(
                     modifier = Modifier
                         .weight(1f)
@@ -397,7 +402,7 @@ fun ModelPickerScreen(
                         }
                     }
                 }
-            } else if (isOpenRouter && isRefreshing && liveModels == null) {
+            } else if (isLive && isRefreshing && liveModels == null) {
                 Box(
                     modifier = Modifier
                         .weight(1f)

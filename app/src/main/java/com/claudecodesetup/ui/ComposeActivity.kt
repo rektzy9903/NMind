@@ -23,6 +23,7 @@ class ComposeActivity : ComponentActivity() {
                 prefs.setLoginMode(mode)
                 prefs.setProviderId(provider.id)
                 prefs.setApiKey(apiKey)
+                prefs.setApiKeyForProvider(provider.id, apiKey)
                 prefs.setModelId(model.modelId)
                 prefs.setBaseUrl(provider.baseUrl)
                 prefs.setProviderConfigured(true)
