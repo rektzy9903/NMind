@@ -492,7 +492,7 @@ class FloatingOverlayService : Service() {
             PendingIntent.FLAG_IMMUTABLE
         )
         return Notification.Builder(this, ClaudeApp.CHANNEL_OVERLAY)
-            .setSmallIcon(R.drawable.ic_terminal)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle("Claude Overlay")
             .setContentText("Floating assistant active — tap to dismiss")
             .setOngoing(true)

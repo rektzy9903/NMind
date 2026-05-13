@@ -27,7 +27,7 @@ class BootReceiver : BroadcastReceiver() {
         )
 
         val notification = NotificationCompat.Builder(context, ClaudeApp.CHANNEL_RUNNING)
-            .setSmallIcon(R.drawable.ic_terminal)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle("Claude Code")
             .setContentText("Tap to resume your session")
             .setContentIntent(openIntent)

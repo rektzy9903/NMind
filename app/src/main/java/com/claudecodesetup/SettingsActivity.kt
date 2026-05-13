@@ -56,7 +56,6 @@ class SettingsActivity : AppCompatActivity() {
 
         binding.tvCurrentProvider.text = when (mode) {
             AppPreferences.MODE_SUBSCRIPTION -> "Claude Subscription"
-            AppPreferences.MODE_GEMINI       -> "Google Gemini — $model"
             else -> "${provider?.name ?: "Unknown"} — $model"
         }
 

@@ -44,8 +44,6 @@ fun HomeScreen(
     onTesting: () -> Unit,
     onSettings: () -> Unit,
     onProjects: () -> Unit = {},
-    onOverlay: () -> Unit = {},
-    overlayActive: Boolean = false,
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "home")
 
@@ -74,13 +72,11 @@ fun HomeScreen(
     var card2Visible by remember { mutableStateOf(false) }
     var card3Visible by remember { mutableStateOf(false) }
     var card4Visible by remember { mutableStateOf(false) }
-    var card5Visible by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         delay(250L); card1Visible = true
         delay(130L); card2Visible = true
         delay(130L); card3Visible = true
         delay(130L); card4Visible = true
-        delay(130L); card5Visible = true
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -296,23 +292,6 @@ fun HomeScreen(
                     subtitle = "Switch between saved project workspaces",
                     accentColor = Color(0xFF10B981),
                     onClick = onProjects,
-                )
-            }
-
-            Spacer(Modifier.height(12.dp))
-
-            // Card 5 — Floating Overlay
-            AnimatedVisibility(
-                visible = card5Visible,
-                enter = fadeIn(tween(400)) + slideInVertically(tween(400, easing = EaseOutCubic)) { it / 3 }
-            ) {
-                MenuCard(
-                    iconRes = R.drawable.ic_bolt,
-                    title = if (overlayActive) "Overlay: ON" else "Floating Overlay",
-                    subtitle = if (overlayActive) "Tap to disable the floating assistant button"
-                               else "Enable floating button: screenshot, voice, clipboard",
-                    accentColor = if (overlayActive) Color(0xFFF59E0B) else Color(0xFFEC4899),
-                    onClick = onOverlay,
                 )
             }
 

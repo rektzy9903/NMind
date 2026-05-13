@@ -336,7 +336,7 @@ class ClaudeService : LifecycleService() {
             PendingIntent.FLAG_IMMUTABLE
         )
         return Notification.Builder(this, ClaudeApp.CHANNEL_RUNNING)
-            .setSmallIcon(R.drawable.ic_terminal)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle("Claude Code")
             .setContentText(text)
             .setContentIntent(openIntent)
@@ -370,7 +370,7 @@ class ClaudeService : LifecycleService() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
         val notif = Notification.Builder(this, ClaudeApp.CHANNEL_RESPONSE)
-            .setSmallIcon(R.drawable.ic_terminal)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle("Claude Code")
             .setContentText(bodyText)
             .setContentIntent(openIntent)
