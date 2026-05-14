@@ -132,6 +132,14 @@ class TerminalActivity : AppCompatActivity() {
         super.onResume()
         claudeService?.isActivityVisible = true
         claudeService?.cancelResponseNotification()
+        // Refresh project pill in case user changed project while away
+        val projectPath = prefs.getProjectPath()
+        if (projectPath.isNotEmpty()) {
+            binding.tvProjectName.text = "📂 " + projectPath.substringAfterLast('/').ifEmpty { projectPath }
+            binding.tvProjectName.visibility = android.view.View.VISIBLE
+        } else {
+            binding.tvProjectName.visibility = android.view.View.GONE
+        }
     }
 
     override fun onPause() {
@@ -437,6 +445,16 @@ class TerminalActivity : AppCompatActivity() {
             startActivity(Intent(this, ComposeActivity::class.java).apply {
                 putExtra("start_at", "picker")
             })
+            overridePendingTransition(R.anim.fade_in, R.anim.fade_out)
+        }
+        // Project name pill — shows active project folder, taps open project manager
+        val projectPath = prefs.getProjectPath()
+        if (projectPath.isNotEmpty()) {
+            binding.tvProjectName.text = "📂 " + projectPath.substringAfterLast('/').ifEmpty { projectPath }
+            binding.tvProjectName.visibility = android.view.View.VISIBLE
+        }
+        binding.tvProjectName.setOnClickListener {
+            startActivity(Intent(this, com.claudecodesetup.ui.ProjectManagerActivity::class.java))
             overridePendingTransition(R.anim.fade_in, R.anim.fade_out)
         }
         // TTS toggle button

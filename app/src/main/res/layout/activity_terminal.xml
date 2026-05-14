@@ -63,6 +63,24 @@
                 android:paddingVertical="2dp"
                 android:paddingHorizontal="4dp" />
 
+            <TextView
+                android:id="@+id/tvProjectName"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="1dp"
+                android:text=""
+                android:textColor="#8010B981"
+                android:textSize="9sp"
+                android:fontFamily="monospace"
+                android:maxLines="1"
+                android:ellipsize="start"
+                android:visibility="gone"
+                android:clickable="true"
+                android:focusable="true"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:paddingVertical="2dp"
+                android:paddingHorizontal="4dp" />
+
         </LinearLayout>
 
         <Button

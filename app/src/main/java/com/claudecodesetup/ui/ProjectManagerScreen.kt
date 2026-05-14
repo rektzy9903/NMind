@@ -24,6 +24,7 @@ data class ProjectEntry(val name: String, val path: String, val systemPrompt: St
 @Composable
 fun ProjectManagerScreen(
     prefs: AppPreferences,
+    onPickFolder: (onResult: (String) -> Unit) -> Unit,
     onOpenProject: (ProjectEntry) -> Unit,
     onBack: () -> Unit
 ) {
@@ -31,8 +32,11 @@ fun ProjectManagerScreen(
     var showAddDialog by remember { mutableStateOf(false) }
     var confirmDeleteIndex by remember { mutableStateOf(-1) }
 
+    val activeProject = prefs.getProjectPath()
+
     AppBackground {
         Column(modifier = Modifier.fillMaxSize()) {
+
             // Header
             Row(
                 modifier = Modifier
@@ -72,6 +76,34 @@ fun ProjectManagerScreen(
                 }
             }
 
+            // Active project banner
+            if (activeProject.isNotEmpty()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp)
+                        .padding(bottom = 8.dp)
+                        .background(Color(0x1A10B981), RoundedCornerShape(10.dp))
+                        .border(1.dp, Color(0x3310B981), RoundedCornerShape(10.dp))
+                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text("📂", fontSize = 14.sp)
+                    Column {
+                        Text(
+                            "ACTIVE", fontFamily = SpaceMonoFamily, fontSize = 7.sp,
+                            letterSpacing = 2.sp, color = Color(0xFF10B981)
+                        )
+                        Text(
+                            activeProject.substringAfterLast('/').ifEmpty { activeProject },
+                            fontFamily = SpaceMonoFamily, fontSize = 11.sp,
+                            color = Color(0xFF6EE7B7), maxLines = 1
+                        )
+                    }
+                }
+            }
+
             if (projects.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(
@@ -84,7 +116,7 @@ fun ProjectManagerScreen(
                             fontSize = 16.sp, color = Color(0xFF6B7280)
                         )
                         Text(
-                            "Tap ＋ New to create one", fontFamily = DmSansFamily,
+                            "Tap ＋ New to add one", fontFamily = DmSansFamily,
                             fontSize = 13.sp, color = Color(0xFF4B5563)
                         )
                     }
@@ -96,11 +128,19 @@ fun ProjectManagerScreen(
                 ) {
                     items(projects.indices.toList()) { i ->
                         val p = projects[i]
+                        val isActive = p.path == activeProject
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .background(Color(0x0FFFFFFF), RoundedCornerShape(14.dp))
-                                .border(1.dp, Color(0x17FFFFFF), RoundedCornerShape(14.dp))
+                                .background(
+                                    if (isActive) Color(0x1A10B981) else Color(0x0FFFFFFF),
+                                    RoundedCornerShape(14.dp)
+                                )
+                                .border(
+                                    1.dp,
+                                    if (isActive) Color(0x3310B981) else Color(0x17FFFFFF),
+                                    RoundedCornerShape(14.dp)
+                                )
                                 .clickable { onOpenProject(p) }
                                 .padding(14.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -110,13 +150,27 @@ fun ProjectManagerScreen(
                                 modifier = Modifier.weight(1f),
                                 verticalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
-                                Text(
-                                    p.name, fontFamily = DmSansFamily, fontSize = 15.sp,
-                                    fontWeight = FontWeight.SemiBold, color = Color.White
-                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Text(
+                                        p.name, fontFamily = DmSansFamily, fontSize = 15.sp,
+                                        fontWeight = FontWeight.SemiBold, color = Color.White
+                                    )
+                                    if (isActive) {
+                                        Text(
+                                            "active", fontFamily = SpaceMonoFamily, fontSize = 8.sp,
+                                            color = Color(0xFF10B981),
+                                            modifier = Modifier
+                                                .background(Color(0x2010B981), RoundedCornerShape(4.dp))
+                                                .padding(horizontal = 5.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
                                 Text(
                                     p.path.ifEmpty { "No path set" }, fontFamily = SpaceMonoFamily,
-                                    fontSize = 10.sp, color = Color(0xFF6B7280)
+                                    fontSize = 10.sp, color = Color(0xFF6B7280), maxLines = 1
                                 )
                                 if (p.systemPrompt.isNotEmpty()) {
                                     Text(
@@ -141,9 +195,10 @@ fun ProjectManagerScreen(
 
         // Add project dialog
         if (showAddDialog) {
-            var newName by remember { mutableStateOf("") }
-            var newPath by remember { mutableStateOf("") }
+            var newName   by remember { mutableStateOf("") }
+            var newPath   by remember { mutableStateOf("") }
             var newPrompt by remember { mutableStateOf("") }
+
             AlertDialog(
                 onDismissRequest = { showAddDialog = false },
                 title = {
@@ -156,11 +211,40 @@ fun ProjectManagerScreen(
                             label = { Text("Project name") }, singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
-                        OutlinedTextField(
-                            value = newPath, onValueChange = { newPath = it },
-                            label = { Text("Path (e.g. /sdcard/myproject)") }, singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
+
+                        // Path row: auto-filled by picker, or editable manually
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(
+                                "Folder", fontSize = 12.sp, color = Color(0xFF9CA3AF),
+                                fontFamily = DmSansFamily
+                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text(
+                                    newPath.ifEmpty { "No folder selected" },
+                                    fontFamily = SpaceMonoFamily, fontSize = 10.sp,
+                                    color = if (newPath.isEmpty()) Color(0xFF6B7280) else Color(0xFFD1D5DB),
+                                    modifier = Modifier.weight(1f),
+                                    maxLines = 2
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .background(Color(0xFF374151), RoundedCornerShape(8.dp))
+                                        .clickable {
+                                            onPickFolder { path -> newPath = path }
+                                        }
+                                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                                ) {
+                                    Text(
+                                        "Browse", fontFamily = DmSansFamily, fontSize = 12.sp,
+                                        color = Color(0xFF60A5FA), fontWeight = FontWeight.Medium
+                                    )
+                                }
+                            }
+                        }
+
                         OutlinedTextField(
                             value = newPrompt, onValueChange = { newPrompt = it },
                             label = { Text("System prompt (optional)") },
