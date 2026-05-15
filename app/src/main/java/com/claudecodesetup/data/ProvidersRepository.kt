@@ -159,6 +159,4 @@ object ProvidersRepository {
             models.sortedBy { it.modelId }
         }
 
-    // Update REMOTE_URL at runtime (e.g. from settings)
-    fun remoteUrl(): String = REMOTE_URL
 }
