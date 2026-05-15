@@ -224,6 +224,31 @@ Written by `NodeBridgeManager.writeConfig()` before each `startBridge()`. Re-wri
 - `FloatingOverlayService.buildQuickPromptsPanel()` reads from prefs instead of hardcoding.
 - `SettingsActivity` gains "Edit overlay quick prompts" button with a multi-line editor dialog and "Reset defaults" neutral button.
 
+## TODO (planned features)
+
+### Remote Ollama / Private AI (Oracle Cloud)
+User wants to self-host Ollama on Oracle Cloud Always Free ARM instance (4 cores, 24GB RAM) and connect the app to it as a fully private, owned AI backend.
+
+**What needs to be built:**
+- [ ] Make Ollama server URL configurable in the provider setup flow (currently hardcoded to `localhost:11434`)
+- [ ] Add a "Server URL" input field on the Ollama API key screen (or a dedicated step)
+- [ ] Save the custom URL to `AppPreferences` → `bridge_config.json` → used as `providerUrl` by the proxy
+- [ ] Fetch available models from the remote Ollama instance (`GET /api/tags`) and show them in the model picker
+- [ ] Handle HTTPS for remote connections (Oracle Cloud IP or custom domain)
+- [ ] In Settings, allow changing the Ollama server URL without going through full provider reset
+
+**User's Oracle Cloud setup steps (prerequisite):**
+1. Create Oracle Cloud account at `cloud.oracle.com` (free tier, credit card for identity only)
+2. Provision Ampere A1 VM (4 cores, 24GB RAM, Ubuntu 22.04)
+3. Open port 11434 in security rules
+4. Install Ollama: `curl -fsSL https://ollama.ai/install.sh | sh`
+5. Pull a model: `ollama pull llama3.1:8b`
+6. In app: Settings → Change Provider → Ollama → enter `http://<oracle-ip>:11434`
+
+**Recommended free models for 24GB RAM:** llama3.1:8b (5GB), qwen2.5:7b (4GB), mistral:7b (4GB), phi3:medium (8GB)
+
+---
+
 ## Previous changes (Session 12)
 
 - **Fixed: build fails with `Unresolved reference: touchableRegion`** — `WindowManager.LayoutParams.touchableRegion` is a `@hide` AOSP field absent from the public Android SDK. Replaced the MATCH_PARENT window + hidden-field approach with a dynamically-sized window: `overlayParams` starts at button size, and `repositionViews()` expands it to cover visible menus. Child views use window-relative margins. `FLAG_NOT_TOUCH_MODAL` passes touches outside the window to the underlying app.
