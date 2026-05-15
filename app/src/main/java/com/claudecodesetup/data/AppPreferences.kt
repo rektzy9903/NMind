@@ -114,6 +114,11 @@ class AppPreferences(context: Context) {
     fun getPtyMode(): Boolean = prefs.getBoolean("pty_mode", false)
     fun setPtyMode(enabled: Boolean) = prefs.edit().putBoolean("pty_mode", enabled).apply()
 
+    // ─── Live provider updates ────────────────────────────────────────────────
+
+    fun getProviderRemoteUrl(): String = prefs.getString(KEY_PROVIDER_REMOTE_URL, "") ?: ""
+    fun setProviderRemoteUrl(url: String) = prefs.edit().putString(KEY_PROVIDER_REMOTE_URL, url).apply()
+
     fun getPtyCols(): Int = prefs.getInt("pty_cols", 220)
     fun setPtyCols(cols: Int) = prefs.edit().putInt("pty_cols", cols).apply()
 
@@ -164,6 +169,7 @@ class AppPreferences(context: Context) {
         private const val KEY_TTS_ENABLED          = "tts_enabled"
         private const val KEY_OVERLAY_ENABLED      = "overlay_enabled"
         private const val KEY_OVERLAY_PROMPTS      = "overlay_quick_prompts"
+        private const val KEY_PROVIDER_REMOTE_URL  = "provider_remote_url"
 
         val DEFAULT_OVERLAY_PROMPTS = listOf(
             "Summarize this",

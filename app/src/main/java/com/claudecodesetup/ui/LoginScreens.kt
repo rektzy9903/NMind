@@ -26,9 +26,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalContext
 import com.claudecodesetup.data.MalaysiaStatus
 import com.claudecodesetup.data.Provider
 import com.claudecodesetup.data.Providers
+import com.claudecodesetup.data.ProvidersRepository
 
 // ── Simple question screens ───────────────────────────────────────────────────
 
@@ -197,6 +199,13 @@ fun ProviderListScreen(onSelect: (Provider) -> Unit, onBack: () -> Unit) {
     val alpha by animateFloatAsState(if (entered) 1f else 0f, tween(400), label = "alpha")
     LaunchedEffect(Unit) { entered = true }
 
+    val context = LocalContext.current
+    // Load providers from remote URL if configured; fall back to bundled list
+    val providers by produceState(initialValue = Providers.ALL) {
+        val result = runCatching { ProvidersRepository.load(context) }.getOrNull()
+        if (result != null && result.providers.isNotEmpty()) value = result.providers
+    }
+
     AppBackground {
         Column(
             modifier = Modifier
@@ -231,7 +240,7 @@ fun ProviderListScreen(onSelect: (Provider) -> Unit, onBack: () -> Unit) {
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                items(Providers.ALL) { provider ->
+                items(providers) { provider ->
                     ProviderCard(provider = provider, onSelect = { onSelect(provider) })
                 }
                 item { Spacer(Modifier.height(12.dp)) }

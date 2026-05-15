@@ -331,6 +331,57 @@
 
             </LinearLayout>
 
+            <!-- Custom slash commands -->
+            <TextView
+                style="@style/SectionHeader"
+                android:text="Custom Commands" />
+
+            <Button
+                android:id="@+id/btnCustomCommands"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="8dp"
+                android:text="Manage custom slash commands"
+                android:textColor="@color/accent_blue" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="24dp"
+                android:text="Commands appear as /command-name in claude. Each command is a markdown file in ~/.claude/commands/."
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp" />
+
+            <!-- Live provider updates -->
+            <TextView
+                style="@style/SectionHeader"
+                android:text="Live Provider Updates" />
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="8dp"
+                android:hint="Provider update URL (leave empty to use bundled list)"
+                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/etProviderRemoteUrl"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="textUri"
+                    android:textColor="@color/text_primary" />
+
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="24dp"
+                android:text="Point to a JSON file matching the providers.json format to push new providers/models without an app update."
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp" />
+
             <!-- Data management -->
             <TextView
                 style="@style/SectionHeader"

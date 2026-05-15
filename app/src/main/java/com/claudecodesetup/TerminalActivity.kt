@@ -243,6 +243,15 @@ class TerminalActivity : AppCompatActivity() {
                     runOnUiThread { hideStatus() }
                 }
             }
+            // Parse cwd OSC: ESC ] 9 ; cwd:<path> BEL — update session and header pill
+            val cwdMatch = Regex("]9;cwd:([^]+)").find(chunk)
+            if (cwdMatch != null) {
+                val newCwd = cwdMatch.groupValues[1].trim()
+                claudeService?.getSession(sessionId)?.cwd = newCwd
+                if (sessionId == activeSessionId) {
+                    runOnUiThread { updateCwdPill(newCwd) }
+                }
+            }
         }
 
         claudeService!!.onSessionAdded = { session ->
@@ -314,6 +323,13 @@ class TerminalActivity : AppCompatActivity() {
         }
     }
 
+    private fun updateCwdPill(cwd: String) {
+        if (cwd.isNotEmpty()) {
+            binding.tvProjectName.text = "📂 " + cwd.substringAfterLast('/').ifEmpty { cwd }
+            binding.tvProjectName.visibility = android.view.View.VISIBLE
+        }
+    }
+
     private fun updateTabAlive(sessionId: Int, alive: Boolean) {
         val btn = tabButtons[sessionId] ?: return
         if (sessionId != activeSessionId) {
@@ -341,6 +357,16 @@ class TerminalActivity : AppCompatActivity() {
         binding.btnRestart.visibility = View.GONE
         updateTabActive(id)
         updateStatusForSession(id)
+
+        // Restore cwd pill for this session (or fall back to project path)
+        val sessionCwd = claudeService?.getSession(id)?.cwd ?: ""
+        val displayPath = sessionCwd.ifEmpty { prefs.getProjectPath() }
+        if (displayPath.isNotEmpty()) {
+            binding.tvProjectName.text = "📂 " + displayPath.substringAfterLast('/').ifEmpty { displayPath }
+            binding.tvProjectName.visibility = android.view.View.VISIBLE
+        } else {
+            binding.tvProjectName.visibility = android.view.View.GONE
+        }
 
         if (replay) {
             val output = claudeService?.getSession(id)?.getOutput() ?: ""
@@ -432,9 +458,29 @@ class TerminalActivity : AppCompatActivity() {
         }
 
         binding.btnNewSession.setOnClickListener {
-            val id = claudeService?.createSession(prefs.getLoginMode()) ?: return@setOnClickListener
-            if (id >= 0) runOnUiThread { switchToSession(id, replay = false) }
+            showNewSessionDialog()
         }
+    }
+
+    private fun showNewSessionDialog() {
+        val defaultCwd = prefs.getProjectPath().ifEmpty { "" }
+        val input = android.widget.EditText(this).apply {
+            hint = "Leave empty to use default project path"
+            setText(defaultCwd)
+            setPadding(64, 32, 64, 32)
+            inputType = android.text.InputType.TYPE_CLASS_TEXT
+        }
+        AlertDialog.Builder(this)
+            .setTitle("New Session")
+            .setMessage("Starting directory (optional)")
+            .setView(input)
+            .setPositiveButton("Start") { _, _ ->
+                val cwd = input.text.toString().trim()
+                val id = claudeService?.createSession(prefs.getLoginMode(), cwd) ?: return@setPositiveButton
+                if (id >= 0) runOnUiThread { switchToSession(id, replay = false) }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     // ─── Header buttons ───────────────────────────────────────────────────────

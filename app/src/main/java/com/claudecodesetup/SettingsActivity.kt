@@ -46,6 +46,7 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun populateFields() {
+        binding.etProviderRemoteUrl.setText(prefs.getProviderRemoteUrl())
         val mode       = prefs.getLoginMode()
         val providerId = prefs.getProviderId()
         val provider   = Providers.byId(providerId)
@@ -87,6 +88,7 @@ class SettingsActivity : AppCompatActivity() {
         super.onPause()
         prefs.setProjectPath(binding.etProjectPath.text.toString().trim())
         prefs.setCustomSystemPrompt(binding.etCustomSystemPrompt.text.toString().trim())
+        prefs.setProviderRemoteUrl(binding.etProviderRemoteUrl.text.toString().trim())
         bridgeManager.refreshConfig(prefs)
     }
 
@@ -167,6 +169,73 @@ class SettingsActivity : AppCompatActivity() {
         binding.btnMcpServers.setOnClickListener {
             startActivity(Intent(this, com.claudecodesetup.ui.McpActivity::class.java))
         }
+
+        binding.btnCustomCommands.setOnClickListener { showCustomCommandsDialog() }
+    }
+
+    private fun showCustomCommandsDialog() {
+        val commandsDir = File(filesDir, ".claude/commands")
+        commandsDir.mkdirs()
+
+        val files = commandsDir.listFiles { f -> f.extension == "md" }?.sortedBy { it.name } ?: emptyList()
+        val names = (files.map { "/${it.nameWithoutExtension}" } + listOf("+ New command")).toTypedArray()
+
+        AlertDialog.Builder(this)
+            .setTitle("Custom slash commands")
+            .setItems(names) { _, which ->
+                if (which == names.size - 1) {
+                    showCommandEditorDialog(null, commandsDir)
+                } else {
+                    showCommandEditorDialog(files[which], commandsDir)
+                }
+            }
+            .setNegativeButton("Done", null)
+            .show()
+    }
+
+    private fun showCommandEditorDialog(file: File?, commandsDir: File) {
+        val nameInput = android.widget.EditText(this).apply {
+            hint = "command-name (no slash)"
+            setText(file?.nameWithoutExtension ?: "")
+            setPadding(dpToPx(16), dpToPx(8), dpToPx(16), dpToPx(4))
+            inputType = android.text.InputType.TYPE_CLASS_TEXT
+        }
+        val contentInput = android.widget.EditText(this).apply {
+            hint = "Command description / instructions in markdown"
+            setText(file?.readText() ?: "")
+            setPadding(dpToPx(16), dpToPx(4), dpToPx(16), dpToPx(8))
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                        android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
+            minLines = 6
+            gravity = android.view.Gravity.TOP
+        }
+        val layout = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding(dpToPx(8), 0, dpToPx(8), 0)
+            addView(nameInput)
+            addView(contentInput)
+        }
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(if (file == null) "New command" else "Edit /${file.nameWithoutExtension}")
+            .setView(layout)
+            .setPositiveButton("Save") { _, _ ->
+                val name = nameInput.text.toString().trim().replace("[^a-zA-Z0-9_-]".toRegex(), "-")
+                val content = contentInput.text.toString()
+                if (name.isEmpty()) { Toast.makeText(this, "Name required", Toast.LENGTH_SHORT).show(); return@setPositiveButton }
+                file?.delete() // rename: delete old, write new
+                File(commandsDir, "$name.md").writeText(content)
+                Toast.makeText(this, "/${name} saved — restart session to use it", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("Cancel", null)
+
+        if (file != null) {
+            dialog.setNeutralButton("Delete") { _, _ ->
+                file.delete()
+                Toast.makeText(this, "/${file.nameWithoutExtension} deleted", Toast.LENGTH_SHORT).show()
+            }
+        }
+        dialog.show()
     }
 
     private fun setupPtySwitch() {

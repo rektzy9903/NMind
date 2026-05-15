@@ -65,6 +65,7 @@ class ClaudeService : LifecycleService() {
         var socket: Socket? = null
         var outputStream: OutputStream? = null
         var alive: Boolean = false
+        var cwd: String = ""
 
         private val buffer = StringBuilder()
 
@@ -124,7 +125,7 @@ class ClaudeService : LifecycleService() {
 
     // ─── Session lifecycle ────────────────────────────────────────────────────
 
-    fun createSession(mode: String): Int {
+    fun createSession(mode: String, initialCwd: String = ""): Int {
         if (sessions.size >= MAX_SESSIONS) return -1
 
         val id      = nextSessionId++
@@ -136,7 +137,7 @@ class ClaudeService : LifecycleService() {
         onSessionAdded?.invoke(session)
 
         lifecycleScope.launch(Dispatchers.IO) {
-            connectSession(session, mode)
+            connectSession(session, mode, initialCwd)
         }
 
         return id
@@ -211,7 +212,8 @@ class ClaudeService : LifecycleService() {
 
     private suspend fun connectSession(
         session: ClaudeSession,
-        mode: String? = null
+        mode: String? = null,
+        initialCwd: String = ""
     ) = withContext(Dispatchers.IO) {
         val currentMode = mode ?: prefs.getLoginMode()
 
@@ -263,6 +265,14 @@ class ClaudeService : LifecycleService() {
         prefs.setSessionActive(true)
         acquireWakeLock()
         updateNotificationSessionCount()
+
+        // If a starting directory was requested, send a cd command immediately
+        if (initialCwd.isNotEmpty()) {
+            try {
+                session.outputStream?.write(("$ cd $initialCwd\r").toByteArray(Charsets.UTF_8))
+                session.outputStream?.flush()
+            } catch (_: Exception) {}
+        }
 
         // Stream output until socket closes
         try {

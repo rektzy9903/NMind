@@ -15,9 +15,9 @@ object ProvidersRepository {
     private const val TAG = "ProvidersRepository"
     private const val ASSET_PATH = "providers.json"
 
-    // Set to a public URL to enable live updates (e.g. a public Gist raw URL).
+    // Set at runtime from AppPreferences to enable live provider updates.
     // Empty string means always use the bundled asset.
-    private const val REMOTE_URL = ""
+    var remoteUrl: String = ""
 
     private val http = OkHttpClient.Builder()
         .connectTimeout(8, TimeUnit.SECONDS)
@@ -31,9 +31,10 @@ object ProvidersRepository {
     )
 
     suspend fun load(context: Context): Result = withContext(Dispatchers.IO) {
-        if (REMOTE_URL.isNotEmpty()) {
+        val url = remoteUrl.ifEmpty { AppPreferences(context).getProviderRemoteUrl() }
+        if (url.isNotEmpty()) {
             try {
-                val json = fetchRemote(REMOTE_URL)
+                val json = fetchRemote(url)
                 val providers = parseProviders(json)
                 if (providers.isNotEmpty()) return@withContext Result(providers, fromRemote = true)
             } catch (e: Exception) {
