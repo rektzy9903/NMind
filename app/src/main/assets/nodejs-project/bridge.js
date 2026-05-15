@@ -1438,6 +1438,8 @@ function sendToProvider(baseUrl, apiKey, oaiReq, stream, res, onBadRequest, on42
         headers['X-Title']      = 'ClaudeCodeSetup';
     }
 
+    log('[proxy-req] host=' + targetUrl.hostname + ' model=' + oaiReq.model + ' msgs=' + oaiReq.messages.length + ' max_tokens=' + oaiReq.max_tokens + ' stream=' + oaiReq.stream + ' bodyLen=' + body.length + '\n');
+
     const provReq = lib.request({
         hostname: targetUrl.hostname,
         port, method: 'POST',
