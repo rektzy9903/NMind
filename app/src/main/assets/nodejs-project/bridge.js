@@ -1430,6 +1430,8 @@ function sendToProvider(baseUrl, apiKey, oaiReq, stream, res, onBadRequest, on42
         'Content-Type':   'application/json',
         'Content-Length': Buffer.byteLength(body),
         'Authorization':  'Bearer ' + apiKey,
+        'User-Agent':     'Mozilla/5.0 (Linux; Android 10) ClaudeCodeSetup/1.0',
+        'Accept':         'application/json',
     };
 
     // OpenRouter needs attribution headers to unlock free models
