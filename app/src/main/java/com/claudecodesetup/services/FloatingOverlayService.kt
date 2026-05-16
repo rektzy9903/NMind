@@ -470,8 +470,26 @@ class FloatingOverlayService : Service() {
 
     private fun requestScreenshot(voiceQuery: String?) {
         pendingScreenshotQuery = voiceQuery
-        startActivity(Intent(this, MediaProjectionActivity::class.java)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        val svc = DeviceControlService.instance
+        if (svc != null && DeviceControlService.isAvailable()) {
+            // Silent capture via AccessibilityService — no dialog
+            toast("Capturing screen…")
+            svc.takeScreenshot { path ->
+                if (path != null) {
+                    sendBroadcast(
+                        Intent(ACTION_SCREENSHOT_READY).setPackage(packageName)
+                            .putExtra("path", path)
+                    )
+                } else {
+                    toast("Screenshot failed — try again")
+                }
+            }
+        } else {
+            // Fallback: MediaProjection (shows casting dialog on first use)
+            toast("Enable Accessibility Service for silent screenshots")
+            startActivity(Intent(this, MediaProjectionActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        }
     }
 
     private fun showQuickPrompts() {

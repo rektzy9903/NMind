@@ -126,7 +126,21 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
-        <!-- Transparent activity to capture screen via MediaProjection -->
+        <!-- Accessibility service: silent screenshot + device control -->
+        <service
+            android:name=".services.DeviceControlService"
+            android:exported="true"
+            android:label="Claude Screen &amp; Device Control"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
+
+        <!-- Transparent activity to capture screen via MediaProjection (fallback for API < 30) -->
         <activity
             android:name=".services.MediaProjectionActivity"
             android:exported="false"
