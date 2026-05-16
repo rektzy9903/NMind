@@ -83,7 +83,7 @@ class VoiceInputActivity : Activity() {
                     SpeechRecognizer.ERROR_NETWORK,
                     SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "Network error — check connection"
                     SpeechRecognizer.ERROR_AUDIO          -> "Microphone error"
-                    SpeechRecognizer.ERROR_NOT_RECOGNIZED -> "Speech not recognized"
+                    9 /* ERROR_NOT_RECOGNIZED, API 33+ */ -> "Speech not recognized"
                     else -> "Voice error (code $error)"
                 }
                 Toast.makeText(this@VoiceInputActivity, msg, Toast.LENGTH_SHORT).show()
