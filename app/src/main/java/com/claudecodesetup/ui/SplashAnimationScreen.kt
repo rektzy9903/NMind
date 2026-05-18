@@ -118,7 +118,7 @@ fun SplashAnimationScreen(shouldPlay: Boolean = true, onFinished: () -> Unit) {
                 .background(
                     Brush.radialGradient(
                         colors = listOf(
-                            Color(0.35f, 0.196f, 0.706f, (0.05f + bloomOpacity * 0.14f).coerceIn(0f, 1f)),
+                            Color(0.35f, 0.196f, 0.706f, (0.04f + bloomOpacity * 0.07f).coerceIn(0f, 1f)),
                             Color.Transparent
                         )
                     )
@@ -140,11 +140,11 @@ fun SplashAnimationScreen(shouldPlay: Boolean = true, onFinished: () -> Unit) {
 
                     // Bloom burst
                     if (bloomOpacity > 0f) {
-                        val bloomLen = lerp(0f, 44f / 100f * s, bloomT)
+                        val bloomLen = lerp(0f, 36f / 100f * s, bloomT)
                         for (idx in 0 until 12) {
                             val angle = (2.0 * PI / 12 * idx).toFloat()
                             drawLine(
-                                color = Color(0xFFE9D5FF).copy(alpha = 0.12f * bloomOpacity),
+                                color = Color(0xFFE9D5FF).copy(alpha = 0.07f * bloomOpacity),
                                 start = Offset(CX * s, CY * s),
                                 end = Offset(CX * s + cos(angle) * bloomLen, CY * s + sin(angle) * bloomLen),
                                 strokeWidth = 0.5f / 100f * s
@@ -153,14 +153,14 @@ fun SplashAnimationScreen(shouldPlay: Boolean = true, onFinished: () -> Unit) {
                         drawCircle(
                             brush = Brush.radialGradient(
                                 colors = listOf(
-                                    Color(0xFFE9D5FF).copy(alpha = 0.85f * bloomOpacity * 0.55f),
-                                    Color(0xFFA78BFA).copy(alpha = 0.35f * bloomOpacity * 0.55f),
+                                    Color(0xFFE9D5FF).copy(alpha = 0.22f * bloomOpacity),
+                                    Color(0xFFA78BFA).copy(alpha = 0.12f * bloomOpacity),
                                     Color.Transparent
                                 ),
                                 center = Offset(CX * s, CY * s),
-                                radius = lerp(1f, 56f / 100f * s, bloomT)
+                                radius = lerp(1f, 44f / 100f * s, bloomT)
                             ),
-                            radius = lerp(1f, 56f / 100f * s, bloomT),
+                            radius = lerp(1f, 44f / 100f * s, bloomT),
                             center = Offset(CX * s, CY * s)
                         )
                     }
@@ -203,8 +203,8 @@ fun SplashAnimationScreen(shouldPlay: Boolean = true, onFinished: () -> Unit) {
                             blurRadius = 0.9f / 100f * s
                         )
 
-                        if (prog < 0.55f && appear > 0.4f) {
-                            val textAlpha = ((1f - prog * 1.8f).coerceAtLeast(0f) * appear)
+                        if (prog < 0.42f && appear > 0.4f) {
+                            val textAlpha = ((1f - prog * 2.4f).coerceAtLeast(0f) * appear)
                             if (textAlpha > 0.01f) {
                                 val dx  = p.x - CX; val dy = p.y - CY
                                 val mag = sqrt(dx * dx + dy * dy).coerceAtLeast(0.001f)
@@ -362,25 +362,6 @@ fun SplashAnimationScreen(shouldPlay: Boolean = true, onFinished: () -> Unit) {
             }
         }
 
-        // Progress bar at bottom
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .height(2.dp)
-                .background(Color.White.copy(alpha = 0.04f))
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxHeight()
-                    .fillMaxWidth((time / TOTAL).coerceIn(0f, 1f))
-                    .background(
-                        Brush.horizontalGradient(
-                            colors = listOf(Color(0xFFA78BFA), Color(0xFFE879F9))
-                        )
-                    )
-            )
-        }
     }
 }
 
