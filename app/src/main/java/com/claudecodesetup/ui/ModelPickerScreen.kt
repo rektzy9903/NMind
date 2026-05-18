@@ -76,7 +76,8 @@ private data class ModelDisplay(
     val color: Color,
     val speed: Int,
     val badge: String,
-    val tokens: String
+    val tokens: String,
+    val description: String
 )
 
 private fun toDisplay(model: AiModel): ModelDisplay {
@@ -138,7 +139,8 @@ private fun toDisplay(model: AiModel): ModelDisplay {
         "deepseek" in id && "r1" in id -> "64K"
         else -> "128K"
     }
-    return ModelDisplay(model, caps, emoji, color, speed, badge, tokens)
+    val description = model.description.ifEmpty { Providers.deriveDescription(model.modelId, caps) }
+    return ModelDisplay(model, caps, emoji, color, speed, badge, tokens, description)
 }
 
 private const val PAGE_SIZE = 9
@@ -569,10 +571,16 @@ private fun ModelCard(display: ModelDisplay, isSelected: Boolean, onSelect: () -
                     fontWeight = FontWeight.Bold, color = Color.White,
                     maxLines = 1, overflow = TextOverflow.Ellipsis, lineHeight = 14.sp
                 )
-                // Capability pills — small emoji icons showing what this model can do
+                Text(
+                    display.description, fontFamily = DmSansFamily, fontSize = 8.sp,
+                    color = display.color.copy(alpha = 0.75f),
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    lineHeight = 11.sp, modifier = Modifier.padding(top = 1.dp)
+                )
+                // Capability pills — emoji icons showing what this model can do
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(2.dp),
-                    modifier = Modifier.padding(top = 3.dp)
+                    modifier = Modifier.padding(top = 2.dp)
                 ) {
                     CAP_PILL_ORDER.forEach { (cap, icon) ->
                         if (cap in display.effectiveCaps) {

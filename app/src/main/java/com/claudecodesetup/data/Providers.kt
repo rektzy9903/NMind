@@ -13,7 +13,8 @@ object Cap {
 data class AiModel(
     val name: String,
     val modelId: String,
-    val caps: Set<String> = emptySet()
+    val caps: Set<String> = emptySet(),
+    val description: String = ""
 )
 
 data class Provider(
@@ -52,14 +53,14 @@ object Providers {
         baseUrl = "https://integrate.api.nvidia.com/v1",
         requiresProxy = true,
         models = listOf(
-            AiModel("GLM 4.7", "z-ai/glm4.7",                            setOf(Cap.TOOLS, Cap.FREE)),
-            AiModel("GLM 5",   "z-ai/glm5",                              setOf(Cap.TOOLS, Cap.FREE)),
-            AiModel("Kimi K2.5",        "moonshotai/kimi-k2.5",          setOf(Cap.TOOLS, Cap.VISION, Cap.LONG_CTX, Cap.FREE)),
-            AiModel("MiniMax M2.5",     "minimaxai/minimax-m2.5",        setOf(Cap.TOOLS, Cap.FREE)),
-            AiModel("Step 3.5 Flash",   "stepfun-ai/step-3.5-flash",     setOf(Cap.FAST, Cap.FREE)),
-            AiModel("DeepSeek V4 Flash","deepseek-ai/deepseek-v4-flash", setOf(Cap.REASONING, Cap.FAST, Cap.FREE)),
-            AiModel("Llama 3.3 70B",    "meta/llama-3.3-70b-instruct",   setOf(Cap.TOOLS, Cap.FREE)),
-            AiModel("Qwen 3.5 235B",    "qwen/qwen3.5-235b-a22b",        setOf(Cap.TOOLS, Cap.REASONING, Cap.FREE))
+            AiModel("GLM 4.7",          "z-ai/glm4.7",                            setOf(Cap.TOOLS, Cap.FREE),      "General chat"),
+            AiModel("GLM 5",            "z-ai/glm5",                              setOf(Cap.TOOLS, Cap.FREE),      "Latest GLM"),
+            AiModel("Kimi K2.5",        "moonshotai/kimi-k2.5",                   setOf(Cap.TOOLS, Cap.VISION, Cap.LONG_CTX, Cap.FREE), "Vision · 1M ctx"),
+            AiModel("MiniMax M2.5",     "minimaxai/minimax-m2.5",                 setOf(Cap.TOOLS, Cap.FREE),      "General chat"),
+            AiModel("Step 3.5 Flash",   "stepfun-ai/step-3.5-flash",              setOf(Cap.FAST, Cap.FREE),       "Fast chat"),
+            AiModel("DeepSeek V4 Flash","deepseek-ai/deepseek-v4-flash",          setOf(Cap.REASONING, Cap.FAST, Cap.FREE), "Fast thinker"),
+            AiModel("Llama 3.3 70B",    "meta/llama-3.3-70b-instruct",            setOf(Cap.TOOLS, Cap.FREE),      "Reliable · text only"),
+            AiModel("Qwen 3.5 235B",    "qwen/qwen3.5-235b-a22b",                 setOf(Cap.TOOLS, Cap.REASONING, Cap.FREE), "Smart · large")
         )
     )
 
@@ -76,27 +77,27 @@ object Providers {
         baseUrl = "https://openrouter.ai/api/v1",
         requiresProxy = true,
         models = listOf(
-            AiModel("Kimi K2.5 ⭐ (Recommended)", "moonshotai/kimi-k2.5",                         setOf(Cap.TOOLS, Cap.VISION, Cap.LONG_CTX, Cap.FREE)),
-            AiModel("GPT-OSS 120B",                "openai/gpt-oss-120b:free",                      setOf(Cap.TOOLS, Cap.FREE)),
-            AiModel("GPT-OSS 20B",                 "openai/gpt-oss-20b:free",                       setOf(Cap.TOOLS, Cap.FAST, Cap.FREE)),
-            AiModel("MiniMax M2.5",                "minimax/minimax-m2.5:free",                     setOf(Cap.TOOLS, Cap.FREE)),
-            AiModel("Nemotron Super 120B",          "nvidia/nemotron-3-super-120b-a12b:free",        setOf(Cap.TOOLS, Cap.FREE)),
-            AiModel("Nemotron Nano Omni 30B",       "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", setOf(Cap.REASONING, Cap.FAST, Cap.FREE)),
-            AiModel("Nemotron Nano 12B VL",         "nvidia/nemotron-nano-12b-v2-vl:free",           setOf(Cap.VISION, Cap.FAST, Cap.FREE)),
-            AiModel("Nemotron Nano 9B",             "nvidia/nemotron-nano-9b-v2:free",               setOf(Cap.FAST, Cap.FREE)),
-            AiModel("Llama 4 Scout",                "meta-llama/llama-4-scout:free",                 setOf(Cap.TOOLS, Cap.VISION, Cap.LONG_CTX, Cap.FREE)),
-            AiModel("Llama 4 Maverick",             "meta-llama/llama-4-maverick:free",              setOf(Cap.TOOLS, Cap.VISION, Cap.FREE)),
-            AiModel("Llama 3.3 70B",               "meta-llama/llama-3.3-70b-instruct:free",        setOf(Cap.TOOLS, Cap.FREE)),
-            AiModel("DeepSeek R1 (free)",           "deepseek/deepseek-r1:free",                     setOf(Cap.REASONING, Cap.FREE)),
-            AiModel("DeepSeek V3 (free)",           "deepseek/deepseek-chat-v3-5:free",              setOf(Cap.TOOLS, Cap.FREE)),
-            AiModel("Qwen 3 235B A22B",             "qwen/qwen3-235b-a22b:free",                     setOf(Cap.TOOLS, Cap.REASONING, Cap.FREE)),
-            AiModel("Qwen 3 30B A3B",               "qwen/qwen3-30b-a3b:free",                       setOf(Cap.TOOLS, Cap.FREE)),
-            AiModel("Mistral Small 3.2",            "mistralai/mistral-small-3.2-24b-instruct:free", setOf(Cap.TOOLS, Cap.FREE)),
-            AiModel("Gemma 3 27B",                  "google/gemma-3-27b-it:free",                    setOf(Cap.TOOLS, Cap.FREE)),
-            AiModel("Gemma 3 12B",                  "google/gemma-3-12b-it:free",                    setOf(Cap.TOOLS, Cap.FAST, Cap.FREE)),
-            AiModel("Laguna M.1 (Poolside)",        "poolside/laguna-m.1:free",                      setOf(Cap.CODING, Cap.FREE)),
-            AiModel("Cobuddy (Baidu)",              "baidu/cobuddy:free",                            setOf(Cap.FREE)),
-            AiModel("LFM 2.5 1.2B (Liquid)",       "liquid/lfm-2.5-1.2b-instruct:free",             setOf(Cap.FAST, Cap.FREE))
+            AiModel("Kimi K2.5 ⭐",         "moonshotai/kimi-k2.5",                                setOf(Cap.TOOLS, Cap.VISION, Cap.LONG_CTX, Cap.FREE), "Best free pick · vision"),
+            AiModel("GPT-OSS 120B",          "openai/gpt-oss-120b:free",                           setOf(Cap.TOOLS, Cap.FREE),                           "OpenAI open source"),
+            AiModel("GPT-OSS 20B",           "openai/gpt-oss-20b:free",                            setOf(Cap.TOOLS, Cap.FAST, Cap.FREE),                 "Lightweight OpenAI"),
+            AiModel("MiniMax M2.5",          "minimax/minimax-m2.5:free",                          setOf(Cap.TOOLS, Cap.FREE),                           "General chat"),
+            AiModel("Nemotron Super 120B",   "nvidia/nemotron-3-super-120b-a12b:free",             setOf(Cap.TOOLS, Cap.FREE),                           "NVIDIA large model"),
+            AiModel("Nemotron Nano Omni 30B","nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", setOf(Cap.REASONING, Cap.FAST, Cap.FREE),             "Fast reasoning · text only"),
+            AiModel("Nemotron Nano 12B VL",  "nvidia/nemotron-nano-12b-v2-vl:free",                setOf(Cap.VISION, Cap.FAST, Cap.FREE),                "Vision · compact"),
+            AiModel("Nemotron Nano 9B",      "nvidia/nemotron-nano-9b-v2:free",                    setOf(Cap.FAST, Cap.FREE),                            "Ultra fast · text only"),
+            AiModel("Llama 4 Scout",         "meta-llama/llama-4-scout:free",                      setOf(Cap.TOOLS, Cap.VISION, Cap.LONG_CTX, Cap.FREE), "Vision · 10M ctx"),
+            AiModel("Llama 4 Maverick",      "meta-llama/llama-4-maverick:free",                   setOf(Cap.TOOLS, Cap.VISION, Cap.FREE),               "Vision capable"),
+            AiModel("Llama 3.3 70B",         "meta-llama/llama-3.3-70b-instruct:free",             setOf(Cap.TOOLS, Cap.FREE),                           "Reliable · text only"),
+            AiModel("DeepSeek R1",           "deepseek/deepseek-r1:free",                          setOf(Cap.REASONING, Cap.FREE),                       "Chain-of-thought"),
+            AiModel("DeepSeek V3",           "deepseek/deepseek-chat-v3-5:free",                   setOf(Cap.TOOLS, Cap.FREE),                           "Smart general"),
+            AiModel("Qwen 3 235B A22B",      "qwen/qwen3-235b-a22b:free",                          setOf(Cap.TOOLS, Cap.REASONING, Cap.FREE),            "Best reasoning free"),
+            AiModel("Qwen 3 30B A3B",        "qwen/qwen3-30b-a3b:free",                            setOf(Cap.TOOLS, Cap.FREE),                           "Compact smart"),
+            AiModel("Mistral Small 3.2",     "mistralai/mistral-small-3.2-24b-instruct:free",      setOf(Cap.TOOLS, Cap.FREE),                           "EU model · efficient"),
+            AiModel("Gemma 3 27B",           "google/gemma-3-27b-it:free",                         setOf(Cap.TOOLS, Cap.FREE),                           "Google open model"),
+            AiModel("Gemma 3 12B",           "google/gemma-3-12b-it:free",                         setOf(Cap.TOOLS, Cap.FAST, Cap.FREE),                 "Fast · Google"),
+            AiModel("Laguna M.1 (Poolside)", "poolside/laguna-m.1:free",                           setOf(Cap.CODING, Cap.FREE),                          "Code specialist"),
+            AiModel("Cobuddy (Baidu)",       "baidu/cobuddy:free",                                 setOf(Cap.FREE),                                      "Baidu model"),
+            AiModel("LFM 2.5 1.2B (Liquid)", "liquid/lfm-2.5-1.2b-instruct:free",                 setOf(Cap.FAST, Cap.FREE),                            "Ultra tiny · edge")
         )
     )
 
@@ -112,15 +113,15 @@ object Providers {
         baseUrl = "https://generativelanguage.googleapis.com/v1beta/openai",
         requiresProxy = true,
         models = listOf(
-            AiModel("Gemini 3.1 Pro (Preview)",      "gemini-3.1-pro-preview",       setOf(Cap.TOOLS, Cap.VISION, Cap.REASONING, Cap.LONG_CTX, Cap.FREE)),
-            AiModel("Gemini 3 Flash (Preview)",      "gemini-3-flash-preview",        setOf(Cap.TOOLS, Cap.VISION, Cap.REASONING, Cap.FAST, Cap.LONG_CTX, Cap.FREE)),
-            AiModel("Gemini 3.1 Flash Lite",         "gemini-3.1-flash-lite",         setOf(Cap.TOOLS, Cap.VISION, Cap.FAST, Cap.FREE)),
-            AiModel("Gemini 2.5 Pro",                "gemini-2.5-pro",                setOf(Cap.TOOLS, Cap.VISION, Cap.REASONING, Cap.LONG_CTX, Cap.FREE)),
-            AiModel("Gemini 2.5 Flash",              "gemini-2.5-flash",              setOf(Cap.TOOLS, Cap.VISION, Cap.REASONING, Cap.FAST, Cap.LONG_CTX, Cap.FREE)),
-            AiModel("Gemini 2.5 Flash Lite",         "gemini-2.5-flash-lite",         setOf(Cap.TOOLS, Cap.VISION, Cap.FAST, Cap.FREE)),
-            AiModel("Gemini 2.0 Flash",              "gemini-2.0-flash",              setOf(Cap.TOOLS, Cap.VISION, Cap.FAST, Cap.LONG_CTX, Cap.FREE)),
-            AiModel("Gemini 1.5 Flash",              "gemini-1.5-flash",              setOf(Cap.TOOLS, Cap.VISION, Cap.FAST, Cap.LONG_CTX, Cap.FREE)),
-            AiModel("Gemini 1.5 Flash 8B",           "gemini-1.5-flash-8b",           setOf(Cap.TOOLS, Cap.VISION, Cap.FAST, Cap.FREE))
+            AiModel("Gemini 3.1 Pro (Preview)", "gemini-3.1-pro-preview", setOf(Cap.TOOLS, Cap.VISION, Cap.REASONING, Cap.LONG_CTX, Cap.FREE), "Most capable · agentic"),
+            AiModel("Gemini 3 Flash (Preview)", "gemini-3-flash-preview",  setOf(Cap.TOOLS, Cap.VISION, Cap.REASONING, Cap.FAST, Cap.LONG_CTX, Cap.FREE), "Best balance · fast"),
+            AiModel("Gemini 3.1 Flash Lite",    "gemini-3.1-flash-lite",   setOf(Cap.TOOLS, Cap.VISION, Cap.FAST, Cap.FREE),                            "Ultra fast · cheap"),
+            AiModel("Gemini 2.5 Pro",           "gemini-2.5-pro",          setOf(Cap.TOOLS, Cap.VISION, Cap.REASONING, Cap.LONG_CTX, Cap.FREE),         "Deep reasoning"),
+            AiModel("Gemini 2.5 Flash",         "gemini-2.5-flash",        setOf(Cap.TOOLS, Cap.VISION, Cap.REASONING, Cap.FAST, Cap.LONG_CTX, Cap.FREE), "Smart & fast"),
+            AiModel("Gemini 2.5 Flash Lite",    "gemini-2.5-flash-lite",   setOf(Cap.TOOLS, Cap.VISION, Cap.FAST, Cap.FREE),                            "Budget pick"),
+            AiModel("Gemini 2.0 Flash",         "gemini-2.0-flash",        setOf(Cap.TOOLS, Cap.VISION, Cap.FAST, Cap.LONG_CTX, Cap.FREE),              "Reliable workhorse"),
+            AiModel("Gemini 1.5 Flash",         "gemini-1.5-flash",        setOf(Cap.TOOLS, Cap.VISION, Cap.FAST, Cap.LONG_CTX, Cap.FREE),              "Legacy stable"),
+            AiModel("Gemini 1.5 Flash 8B",      "gemini-1.5-flash-8b",     setOf(Cap.TOOLS, Cap.VISION, Cap.FAST, Cap.FREE),                            "Tiny & fast")
         )
     )
 
@@ -136,9 +137,9 @@ object Providers {
         baseUrl = "https://api.llama.com/v1",
         requiresProxy = true,
         models = listOf(
-            AiModel("Llama 4 Scout",    "meta-llama/llama-4-scout",              setOf(Cap.TOOLS, Cap.VISION, Cap.LONG_CTX)),
-            AiModel("Llama 4 Maverick", "meta-llama/llama-4-maverick",           setOf(Cap.TOOLS, Cap.VISION)),
-            AiModel("Llama 3.3 70B",    "meta-llama/llama-3.3-70b-instruct",     setOf(Cap.TOOLS))
+            AiModel("Llama 4 Scout",    "meta-llama/llama-4-scout",          setOf(Cap.TOOLS, Cap.VISION, Cap.LONG_CTX), "Vision · 10M ctx"),
+            AiModel("Llama 4 Maverick", "meta-llama/llama-4-maverick",       setOf(Cap.TOOLS, Cap.VISION),               "Vision capable"),
+            AiModel("Llama 3.3 70B",    "meta-llama/llama-3.3-70b-instruct", setOf(Cap.TOOLS),                           "Text only · reliable")
         )
     )
 
@@ -154,8 +155,8 @@ object Providers {
         baseUrl = "https://api.deepseek.com/v1",
         requiresProxy = true,
         models = listOf(
-            AiModel("DeepSeek Chat (V3)",     "deepseek-chat",     setOf(Cap.TOOLS)),
-            AiModel("DeepSeek Reasoner (R1)", "deepseek-reasoner", setOf(Cap.REASONING))
+            AiModel("DeepSeek Chat (V3)",     "deepseek-chat",     setOf(Cap.TOOLS),     "General chat · text only"),
+            AiModel("DeepSeek Reasoner (R1)", "deepseek-reasoner", setOf(Cap.REASONING), "Deep reasoning · text only")
         )
     )
 
@@ -172,9 +173,9 @@ object Providers {
         baseUrl = "https://api.moonshot.ai/v1",
         requiresProxy = true,
         models = listOf(
-            AiModel("Kimi K2",         "kimi-k2",          setOf(Cap.TOOLS, Cap.VISION, Cap.LONG_CTX)),
-            AiModel("Moonshot v1 8k",  "moonshot-v1-8k",   setOf(Cap.TOOLS)),
-            AiModel("Moonshot v1 32k", "moonshot-v1-32k",  setOf(Cap.TOOLS))
+            AiModel("Kimi K2",         "kimi-k2",          setOf(Cap.TOOLS, Cap.VISION, Cap.LONG_CTX), "Vision · 1M ctx"),
+            AiModel("Moonshot v1 8k",  "moonshot-v1-8k",   setOf(Cap.TOOLS),                           "Short context · text"),
+            AiModel("Moonshot v1 32k", "moonshot-v1-32k",  setOf(Cap.TOOLS),                           "Medium context · text")
         )
     )
 
@@ -193,10 +194,10 @@ object Providers {
         requiresProxy = true,
         requiresApiKey = false,
         models = listOf(
-            AiModel("Llama 3.1 8B",       "llama3.1:8b",        setOf(Cap.FAST, Cap.FREE)),
-            AiModel("Llama 3.1 70B",      "llama3.1:70b",       setOf(Cap.TOOLS, Cap.FREE)),
-            AiModel("Qwen 2.5 Coder 7B",  "qwen2.5-coder:7b",   setOf(Cap.CODING, Cap.FAST, Cap.FREE)),
-            AiModel("Mistral 7B",         "mistral:7b",         setOf(Cap.FAST, Cap.FREE))
+            AiModel("Llama 3.1 8B",      "llama3.1:8b",       setOf(Cap.FAST, Cap.FREE),           "Small & local"),
+            AiModel("Llama 3.1 70B",     "llama3.1:70b",      setOf(Cap.TOOLS, Cap.FREE),          "Large local · text only"),
+            AiModel("Qwen 2.5 Coder 7B", "qwen2.5-coder:7b",  setOf(Cap.CODING, Cap.FAST, Cap.FREE), "Code specialist"),
+            AiModel("Mistral 7B",        "mistral:7b",        setOf(Cap.FAST, Cap.FREE),           "Fast local · text only")
         )
     )
 
@@ -212,14 +213,14 @@ object Providers {
         baseUrl = "https://api.groq.com/openai/v1",
         requiresProxy = true,
         models = listOf(
-            AiModel("Llama 4 Scout 17B",      "meta-llama/llama-4-scout-17b-16e-instruct", setOf(Cap.TOOLS, Cap.VISION, Cap.FAST, Cap.FREE)),
-            AiModel("Llama 4 Maverick 17B",   "meta-llama/llama-4-maverick-17b-128e-instruct", setOf(Cap.TOOLS, Cap.VISION, Cap.FREE)),
-            AiModel("Llama 3.3 70B",          "llama-3.3-70b-versatile",                  setOf(Cap.TOOLS, Cap.FREE)),
-            AiModel("Llama 3.1 8B (Instant)", "llama-3.1-8b-instant",                     setOf(Cap.FAST, Cap.FREE)),
-            AiModel("DeepSeek R1 Distill 70B","deepseek-r1-distill-llama-70b",             setOf(Cap.REASONING, Cap.FREE)),
-            AiModel("Qwen QwQ 32B",           "qwen-qwq-32b",                             setOf(Cap.REASONING, Cap.FREE)),
-            AiModel("Gemma 2 9B",             "gemma2-9b-it",                             setOf(Cap.FAST, Cap.FREE)),
-            AiModel("Mixtral 8x7B",           "mixtral-8x7b-32768",                       setOf(Cap.TOOLS, Cap.LONG_CTX, Cap.FREE))
+            AiModel("Llama 4 Scout 17B",       "meta-llama/llama-4-scout-17b-16e-instruct",      setOf(Cap.TOOLS, Cap.VISION, Cap.FAST, Cap.FREE), "Vision · ultra fast"),
+            AiModel("Llama 4 Maverick 17B",    "meta-llama/llama-4-maverick-17b-128e-instruct",  setOf(Cap.TOOLS, Cap.VISION, Cap.FREE),           "Vision capable"),
+            AiModel("Llama 3.3 70B",           "llama-3.3-70b-versatile",                        setOf(Cap.TOOLS, Cap.FREE),                       "Reliable · text only"),
+            AiModel("Llama 3.1 8B (Instant)",  "llama-3.1-8b-instant",                           setOf(Cap.FAST, Cap.FREE),                        "Fastest on Groq"),
+            AiModel("DeepSeek R1 Distill 70B", "deepseek-r1-distill-llama-70b",                  setOf(Cap.REASONING, Cap.FREE),                   "Chain-of-thought"),
+            AiModel("Qwen QwQ 32B",            "qwen-qwq-32b",                                   setOf(Cap.REASONING, Cap.FREE),                   "Math & reasoning"),
+            AiModel("Gemma 2 9B",              "gemma2-9b-it",                                   setOf(Cap.FAST, Cap.FREE),                        "Compact · text only"),
+            AiModel("Mixtral 8x7B",            "mixtral-8x7b-32768",                             setOf(Cap.TOOLS, Cap.LONG_CTX, Cap.FREE),         "MoE · long context")
         )
     )
 
@@ -235,9 +236,9 @@ object Providers {
         baseUrl = "",
         requiresProxy = false,
         models = listOf(
-            AiModel("Claude Sonnet 4.5", "claude-sonnet-4-5",          setOf(Cap.TOOLS, Cap.VISION, Cap.REASONING, Cap.LONG_CTX)),
-            AiModel("Claude Opus 4.5",   "claude-opus-4-5",            setOf(Cap.TOOLS, Cap.VISION, Cap.REASONING, Cap.LONG_CTX)),
-            AiModel("Claude Haiku 4.5",  "claude-haiku-4-5-20251001",  setOf(Cap.TOOLS, Cap.VISION, Cap.FAST))
+            AiModel("Claude Sonnet 4.5", "claude-sonnet-4-5",         setOf(Cap.TOOLS, Cap.VISION, Cap.REASONING, Cap.LONG_CTX), "Best balance"),
+            AiModel("Claude Opus 4.5",   "claude-opus-4-5",           setOf(Cap.TOOLS, Cap.VISION, Cap.REASONING, Cap.LONG_CTX), "Most capable"),
+            AiModel("Claude Haiku 4.5",  "claude-haiku-4-5-20251001", setOf(Cap.TOOLS, Cap.VISION, Cap.FAST),                    "Fastest · cheap")
         )
     )
 
@@ -250,7 +251,7 @@ object Providers {
         val lo = modelId.lowercase()
         val caps = mutableSetOf<String>()
         if (":free" in lo || "kimi-k2" in lo) caps += Cap.FREE
-        if ("vl" in lo || "vision" in lo || "omni" in lo || "scout" in lo || "maverick" in lo ||
+        if ("vl" in lo || "vision" in lo || "scout" in lo || "maverick" in lo ||
             "gemini" in lo || "claude" in lo) caps += Cap.VISION
         if ("r1" in lo || "reason" in lo || "think" in lo || "qwq" in lo || "o1" in lo ||
             "o3" in lo || "gemini-2.5" in lo || "gemini-3" in lo) caps += Cap.REASONING
@@ -264,5 +265,24 @@ object Providers {
             "qwen" in lo || "gemini" in lo || "kimi" in lo || "deepseek-chat" in lo ||
             "minimax" in lo || "claude" in lo || "glm" in lo || "mixtral" in lo) caps += Cap.TOOLS
         return caps
+    }
+
+    /** Derive a short human description for live-fetched models that have no static description. */
+    fun deriveDescription(modelId: String, caps: Set<String>): String {
+        val lo = modelId.lowercase()
+        return when {
+            Cap.VISION in caps && Cap.REASONING in caps && Cap.FAST in caps -> "Vision · fast thinking"
+            Cap.VISION in caps && Cap.REASONING in caps                      -> "Vision · deep reasoning"
+            Cap.VISION in caps && Cap.FAST in caps                           -> "Vision · fast"
+            Cap.VISION in caps                                               -> "Vision capable"
+            Cap.REASONING in caps && Cap.FAST in caps                        -> "Fast reasoning"
+            Cap.REASONING in caps                                            -> "Deep reasoning"
+            Cap.CODING in caps                                               -> "Code specialist"
+            Cap.FAST in caps && Cap.LONG_CTX in caps                        -> "Fast · long context"
+            Cap.FAST in caps                                                 -> "Fast responses"
+            Cap.LONG_CTX in caps                                             -> "Long context"
+            "embed" in lo || "embedding" in lo                               -> "Embeddings only"
+            else                                                             -> "General purpose"
+        }
     }
 }
