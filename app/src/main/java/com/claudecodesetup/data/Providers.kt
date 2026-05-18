@@ -112,11 +112,15 @@ object Providers {
         baseUrl = "https://generativelanguage.googleapis.com/v1beta/openai",
         requiresProxy = true,
         models = listOf(
-            AiModel("Gemini 2.5 Flash", "gemini-2.5-flash",   setOf(Cap.TOOLS, Cap.VISION, Cap.REASONING, Cap.FAST, Cap.LONG_CTX, Cap.FREE)),
-            AiModel("Gemini 2.5 Pro",   "gemini-2.5-pro",     setOf(Cap.TOOLS, Cap.VISION, Cap.REASONING, Cap.LONG_CTX, Cap.FREE)),
-            AiModel("Gemini 2.0 Flash", "gemini-2.0-flash",   setOf(Cap.TOOLS, Cap.VISION, Cap.FAST, Cap.LONG_CTX, Cap.FREE)),
-            AiModel("Gemini 1.5 Flash", "gemini-1.5-flash",   setOf(Cap.TOOLS, Cap.VISION, Cap.FAST, Cap.LONG_CTX, Cap.FREE)),
-            AiModel("Gemini 1.5 Flash 8B", "gemini-1.5-flash-8b", setOf(Cap.TOOLS, Cap.VISION, Cap.FAST, Cap.FREE))
+            AiModel("Gemini 3.1 Pro (Preview)",      "gemini-3.1-pro-preview",       setOf(Cap.TOOLS, Cap.VISION, Cap.REASONING, Cap.LONG_CTX, Cap.FREE)),
+            AiModel("Gemini 3 Flash (Preview)",      "gemini-3-flash-preview",        setOf(Cap.TOOLS, Cap.VISION, Cap.REASONING, Cap.FAST, Cap.LONG_CTX, Cap.FREE)),
+            AiModel("Gemini 3.1 Flash Lite",         "gemini-3.1-flash-lite",         setOf(Cap.TOOLS, Cap.VISION, Cap.FAST, Cap.FREE)),
+            AiModel("Gemini 2.5 Pro",                "gemini-2.5-pro",                setOf(Cap.TOOLS, Cap.VISION, Cap.REASONING, Cap.LONG_CTX, Cap.FREE)),
+            AiModel("Gemini 2.5 Flash",              "gemini-2.5-flash",              setOf(Cap.TOOLS, Cap.VISION, Cap.REASONING, Cap.FAST, Cap.LONG_CTX, Cap.FREE)),
+            AiModel("Gemini 2.5 Flash Lite",         "gemini-2.5-flash-lite",         setOf(Cap.TOOLS, Cap.VISION, Cap.FAST, Cap.FREE)),
+            AiModel("Gemini 2.0 Flash",              "gemini-2.0-flash",              setOf(Cap.TOOLS, Cap.VISION, Cap.FAST, Cap.LONG_CTX, Cap.FREE)),
+            AiModel("Gemini 1.5 Flash",              "gemini-1.5-flash",              setOf(Cap.TOOLS, Cap.VISION, Cap.FAST, Cap.LONG_CTX, Cap.FREE)),
+            AiModel("Gemini 1.5 Flash 8B",           "gemini-1.5-flash-8b",           setOf(Cap.TOOLS, Cap.VISION, Cap.FAST, Cap.FREE))
         )
     )
 
@@ -249,11 +253,11 @@ object Providers {
         if ("vl" in lo || "vision" in lo || "omni" in lo || "scout" in lo || "maverick" in lo ||
             "gemini" in lo || "claude" in lo) caps += Cap.VISION
         if ("r1" in lo || "reason" in lo || "think" in lo || "qwq" in lo || "o1" in lo ||
-            "o3" in lo || "gemini-2.5" in lo) caps += Cap.REASONING
+            "o3" in lo || "gemini-2.5" in lo || "gemini-3" in lo) caps += Cap.REASONING
         if ("flash" in lo || "fast" in lo || "nano" in lo || "mini" in lo ||
-            "8b" in lo || "1.2b" in lo || "7b" in lo || "haiku" in lo) caps += Cap.FAST
+            "8b" in lo || "1.2b" in lo || "7b" in lo || "haiku" in lo || "lite" in lo) caps += Cap.FAST
         if ("code" in lo || "coder" in lo || "coding" in lo || "laguna" in lo || "poolside" in lo) caps += Cap.CODING
-        if ("gemini-1.5" in lo || "gemini-2" in lo || "kimi-k2" in lo ||
+        if ("gemini-1.5" in lo || "gemini-2" in lo || "gemini-3" in lo || "kimi-k2" in lo ||
             "llama-4-scout" in lo || "claude" in lo) caps += Cap.LONG_CTX
         // Most major models support tools
         if ("gpt" in lo || "llama" in lo || "mistral" in lo || "gemma" in lo ||
