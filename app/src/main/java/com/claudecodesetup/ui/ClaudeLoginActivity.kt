@@ -84,10 +84,8 @@ class ClaudeLoginActivity : ComponentActivity() {
                                         "AppleWebKit/537.36 (KHTML, like Gecko) " +
                                         "Chrome/125.0.6422.165 Mobile Safari/537.36"
                                     // Allow cross-domain cookies (required for Google sign-in)
-                                    CookieManager.getInstance().apply {
-                                        setAcceptCookie(true)
-                                        setAcceptThirdPartyCookies(this@apply, true)
-                                    }
+                                    CookieManager.getInstance().setAcceptCookie(true)
+                                    CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
                                     // Handle any popup windows Google might open
                                     webChromeClient = WebChromeClient()
 
