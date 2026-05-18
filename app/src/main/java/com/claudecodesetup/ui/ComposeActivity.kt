@@ -41,7 +41,12 @@ class ComposeActivity : ComponentActivity() {
                 prefs.setApiKey(apiKey)
                 prefs.setApiKeyForProvider(provider.id, apiKey)
                 prefs.setModelId(model.modelId)
-                prefs.setBaseUrl(provider.baseUrl)
+                // For URL-configurable providers (Ollama, private servers), prefer the
+                // URL the user actually typed over the hardcoded provider default.
+                val effectiveBaseUrl = if (provider.isUrlConfigurable)
+                    prefs.getCustomBaseUrlForProvider(provider.id).ifEmpty { provider.baseUrl }
+                else provider.baseUrl
+                prefs.setBaseUrl(effectiveBaseUrl)
                 prefs.setProviderConfigured(true)
                 startActivity(Intent(this, TerminalActivity::class.java))
                 finish()
@@ -95,19 +100,18 @@ private fun AppRoot(
         )
         "providers" -> ProviderListScreen(
             onSelect = { provider ->
-                selectedProvider = provider
+                selectedProvider = Providers.byId(provider.id) ?: provider
                 screen = if (provider.id == "ollama") "local_models" else "key"
             },
             onBack = { screen = "subscription" }
         )
         "local_models" -> LocalModelsScreen(
             onModelSelected = { modelId ->
-                // Model pulled in-app — auto-configure localhost and jump straight to chat
-                prefs.setCustomBaseUrlForProvider("ollama", "http://localhost:11434")
-                prefs.setBaseUrl("http://localhost:11434")
+                // Model loaded in-app — auto-configure localhost llama-server and jump to chat
+                prefs.setBaseUrl("http://127.0.0.1:8080/v1")
                 storedKey = ""
                 val model = AiModel(modelId, modelId, emptySet(), "")
-                onComplete(Providers.OLLAMA, "", model)
+                onComplete(Providers.LOCAL_LLAMA, "", model)
             },
             onRemoteServer = { screen = "key" },
             onBack = { screen = "providers" }

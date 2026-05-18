@@ -53,7 +53,25 @@ private val httpClient by lazy {
         .build()
 }
 
-private suspend fun validateKey(provider: Provider, key: String): String? {
+private suspend fun validateKey(provider: Provider, key: String, serverUrl: String = ""): String? {
+    // For URL-configurable providers with no API key, test that the server is reachable
+    if (!provider.requiresApiKey && provider.isUrlConfigurable && serverUrl.isNotEmpty()) {
+        return withContext(Dispatchers.IO) {
+            try {
+                val testUrl = serverUrl.trimEnd('/') + "/models"
+                val client = OkHttpClient.Builder()
+                    .connectTimeout(3, TimeUnit.SECONDS)
+                    .readTimeout(3, TimeUnit.SECONDS)
+                    .build()
+                val resp = client.newCall(Request.Builder().url(testUrl).build()).execute()
+                val code = resp.code
+                resp.body?.close()
+                if (code in 200..499) null else "Server returned HTTP $code — check URL"
+            } catch (e: Exception) {
+                "Cannot reach server — check the URL and ensure it is running"
+            }
+        }
+    }
     if (!provider.requiresApiKey || key.isEmpty()) return null
     return withContext(Dispatchers.IO) {
         try {
@@ -204,7 +222,7 @@ fun ApiKeyScreen(provider: Provider, onSuccess: (String) -> Unit, onBack: () -> 
         }
         status = KeyStatus.LOADING
         scope.launch {
-            val error = validateKey(provider, apiKey)
+            val error = validateKey(provider, apiKey, serverUrl.trim())
             if (error == null) {
                 status = KeyStatus.SUCCESS
                 delay(700)
@@ -326,7 +344,7 @@ fun ApiKeyScreen(provider: Provider, onSuccess: (String) -> Unit, onBack: () -> 
                                             Box(contentAlignment = Alignment.CenterStart) {
                                                 if (serverUrl.isEmpty()) {
                                                     Text(
-                                                        "http://your-server:11434",
+                                                        "http://your-server:11434/v1",
                                                         fontFamily = SpaceMonoFamily, fontSize = 12.sp,
                                                         color = Color(0x55FFFFFF)
                                                     )

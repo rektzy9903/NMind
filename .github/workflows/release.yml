@@ -33,7 +33,27 @@ jobs:
           restore-keys: gradle-
 
       - name: Grant execute permission for gradlew
-        run: chmod +x gradlew
+        run: chmod +x gradlew && chmod +x scripts/build-llamaserver.sh
+
+      # ── Build llama-server for Android ARM64 ─────────────────────────────────
+      - name: Cache llama.cpp build
+        uses: actions/cache@v4
+        with:
+          path: .llama-cache
+          key: llamacpp-b5188-arm64-${{ runner.os }}
+          restore-keys: llamacpp-b5188-arm64-
+
+      - name: Set up Android NDK
+        uses: android-actions/setup-android@v3
+
+      - name: Build llama-server
+        run: |
+          export ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/25.1.8937393
+          # Install NDK version if not already present
+          if [ ! -d "$ANDROID_NDK_HOME" ]; then
+            echo "y" | sdkmanager "ndk;25.1.8937393"
+          fi
+          ./scripts/build-llamaserver.sh
 
       # ── Decode keystore from GitHub Secret ───────────────────────────────────
       # To set this up:
@@ -57,19 +77,23 @@ jobs:
           echo "KEY_ALIAS=${{ secrets.KEY_ALIAS }}"                 >> local.properties
           echo "KEY_PASSWORD=${{ secrets.KEY_PASSWORD }}"           >> local.properties
 
-      - name: Build release APK
-        run: ./gradlew assembleRelease --no-daemon --stacktrace
+      - name: Build release APK and AAB
+        run: ./gradlew assembleRelease bundleRelease --no-daemon --stacktrace
 
-      - name: Show APK info
+      - name: Show build info
         run: |
           APK=app/build/outputs/apk/release/app-release.apk
-          echo "✅ Signed release APK: $(du -sh $APK | cut -f1)"
+          AAB=app/build/outputs/bundle/release/app-release.aab
+          echo "✅ Signed APK: $(du -sh $APK | cut -f1)"
+          echo "✅ Signed AAB: $(du -sh $AAB | cut -f1)"
 
       # ── Upload to GitHub Release ─────────────────────────────────────────────
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: app/build/outputs/apk/release/app-release.apk
+          files: |
+            app/build/outputs/apk/release/app-release.apk
+            app/build/outputs/bundle/release/app-release.aab
           name: ClaudeCode Setup ${{ github.ref_name }}
           body: |
             ## ClaudeCode Setup ${{ github.ref_name }}
@@ -87,10 +111,17 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # ── Also upload as artifact for easy download ─────────────────────────────
+      # ── Also upload as artifacts for easy download ───────────────────────────
       - name: Upload signed APK as artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ClaudeCodeSetup-${{ github.ref_name }}-release
+          name: NexusMind-${{ github.ref_name }}-apk
           path: app/build/outputs/apk/release/app-release.apk
+          retention-days: 90
+
+      - name: Upload signed AAB as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: NexusMind-${{ github.ref_name }}-aab
+          path: app/build/outputs/bundle/release/app-release.aab
           retention-days: 90

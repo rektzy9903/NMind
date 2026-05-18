@@ -16,6 +16,7 @@ import com.claudecodesetup.ClaudeApp
 import com.claudecodesetup.R
 import com.claudecodesetup.TerminalActivity
 import com.claudecodesetup.data.AppPreferences
+import com.claudecodesetup.managers.LlamaServerManager
 import com.claudecodesetup.managers.NodeBridgeManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -127,6 +128,7 @@ class ClaudeService : LifecycleService() {
         deviceControlServer.stop()
         stopAllSessions()
         releaseWakeLock()
+        LlamaServerManager.get(this).stopServer()
     }
 
     // ─── Session lifecycle ────────────────────────────────────────────────────

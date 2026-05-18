@@ -170,12 +170,62 @@ Written by `NodeBridgeManager.writeConfig()` before each `startBridge()`. Re-wri
 
 ## Known gaps
 
-- **App size** — Both `arm64-v8a` and `armeabi-v7a` `libnode.so` are shipped. Switch to AAB to serve only the device ABI.
+- **App size** — Both `arm64-v8a` and `armeabi-v7a` `libnode.so` are shipped. AAB bundle config added; use Play Store to serve device ABI only.
 - **`ProvidersRepository.REMOTE_URL` wired but empty** — Live provider updates disabled. Enable to push new models without an app update.
 - **Sub-agents** — Parallel tool-calling workstreams. Not yet implemented.
 - **Interactive PTY mode** — Replace `--print` per-message with a persistent PTY. Fundamental Android limitation; may not be fully achievable.
 - **Per-tab working directory** — All 4 session tabs share the same `shellCwd`. Could allow different project per tab.
 - **Custom slash commands** — Claude Code supports `~/.claude/commands/`. Not yet exposed in-app.
+
+---
+
+## Latest changes (Session 18)
+
+### llama-server local AI (on-device LLM inference)
+
+- **`app/src/main/java/com/claudecodesetup/managers/LlamaServerManager.kt`** (new) — Singleton managing `libllamaserver.so` process. Key methods: `isBinaryAvailable()`, `isServerRunning()`, `startServer(modelId)`, `stopServer()`, `waitUntilReady(timeoutMs)`, `getInstalledModelIds()`, `modelFile(id)`, `deleteModel(id)`. Models stored at `filesDir/models/<id>.gguf`. Server runs at `127.0.0.1:8080`.
+
+- **`app/src/main/java/com/claudecodesetup/data/Providers.kt`** — Added `LOCAL_LLAMA` provider (`id = "local_llama"`, `baseUrl = "http://127.0.0.1:8080/v1"`, `requiresProxy = true`, `requiresApiKey = false`, not in `ALL` list). `byId()` updated to handle `"local_llama"`.
+
+- **`app/src/main/java/com/claudecodesetup/ui/PersonalAiScreen.kt`** — Complete rewrite. Replaced Ollama API calls with llama-server + HuggingFace GGUF direct downloads. New `LocalModel` data class with `downloadUrl`. CATALOG now points to HuggingFace GGUF files (Qwen3 0.6B/1.5B/4B/8B, Llama 3.2 1B/3B, Phi-4 Mini, Llama 3.1 8B). State machine: `binaryAvailable`, `installedIds`, `downloadingId/Progress`, `loadingId/Error`, `activeModelId`, `serverRunning`. Buttons per state: Download → Load → Use/Unload + Delete. Shows "not available in this build" card when binary absent.
+
+- **`app/src/main/java/com/claudecodesetup/ui/ComposeActivity.kt`** — `onModelSelected` now uses `LOCAL_LLAMA` provider and `http://127.0.0.1:8080/v1` (was Ollama + localhost:11434).
+
+- **`app/src/main/java/com/claudecodesetup/services/ClaudeService.kt`** — `onDestroy()` now calls `LlamaServerManager.get(this).stopServer()` to kill the inference process when the service stops.
+
+- **`app/src/main/java/com/claudecodesetup/ui/ApiKeyScreen.kt`** — Added URL reachability check for URL-configurable providers without API key (Ollama remote). Tests `<url>/models` with 3 s timeout; shows error if unreachable. `validateKey()` signature extended with optional `serverUrl` parameter.
+
+- **`scripts/build-llamaserver.sh`** (new) — Builds `llama-server` for `arm64-v8a` using NDK 25.1.8937393. Pins `llama.cpp` tag `b5188`. CMake flags: `GGML_METAL=OFF`, `GGML_CUDA=OFF`, `GGML_VULKAN=OFF`, `LLAMA_BUILD_SERVER=ON`, `BUILD_SHARED_LIBS=OFF`. Strips binary, caches result in `.llama-cache/`. Run `export ANDROID_NDK_HOME=<path> && ./scripts/build-llamaserver.sh`.
+
+- **`.github/workflows/release.yml`** — Added llama-server build step (with `.llama-cache` cache), NDK install, `bundleRelease` step. Now uploads both `app-release.apk` and `app-release.aab` to GitHub Releases.
+
+**Key design decisions:**
+- Binary named `libllamaserver.so` in `jniLibs/arm64-v8a/` — Android extracts it to `nativeLibraryDir` with execute permission (same pattern as `libpty-helper.so`)
+- Port 8080 for llama-server (distinct from bridge port 8083 and proxy port 8082)
+- `libllamaserver.so` is NOT committed — CI builds it from source; local builds need `./scripts/build-llamaserver.sh`
+- When binary is absent (default until first CI build with the new step), `PersonalAiScreen` gracefully shows "not available in this build" instead of crashing
+
+---
+
+## Previous changes (Session 17)
+
+### Local AI (Personal AI / Ollama) — bugs fixed
+
+1. **Remote Ollama URL silently overwritten** — `ComposeActivity.onComplete` called `prefs.setBaseUrl(provider.baseUrl)`, which always wrote the hardcoded default (`http://localhost:11434/v1`) even when the user configured a remote server URL in `ApiKeyScreen`. Fixed: `onComplete` now uses `prefs.getCustomBaseUrlForProvider(provider.id)` for URL-configurable providers, falling back to `provider.baseUrl` only when no custom URL is saved.
+
+2. **`onModelSelected` saved URL without `/v1`** — When tapping "Use" on an installed on-device model, `setCustomBaseUrlForProvider("ollama", "http://localhost:11434")` was saved without the `/v1` path required for Ollama's OpenAI-compat endpoint. Fixed: saves `"http://localhost:11434/v1"`.
+
+3. **Pull stuck in "Downloading…" forever** — If the Ollama pull stream ended without a `"success"` JSON line (connection drop, cancellation), `pullingId` was never cleared and the card stayed frozen with no retry path. Fixed: `pullModel` now tracks a `succeeded` flag; if the stream exits without success or error, it clears `pullingId` and shows "Download interrupted — tap Pull to retry". Also handles Ollama error lines (`"error"` field in response).
+
+### Provider audit — bugs fixed
+
+1. **Ollama: proxy hitting wrong endpoint** — `sendToProvider` appends `/chat/completions` to the stored base URL. Ollama's OpenAI-compat endpoint is at `/v1/chat/completions` but `Providers.OLLAMA.baseUrl` was `http://localhost:11434` (no `/v1`), causing every Ollama request to hit a 404. Fixed in three places: `Providers.kt` default baseUrl → `http://localhost:11434/v1`; `NodeBridgeManager.writeConfig()` auto-appends `/v1` for Ollama if missing (covers existing users with stale saved URL); `ApiKeyScreen` placeholder updated to `http://your-server:11434/v1`.
+
+2. **OpenRouter: stale HTTP-Referer / X-Title headers** — `bridge.js` still sent `HTTP-Referer: https://github.com/rektzy9903/ClaudeCodeSetup` and `X-Title: ClaudeCodeSetup` after the repo rename. OpenRouter uses these for attribution and free model access. Updated to `https://github.com/fahmi304/Nexus-Mind` and `Nexus Mind`.
+
+### Bug fix: live model fetch missing on initial provider setup
+- **`ComposeActivity.kt`** — `ProviderListScreen.onSelect` was passing the asset-parsed `Provider` object directly into `selectedProvider`. `ProvidersRepository.parseProvider()` never sets `supportsLiveFetch`, so every provider loaded from `providers.json` had `supportsLiveFetch = false`. This caused `ModelPickerScreen` to skip the live fetch and show only the hardcoded fallback list with no spinner and no refresh button — but only on the **first-run setup flow**. The fix is one line: `selectedProvider = Providers.byId(provider.id) ?: provider`, ensuring the canonical object from `Providers.ALL` (which has `supportsLiveFetch = true`) is always used.
+- **Root cause note:** `providers.json` / `parseProvider()` deliberately omits `supportsLiveFetch` (it's a runtime flag, not a remote-config field). The Settings path (`startAt = "picker"`) already used `Providers.byId()` and was never affected.
 
 ---
 

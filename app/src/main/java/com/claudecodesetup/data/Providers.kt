@@ -190,7 +190,7 @@ object Providers {
         malaysiaStatus = MalaysiaStatus.GREEN,
         malaysiaNote = "No internet needed",
         warningNote = null,
-        baseUrl = "http://localhost:11434",
+        baseUrl = "http://localhost:11434/v1",
         requiresProxy = true,
         requiresApiKey = false,
         models = listOf(
@@ -246,9 +246,29 @@ object Providers {
         )
     )
 
+    val LOCAL_LLAMA = Provider(
+        id = "local_llama",
+        name = "Local AI (On-Device)",
+        iconUrl = "",
+        supportsLiveFetch = false,
+        signupUrl = "",
+        rateLimit = "Unlimited · 100% offline · Private",
+        malaysiaStatus = MalaysiaStatus.GREEN,
+        malaysiaNote = "No internet needed",
+        baseUrl = "http://127.0.0.1:8080/v1",
+        requiresProxy = true,
+        requiresApiKey = false,
+        isUrlConfigurable = false,
+        models = emptyList()
+    )
+
     val ALL = listOf(GROQ, GEMINI, OPENROUTER, DEEPSEEK, KIMI, NVIDIA_NIM, META_LLAMA, OLLAMA)
 
-    fun byId(id: String): Provider? = if (id == "anthropic") ANTHROPIC else ALL.find { it.id == id }
+    fun byId(id: String): Provider? = when (id) {
+        "anthropic"  -> ANTHROPIC
+        "local_llama" -> LOCAL_LLAMA
+        else         -> ALL.find { it.id == id }
+    }
 
     /** Infer capability flags from a model ID — used for live-fetched OpenRouter models. */
     fun deriveCaps(modelId: String): Set<String> {
