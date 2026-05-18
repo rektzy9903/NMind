@@ -181,23 +181,27 @@ object Providers {
 
     val OLLAMA = Provider(
         id = "ollama",
-        name = "Ollama / Private Server",
+        name = "Personal AI",
         iconUrl = "https://logo.clearbit.com/ollama.com",
         isUrlConfigurable = true,
         supportsLiveFetch = true,
         signupUrl = "https://ollama.com/library",
-        rateLimit = "Unlimited · 100% free",
+        rateLimit = "Unlimited · 100% free · Private",
         malaysiaStatus = MalaysiaStatus.GREEN,
         malaysiaNote = "No internet needed",
-        warningNote = "Enter any OpenAI-compatible server URL — local PC, Oracle Cloud, or any private server",
+        warningNote = null,
         baseUrl = "http://localhost:11434",
         requiresProxy = true,
         requiresApiKey = false,
         models = listOf(
-            AiModel("Llama 3.1 8B",      "llama3.1:8b",       setOf(Cap.FAST, Cap.FREE),           "Small & local"),
-            AiModel("Llama 3.1 70B",     "llama3.1:70b",      setOf(Cap.TOOLS, Cap.FREE),          "Large local · text only"),
-            AiModel("Qwen 2.5 Coder 7B", "qwen2.5-coder:7b",  setOf(Cap.CODING, Cap.FAST, Cap.FREE), "Code specialist"),
-            AiModel("Mistral 7B",        "mistral:7b",        setOf(Cap.FAST, Cap.FREE),           "Fast local · text only")
+            AiModel("Qwen3 1.5B",        "qwen3:1.5b",         setOf(Cap.FAST, Cap.FREE, Cap.TOOLS),  "~1.1 GB · 6GB+ RAM"),
+            AiModel("Phi-4 Mini 3.8B",   "phi4-mini:latest",   setOf(Cap.FAST, Cap.FREE, Cap.CODING), "~2.7 GB · 6GB+ RAM"),
+            AiModel("Llama 3.2 3B",      "llama3.2:3b",        setOf(Cap.FAST, Cap.FREE),             "~2.2 GB · 6GB+ RAM"),
+            AiModel("Qwen3 4B",          "qwen3:4b",           setOf(Cap.TOOLS, Cap.FREE, Cap.REASONING), "~2.9 GB · 8GB+ RAM"),
+            AiModel("Gemma3 4B",         "gemma3:4b",          setOf(Cap.TOOLS, Cap.FREE),            "~3.3 GB · 8GB+ RAM"),
+            AiModel("Qwen3 8B",          "qwen3:8b",           setOf(Cap.TOOLS, Cap.FREE, Cap.CODING), "~5.8 GB · 12GB+ RAM"),
+            AiModel("Qwen 2.5 Coder 7B", "qwen2.5-coder:7b",  setOf(Cap.CODING, Cap.FAST, Cap.FREE), "~5 GB · code specialist"),
+            AiModel("Mistral 7B",        "mistral:7b",         setOf(Cap.FAST, Cap.FREE),             "~4.1 GB · general chat")
         )
     )
 

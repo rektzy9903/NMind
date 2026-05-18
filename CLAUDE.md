@@ -254,14 +254,26 @@ Written by `NodeBridgeManager.writeConfig()` before each `startBridge()`. Re-wri
 
 ## TODO (planned features)
 
-### Remote Ollama / Private AI (Oracle Cloud)
-User wants to self-host Ollama on Oracle Cloud Always Free ARM instance (4 cores, 24GB RAM) and connect the app to it as a fully private, owned AI backend.
+### Security hardening (Session 16 audit)
+- [ ] **Local proxy token** — Port 8082 accepts any local connection. Generate a random UUID in `NodeBridgeManager`, write to `bridge_config.json`, inject as `X-Local-Token` header in `ClaudeService`, reject missing/wrong token in `bridge.js`. Prevents other apps on device from piggybacking the API key.
+- [ ] **`FLAG_SECURE`** on `ApiKeyScreen` / `ComposeActivity` — prevents API key appearing in Android recents screenshot. One line: `window.setFlags(FLAG_SECURE, FLAG_SECURE)` in the activity.
+- [ ] **`allowBackup="false"`** in `AndroidManifest.xml` — stops adb/cloud backup from exporting encrypted prefs.
+- [ ] **Scrub logs** — grep for `Log.*key`, `Log.*apiKey`, `Log.*baseUrl` and remove any that echo sensitive values.
 
-**What needs to be built:**
-- [ ] Make Ollama server URL configurable in the provider setup flow (currently hardcoded to `localhost:11434`)
-- [ ] Add a "Server URL" input field on the Ollama API key screen (or a dedicated step)
-- [ ] Save the custom URL to `AppPreferences` → `bridge_config.json` → used as `providerUrl` by the proxy
-- [ ] Fetch available models from the remote Ollama instance (`GET /api/tags`) and show them in the model picker
+### Screenshot / vision feature removal
+**Decision pending scope:** The app has a full screenshot pipeline (MediaProjection, overlay quick prompts, `pending_image.b64` in bridge.js) but **no vision-capable models** are used. This is dead weight.
+
+**Files to touch:**
+- `FloatingOverlayService` — remove screenshot capture call, remove `MediaProjectionActivity` launch, remove screenshot-dependent quick prompts (`"Summarize what's on my screen"`, `"Fix the error on my screen"`)
+- `MediaProjectionActivity.kt` — delete entirely
+- `bridge.js` — remove `pending_image.b64` detection and `runAgentic()` image redirect path
+- `AndroidManifest.xml` — remove `FOREGROUND_SERVICE_MEDIA_PROJECTION` and `MediaProjectionActivity` registration
+- Keep: `!attach <filepath>` for non-image file context, image picker UI (in case vision model added later — or remove that too)
+
+**Scope confirmed by user:** TBD (asked but not answered yet)
+
+### Remote Ollama / Private AI (Oracle Cloud)
+Ollama server URL is now configurable via ApiKeyScreen (Session 16). Remaining:
 - [ ] Handle HTTPS for remote connections (Oracle Cloud IP or custom domain)
 - [ ] In Settings, allow changing the Ollama server URL without going through full provider reset
 

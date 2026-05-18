@@ -273,7 +273,7 @@ internal fun providerDisplayInfo(id: String): Triple<String, Color, String> = wh
     "kimi"       -> Triple("🌙", Color(0xFFF59E0B), "Long CTX")
     "nvidia_nim" -> Triple("⚡", Color(0xFF76B900), "40 req/min")
     "meta_llama" -> Triple("🦙", Color(0xFF0467DF), "Open Source")
-    "ollama"     -> Triple("💻", Color(0xFFEF4444), "Unlimited")
+    "ollama"     -> Triple("💻", Color(0xFFEF4444), "Personal AI")
     "anthropic"  -> Triple("🧬", Color(0xFF8B5CF6), "Subscription")
     "groq"       -> Triple("⚡", Color(0xFFF97316), "14,400/day")
     else         -> Triple("🤖", Color(0xFF6440FF), "AI Provider")

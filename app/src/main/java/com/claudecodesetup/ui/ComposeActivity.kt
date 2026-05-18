@@ -96,9 +96,24 @@ private fun AppRoot(
         "providers" -> ProviderListScreen(
             onSelect = { provider ->
                 selectedProvider = provider
-                screen = "key"
+                screen = if (provider.id == "ollama") "personal_ai_choice" else "key"
             },
             onBack = { screen = "subscription" }
+        )
+        "personal_ai_choice" -> PersonalAiChoiceScreen(
+            onRemoteServer = { screen = "key" },
+            onOnDevice = { screen = "personal_ai_guide" },
+            onBack = { screen = "providers" }
+        )
+        "personal_ai_guide" -> PersonalAiGuideScreen(
+            onDone = {
+                // Auto-configure localhost URL and skip key entry
+                prefs.setCustomBaseUrlForProvider("ollama", "http://localhost:11434")
+                prefs.setBaseUrl("http://localhost:11434")
+                storedKey = ""
+                screen = "picker"
+            },
+            onBack = { screen = "personal_ai_choice" }
         )
         "key" -> ApiKeyScreen(
             provider = selectedProvider ?: Providers.GEMINI,
@@ -109,6 +124,7 @@ private fun AppRoot(
             onBack = {
                 screen = when (selectedProvider?.id) {
                     "anthropic" -> "claude_auth"
+                    "ollama"    -> "personal_ai_choice"
                     else -> "providers"
                 }
             }
