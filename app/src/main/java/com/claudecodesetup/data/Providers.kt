@@ -88,7 +88,7 @@ object Providers {
             AiModel("Llama 4 Scout",         "meta-llama/llama-4-scout:free",                      setOf(Cap.TOOLS, Cap.VISION, Cap.LONG_CTX, Cap.FREE), "Vision · 10M ctx"),
             AiModel("Llama 4 Maverick",      "meta-llama/llama-4-maverick:free",                   setOf(Cap.TOOLS, Cap.VISION, Cap.FREE),               "Vision capable"),
             AiModel("Llama 3.3 70B",         "meta-llama/llama-3.3-70b-instruct:free",             setOf(Cap.TOOLS, Cap.FREE),                           "Reliable · text only"),
-            AiModel("DeepSeek R1",           "deepseek/deepseek-r1:free",                          setOf(Cap.REASONING, Cap.FREE),                       "Chain-of-thought"),
+            AiModel("DeepSeek R1",           "deepseek/deepseek-r1-0528:free",                     setOf(Cap.REASONING, Cap.FREE),                       "Chain-of-thought"),
             AiModel("DeepSeek V3",           "deepseek/deepseek-chat-v3-5:free",                   setOf(Cap.TOOLS, Cap.FREE),                           "Smart general"),
             AiModel("Qwen 3 235B A22B",      "qwen/qwen3-235b-a22b:free",                          setOf(Cap.TOOLS, Cap.REASONING, Cap.FREE),            "Best reasoning free"),
             AiModel("Qwen 3 30B A3B",        "qwen/qwen3-30b-a3b:free",                            setOf(Cap.TOOLS, Cap.FREE),                           "Compact smart"),
@@ -248,7 +248,7 @@ object Providers {
 
     val ALL = listOf(GROQ, GEMINI, OPENROUTER, DEEPSEEK, KIMI, NVIDIA_NIM, META_LLAMA, OLLAMA)
 
-    fun byId(id: String): Provider? = ALL.find { it.id == id }
+    fun byId(id: String): Provider? = if (id == "anthropic") ANTHROPIC else ALL.find { it.id == id }
 
     /** Infer capability flags from a model ID — used for live-fetched OpenRouter models. */
     fun deriveCaps(modelId: String): Set<String> {

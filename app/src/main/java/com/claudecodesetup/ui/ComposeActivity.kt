@@ -96,24 +96,21 @@ private fun AppRoot(
         "providers" -> ProviderListScreen(
             onSelect = { provider ->
                 selectedProvider = provider
-                screen = if (provider.id == "ollama") "personal_ai_choice" else "key"
+                screen = if (provider.id == "ollama") "local_models" else "key"
             },
             onBack = { screen = "subscription" }
         )
-        "personal_ai_choice" -> PersonalAiChoiceScreen(
-            onRemoteServer = { screen = "key" },
-            onOnDevice = { screen = "personal_ai_guide" },
-            onBack = { screen = "providers" }
-        )
-        "personal_ai_guide" -> PersonalAiGuideScreen(
-            onDone = {
-                // Auto-configure localhost URL and skip key entry
+        "local_models" -> LocalModelsScreen(
+            onModelSelected = { modelId ->
+                // Model pulled in-app — auto-configure localhost and jump straight to chat
                 prefs.setCustomBaseUrlForProvider("ollama", "http://localhost:11434")
                 prefs.setBaseUrl("http://localhost:11434")
                 storedKey = ""
-                screen = "picker"
+                val model = AiModel(modelId, modelId, emptySet(), "")
+                onComplete(Providers.OLLAMA, "", model)
             },
-            onBack = { screen = "personal_ai_choice" }
+            onRemoteServer = { screen = "key" },
+            onBack = { screen = "providers" }
         )
         "key" -> ApiKeyScreen(
             provider = selectedProvider ?: Providers.GEMINI,
@@ -124,7 +121,7 @@ private fun AppRoot(
             onBack = {
                 screen = when (selectedProvider?.id) {
                     "anthropic" -> "claude_auth"
-                    "ollama"    -> "personal_ai_choice"
+                    "ollama"    -> "local_models"
                     else -> "providers"
                 }
             }

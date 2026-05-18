@@ -169,7 +169,6 @@ fun ModelPickerScreen(
                 liveModels = fetched
             } catch (_: Exception) {
                 fetchError = true
-                if (liveModels == null) liveModels = provider.models.ifEmpty { emptyList() }
             }
             isRefreshing = false
         }
@@ -177,7 +176,6 @@ fun ModelPickerScreen(
 
     if (isLive) LaunchedEffect(Unit) { fetchLive() }
 
-    // Live providers: show live results (fallback to static on error). Others: static list.
     val modelList = if (isLive) (liveModels ?: emptyList()) else provider.models
     val displays = remember(modelList) { modelList.map { toDisplay(it) } }
 

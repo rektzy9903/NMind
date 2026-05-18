@@ -10,6 +10,7 @@
 #include <fcntl.h>
 #include <poll.h>
 #include <signal.h>
+#include <spawn.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -18,6 +19,8 @@
 #include <sys/wait.h>
 #include <termios.h>
 #include <unistd.h>
+
+extern char **environ;
 
 #define BUF 4096
 
@@ -94,34 +97,52 @@ int main(int argc, char *argv[]) {
     ws.ws_xpixel = 0; ws.ws_ypixel = 0;
     ioctl(g_master, TIOCSWINSZ, &ws);
 
-    pid_t pid = fork();
-    if (pid < 0) { perror("fork"); return 1; }
-
-    if (pid == 0) {
-        /* ── child: new session + slave PTY as stdio ── */
-        setsid();
-        int slave = open(slave_name, O_RDWR);
-        if (slave < 0) { perror("open slave"); _exit(1); }
-        ioctl(slave, TIOCSCTTY, 0);
-
-        /* Fix termios: disable echo and CRLF translation, keep signal generation.
-         * ONLCR off prevents \n→\r\n mangling that would break NDJSON parsing. */
-        struct termios t;
-        if (tcgetattr(slave, &t) == 0) {
-            t.c_lflag &= ~ECHO;   /* no input echo */
-            t.c_lflag |=  ISIG;   /* keep Ctrl+C → SIGINT */
-            t.c_oflag &= ~ONLCR;  /* no NL→CRNL conversion */
-            tcsetattr(slave, TCSANOW, &t);
+    /* Configure termios on slave from parent before spawning.
+     * posix_spawn cannot do ioctl/tcsetattr in the child, so we apply
+     * settings here — they persist on the PTY device node. */
+    {
+        int slave_cfg = open(slave_name, O_RDWR | O_NOCTTY);
+        if (slave_cfg >= 0) {
+            struct termios t;
+            if (tcgetattr(slave_cfg, &t) == 0) {
+                t.c_lflag &= ~ECHO;   /* no input echo */
+                t.c_lflag |=  ISIG;   /* keep Ctrl+C → SIGINT */
+                t.c_oflag &= ~ONLCR;  /* no NL→CRNL so NDJSON isn't mangled */
+                tcsetattr(slave_cfg, TCSANOW, &t);
+            }
+            close(slave_cfg);
         }
+    }
 
-        dup2(slave, STDIN_FILENO);
-        dup2(slave, STDOUT_FILENO);
-        dup2(slave, STDERR_FILENO);
-        if (slave > STDERR_FILENO) close(slave);
-        close(g_master);
-        execvp(argv[3], argv + 3);
-        perror("execvp");
-        _exit(127);
+    /* Use posix_spawn instead of fork+execvp.  Android's SELinux policy
+     * blocks the fork→exec chain from a process that is already a child of
+     * Node.js, but posix_spawn uses clone() internally (same path as libuv)
+     * and is permitted.  POSIX_SPAWN_SETSID creates a new session so that
+     * opening the slave PTY (via addopen) makes it the controlling terminal
+     * automatically — no TIOCSCTTY needed. */
+    posix_spawn_file_actions_t fa;
+    posix_spawnattr_t sa;
+    posix_spawn_file_actions_init(&fa);
+    posix_spawnattr_init(&sa);
+
+    /* Open slave as stdin; being the first terminal open in a new session
+     * makes it the controlling terminal without an explicit TIOCSCTTY. */
+    posix_spawn_file_actions_addopen(&fa, STDIN_FILENO, slave_name, O_RDWR, 0);
+    posix_spawn_file_actions_adddup2(&fa, STDIN_FILENO, STDOUT_FILENO);
+    posix_spawn_file_actions_adddup2(&fa, STDIN_FILENO, STDERR_FILENO);
+    posix_spawn_file_actions_addclose(&fa, g_master);
+
+    posix_spawnattr_setflags(&sa, POSIX_SPAWN_SETSID);
+
+    pid_t pid;
+    int spawn_ret = posix_spawn(&pid, argv[3], &fa, &sa, argv + 3, environ);
+    posix_spawn_file_actions_destroy(&fa);
+    posix_spawnattr_destroy(&sa);
+
+    if (spawn_ret != 0) {
+        errno = spawn_ret;
+        perror("posix_spawn");
+        return 1;
     }
 
     /* ── parent: relay stdin <-> master ── */

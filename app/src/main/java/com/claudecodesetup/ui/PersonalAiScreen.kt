@@ -9,25 +9,63 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONObject
+import java.util.concurrent.TimeUnit
+
+private data class OllamaModel(
+    val id: String,
+    val name: String,
+    val description: String,
+    val sizeLabel: String,
+    val ramGb: Int
+)
+
+private val CATALOG = listOf(
+    OllamaModel("qwen3:0.6b",        "Qwen3 0.6B",        "Lightest, basic tasks",              "~400 MB", 1),
+    OllamaModel("qwen3:1.5b",        "Qwen3 1.5B",        "Fast, everyday tasks",               "~1.1 GB", 2),
+    OllamaModel("llama3.2:1b",       "Llama 3.2 1B",      "Meta's compact model",               "~630 MB", 2),
+    OllamaModel("phi4-mini",         "Phi-4 Mini",        "Microsoft, smart & compact",         "~2.5 GB", 4),
+    OllamaModel("qwen3:4b",          "Qwen3 4B",          "Great balance, reasoning",           "~2.6 GB", 4),
+    OllamaModel("llama3.2:3b",       "Llama 3.2 3B",      "Meta's capable mid model",           "~2.0 GB", 4),
+    OllamaModel("gemma3:4b",         "Gemma 3 4B",        "Google, code & reasoning",           "~3.3 GB", 5),
+    OllamaModel("qwen3:8b",          "Qwen3 8B",          "High quality flagship",              "~5.2 GB", 8),
+    OllamaModel("qwen2.5-coder:7b",  "Qwen2.5 Coder 7B",  "Code specialist",                    "~4.7 GB", 8),
+    OllamaModel("llama3.1:8b",       "Llama 3.1 8B",      "Meta flagship, well-rounded",        "~4.7 GB", 8),
+    OllamaModel("mistral:7b",        "Mistral 7B",        "Fast general-purpose",               "~4.1 GB", 8),
+)
+
+private val accent = Color(0xFFEF4444)
+private val green  = Color(0xFF10B981)
+private val blue   = Color(0xFF60A5FA)
 
 @Composable
-fun PersonalAiChoiceScreen(
+fun LocalModelsScreen(
+    onModelSelected: (modelId: String) -> Unit,
     onRemoteServer: () -> Unit,
-    onOnDevice: () -> Unit,
     onBack: () -> Unit
 ) {
     var entered by remember { mutableStateOf(false) }
@@ -36,7 +74,112 @@ fun PersonalAiChoiceScreen(
         if (entered) 0f else 20f, tween(400, easing = FastOutSlowInEasing), label = "offset")
     LaunchedEffect(Unit) { entered = true }
 
-    val accentColor = Color(0xFFEF4444)
+    val client = remember {
+        OkHttpClient.Builder()
+            .connectTimeout(2, TimeUnit.SECONDS)
+            .readTimeout(0, TimeUnit.SECONDS) // unlimited for streaming pull
+            .build()
+    }
+    val scope = rememberCoroutineScope()
+
+    var ollamaReachable by remember { mutableStateOf<Boolean?>(null) }
+    var installedIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var pullingId by remember { mutableStateOf<String?>(null) }
+    var pullProgress by remember { mutableStateOf(0f) }
+    var pullError by remember { mutableStateOf<String?>(null) }
+    var tab by remember { mutableStateOf(0) } // 0=on-device 1=remote
+
+    // Check Ollama status and list installed models
+    fun refreshOllama() {
+        scope.launch(Dispatchers.IO) {
+            try {
+                val resp = client.newCall(
+                    Request.Builder().url("http://localhost:11434/api/tags").build()
+                ).execute()
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string() ?: ""
+                    val arr = JSONObject(body).optJSONArray("models")
+                    val ids = mutableSetOf<String>()
+                    if (arr != null) {
+                        for (i in 0 until arr.length()) {
+                            ids += arr.getJSONObject(i).optString("name", "")
+                        }
+                    }
+                    withContext(Dispatchers.Main) {
+                        ollamaReachable = true
+                        installedIds = ids
+                    }
+                } else {
+                    withContext(Dispatchers.Main) { ollamaReachable = false }
+                }
+            } catch (_: Exception) {
+                withContext(Dispatchers.Main) { ollamaReachable = false }
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) { refreshOllama() }
+
+    fun pullModel(model: OllamaModel) {
+        pullError = null
+        pullingId = model.id
+        pullProgress = 0f
+        scope.launch(Dispatchers.IO) {
+            try {
+                val body = """{"name":"${model.id}","stream":true}"""
+                    .toRequestBody("application/json".toMediaType())
+                val resp = client.newCall(
+                    Request.Builder().url("http://localhost:11434/api/pull").post(body).build()
+                ).execute()
+                val stream = resp.body?.byteStream()?.bufferedReader() ?: run {
+                    withContext(Dispatchers.Main) {
+                        pullError = "No response from Ollama"
+                        pullingId = null
+                    }
+                    return@launch
+                }
+                stream.use { reader ->
+                    var line = reader.readLine()
+                    while (line != null) {
+                        val json = runCatching { JSONObject(line) }.getOrNull()
+                        if (json != null) {
+                            val status = json.optString("status", "")
+                            val completed = json.optLong("completed", 0L)
+                            val total = json.optLong("total", 0L)
+                            val progress = if (total > 0) completed.toFloat() / total else 0f
+                            withContext(Dispatchers.Main) {
+                                pullProgress = progress
+                                if (status == "success") {
+                                    pullingId = null
+                                    refreshOllama()
+                                }
+                            }
+                        }
+                        line = reader.readLine()
+                    }
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    pullError = e.message ?: "Pull failed"
+                    pullingId = null
+                }
+            }
+        }
+    }
+
+    fun deleteModel(modelId: String) {
+        scope.launch(Dispatchers.IO) {
+            try {
+                val body = """{"name":"$modelId"}"""
+                    .toRequestBody("application/json".toMediaType())
+                client.newCall(
+                    Request.Builder().url("http://localhost:11434/api/delete")
+                        .delete(body).build()
+                ).execute().close()
+                refreshOllama()
+            } catch (_: Exception) {}
+        }
+    }
 
     AppBackground {
         Column(
@@ -44,6 +187,7 @@ fun PersonalAiChoiceScreen(
                 .fillMaxSize()
                 .graphicsLayer { this.alpha = alpha; translationY = offset * density }
         ) {
+            // Header
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -51,7 +195,7 @@ fun PersonalAiChoiceScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    "←", fontSize = 20.sp, color = Color(0xFF60A5FA),
+                    "←", fontSize = 20.sp, color = blue,
                     modifier = Modifier
                         .clickable(onClick = onBack)
                         .padding(end = 10.dp, top = 4.dp, bottom = 4.dp)
@@ -59,410 +203,345 @@ fun PersonalAiChoiceScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(
                         "PERSONAL AI", fontFamily = SpaceMonoFamily, fontSize = 8.sp,
-                        letterSpacing = 3.sp, color = Color(0xB3EF4444)
+                        letterSpacing = 3.sp, color = accent.copy(alpha = 0.7f)
                     )
                     Text(
-                        "Choose Setup", fontFamily = DmSansFamily, fontSize = 17.sp,
+                        "Local Models", fontFamily = DmSansFamily, fontSize = 17.sp,
                         fontWeight = FontWeight.Bold, color = Color.White
                     )
                 }
             }
 
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth(),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(
-                    modifier = Modifier
-                        .widthIn(max = 360.dp)
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(62.dp)
-                            .background(
-                                Brush.linearGradient(
-                                    listOf(accentColor.copy(alpha = 0.22f), accentColor.copy(alpha = 0.12f))
-                                ),
-                                RoundedCornerShape(18.dp)
-                            )
-                            .border(1.dp, accentColor.copy(alpha = 0.4f), RoundedCornerShape(18.dp)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text("💻", fontSize = 26.sp)
-                    }
-
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Text(
-                            "How do you want to connect?",
-                            fontFamily = DmSansFamily, fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold, color = Color.White,
-                            textAlign = TextAlign.Center
-                        )
-                        Text(
-                            "Run AI locally on your phone, or connect to a server you already have running.",
-                            fontFamily = DmSansFamily, fontSize = 13.sp,
-                            color = Color(0xFF9CA3AF), textAlign = TextAlign.Center
-                        )
-                    }
-
-                    Spacer(Modifier.height(4.dp))
-
-                    ChoiceCard(
-                        icon = "📱",
-                        title = "Install AI on This Device",
-                        subtitle = "Set up Termux + Ollama on your phone.\nFree, private, works offline.",
-                        accentColor = Color(0xFF10B981),
-                        onClick = onOnDevice
-                    )
-
-                    ChoiceCard(
-                        icon = "🌐",
-                        title = "Connect to Remote Server",
-                        subtitle = "Oracle Cloud, home PC, or any server\nrunning an OpenAI-compatible API.",
-                        accentColor = Color(0xFF60A5FA),
-                        onClick = onRemoteServer
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ChoiceCard(
-    icon: String,
-    title: String,
-    subtitle: String,
-    accentColor: Color,
-    onClick: () -> Unit
-) {
-    val interaction = remember { MutableInteractionSource() }
-    val isPressed by interaction.collectIsPressedAsState()
-    val scale by animateFloatAsState(if (isPressed) 0.97f else 1f, tween(120), label = "scale")
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .graphicsLayer { scaleX = scale; scaleY = scale }
-            .glowShadow(accentColor.copy(alpha = 0.10f), 12.dp, 14.dp)
-            .background(Color(0x0FFFFFFF), RoundedCornerShape(16.dp))
-            .border(1.dp, accentColor.copy(alpha = 0.25f), RoundedCornerShape(16.dp))
-            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
-            .padding(18.dp),
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(
-            modifier = Modifier
-                .size(48.dp)
-                .background(accentColor.copy(alpha = 0.14f), RoundedCornerShape(14.dp))
-                .border(1.dp, accentColor.copy(alpha = 0.35f), RoundedCornerShape(14.dp)),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(icon, fontSize = 22.sp)
-        }
-
-        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(
-                title, fontFamily = DmSansFamily, fontSize = 14.sp,
-                fontWeight = FontWeight.Bold, color = Color.White
-            )
-            Text(
-                subtitle, fontFamily = DmSansFamily, fontSize = 11.sp,
-                color = Color(0xFF6B7280), lineHeight = 16.sp
-            )
-        }
-
-        Text("›", fontSize = 20.sp, color = accentColor.copy(alpha = 0.7f))
-    }
-}
-
-// ── On-device AI guide ────────────────────────────────────────────────────────
-
-@Composable
-fun PersonalAiGuideScreen(
-    onDone: () -> Unit,
-    onBack: () -> Unit
-) {
-    var entered by remember { mutableStateOf(false) }
-    val alpha by animateFloatAsState(if (entered) 1f else 0f, tween(400), label = "alpha")
-    LaunchedEffect(Unit) { entered = true }
-
-    AppBackground {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .graphicsLayer { this.alpha = alpha }
-        ) {
+            // Tabs
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 14.dp),
-                verticalAlignment = Alignment.CenterVertically
+                    .padding(horizontal = 16.dp)
+                    .background(Color(0x0AFFFFFF), RoundedCornerShape(12.dp))
+                    .padding(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                Text(
-                    "←", fontSize = 20.sp, color = Color(0xFF60A5FA),
-                    modifier = Modifier
-                        .clickable(onClick = onBack)
-                        .padding(end = 10.dp, top = 4.dp, bottom = 4.dp)
-                )
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(
-                        "ON-DEVICE AI", fontFamily = SpaceMonoFamily, fontSize = 8.sp,
-                        letterSpacing = 3.sp, color = Color(0xB310B981)
-                    )
-                    Text(
-                        "Setup Guide", fontFamily = DmSansFamily, fontSize = 17.sp,
-                        fontWeight = FontWeight.Bold, color = Color.White
-                    )
-                }
+                TabButton("On Device", tab == 0, green) { tab = 0 }
+                TabButton("Remote Server", tab == 1, blue) { tab = 1 }
             }
 
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(12.dp))
 
-                // Intro card
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(Color(0x0F10B981), RoundedCornerShape(16.dp))
-                        .border(1.dp, Color(0x2210B981), RoundedCornerShape(16.dp))
-                        .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Text(
-                        "📱 Run AI 100% on your phone",
-                        fontFamily = DmSansFamily, fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold, color = Color(0xFF10B981)
-                    )
-                    Text(
-                        "Uses Termux (Linux on Android) + Ollama (AI runtime). Free, private, and works with no internet after setup.",
-                        fontFamily = DmSansFamily, fontSize = 12.sp,
-                        color = Color(0xFF9CA3AF), lineHeight = 17.sp
-                    )
-                }
-
-                // Steps
-                GuideStep(
-                    number = "1",
-                    title = "Install Termux from F-Droid",
-                    body = "Important: use F-Droid, NOT Google Play. The Play Store version is outdated and won't work.",
-                    code = null,
-                    link = "https://f-droid.org/packages/com.termux/",
-                    linkLabel = "→ Open F-Droid page"
-                )
-
-                GuideStep(
-                    number = "2",
-                    title = "Open Termux and install Ollama",
-                    body = "Tap the Termux app and run this command. It may take a few minutes.",
-                    code = "pkg update && pkg install ollama",
-                    link = null,
-                    linkLabel = null
-                )
-
-                GuideStep(
-                    number = "3",
-                    title = "Pull an AI model",
-                    body = "Choose based on your phone's RAM. More RAM = bigger, smarter models.",
-                    code = null,
-                    link = null,
-                    linkLabel = null
-                )
-
-                // Model table
-                RamModelTable()
-
-                GuideStep(
-                    number = "4",
-                    title = "Start the Ollama server",
-                    body = "Run this in Termux to start serving AI. Keep Termux open (or minimized) while using Nexus Mind.",
-                    code = "ollama serve",
-                    link = null,
-                    linkLabel = null
-                )
-
-                // Done button
-                Spacer(Modifier.height(4.dp))
-
+            if (tab == 1) {
+                // Remote server — delegate to existing API key flow
                 Box(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .height(52.dp)
-                        .background(
-                            Brush.linearGradient(listOf(Color(0xFF10B981), Color(0xFF059669))),
-                            RoundedCornerShape(14.dp)
-                        )
-                        .clickable(onClick = onDone),
+                        .fillMaxSize()
+                        .padding(horizontal = 16.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        "✓  I've Installed It — Continue",
-                        fontFamily = DmSansFamily, fontSize = 15.sp,
-                        fontWeight = FontWeight.SemiBold, color = Color.White
-                    )
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Text("🌐", fontSize = 40.sp)
+                        Text(
+                            "Connect to a remote Ollama server\nor any OpenAI-compatible API.",
+                            fontFamily = DmSansFamily, fontSize = 14.sp,
+                            color = Color(0xFF9CA3AF), textAlign = TextAlign.Center,
+                            lineHeight = 20.sp
+                        )
+                        ActionButton(
+                            label = "Enter Server URL →",
+                            color = blue,
+                            onClick = onRemoteServer
+                        )
+                    }
                 }
-
-                Text(
-                    "This will connect Nexus Mind to http://localhost:11434 automatically.",
-                    fontFamily = DmSansFamily, fontSize = 11.sp,
-                    color = Color(0xFF4B5563), textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                Spacer(Modifier.height(16.dp))
-            }
-        }
-    }
-}
-
-@Composable
-private fun GuideStep(
-    number: String,
-    title: String,
-    body: String,
-    code: String?,
-    link: String?,
-    linkLabel: String?
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Box(
-            modifier = Modifier
-                .size(28.dp)
-                .background(Color(0x1560A5FA), RoundedCornerShape(8.dp))
-                .border(1.dp, Color(0x3360A5FA), RoundedCornerShape(8.dp)),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                number, fontFamily = SpaceMonoFamily, fontSize = 12.sp,
-                fontWeight = FontWeight.Bold, color = Color(0xFF60A5FA)
-            )
-        }
-
-        Column(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Text(
-                title, fontFamily = DmSansFamily, fontSize = 13.sp,
-                fontWeight = FontWeight.Bold, color = Color.White
-            )
-            Text(
-                body, fontFamily = DmSansFamily, fontSize = 12.sp,
-                color = Color(0xFF9CA3AF), lineHeight = 17.sp
-            )
-            if (code != null) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(Color(0x0FFFFFFF), RoundedCornerShape(8.dp))
-                        .border(1.dp, Color(0x1AFFFFFF), RoundedCornerShape(8.dp))
-                        .padding(horizontal = 12.dp, vertical = 8.dp)
+            } else {
+                // On-device — Ollama status + model list
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 0.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Text(
-                        code, fontFamily = SpaceMonoFamily, fontSize = 11.sp,
-                        color = Color(0xFF10B981)
-                    )
+                    item {
+                        OllamaStatusCard(
+                            reachable = ollamaReachable,
+                            onRetry = { refreshOllama() }
+                        )
+                    }
+
+                    if (pullError != null) {
+                        item {
+                            Text(
+                                "Pull failed: $pullError",
+                                fontFamily = DmSansFamily, fontSize = 12.sp,
+                                color = Color(0xFFEF4444),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(Color(0x15EF4444), RoundedCornerShape(8.dp))
+                                    .padding(10.dp)
+                            )
+                        }
+                    }
+
+                    item {
+                        Text(
+                            "Available Models",
+                            fontFamily = SpaceMonoFamily, fontSize = 9.sp,
+                            letterSpacing = 2.sp, color = Color(0xFF4B5563)
+                        )
+                    }
+
+                    items(CATALOG) { model ->
+                        val isPulling = pullingId == model.id
+                        val isInstalled = installedIds.any { installed ->
+                            installed == model.id ||
+                            installed.startsWith("${model.id}:") ||
+                            (model.id.endsWith(":latest") && installed == model.id.removeSuffix(":latest")) ||
+                            installed == "${model.id}:latest"
+                        }
+                        ModelCard(
+                            model = model,
+                            isInstalled = isInstalled,
+                            isPulling = isPulling,
+                            pullProgress = if (isPulling) pullProgress else 0f,
+                            ollamaReachable = ollamaReachable == true,
+                            onPull = { if (ollamaReachable == true) pullModel(model) },
+                            onDelete = { deleteModel(model.id) },
+                            onUse = { onModelSelected(model.id) }
+                        )
+                    }
+
+                    item { Spacer(Modifier.height(16.dp)) }
                 }
-            }
-            if (link != null && linkLabel != null) {
-                Text(
-                    linkLabel, fontFamily = DmSansFamily, fontSize = 12.sp,
-                    color = Color(0xFF60A5FA), fontWeight = FontWeight.SemiBold
-                )
             }
         }
     }
 }
 
 @Composable
-private fun RamModelTable() {
-    val rows = listOf(
-        Triple("6–8 GB",  "Qwen3 1.5B",  "ollama pull qwen3:1.5b"),
-        Triple("6–8 GB",  "Phi-4 Mini",  "ollama pull phi4-mini"),
-        Triple("6–8 GB",  "Llama 3.2 3B","ollama pull llama3.2:3b"),
-        Triple("8–12 GB", "Qwen3 4B",    "ollama pull qwen3:4b"),
-        Triple("8–12 GB", "Gemma3 4B",   "ollama pull gemma3:4b"),
-        Triple("12 GB+",  "Qwen3 8B",    "ollama pull qwen3:8b"),
-    )
+private fun RowScope.TabButton(label: String, selected: Boolean, color: Color, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .weight(1f)
+            .background(
+                if (selected) color.copy(alpha = 0.15f) else Color.Transparent,
+                RoundedCornerShape(9.dp)
+            )
+            .then(if (selected) Modifier.border(1.dp, color.copy(alpha = 0.3f), RoundedCornerShape(9.dp)) else Modifier)
+            .clickable(onClick = onClick)
+            .padding(vertical = 9.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            label, fontFamily = DmSansFamily, fontSize = 13.sp,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            color = if (selected) color else Color(0xFF6B7280)
+        )
+    }
+}
+
+@Composable
+private fun OllamaStatusCard(reachable: Boolean?, onRetry: () -> Unit) {
+    val (icon, statusText, statusColor, bgColor) = when (reachable) {
+        true  -> Quad("●", "Ollama connected · localhost:11434", green, Color(0x0F10B981))
+        false -> Quad("○", "Ollama not found · is it running?", Color(0xFFF59E0B), Color(0x0FF59E0B))
+        null  -> Quad("◌", "Checking Ollama…", Color(0xFF6B7280), Color(0x0A6B7280))
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(bgColor, RoundedCornerShape(12.dp))
+            .border(1.dp, statusColor.copy(alpha = 0.2f), RoundedCornerShape(12.dp))
+            .clickable(enabled = reachable == false, onClick = onRetry)
+            .padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Text(icon, fontSize = 14.sp, color = statusColor)
+        Text(
+            statusText, fontFamily = DmSansFamily, fontSize = 12.sp,
+            color = statusColor, modifier = Modifier.weight(1f)
+        )
+        if (reachable == false) {
+            Text(
+                "Retry", fontFamily = DmSansFamily, fontSize = 11.sp,
+                color = blue, fontWeight = FontWeight.SemiBold
+            )
+        }
+    }
+}
+
+@Composable
+private fun ModelCard(
+    model: OllamaModel,
+    isInstalled: Boolean,
+    isPulling: Boolean,
+    pullProgress: Float,
+    ollamaReachable: Boolean,
+    onPull: () -> Unit,
+    onDelete: () -> Unit,
+    onUse: () -> Unit
+) {
+    val ramColor = when {
+        model.ramGb <= 2 -> green
+        model.ramGb <= 5 -> Color(0xFFF59E0B)
+        else -> Color(0xFFEF4444)
+    }
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Color(0x0AFFFFFF), RoundedCornerShape(12.dp))
-            .border(1.dp, Color(0x15FFFFFF), RoundedCornerShape(12.dp))
-            .padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(0.dp)
+            .background(Color(0x0AFFFFFF), RoundedCornerShape(14.dp))
+            .border(
+                1.dp,
+                if (isInstalled) green.copy(alpha = 0.25f) else Color(0x15FFFFFF),
+                RoundedCornerShape(14.dp)
+            )
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        // Header
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(0.dp)
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.Top
         ) {
-            Text(
-                "RAM", fontFamily = SpaceMonoFamily, fontSize = 9.sp,
-                letterSpacing = 1.sp, color = Color(0xFF4B5563),
-                modifier = Modifier.width(64.dp)
-            )
-            Text(
-                "MODEL", fontFamily = SpaceMonoFamily, fontSize = 9.sp,
-                letterSpacing = 1.sp, color = Color(0xFF4B5563),
-                modifier = Modifier.width(90.dp)
-            )
-            Text(
-                "COMMAND", fontFamily = SpaceMonoFamily, fontSize = 9.sp,
-                letterSpacing = 1.sp, color = Color(0xFF4B5563),
-                modifier = Modifier.weight(1f)
-            )
-        }
-
-        rows.forEachIndexed { idx, (ram, model, cmd) ->
-            val isEven = idx % 2 == 0
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(
-                        if (isEven) Color(0x08FFFFFF) else Color.Transparent,
-                        RoundedCornerShape(6.dp)
-                    )
-                    .padding(horizontal = 4.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.spacedBy(0.dp),
-                verticalAlignment = Alignment.CenterVertically
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(
+                    model.name, fontFamily = DmSansFamily, fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold, color = Color.White
+                )
+                Text(
+                    model.description, fontFamily = DmSansFamily, fontSize = 11.sp,
+                    color = Color(0xFF6B7280)
+                )
+            }
+            Column(
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 Text(
-                    ram, fontFamily = DmSansFamily, fontSize = 11.sp,
-                    color = Color(0xFF6B7280), modifier = Modifier.width(64.dp)
+                    model.sizeLabel, fontFamily = SpaceMonoFamily, fontSize = 10.sp,
+                    color = Color(0xFF4B5563)
                 )
-                Text(
-                    model, fontFamily = DmSansFamily, fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold, color = Color.White,
-                    modifier = Modifier.width(90.dp)
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .background(ramColor.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
+                            .border(1.dp, ramColor.copy(alpha = 0.3f), RoundedCornerShape(4.dp))
+                            .padding(horizontal = 5.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            "${model.ramGb}GB+", fontFamily = SpaceMonoFamily, fontSize = 9.sp,
+                            color = ramColor
+                        )
+                    }
+                }
+            }
+        }
+
+        if (isPulling) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        "Downloading…", fontFamily = DmSansFamily, fontSize = 11.sp,
+                        color = blue
+                    )
+                    Text(
+                        "${(pullProgress * 100).toInt()}%", fontFamily = SpaceMonoFamily,
+                        fontSize = 11.sp, color = blue
+                    )
+                }
+                LinearProgressIndicator(
+                    progress = { pullProgress },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(4.dp)
+                        .clip(RoundedCornerShape(2.dp)),
+                    color = blue,
+                    trackColor = Color(0x1560A5FA),
+                    strokeCap = StrokeCap.Round
                 )
-                Text(
-                    cmd, fontFamily = SpaceMonoFamily, fontSize = 10.sp,
-                    color = Color(0xFF10B981), modifier = Modifier.weight(1f)
-                )
+            }
+        } else {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                if (isInstalled) {
+                    SmallButton(
+                        label = "Use",
+                        color = green,
+                        modifier = Modifier.weight(1f),
+                        onClick = onUse
+                    )
+                    SmallButton(
+                        label = "Delete",
+                        color = Color(0xFFEF4444),
+                        modifier = Modifier.weight(1f),
+                        onClick = onDelete
+                    )
+                } else {
+                    SmallButton(
+                        label = if (ollamaReachable) "Pull" else "Ollama offline",
+                        color = if (ollamaReachable) blue else Color(0xFF4B5563),
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = { if (ollamaReachable) onPull() }
+                    )
+                }
             }
         }
     }
 }
+
+@Composable
+private fun SmallButton(
+    label: String,
+    color: Color,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val isPressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(if (isPressed) 0.96f else 1f, tween(100), label = "scale")
+
+    Box(
+        modifier = modifier
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .background(color.copy(alpha = 0.15f), RoundedCornerShape(8.dp))
+            .border(1.dp, color.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
+            .padding(vertical = 8.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            label, fontFamily = DmSansFamily, fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold, color = color
+        )
+    }
+}
+
+@Composable
+private fun ActionButton(label: String, color: Color, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                Brush.linearGradient(listOf(color.copy(alpha = 0.8f), color)),
+                RoundedCornerShape(14.dp)
+            )
+            .clickable(onClick = onClick)
+            .padding(vertical = 16.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            label, fontFamily = DmSansFamily, fontSize = 15.sp,
+            fontWeight = FontWeight.SemiBold, color = Color.White
+        )
+    }
+}
+
+private data class Quad<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)

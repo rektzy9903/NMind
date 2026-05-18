@@ -786,6 +786,7 @@ async function runAgentic(socket, userMessage, history, shellCwd, pendingImage) 
             thinkingDone = false;
         }
     } catch(e) {
+        signalThinkingDone();
         log('[agentic] error: ' + e.message + '\n');
         try { socket.write('\r\n\x1b[31m[agentic error] ' + e.message + '\x1b[0m\r\n'); } catch(_) {}
     }
@@ -1292,10 +1293,10 @@ function startProxyServer(onReady) {
             req.on('error', e => proxyError(res, 500, e.message));
             return;
         }
-        // GET /v1/models — Claude Code checks this on startup; return a valid Claude model
+        // GET /v1/models — Claude Code checks this on startup; return the configured model
         // so it matches the ANTHROPIC_MODEL env var we set (always a claude-* name in proxy mode).
         if (req.method === 'GET' && req.url.startsWith('/v1/models')) {
-            const modelId = 'claude-3-5-sonnet-20241022';
+            const modelId = (readConfig().modelId) || 'claude-3-5-sonnet-20241022';
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
                 data: [{ id: modelId, display_name: modelId, created_at: '' }]
@@ -2267,8 +2268,8 @@ function runMessage(message, socket, history) {
         'process.argv[2]="--output-format";' +
         'process.argv[3]="stream-json";' +
         (fs.existsSync(MCP_CONFIG_FILE)
-            ? 'process.argv[4]="--mcp-config";process.argv[5]=' + JSON.stringify(MCP_CONFIG_FILE) + ';process.argv[6]="--print";process.argv[7]="--verbose";process.argv[8]=' + JSON.stringify(fullMessage) + ';process.argv.length=9;'
-            : 'process.argv[4]="--print";process.argv[5]="--verbose";process.argv[6]=' + JSON.stringify(fullMessage) + ';process.argv.length=7;') +
+            ? 'process.argv[4]="--mcp-config";process.argv[5]=' + JSON.stringify(MCP_CONFIG_FILE) + ';process.argv[6]="--dangerously-skip-permissions";process.argv[7]="--print";process.argv[8]="--verbose";process.argv[9]=' + JSON.stringify(fullMessage) + ';process.argv.length=10;'
+            : 'process.argv[4]="--dangerously-skip-permissions";process.argv[5]="--print";process.argv[6]="--verbose";process.argv[7]=' + JSON.stringify(fullMessage) + ';process.argv.length=8;') +
         'import(' + JSON.stringify(cliUrl) + ')' +
         '.then(function(){' +
         'try{require("fs").appendFileSync(' + exitLogPath + ',"[import-resolved]\\n");}catch(_){}})' +
@@ -2385,6 +2386,7 @@ function openTcpBridge() {
         on429CountdownNotify = function(delaySecs) {
             try { socket.write('\x1b]9;rate-limit:' + delaySecs + '\x07'); } catch(_) {}
         };
+        on429CountdownNotify._socket = socket;
 
         const startCfg = readConfig();
         const modeLabel = startCfg.mode === 'subscription' ? 'Anthropic' : (startCfg.providerUrl || 'proxy');
@@ -3676,10 +3678,12 @@ function openTcpBridge() {
         socket.on('close', () => {
             if (currentTid) { clearTimeout(currentTid); currentTid = null; }
             try { if (current) current.kill('SIGTERM'); } catch (_) {}
+            if (on429CountdownNotify && on429CountdownNotify._socket === socket) on429CountdownNotify = null;
         });
         socket.on('error', () => {
             if (currentTid) { clearTimeout(currentTid); currentTid = null; }
             try { if (current) current.kill('SIGTERM'); } catch (_) {}
+            if (on429CountdownNotify && on429CountdownNotify._socket === socket) on429CountdownNotify = null;
         });
     });
 
@@ -4111,8 +4115,8 @@ function buildInteractiveEvalCode() {
         'process.argv[2]="--output-format";' +
         'process.argv[3]="stream-json";' +
         (fs.existsSync(MCP_CONFIG_FILE)
-            ? 'process.argv[4]="--mcp-config";process.argv[5]=' + JSON.stringify(MCP_CONFIG_FILE) + ';process.argv.length=6;'
-            : 'process.argv.length=4;') +
+            ? 'process.argv[4]="--mcp-config";process.argv[5]=' + JSON.stringify(MCP_CONFIG_FILE) + ';process.argv[6]="--dangerously-skip-permissions";process.argv.length=7;'
+            : 'process.argv[4]="--dangerously-skip-permissions";process.argv.length=5;') +
         'import(' + JSON.stringify(cliUrl) + ')' +
         '.catch(function(e){process.stderr.write("import-err:"+String(e)+"\\n");process.exit(1);});'
     );
@@ -4164,6 +4168,7 @@ function openPersistentSession() {
         on429CountdownNotify = function(delaySecs) {
             try { socket.write('\x1b]9;rate-limit:' + delaySecs + '\x07'); } catch(_) {}
         };
+        on429CountdownNotify._socket = socket;
 
         // Show spinner while claude boots; send agentic state and cwd
         const agenticOn = fs.existsSync(AGENTIC_FILE);
@@ -4448,8 +4453,14 @@ function openPersistentSession() {
         };
 
         socket.on('data', persistentDataHandler);
-        socket.on('close', () => { try { proc.kill('SIGHUP'); } catch(_) {} });
-        socket.on('error', () => { try { proc.kill('SIGHUP'); } catch(_) {} });
+        socket.on('close', () => {
+            try { proc.kill('SIGHUP'); } catch(_) {}
+            if (on429CountdownNotify && on429CountdownNotify._socket === socket) on429CountdownNotify = null;
+        });
+        socket.on('error', () => {
+            try { proc.kill('SIGHUP'); } catch(_) {}
+            if (on429CountdownNotify && on429CountdownNotify._socket === socket) on429CountdownNotify = null;
+        });
     });
 
     server.on('error', err => {
