@@ -13,8 +13,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -30,7 +28,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.draw.clip
 import coil.compose.SubcomposeAsyncImage
-import com.claudecodesetup.data.MalaysiaStatus
 import com.claudecodesetup.data.Provider
 import com.claudecodesetup.data.Providers
 import com.claudecodesetup.data.ProvidersRepository
@@ -48,62 +45,6 @@ fun SubscriptionScreen(onYes: () -> Unit, onNo: () -> Unit) {
         onPrimary = onYes,
         onSecondary = onNo,
         accentColor = Color(0xFF8B5CF6)
-    )
-}
-
-@Composable
-fun MalaysiaScreen(onYes: (Boolean) -> Unit, onNo: (Boolean) -> Unit) {
-    var dontAskAgain by remember { mutableStateOf(false) }
-    QuestionCard(
-        icon = "🌏",
-        question = "Are you in Malaysia?",
-        subtitle = "We'll recommend the best free provider for your region",
-        primaryLabel = "Yes, I'm in Malaysia",
-        secondaryLabel = "No, other country",
-        onPrimary = { onYes(dontAskAgain) },
-        onSecondary = { onNo(dontAskAgain) },
-        accentColor = Color(0xFF3B82F6),
-        extraContent = {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null
-                    ) { dontAskAgain = !dontAskAgain }
-                    .padding(top = 4.dp)
-            ) {
-                Checkbox(
-                    checked = dontAskAgain,
-                    onCheckedChange = { dontAskAgain = it },
-                    colors = CheckboxDefaults.colors(
-                        checkedColor = Color(0xFF3B82F6),
-                        uncheckedColor = Color(0xFF6B7280)
-                    )
-                )
-                Text(
-                    "Don't ask me again",
-                    fontFamily = DmSansFamily,
-                    fontSize = 13.sp,
-                    color = Color(0xFF9CA3AF)
-                )
-            }
-        }
-    )
-}
-
-@Composable
-fun GeminiRecommendScreen(onUseGemini: () -> Unit, onChoose: () -> Unit) {
-    QuestionCard(
-        icon = "✨",
-        question = "We recommend Google Gemini",
-        subtitle = "Works perfectly in Malaysia with 1500 free requests per day. Just need a Google account!",
-        primaryLabel = "Use Google Gemini",
-        secondaryLabel = "Let me choose",
-        onPrimary = onUseGemini,
-        onSecondary = onChoose,
-        accentColor = Color(0xFF10B981)
     )
 }
 
@@ -313,15 +254,6 @@ private fun ProviderCard(provider: Provider, onSelect: () -> Unit) {
                 }
             }
             Text(provider.rateLimit, fontFamily = DmSansFamily, fontSize = 11.sp, color = Color(0xFF6B7280))
-            val msEmoji = when (provider.malaysiaStatus) {
-                MalaysiaStatus.GREEN  -> "🟢"
-                MalaysiaStatus.YELLOW -> "🟡"
-                MalaysiaStatus.RED    -> "🔴"
-            }
-            Text(
-                "$msEmoji ${provider.malaysiaNote}", fontFamily = DmSansFamily,
-                fontSize = 10.sp, color = Color(0xFF9CA3AF)
-            )
             if (provider.warningNote != null) {
                 Text(
                     "⚠ ${provider.warningNote}", fontFamily = DmSansFamily,

@@ -48,8 +48,8 @@ object Providers {
         supportsLiveFetch = true,
         signupUrl = "https://build.nvidia.com/models",
         rateLimit = "40 req/min · Free forever",
-        malaysiaStatus = MalaysiaStatus.RED,
-        malaysiaNote = "SMS verification fails in Malaysia",
+        malaysiaStatus = MalaysiaStatus.GREEN,
+        malaysiaNote = "Works everywhere",
         baseUrl = "https://integrate.api.nvidia.com/v1",
         requiresProxy = true,
         models = listOf(

@@ -84,7 +84,7 @@ private fun AppRoot(
                 selectedProvider = Providers.ANTHROPIC
                 screen = "claude_auth"
             },
-            onNo = { screen = if (prefs.getSkipMalaysiaPrompt()) "providers" else "malaysia" }
+            onNo = { screen = "providers" }
         )
         "claude_auth" -> ClaudeAuthScreen(
             onLoginWithClaude = {
@@ -93,23 +93,12 @@ private fun AppRoot(
             onUseApiKey = { screen = "key" },
             onBack = { screen = "subscription" }
         )
-        "malaysia" -> MalaysiaScreen(
-            onYes = { skip -> if (skip) prefs.setSkipMalaysiaPrompt(true); screen = "gemini_recommend" },
-            onNo  = { skip -> if (skip) prefs.setSkipMalaysiaPrompt(true); screen = "providers" }
-        )
-        "gemini_recommend" -> GeminiRecommendScreen(
-            onUseGemini = {
-                selectedProvider = Providers.GEMINI
-                screen = "key"
-            },
-            onChoose = { screen = "providers" }
-        )
         "providers" -> ProviderListScreen(
             onSelect = { provider ->
                 selectedProvider = provider
                 screen = "key"
             },
-            onBack = { screen = "malaysia" }
+            onBack = { screen = "subscription" }
         )
         "key" -> ApiKeyScreen(
             provider = selectedProvider ?: Providers.GEMINI,
