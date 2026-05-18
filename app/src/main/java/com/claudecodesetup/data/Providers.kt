@@ -77,7 +77,7 @@ object Providers {
         baseUrl = "https://openrouter.ai/api/v1",
         requiresProxy = true,
         models = listOf(
-            AiModel("Kimi K2.5 ⭐",         "moonshotai/kimi-k2.5",                                setOf(Cap.TOOLS, Cap.VISION, Cap.LONG_CTX, Cap.FREE), "Best free pick · vision"),
+            AiModel("Kimi K2.5 ⭐",         "moonshotai/kimi-k2:free",                             setOf(Cap.TOOLS, Cap.VISION, Cap.LONG_CTX, Cap.FREE), "Best free pick · vision"),
             AiModel("GPT-OSS 120B",          "openai/gpt-oss-120b:free",                           setOf(Cap.TOOLS, Cap.FREE),                           "OpenAI open source"),
             AiModel("GPT-OSS 20B",           "openai/gpt-oss-20b:free",                            setOf(Cap.TOOLS, Cap.FAST, Cap.FREE),                 "Lightweight OpenAI"),
             AiModel("MiniMax M2.5",          "minimax/minimax-m2.5:free",                          setOf(Cap.TOOLS, Cap.FREE),                           "General chat"),
