@@ -1041,8 +1041,10 @@ function patchCliJsForAndroid(cliPath) {
     let n = 0;
 
     function rep(from, to) {
-        if (!src.includes(from)) return;
-        while (src.includes(from)) { src = src.replace(from, to); n++; }
+        const parts = src.split(from);
+        if (parts.length === 1) return;
+        n += parts.length - 1;
+        src = parts.join(to);
     }
 
     // Markdown text-processor (U54 block)
