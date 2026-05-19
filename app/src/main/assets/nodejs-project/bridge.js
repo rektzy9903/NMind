@@ -2459,6 +2459,26 @@ function openPersistentSession() {
         if (cfg.mode !== 'subscription') {
             try { fs.unlinkSync(path.join(FILES_DIR, '.claude', '.credentials.json')); } catch (_) {}
         }
+        // Re-patch settings.json before every spawn. claude-code can write back to
+        // settings.json during a session (e.g. when it records a rejected API key),
+        // so the one-time module-load patch is not enough — it must be re-applied
+        // each time to guarantee sk-ant-proxy000 is in approved and not in rejected.
+        try {
+            const sp = path.join(FILES_DIR, '.claude', 'settings.json');
+            let s = {};
+            try { s = JSON.parse(fs.readFileSync(sp, 'utf8')); } catch (_) {}
+            if (!s.customApiKeyResponses) s.customApiKeyResponses = { approved: [], rejected: [] };
+            if (!Array.isArray(s.customApiKeyResponses.approved)) s.customApiKeyResponses.approved = [];
+            if (!Array.isArray(s.customApiKeyResponses.rejected)) s.customApiKeyResponses.rejected = [];
+            if (!s.customApiKeyResponses.approved.includes('sk-ant-proxy000'))
+                s.customApiKeyResponses.approved.push('sk-ant-proxy000');
+            s.customApiKeyResponses.rejected =
+                s.customApiKeyResponses.rejected.filter(k => k !== 'sk-ant-proxy000');
+            s.hasCompletedOnboarding = true;
+            s.hasShownWelcome        = true;
+            s.skipWelcome            = true;
+            fs.writeFileSync(sp, JSON.stringify(s, null, 2));
+        } catch (_) {}
         const env  = buildEnv();
         const cols = String(cfg.ptyCols || 220);
         const rows = String(cfg.ptyRows || 50);
