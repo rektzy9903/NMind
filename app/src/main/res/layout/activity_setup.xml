@@ -23,7 +23,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="20dp"
-            android:text="Set Up Claude Code"
+            android:text="Set Up Nexus Mind"
             android:textColor="@color/text_primary"
             android:textSize="22sp"
             android:textStyle="bold"
@@ -117,7 +117,7 @@
                 android:progressTint="@color/accent_orange"
                 android:progressBackgroundTint="@color/surface" />
 
-            <!-- Install log — hidden, kept for debug reads in SetupActivity -->
+            <!-- Install log -->
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -126,16 +126,14 @@
                 android:text="INSTALL LOG"
                 android:textColor="@color/text_secondary"
                 android:textSize="11sp"
-                android:letterSpacing="0.1"
-                android:visibility="gone" />
+                android:letterSpacing="0.1" />
 
             <ScrollView
                 android:id="@+id/scrollTaskLog"
                 android:layout_width="match_parent"
-                android:layout_height="200dp"
+                android:layout_height="220dp"
                 android:background="@drawable/bg_provider_card"
-                android:scrollbars="vertical"
-                android:visibility="gone">
+                android:scrollbars="vertical">
 
                 <TextView
                     android:id="@+id/tvTaskLog"
@@ -225,13 +223,61 @@
                 android:textColor="@color/error_red"
                 android:textSize="14sp" />
 
-            <Button
-                android:id="@+id/btnRetry"
+            <!-- Log in error state so user can see what failed -->
+            <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:text="Try again"
-                android:backgroundTint="@color/accent_orange" />
+                android:layout_marginTop="14dp"
+                android:layout_marginBottom="4dp"
+                android:text="ERROR LOG"
+                android:textColor="@color/text_secondary"
+                android:textSize="11sp"
+                android:letterSpacing="0.1" />
+
+            <ScrollView
+                android:id="@+id/scrollErrorLog"
+                android:layout_width="match_parent"
+                android:layout_height="180dp"
+                android:background="@drawable/bg_provider_card"
+                android:scrollbars="vertical">
+
+                <TextView
+                    android:id="@+id/tvErrorLog"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:padding="12dp"
+                    android:fontFamily="monospace"
+                    android:textColor="@color/text_primary"
+                    android:textSize="11sp"
+                    android:lineSpacingMultiplier="1.5" />
+
+            </ScrollView>
+
+            <!-- Action buttons row -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="12dp">
+
+                <Button
+                    android:id="@+id/btnCopyLog"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="8dp"
+                    android:text="Copy Log"
+                    android:backgroundTint="@color/surface" />
+
+                <Button
+                    android:id="@+id/btnRetry"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Try Again"
+                    android:backgroundTint="@color/accent_orange" />
+
+            </LinearLayout>
 
         </LinearLayout>
 

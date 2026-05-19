@@ -1,10 +1,14 @@
 package com.claudecodesetup
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.view.View
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.claudecodesetup.data.AppPreferences
 import com.claudecodesetup.databinding.ActivitySetupBinding
@@ -65,6 +69,7 @@ class SetupActivity : AppCompatActivity() {
         binding.btnStartSetup.setOnClickListener { startSetup() }
         binding.btnRetry.setOnClickListener      { startSetup() }
         binding.btnContinue.setOnClickListener   { proceedToNext() }
+        binding.btnCopyLog.setOnClickListener    { copyLogToClipboard() }
     }
 
     override fun onResume() {
@@ -114,6 +119,16 @@ class SetupActivity : AppCompatActivity() {
         binding.layoutWaiting.visibility = View.GONE
         binding.layoutError.visibility   = View.VISIBLE
         binding.tvErrorMsg.text          = msg
+        val log = bridge.readSetupLog()
+        binding.tvErrorLog.text = log
+        binding.scrollErrorLog.post { binding.scrollErrorLog.fullScroll(View.FOCUS_DOWN) }
+    }
+
+    private fun copyLogToClipboard() {
+        val log = bridge.readSetupLog().ifEmpty { binding.tvErrorLog.text.toString() }
+        val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        cm.setPrimaryClip(ClipData.newPlainText("Setup Log", log))
+        Toast.makeText(this, "Log copied to clipboard", Toast.LENGTH_SHORT).show()
     }
 
     // ─── Setup flow ───────────────────────────────────────────────────────────
