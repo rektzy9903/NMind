@@ -76,7 +76,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .llama-cache
-          key: llama-server-b5188-arm64
+          key: llama-server-b5188-arm64-nocurl
 
       - name: Build llama-server
         run: |
