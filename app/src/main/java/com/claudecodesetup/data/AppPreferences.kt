@@ -113,6 +113,9 @@ class AppPreferences(context: Context) {
     fun getProviderRemoteUrl(): String = prefs.getString(KEY_PROVIDER_REMOTE_URL, "") ?: ""
     fun setProviderRemoteUrl(url: String) = prefs.edit().putString(KEY_PROVIDER_REMOTE_URL, url).apply()
 
+    fun getPtyMode(): Boolean = prefs.getBoolean("pty_mode", false)
+    fun setPtyMode(on: Boolean) = prefs.edit().putBoolean("pty_mode", on).apply()
+
     fun getPtyCols(): Int = prefs.getInt("pty_cols", 220)
     fun setPtyCols(cols: Int) = prefs.edit().putInt("pty_cols", cols).apply()
 
