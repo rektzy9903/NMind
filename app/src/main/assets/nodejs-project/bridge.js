@@ -1880,6 +1880,10 @@ function buildEnv() {
         LANG: 'en_US.UTF-8',
         LINES: '50',
         COLUMNS: '160',
+        // Bypass the "do you trust this folder?" prompt. pE_() in cli.js returns
+        // true immediately when CLAUDE_CODE_SANDBOXED is set, skipping the
+        // per-directory hasTrustDialogAccepted check in settings.json entirely.
+        CLAUDE_CODE_SANDBOXED: '1',
         // Include npm-global bin and a bundled-binaries dir (for future git/gh bundles)
         // FILES_DIR/bin first so our claude/node wrappers take precedence over npm bin scripts
         PATH: (process.env.PATH || '/system/bin:/system/xbin') +
@@ -2612,6 +2616,9 @@ function openPersistentSession() {
                 s.customApiKeyResponses.approved.push('sk-ant-proxy000');
             s.customApiKeyResponses.rejected =
                 s.customApiKeyResponses.rejected.filter(k => k !== 'sk-ant-proxy000');
+            // theme must be truthy or claude-code runs the full onboarding
+            // regardless of hasCompletedOnboarding (both checks are OR'd in cli.js)
+            if (!s.theme) s.theme = 'dark';
             s.hasCompletedOnboarding = true;
             s.hasShownWelcome        = true;
             s.skipWelcome            = true;
