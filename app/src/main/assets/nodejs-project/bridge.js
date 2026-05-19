@@ -1891,31 +1891,17 @@ function buildEnv() {
     } else {
         // Proxy mode: all claude-code traffic goes to our local proxy on port 8082.
         //
-        // IMPORTANT: we must use ANTHROPIC_API_KEY (not ANTHROPIC_AUTH_TOKEN) and
-        // it must start with 'sk-ant-'. Here's why:
+        // ANTHROPIC_API_KEY must start with 'sk-ant-' — claude-code v2.1.112 validates
+        // the format before any network call. The proxy ignores the Bearer token it
+        // receives and uses cfg.apiKey (the real provider key) for outbound requests.
         //
-        // 1. claude-code v2.1.112 validates that ANTHROPIC_API_KEY starts with
-        //    'sk-ant-' before any network call. A provider key (sk-or-..., AIza...)
-        //    fails that check → silent exit code 1 with zero output.
-        //
-        // 2. ANTHROPIC_AUTH_TOKEN triggers claude-code's OAuth session-validation
-        //    path. It calls auth/account endpoints expecting specific JSON fields
-        //    (user_id, session data). Our proxy returns {} for unknown endpoints,
-        //    which fails the validation → silent exit code 1 with zero output.
-        //
-        // Solution: use a fake 'sk-ant-' key that passes format check and avoids
-        // OAuth. The proxy ignores the Bearer token claude-code sends; it always
-        // uses cfg.apiKey to authenticate with the real provider.
+        // Do NOT set CLAUDE_CODE_OAUTH_TOKEN alongside this — that triggers an auth
+        // conflict check in claude-code which shows a warning, displays the welcome
+        // banner, and drops into an interactive login flow. The customApiKeyResponses
+        // approval list (patched in settings.json below) is what makes claude-code
+        // accept this key silently without showing the login selector.
         env.ANTHROPIC_API_KEY  = 'sk-ant-proxy000';
         env.ANTHROPIC_BASE_URL = cfg.baseUrl || 'http://127.0.0.1:8082';
-        // In PTY/interactive mode, claude-code's hasToken check (xb()) does NOT look at
-        // ANTHROPIC_API_KEY — it only checks ANTHROPIC_AUTH_TOKEN, CLAUDE_CODE_OAUTH_TOKEN,
-        // or a credentials file. Without one of these it shows the "Select login method"
-        // interactive selector that blocks the terminal. Setting CLAUDE_CODE_OAUTH_TOKEN
-        // to a dummy value makes xb() return hasToken:true immediately, skipping the selector.
-        // The proxy ignores whatever Bearer token claude-code sends; this value never hits
-        // the real provider.
-        env.CLAUDE_CODE_OAUTH_TOKEN = 'proxy-bypass-token';
     }
 
     // In subscription mode, pass the real model. In proxy mode, claude-code validates

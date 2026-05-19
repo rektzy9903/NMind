@@ -293,9 +293,11 @@ async function runClaudeSession(cliJs, tmpDir) {
   console.log('\n── Step 3: spawn Claude Code --print (same as bridge.js) ──');
 
   // Mirror bridge.js exactly: same env vars, same -e evalCode bootstrap.
-  // ANTHROPIC_MODEL must be a valid Claude model name — bridge.js always sets this
-  // to 'claude-3-5-sonnet-20241022' in proxy mode so claude-code passes its internal
-  // model-name validation before making any API call.
+  // ANTHROPIC_API_KEY must start with 'sk-ant-' — claude-code validates the format.
+  // Do NOT set CLAUDE_CODE_OAUTH_TOKEN alongside it — that triggers an auth-conflict
+  // check that shows the banner and drops into an interactive login flow.
+  // customApiKeyResponses in settings.json (patched by bridge.js) is what makes
+  // claude-code accept sk-ant-proxy000 silently without showing the login selector.
   const message = 'hello claude';
   const env = {
     HOME: tmpDir,
