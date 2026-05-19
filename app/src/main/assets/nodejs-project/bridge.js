@@ -2553,12 +2553,26 @@ function openPersistentSession() {
             return;
         }
 
+        // Arrow keys and other escape sequences: forward raw to PTY immediately
+        // (before line-buffering) so interactive TUI menus respond to navigation.
+        if (d.length <= 6 && d[0] === 0x1b && proc && proc.stdin.writable) {
+            try { proc.stdin.write(d); } catch(_) {}
+            return;
+        }
+
         state.inputBuf += raw;
         let nl;
         while ((nl = state.inputBuf.search(/[\r\n]/)) !== -1) {
             const line = state.inputBuf.slice(0, nl).replace(/[\x00-\x08\x0b-\x1f\x7f]/g, '').trim();
             state.inputBuf = state.inputBuf.slice(nl + 1);
-            if (!line) continue;
+            // Empty Enter: forward \r\n directly so interactive TUI prompts (theme
+            // picker, y/n confirmations) receive the keypress and advance.
+            if (!line) {
+                if (!state.busy && proc && proc.stdin.writable) {
+                    try { proc.stdin.write('\r\n'); } catch(_) {}
+                }
+                continue;
+            }
 
             if (state.busy) {
                 try { if (state.socket) state.socket.write('\x1b[33m[busy — please wait]\x1b[0m\r\n'); } catch(_) {}
