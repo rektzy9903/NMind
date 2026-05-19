@@ -225,6 +225,35 @@ class ClaudeService : LifecycleService() {
     ) = withContext(Dispatchers.IO) {
         val currentMode = mode ?: prefs.getLoginMode()
 
+        // Auto-start llama-server when using local AI provider (e.g. after app restart)
+        if (prefs.getProviderId() == "local_llama") {
+            val llamaMgr = LlamaServerManager.get(this@ClaudeService)
+            if (!llamaMgr.isServerRunning()) {
+                if (!llamaMgr.isBinaryAvailable()) {
+                    val err = "\r\n[31m[Local AI] libllamaserver.so not found — this build doesn't include on-device AI.[0m\r\n"
+                    session.appendOutput(err); onOutput?.invoke(session.id, err)
+                    session.alive = false; onSessionEnded?.invoke(session.id)
+                    updateNotificationSessionCount(); return@withContext
+                }
+                val modelId = prefs.getModelId()
+                val modelFile = llamaMgr.modelFile(modelId)
+                if (!modelFile.exists()) {
+                    val err = "\r\n[31m[Local AI] Model '$modelId' not found. Open Personal AI to download it.[0m\r\n"
+                    session.appendOutput(err); onOutput?.invoke(session.id, err)
+                    session.alive = false; onSessionEnded?.invoke(session.id)
+                    updateNotificationSessionCount(); return@withContext
+                }
+                updateNotification("Starting local AI server…")
+                llamaMgr.startServer(modelId)
+                if (!llamaMgr.waitUntilReady(30_000L)) {
+                    val err = "\r\n[31m[Local AI] Server failed to start. Try re-loading the model in Personal AI.[0m\r\n"
+                    session.appendOutput(err); onOutput?.invoke(session.id, err)
+                    session.alive = false; onSessionEnded?.invoke(session.id)
+                    updateNotificationSessionCount(); return@withContext
+                }
+            }
+        }
+
         // Start/refresh the Node.js bridge once per service lifecycle.
         // Always refresh config so model/key changes from Settings take effect.
         if (!bridgeStartedThisSession) {

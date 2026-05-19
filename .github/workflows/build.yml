@@ -61,16 +61,29 @@ jobs:
           restore-keys: |
             gradle-
 
-      # ── 6. Make gradlew executable ───────────────────────────────────────────
+      # ── 6. Make scripts executable ───────────────────────────────────────────
       - name: Make gradlew executable
-        run: chmod +x gradlew
+        run: chmod +x gradlew && chmod +x scripts/build-llamaserver.sh
 
       # ── 7. Install NDK ───────────────────────────────────────────────────────
       - name: Install NDK 25.1.8937393
         run: |
           echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "ndk;25.1.8937393"
 
-      # ── 8. Build debug APK ───────────────────────────────────────────────────
+      # ── 8. Build llama-server for Android ARM64 ─────────────────────────────
+      - name: Cache llama-server binary
+        id: cache-llama
+        uses: actions/cache@v4
+        with:
+          path: .llama-cache
+          key: llama-server-b5188-arm64
+
+      - name: Build llama-server
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/25.1.8937393
+        run: ./scripts/build-llamaserver.sh
+
+      # ── 9. Build debug APK ───────────────────────────────────────────────────
       - name: Build debug APK
         run: ./gradlew assembleDebug --no-daemon --stacktrace
 

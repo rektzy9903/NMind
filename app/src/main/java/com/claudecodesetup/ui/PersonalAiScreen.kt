@@ -59,15 +59,15 @@ private val CATALOG = listOf(
         description = "Lightest model, basic tasks",
         sizeLabel = "~400 MB",
         ramGb = 1,
-        downloadUrl = "https://huggingface.co/Qwen/Qwen3-0.6B-GGUF/resolve/main/qwen3-0.6b-q4_k_m.gguf"
+        downloadUrl = "https://huggingface.co/lmstudio-community/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q4_K_M.gguf"
     ),
     LocalModel(
-        id = "qwen3-1.5b",
-        name = "Qwen3 1.5B",
+        id = "smollm2-1.7b",
+        name = "SmolLM2 1.7B",
         description = "Fast, everyday tasks",
         sizeLabel = "~1.1 GB",
         ramGb = 2,
-        downloadUrl = "https://huggingface.co/Qwen/Qwen3-1.5B-GGUF/resolve/main/qwen3-1.5b-q4_k_m.gguf"
+        downloadUrl = "https://huggingface.co/bartowski/SmolLM2-1.7B-Instruct-GGUF/resolve/main/SmolLM2-1.7B-Instruct-Q4_K_M.gguf"
     ),
     LocalModel(
         id = "llama3.2-1b",
@@ -83,7 +83,7 @@ private val CATALOG = listOf(
         description = "Great balance, reasoning",
         sizeLabel = "~2.6 GB",
         ramGb = 4,
-        downloadUrl = "https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/main/qwen3-4b-q4_k_m.gguf"
+        downloadUrl = "https://huggingface.co/lmstudio-community/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q4_K_M.gguf"
     ),
     LocalModel(
         id = "llama3.2-3b",
@@ -99,7 +99,7 @@ private val CATALOG = listOf(
         description = "Microsoft, smart & compact",
         sizeLabel = "~2.5 GB",
         ramGb = 4,
-        downloadUrl = "https://huggingface.co/bartowski/phi-4-mini-instruct-GGUF/resolve/main/phi-4-mini-instruct-Q4_K_M.gguf"
+        downloadUrl = "https://huggingface.co/lmstudio-community/Phi-4-mini-instruct-GGUF/resolve/main/Phi-4-mini-instruct-Q4_K_M.gguf"
     ),
     LocalModel(
         id = "qwen3-8b",
@@ -107,7 +107,7 @@ private val CATALOG = listOf(
         description = "High quality flagship",
         sizeLabel = "~5.2 GB",
         ramGb = 8,
-        downloadUrl = "https://huggingface.co/Qwen/Qwen3-8B-GGUF/resolve/main/qwen3-8b-q4_k_m.gguf"
+        downloadUrl = "https://huggingface.co/lmstudio-community/Qwen3-8B-GGUF/resolve/main/Qwen3-8B-Q4_K_M.gguf"
     ),
     LocalModel(
         id = "llama3.1-8b",

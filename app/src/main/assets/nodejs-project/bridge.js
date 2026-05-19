@@ -2420,10 +2420,12 @@ function buildInteractiveEvalCode() {
     // --output-format stream-json is intentionally omitted: that flag is only
     // valid with --print; in interactive mode claude rejects it and exits 1.
     // We forward raw PTY bytes to the socket (ANSI TUI relay) instead.
+    // argv[0] = launcher, argv[1] = CLAUDE_CLI (set below). Claude parses from
+    // argv[2] onward — no sparse slots or it will hit undefined and exit 1.
     const argvCode = hasMcp
-        ? 'process.argv[4]="--mcp-config";process.argv[5]=' + JSON.stringify(MCP_CONFIG_FILE) +
-          ';process.argv[6]="--dangerously-skip-permissions";process.argv.length=7;'
-        : 'process.argv[4]="--dangerously-skip-permissions";process.argv.length=5;';
+        ? 'process.argv[2]="--mcp-config";process.argv[3]=' + JSON.stringify(MCP_CONFIG_FILE) +
+          ';process.argv[4]="--dangerously-skip-permissions";process.argv.length=5;'
+        : 'process.argv[2]="--dangerously-skip-permissions";process.argv.length=3;';
     return (
         'process.on("exit",function(c){' +
         'try{require("fs").appendFileSync(' + exitLog + ',"[exit] "+c+"\\n");}catch(_){}}); ' +
@@ -2454,10 +2456,8 @@ function openPersistentSession() {
     };
 
     // ── Proc factory ─────────────────────────────────────────────────────────
-    // Returns null when ptyMode is off — print mode spawns per-message instead.
     function spawnProc(cwd) {
         const cfg  = readConfig();
-        if (!cfg.ptyMode) return null;
         const env  = buildEnv();
         const cols = String(cfg.ptyCols || 220);
         const rows = String(cfg.ptyRows || 50);
@@ -2542,17 +2542,10 @@ function openPersistentSession() {
 
         const raw = d.toString();
 
-        // Ctrl+C: send interrupt; leave busy for result event to clear
+        // Ctrl+C: send interrupt to claude's stdin
         if (raw.includes('\x03')) {
-            if (state.busy) {
-                if (proc && proc.stdin.writable) {
-                    try { proc.stdin.write('\x03'); } catch(_) {}
-                } else if (state._printProc) {
-                    try { state._printProc.kill('SIGTERM'); } catch(_) {}
-                    state._printProc = null;
-                    state.busy = false;
-                    try { if (state.socket) state.socket.write('\x1b]9;thinking-done\x07'); } catch(_) {}
-                }
+            if (state.busy && proc && proc.stdin.writable) {
+                try { proc.stdin.write('\x03'); } catch(_) {}
                 try { if (state.socket) state.socket.write('\r\n\x1b[33m^C — interrupted\x1b[0m\r\n'); } catch(_) {}
                 if (state.currentTid) { clearTimeout(state.currentTid); state.currentTid = null; }
             }
@@ -2727,143 +2720,15 @@ function openPersistentSession() {
                     try { if (state.socket) state.socket.write('\x1b]9;thinking-done\x07\r\n\x1b[31m✗ Timed out (60 s). Response interrupted.\x1b[0m\r\n'); } catch(_) {}
                     state.currentTid = null;
                 }, 60000);
-            } else {
-                // Print mode (default): spawn a fresh claude --print process per message
-                runPrintMessage(msg, state);
             }
         }
-    }
-
-    // ── Per-message print mode (default when ptyMode is off) ─────────────────
-    // Spawns claude --print --verbose for one message, parses stream-json output,
-    // then forwards text/tool events to the socket and clears busy on result.
-    function runPrintMessage(msg, state) {
-        const cfg = readConfig();
-        const env = buildEnv();
-        const hasMcp = fs.existsSync(MCP_CONFIG_FILE);
-        const cliUrl = JSON.stringify('file://' + CLAUDE_CLI);
-
-        // Build history prefix so claude sees prior turns in this session
-        const MAX_HIST = 20;
-        const hist = (state.history || []).slice(-MAX_HIST);
-        const prefix = hist.map(h => 'Human: ' + h.u + '\n\nAssistant: ' + h.a).join('\n\n');
-        const fullMsg = prefix ? prefix + '\n\nHuman: ' + msg : msg;
-
-        const argvCode = hasMcp
-            ? 'process.argv[4]="--mcp-config";process.argv[5]=' + JSON.stringify(MCP_CONFIG_FILE) +
-              ';process.argv[6]="--dangerously-skip-permissions";process.argv[7]="--print";process.argv[8]="--verbose";process.argv[9]=' + JSON.stringify(fullMsg) + ';process.argv.length=10;'
-            : 'process.argv[4]="--dangerously-skip-permissions";process.argv[5]="--print";process.argv[6]="--verbose";process.argv[7]=' + JSON.stringify(fullMsg) + ';process.argv.length=8;';
-
-        const code =
-            regexpShim +
-            intlShim +
-            'process.argv[1]=' + JSON.stringify(CLAUDE_CLI) + ';' +
-            'process.argv[2]="--output-format";' +
-            'process.argv[3]="stream-json";' +
-            argvCode +
-            'import(' + cliUrl + ').catch(function(e){process.stderr.write("import-err:"+String(e)+"\\n");process.exit(1);});';
-
-        state.busy = true;
-        state.thinkingDone = false;
-        try { if (state.socket) state.socket.write('\x1b]9;thinking-start\x07'); } catch(_) {}
-
-        const child = spawn(LAUNCHER, ['-e', code], { env, cwd: state.cwd });
-        state._printProc = child;
-
-        let stdoutBuf = '';
-        let fullResponse = '';
-
-        child.stdout.on('data', chunk => {
-            stdoutBuf += chunk.toString();
-            const lines = stdoutBuf.split('\n');
-            stdoutBuf = lines.pop();
-            for (const raw of lines) {
-                if (!raw.trim()) continue;
-                const ji = raw.indexOf('{');
-                if (ji < 0) continue;
-                let ev;
-                try { ev = JSON.parse(raw.slice(ji)); } catch(_) { continue; }
-
-                if (!state.thinkingDone) {
-                    state.thinkingDone = true;
-                    try { if (state.socket) state.socket.write('\x1b]9;thinking-done\x07'); } catch(_) {}
-                }
-
-                if (ev.type === 'assistant') {
-                    for (const block of (ev.message && ev.message.content) || []) {
-                        if (block.type === 'text' && block.text) {
-                            fullResponse += block.text;
-                            try { if (state.socket) state.socket.write(block.text); } catch(_) {}
-                        } else if (block.type === 'thinking' && block.thinking) {
-                            const enc = Buffer.from(block.thinking.slice(0, 3000)).toString('base64');
-                            try { if (state.socket) state.socket.write('\x1b]9;think-block:' + enc + '\x07'); } catch(_) {}
-                        } else if (block.type === 'tool_use') {
-                            const preview = block.input ? JSON.stringify(block.input).slice(0, 120) : '';
-                            try { if (state.socket) state.socket.write('\x1b[36m▶ ' + (block.name || 'tool') + '\x1b[0m ' + preview + '\r\n'); } catch(_) {}
-                        }
-                    }
-                }
-
-                if (ev.type === 'result') {
-                    if (ev.usage && ev.usage.input_tokens) state.sessionTokens = ev.usage.input_tokens;
-                    // Save this turn to history
-                    if (!state.history) state.history = [];
-                    state.history.push({ u: msg, a: fullResponse });
-                    if (state.history.length > MAX_HIST) state.history.shift();
-                    fullResponse = '';
-                    state.busy = false;
-                    state.thinkingDone = false;
-                    state._printProc = null;
-                    if (state.currentTid) { clearTimeout(state.currentTid); state.currentTid = null; }
-                    try { if (state.socket) state.socket.write('\x1b]9;thinking-done\x07'); } catch(_) {}
-                    try { if (state.socket) state.socket.write('\x1b]9;tokens:' + state.sessionTokens + '\x07'); } catch(_) {}
-                }
-            }
-        });
-
-        child.stderr.on('data', d => {
-            const s = d.toString();
-            if (/^\[(eval-ok|import-resolved|exit-event|unhandledRejection|regex-compat|intl-shim)\]/.test(s.trim())) return;
-            if (/429|rate.?limit/i.test(s)) {
-                lastRateLimitMs = Date.now();
-                try { if (state.socket) state.socket.write('\x1b]9;thinking-done\x07\r\n\x1b[33m⚠ Rate limited (HTTP 429) — proxy is retrying.\x1b[0m\r\n\x1b[2mSwitch to a model with higher limits, or wait.\x1b[0m\r\n'); } catch(_) {}
-            } else {
-                try { if (state.socket) state.socket.write('\x1b[33m' + s + '\x1b[0m'); } catch(_) {}
-            }
-        });
-
-        child.on('close', code => {
-            state._printProc = null;
-            if (state.currentTid) { clearTimeout(state.currentTid); state.currentTid = null; }
-            if (state.busy) {
-                state.busy = false;
-                state.thinkingDone = false;
-                const rateLimited = (Date.now() - lastRateLimitMs) < 30000;
-                const hint = code !== 0
-                    ? (rateLimited
-                        ? '\x1b[33m⚠ Rate limited. Wait 30–60 s or switch model.\x1b[0m\r\n'
-                        : '\x1b[31m[error] Claude exited (code ' + code + '). Check !log for details.\x1b[0m\r\n')
-                    : '';
-                try { if (state.socket) state.socket.write('\x1b]9;thinking-done\x07' + (hint ? '\r\n' + hint : '')); } catch(_) {}
-            }
-        });
-
-        state.currentTid = setTimeout(() => {
-            try { child.kill('SIGTERM'); } catch(_) {}
-            state._printProc = null;
-            state.busy = false;
-            try { if (state.socket) state.socket.write('\x1b]9;thinking-done\x07\r\n\x1b[31m✗ Timed out (60 s). Response interrupted.\x1b[0m\r\n'); } catch(_) {}
-            state.currentTid = null;
-        }, 60000);
     }
 
     // ── Attach/reattach a socket to a session ─────────────────────────────────
     function attachSession(sid, socket, leftover) {
         let state = activeSessions.get(sid);
         const cfg0 = readConfig();
-        // In PTY mode: session is new when proc is dead. In print mode: session is
-        // new only when state doesn't exist yet (proc is always null, so we can't use it).
-        const isNew = !state || (cfg0.ptyMode && (!state.proc || state.proc.exitCode !== null));
+        const isNew = !state || !state.proc || state.proc.exitCode !== null;
 
         if (isNew) {
             const cfg = readConfig();
