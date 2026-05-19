@@ -148,6 +148,7 @@ function patchCliJsForAndroid(cliPath) {
     rep('function Tq1(){return new RegExp("^(\\\\p{Extended_Pictographic}|\\\\p{Emoji_Component})+$","u")}',
         'function Tq1(){try{return new RegExp("^(\\\\p{Extended_Pictographic}|\\\\p{Emoji_Component})+$","u")}' +
         'catch(_e){return /[\\uD83C-\\uDBFF\\uDC00-\\uDFFF\\u2600-\\u27BF\\u2300-\\u23FF]/}}');
+    rep('function Cm6(){', 'function Cm6(){return null;}function _Cm6_orig(){');
     try { fs.writeFileSync(cliPath, src); } catch (e) {
         console.warn('  Patch write failed: ' + e.message); return 0;
     }

@@ -1072,6 +1072,11 @@ function patchCliJsForAndroid(cliPath) {
         'function Tq1(){try{return new RegExp("^(\\\\p{Extended_Pictographic}|\\\\p{Emoji_Component})+$","u")}' +
         'catch(_e){return /[\\uD83C-\\uDBFF\\uDC00-\\uDFFF\\u2600-\\u27BF\\u2300-\\u23FF]/}}');
 
+    // Remove the "Welcome to Claude Code" banner that is rendered unconditionally
+    // at the top of every TUI layout. The function is unique (s(35) hook, Zq() theme).
+    // Replacing it with a no-op removes the banner from all sessions and reconnects.
+    rep('function Cm6(){', 'function Cm6(){return null;}function _Cm6_orig(){');
+
     try { fs.writeFileSync(cliPath, src); } catch (e) {
         log('Patch write failed: ' + e.message + '\n'); return;
     }
