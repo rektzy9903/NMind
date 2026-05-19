@@ -242,6 +242,7 @@ class NodeBridgeManager(private val context: Context) {
             put("modelList",          modelList)
             put("projectPath",        projectPath)
             put("customSystemPrompt", customSystemPrompt)
+            put("ptyMode",            prefs?.getPtyMode() ?: false)
             put("ptyCols",            prefs?.getPtyCols() ?: 220)
             put("ptyRows",            prefs?.getPtyRows() ?: 50)
             put("localToken",         localToken)

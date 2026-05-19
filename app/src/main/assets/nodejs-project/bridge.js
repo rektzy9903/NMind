@@ -168,8 +168,8 @@ const HOST               = '127.0.0.1';
 
 // ─── Eval bootstrap shims ─────────────────────────────────────────────────────
 // These are injected as strings into every LAUNCHER -e evalCode bootstrap,
-// before import(cli.js). Defined at module scope so both the PTY session and
-// the !test-cli diagnostic handler can reference them without a ReferenceError.
+// before import(cli.js). Defined at module scope so all session types can
+// reference them without a ReferenceError.
 
 // Runtime RegExp shim: catches dynamic new RegExp(p,'u') with \p{} patterns
 // that nodejs-mobile v18 V8 doesn't support. Logs pattern, falls back to /(?:)/.
@@ -2344,7 +2344,7 @@ function installPackage(name, socket) {
                     'export GIT_EXEC_PATH="' + path.join(destDir, 'libexec', 'git-core') + '"\n' +
                     'export GIT_TEMPLATE_DIR="' + path.join(destDir, 'share', 'git-core', 'templates') + '"\n');
                 try { socket.write('\x1b[32m✓ git installed.\x1b[0m Run \x1b[33m$ git --version\x1b[0m\r\n' +
-                    '\x1b[2mFor HTTPS push/pull: !gh-auth <token>\x1b[0m\r\n\r\n'); } catch(_) {}
+                    '\x1b[2mFor HTTPS auth: git config credential.helper store\x1b[0m\r\n\r\n'); } catch(_) {}
             } else if (pkg.post === 'ssh-termux') {
                 const sshBinDir = path.join(destDir, 'bin');
                 for (const b of ['ssh', 'scp', 'sftp', 'ssh-keygen', 'ssh-add', 'ssh-agent']) {
@@ -2413,27 +2413,17 @@ function installPackage(name, socket) {
 // Build the bootstrap eval string for interactive mode.
 // No --print flag, no message in argv — stdin stays open so the user can
 // send multiple turns to one persistent process.
-function buildInteractiveEvalCode(resumeId) {
+function buildInteractiveEvalCode() {
     const cliUrl  = 'file://' + CLAUDE_CLI;
     const exitLog = JSON.stringify(path.join(FILES_DIR, 'session_exit.log'));
     const hasMcp  = fs.existsSync(MCP_CONFIG_FILE);
-    let argvCode;
-    if (hasMcp && resumeId) {
-        argvCode = 'process.argv[4]="--mcp-config";process.argv[5]=' + JSON.stringify(MCP_CONFIG_FILE) + ';' +
-                   'process.argv[6]="--resume";process.argv[7]=' + JSON.stringify(resumeId) + ';' +
-                   'process.argv[8]="--dangerously-skip-permissions";process.argv.length=9;';
-    } else if (hasMcp) {
-        argvCode = 'process.argv[4]="--mcp-config";process.argv[5]=' + JSON.stringify(MCP_CONFIG_FILE) + ';' +
-                   'process.argv[6]="--dangerously-skip-permissions";process.argv.length=7;';
-    } else if (resumeId) {
-        argvCode = 'process.argv[4]="--resume";process.argv[5]=' + JSON.stringify(resumeId) + ';' +
-                   'process.argv[6]="--dangerously-skip-permissions";process.argv.length=7;';
-    } else {
-        argvCode = 'process.argv[4]="--dangerously-skip-permissions";process.argv.length=5;';
-    }
-    // Note: --output-format stream-json is intentionally omitted here.
-    // In interactive (non-print) mode claude-code rejects that flag and exits 1.
-    // We use raw PTY relay instead — stdout bytes are forwarded directly to the socket.
+    // --output-format stream-json is intentionally omitted: that flag is only
+    // valid with --print; in interactive mode claude rejects it and exits 1.
+    // We forward raw PTY bytes to the socket (ANSI TUI relay) instead.
+    const argvCode = hasMcp
+        ? 'process.argv[4]="--mcp-config";process.argv[5]=' + JSON.stringify(MCP_CONFIG_FILE) +
+          ';process.argv[6]="--dangerously-skip-permissions";process.argv.length=7;'
+        : 'process.argv[4]="--dangerously-skip-permissions";process.argv.length=5;';
     return (
         'process.on("exit",function(c){' +
         'try{require("fs").appendFileSync(' + exitLog + ',"[exit] "+c+"\\n");}catch(_){}}); ' +
@@ -2465,13 +2455,13 @@ function openPersistentSession() {
 
     // ── Proc factory ─────────────────────────────────────────────────────────
     // Returns null when ptyMode is off — print mode spawns per-message instead.
-    function spawnProc(cwd, resumeId) {
+    function spawnProc(cwd) {
         const cfg  = readConfig();
         if (!cfg.ptyMode) return null;
         const env  = buildEnv();
         const cols = String(cfg.ptyCols || 220);
         const rows = String(cfg.ptyRows || 50);
-        const code = buildInteractiveEvalCode(resumeId);
+        const code = buildInteractiveEvalCode();
         return fs.existsSync(PTY_HELPER)
             ? spawn(PTY_HELPER, [cols, rows, LAUNCHER, '-e', code], { env, cwd })
             : spawn(LAUNCHER, ['-e', code], { env, cwd });
@@ -2605,8 +2595,6 @@ function openPersistentSession() {
                 state.history       = [];
                 state.busy          = false;
                 state.thinkingDone  = false;
-                // Clear resume file — after /clear the old session_id is no longer valid
-                try { fs.unlinkSync(path.join(FILES_DIR, 'session_' + state.sid + '_resume')); } catch(_) {}
                 try { if (state.socket) state.socket.write('\x1b]9;tokens:0\x07'); } catch(_) {}
                 try { if (state.socket) state.socket.write('\x1b]9;thinking-done\x07'); } catch(_) {}
                 try { if (state.socket) state.socket.write('\x1b[2m[history cleared]\x1b[0m\r\n'); } catch(_) {}
@@ -2880,13 +2868,8 @@ function openPersistentSession() {
         if (isNew) {
             const cfg = readConfig();
             const cwd = cfg.projectPath || FILES_DIR;
-            let resumeId;
-            try {
-                const rf = path.join(FILES_DIR, 'session_' + sid + '_resume');
-                if (fs.existsSync(rf)) resumeId = fs.readFileSync(rf, 'utf8').trim() || undefined;
-            } catch(_) {}
             let proc = null;
-            try { proc = spawnProc(cwd, resumeId); }
+            try { proc = spawnProc(cwd); }
             catch(e) {
                 try { socket.write('\x1b[31m[PTY] Failed to start claude: ' + e.message + '\x1b[0m\r\n'); socket.end(); } catch(_) {}
                 return;
@@ -2894,10 +2877,9 @@ function openPersistentSession() {
             state = {
                 proc, socket: null,
                 busy: false, thinkingDone: false,
-                stdoutBuf: '', currentTid: null,
+                currentTid: null,
                 inputBuf: '', contextBlock: '', pendingAttach: null,
                 sessionTokens: 0,
-                initDone: false, initSuppressResult: false,
                 ptyProc: null, idleTimer: null,
                 history: [],
                 cwd, sid
@@ -2933,12 +2915,15 @@ function openPersistentSession() {
             if (state.socket === socket) {
                 state.socket = null;
                 if (state.ptyProc) { try { state.ptyProc.kill(); } catch(_) {} state.ptyProc = null; }
-                state.idleTimer = setTimeout(() => {
-                    try { state.proc.kill('SIGHUP'); } catch(_) {}
+                if (state.proc) {
+                    state.idleTimer = setTimeout(() => {
+                        try { state.proc.kill('SIGHUP'); } catch(_) {}
+                        activeSessions.delete(sid);
+                    }, PTY_IDLE_MS);
+                } else {
                     activeSessions.delete(sid);
-                }, PTY_IDLE_MS);
+                }
             }
-            if (on429CountdownNotify && on429CountdownNotify._socket === socket) on429CountdownNotify = null;
         });
         socket.on('error', () => { try { socket.destroy(); } catch(_) {} });
     }
