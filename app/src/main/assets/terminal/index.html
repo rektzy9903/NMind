@@ -707,9 +707,12 @@ function get256Color(n){
 }
 
 // ── ANSI state factory ────────────────────────────────────────────────────────
+// lines is an array of rows; each row is an array of cell objects {ch, a}
+// where a is an attrs snapshot. This allows ansiPutChar to overwrite at the
+// exact cursor column instead of always appending to the end of a string.
 function makeAnsiState(){
   return {
-    attrs:resetAttrs(), lines:[''], curRow:0, curCol:0,
+    attrs:resetAttrs(), lines:[[]], curRow:0, curCol:0,
     savedCursor:{row:0,col:0},
     escState:'normal', csiParams:'', csiIntermediate:'', oscBuf:''
   };
@@ -718,6 +721,33 @@ function makeAnsiState(){
 function resetAttrs(){
   return {bold:false,dim:false,italic:false,underline:false,
           blink:false,inverse:false,strike:false,fg:null,bg:null};
+}
+
+function copyAttrs(a){
+  return {bold:a.bold,dim:a.dim,italic:a.italic,underline:a.underline,
+          blink:a.blink,inverse:a.inverse,strike:a.strike,fg:a.fg,bg:a.bg};
+}
+
+function attrsEqual(a,b){
+  return a.bold===b.bold&&a.dim===b.dim&&a.italic===b.italic&&
+         a.underline===b.underline&&a.blink===b.blink&&a.inverse===b.inverse&&
+         a.strike===b.strike&&a.fg===b.fg&&a.bg===b.bg;
+}
+
+// Convert cell-array lines to HTML for innerHTML assignment.
+function linesToHtml(lines){
+  return lines.map(function(cells){
+    if(!cells||!cells.length) return '';
+    var html='',i=0;
+    while(i<cells.length){
+      var cell=cells[i],j=i+1;
+      while(j<cells.length&&attrsEqual(cells[j].a,cell.a)) j++;
+      var text=cells.slice(i,j).map(function(c){return c.ch;}).join('');
+      html+=attrsToSpan(cell.a,text);
+      i=j;
+    }
+    return html;
+  }).join('\n');
 }
 
 function attrsToSpan(a,text){
@@ -759,10 +789,14 @@ function processAnsiByte(st,ch){
     if(code===0x08){if(st.curCol>0)st.curCol--;return;}
     if(code===0x09){
       const next=(Math.floor(st.curCol/8)+1)*8;
-      const sp=' '.repeat(next-st.curCol);
-      while(st.lines.length<=st.curRow)st.lines.push('');
-      st.lines[st.curRow]+= attrsToSpan(st.attrs,sp);
-      st.curCol=next;return;
+      while(st.lines.length<=st.curRow)st.lines.push([]);
+      const line=st.lines[st.curRow];
+      while(st.curCol<next){
+        while(line.length<=st.curCol)line.push({ch:' ',a:resetAttrs()});
+        line[st.curCol]={ch:' ',a:copyAttrs(st.attrs)};
+        st.curCol++;
+      }
+      return;
     }
     if(code===0x07||code<0x20)return;
     ansiPutChar(st,ch);return;
@@ -774,7 +808,7 @@ function processAnsiByte(st,ch){
     if(ch==='8'){st.curRow=st.savedCursor.row;st.curCol=st.savedCursor.col;st.escState='normal';return;}
     if(ch==='M'){if(st.curRow>0)st.curRow--;st.escState='normal';return;}
     if(ch==='c'){
-      st.lines=[''];st.curRow=0;st.curCol=0;st.attrs=resetAttrs();
+      st.lines=[[]];st.curRow=0;st.curCol=0;st.attrs=resetAttrs();
       st.escState='normal';return;
     }
     st.escState='normal';return;
@@ -796,14 +830,16 @@ function processAnsiByte(st,ch){
 }
 
 function ansiPutChar(st,ch){
-  while(st.lines.length<=st.curRow)st.lines.push('');
-  st.lines[st.curRow]+=attrsToSpan(st.attrs,ch);
+  while(st.lines.length<=st.curRow)st.lines.push([]);
+  const line=st.lines[st.curRow];
+  while(line.length<st.curCol)line.push({ch:' ',a:resetAttrs()});
+  line[st.curCol]={ch:ch,a:copyAttrs(st.attrs)};
   st.curCol++;
 }
 
 function ansiNewLine(st){
   st.curRow++;st.curCol=0;
-  while(st.lines.length<=st.curRow)st.lines.push('');
+  while(st.lines.length<=st.curRow)st.lines.push([]);
   if(st.lines.length>2000){
     st.lines.splice(0,st.lines.length-2000);
     st.curRow=Math.max(0,st.curRow-1);
@@ -822,22 +858,29 @@ function handleAnsiCSI(st,params,inter,final){
       const p=parseParams(params||'1;1',1);
       st.curRow=Math.max(0,(p[0]||1)-1);
       st.curCol=Math.max(0,(p[1]||1)-1);
-      while(st.lines.length<=st.curRow)st.lines.push('');
+      while(st.lines.length<=st.curRow)st.lines.push([]);
       break;
     }
     case 'A':{const n=parseParams(params,1)[0]||1;st.curRow=Math.max(0,st.curRow-n);break;}
-    case 'B':{const n=parseParams(params,1)[0]||1;st.curRow+=n;while(st.lines.length<=st.curRow)st.lines.push('');break;}
+    case 'B':{const n=parseParams(params,1)[0]||1;st.curRow+=n;while(st.lines.length<=st.curRow)st.lines.push([]);break;}
     case 'C':{const n=parseParams(params,1)[0]||1;st.curCol+=n;break;}
     case 'D':{const n=parseParams(params,1)[0]||1;st.curCol=Math.max(0,st.curCol-n);break;}
     case 'G':{const n=parseParams(params,1)[0]||1;st.curCol=Math.max(0,n-1);break;}
     case 'J':{
       const n=parseParams(params,0)[0];
-      if(n===2||n===3){st.lines=[''];st.curRow=0;st.curCol=0;}
-      else if(n===1){for(let i=0;i<=st.curRow;i++)st.lines[i]='';}
-      else{for(let i=st.curRow;i<st.lines.length;i++)st.lines[i]='';}
+      if(n===2||n===3){st.lines=[[]];st.curRow=0;st.curCol=0;}
+      else if(n===1){for(let i=0;i<=st.curRow;i++)st.lines[i]=[];}
+      else{for(let i=st.curRow;i<st.lines.length;i++)st.lines[i]=[];}
       break;
     }
-    case 'K':{while(st.lines.length<=st.curRow)st.lines.push('');st.lines[st.curRow]='';break;}
+    case 'K':{
+      while(st.lines.length<=st.curRow)st.lines.push([]);
+      const kn=parseParams(params,0)[0];
+      if(kn===1){for(let c=0;c<=st.curCol&&c<st.lines[st.curRow].length;c++)st.lines[st.curRow][c]={ch:' ',a:resetAttrs()};}
+      else if(kn===2){st.lines[st.curRow]=[];}
+      else{st.lines[st.curRow].splice(st.curCol);}
+      break;
+    }
     case 's':{st.savedCursor={row:st.curRow,col:st.curCol};break;}
     case 'u':{st.curRow=st.savedCursor.row;st.curCol=st.savedCursor.col;break;}
     case 'h':case 'l':break;
@@ -1328,7 +1371,7 @@ let aiBubbleHasContent=false;
 
 function renderAiBubble(){
   if(!currentAiBubble||!currentAiAnsi) return;
-  const html=currentAiAnsi.lines.join('\n');
+  const html=linesToHtml(currentAiAnsi.lines);
   if(!html.trim()) return;  // keep loader visible until real content arrives
   if(!aiBubbleHasContent){
     aiBubbleHasContent=true;
@@ -1393,7 +1436,7 @@ function scheduleSysRender(){
   requestAnimationFrame(function(){
     sysRenderQueued=false;
     if(sysEl&&sysAnsi){
-      sysEl.innerHTML=sysAnsi.lines.join('\n');
+      sysEl.innerHTML=linesToHtml(sysAnsi.lines);
       scrollToBottom();
     }
   });
@@ -1410,7 +1453,7 @@ window.termWrite=function(raw){
     // OSC sequences (e.g. thinking-start) change chatState during processAnsiBytes;
     // only create a sys bubble if we're still IDLE and have visible text.
     if(chatState!=='IDLE') return;
-    const hasText=sysAnsi.lines.some(function(l){return l.length>0;});
+    const hasText=sysAnsi.lines.some(function(l){return l&&l.length>0;});
     if(hasText){getSysBubble();scheduleSysRender();}
   }
 };
@@ -1548,6 +1591,16 @@ ghost.addEventListener('input',function(){
 });
 ghost.addEventListener('keydown',function(e){
   if(e.key==='Enter'){e.preventDefault();submitLine();}
+  else if(e.key==='ArrowUp'){e.preventDefault();if(inputBuffer.length===0){tbRaw('\x1b[A');}else{historyUp();}}
+  else if(e.key==='ArrowDown'){e.preventDefault();if(historyIdx===-1){tbRaw('\x1b[B');}else{historyDown();}}
+  else if(e.key==='ArrowLeft'){e.preventDefault();tbRaw('\x1b[D');}
+  else if(e.key==='ArrowRight'){e.preventDefault();tbRaw('\x1b[C');}
+  else if(e.key==='Tab'){e.preventDefault();tbRaw('\t');}
+  else if(e.key==='Escape'){e.preventDefault();tbRaw('\x1b');}
+  else if(e.key==='Backspace'){
+    if(inputBuffer.length>0){e.preventDefault();inputBuffer=inputBuffer.slice(0,-1);ghost.value=inputBuffer;updateInputDisp();}
+    else{e.preventDefault();tbRaw('\x7f');}
+  }
 });
 
 // Tap to focus keyboard

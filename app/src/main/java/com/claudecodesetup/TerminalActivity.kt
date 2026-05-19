@@ -993,7 +993,7 @@ class TerminalActivity : AppCompatActivity() {
 
         @JavascriptInterface
         fun sendConfirm(id: String, choice: String) {
-            claudeService?.sendInput("__confirm__:$id:$choice\r")
+            claudeService?.sendInput(choice + "\r")
         }
 
         @JavascriptInterface

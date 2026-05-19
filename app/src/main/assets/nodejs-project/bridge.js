@@ -2477,7 +2477,35 @@ function openPersistentSession() {
         // so output is ANSI-formatted text, not NDJSON. The WebView ANSI emulator
         // renders it. thinking-done fires on first output after a message is sent.
         let outputIdleTimer = null;
+        // Suppress the startup banner (ASCII art + "Welcome to Claude Code").
+        // The banner appears as raw terminal output before claude is ready for input.
+        // We drop all output until either: (a) a JSON event line arrives (indicates
+        // banner is done and claude is ready), or (b) 4 s timeout as a safety net.
+        let bannerDone = false;
+        let bannerBuf  = '';
+        const bannerTimeout = setTimeout(() => { bannerDone = true; bannerBuf = ''; }, 4000);
         proc.stdout.on('data', chunk => {
+            if (!bannerDone) {
+                bannerBuf += chunk.toString();
+                // A line starting with '{' is a JSON event — banner is over
+                const lines = bannerBuf.split('\n');
+                let jsonIdx = -1;
+                for (let i = 0; i < lines.length; i++) {
+                    if (lines[i].trimStart().startsWith('{')) { jsonIdx = i; break; }
+                }
+                if (jsonIdx !== -1) {
+                    clearTimeout(bannerTimeout);
+                    bannerDone = true;
+                    // Forward everything from the first JSON line onward
+                    const remaining = lines.slice(jsonIdx).join('\n');
+                    bannerBuf = '';
+                    if (remaining && state.socket) {
+                        try { state.socket.write(remaining); } catch(_) {}
+                    }
+                }
+                return;
+            }
+
             // First output after user message → clear thinking spinner
             if (state.busy && !state.thinkingDone) {
                 state.thinkingDone = true;
@@ -2553,11 +2581,16 @@ function openPersistentSession() {
             return;
         }
 
-        // Arrow keys and other escape sequences: forward raw to PTY immediately
-        // (before line-buffering) so interactive TUI menus respond to navigation.
-        if (d.length <= 6 && d[0] === 0x1b && proc && proc.stdin.writable) {
-            try { proc.stdin.write(d); } catch(_) {}
-            return;
+        // Escape sequences (arrow keys, F-keys, etc.) and single control chars
+        // like Tab (\t=0x09) — forward raw to PTY immediately, bypassing the
+        // line buffer so interactive TUI menus and tab-completion work.
+        if (proc && proc.stdin.writable) {
+            const isEscSeq = d.length <= 6 && d[0] === 0x1b;
+            const isSingleCtrl = d.length === 1 && d[0] < 0x20 && d[0] !== 0x03 && d[0] !== 0x0a && d[0] !== 0x0d;
+            if (isEscSeq || isSingleCtrl) {
+                try { proc.stdin.write(d); } catch(_) {}
+                return;
+            }
         }
 
         state.inputBuf += raw;
@@ -2913,6 +2946,8 @@ if (!fs.existsSync(claudeSettingsPath)) {
         fs.writeFileSync(claudeSettingsPath, JSON.stringify({
             theme: 'dark',
             hasCompletedOnboarding: true,
+            hasShownWelcome: true,
+            skipWelcome: true,
             preferredNotifChannel: 'none'
         }, null, 2));
     } catch (_) {}

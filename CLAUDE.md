@@ -102,8 +102,8 @@ SetupActivity        ComposeActivity        HomeActivity
 ### Session model
 `ClaudeService` (foreground `LifecycleService`) owns sessions as `LinkedHashMap<Int, ClaudeSession>`. Each session = TCP socket to `127.0.0.1:8083`. Max 4 concurrent sessions.
 
-### No PTY
-`bridge.js` spawns `claude --output-format stream-json --print --verbose` per message. Stdout is newline-delimited JSON events; `runMessage()` parses them and forwards text/tool-use lines to the socket.
+### PTY mode (always on)
+`bridge.js` maintains one persistent interactive `claude` process per session via `libpty-helper.so`. PTY is always enabled (`pty_mode` defaults to `true`). Raw PTY bytes are relayed directly to the terminal WebView. Print mode has been removed entirely.
 
 ### Protocol proxy (Anthropic → OpenAI)
 HTTP server on port 8082 converts Anthropic Messages API → OpenAI Chat Completions, forwards to provider, converts back (streaming + non-streaming). `ANTHROPIC_BASE_URL=http://127.0.0.1:8082` for all non-Anthropic providers.
@@ -126,7 +126,7 @@ Written by `NodeBridgeManager.writeConfig()` before each `startBridge()`. Re-wri
 
 4. **Bridge config is written before each `startBridge()`** — `bridge_config.json` in `filesDir`. Provider changes take effect on the next message, not immediately.
 
-5. **No PTY** — one `claude --output-format stream-json --print --verbose` process per user message. Ctrl+C sends SIGTERM. Stdout is NDJSON, not raw text.
+5. **PTY always on** — one persistent `claude` process per session via `libpty-helper.so`. Raw PTY bytes relayed to the terminal. `--dangerously-skip-permissions` always passed. Print mode is removed. `getPtyMode()` defaults to `true` — no toggle needed.
 
 6. **Signing** — Debug APKs: `com.claudecodesetup.debug`. Release signing reads from `local.properties` (never committed). CI uses GitHub Secrets.
 
@@ -142,11 +142,11 @@ Written by `NodeBridgeManager.writeConfig()` before each `startBridge()`. Re-wri
 
 12. **Two layers of `\p{}` patching are needed** — Static literals patched by `patchCliJsForAndroid()` at install time. Dynamic `new RegExp(p, 'u')` calls at runtime caught by a global `RegExp` shim in the eval bootstrap. Both are required. When `[regex-compat]` lines appear in `!log`, add those patterns to `patchCliJsForAndroid()`.
 
-13. **Conversation history = formatted transcript** — `buildMessageWithHistory()` prepends `Human: / Assistant:` turns to each `--print` spawn. Cap: `MAX_HISTORY = 20`. `!clear` resets; context lost when socket closes.
+13. **Conversation history managed by claude** — In PTY mode, claude maintains its own context. `!clear` resets `state.history` and sends `thinking-done`/`tokens:0` OSC. Context persists across messages within a session; lost when the persistent proc is killed (idle timeout or socket close with no reconnect).
 
 14. **`Intl` is missing from nodejs-mobile v18.20.4** — No ICU. `intlShim` (module-scope in `bridge.js`) is injected before `import(cli.js)`. Extend the stub if a specific `Intl` method crashes.
 
-15. **`regexpShim` and `intlShim` must be module-scope** — Both are injected from `runMessage()` and the `!test-cli` handler. Local scope causes `ReferenceError` in the step 4→5 callback, crashing the Node.js process and restarting the app.
+15. **`regexpShim` and `intlShim` must be module-scope** — Both are injected into every eval bootstrap and the `!test-cli` handler. Local scope causes `ReferenceError` crashing the Node.js process.
 
 16. **Never use `painterResource(R.mipmap.ic_launcher)` in Compose** — Adaptive icons throw `IllegalArgumentException` on API 26+. Always render via `ContextCompat.getDrawable()` + Android `Canvas` onto a `Bitmap`, then `bitmap.asImageBitmap()`.
 
@@ -173,13 +173,37 @@ Written by `NodeBridgeManager.writeConfig()` before each `startBridge()`. Re-wri
 - **App size** — Both `arm64-v8a` and `armeabi-v7a` `libnode.so` are shipped. AAB bundle config added; use Play Store to serve device ABI only.
 - **`ProvidersRepository.REMOTE_URL` wired but empty** — Live provider updates disabled. Enable to push new models without an app update.
 - **Sub-agents** — Parallel tool-calling workstreams. Not yet implemented.
-- **Interactive PTY mode** — Replace `--print` per-message with a persistent PTY. Fundamental Android limitation; may not be fully achievable.
 - **Per-tab working directory** — All 4 session tabs share the same `shellCwd`. Could allow different project per tab.
 - **Custom slash commands** — Claude Code supports `~/.claude/commands/`. Not yet exposed in-app.
+- **PTY resize control channel** — Resize commands are sent in-band via `ESC 0xFE` escape sequence intercepted by `pty_helper.c`. A Unix domain socket control channel (like node-pty uses) would be more robust.
 
 ---
 
-## Latest changes (Session 18)
+## Latest changes (Session 19)
+
+### PTY mode — fully fixed and print mode removed
+
+- **`bridge.js`** — Removed `runPrintMessage()` entirely (~120 lines). PTY is now the only session mode. Fixed critical sparse-argv bug in `buildInteractiveEvalCode()`: flags were placed at `argv[4+]` leaving `argv[2]` and `argv[3]` as `undefined` holes — claude-code's arg parser hit those and exited 1. Flags now start at `argv[2]` contiguously. Simplified `isNew` logic and Ctrl+C handler (no longer needs print-mode fallback). Removed dead `resumeId`/`--resume` code, `stdoutBuf`/`initDone`/`initSuppressResult` state fields, and stale `on429CountdownNotify._socket` branch. Fixed null-proc crash in socket `'close'` handler — `state.proc` is null was not guarded.
+
+- **`AppPreferences.kt`** — Added `getPtyMode()`/`setPtyMode()` (were missing, causing compile error). Default is `true` — PTY always on, no settings toggle needed.
+
+- **`NodeBridgeManager.kt`** — Added missing `ptyMode` key to `bridge_config.json`. Previously the Settings PTY toggle had zero effect because `cfg.ptyMode` was always `undefined` in bridge.js.
+
+**Key design decisions:**
+- PTY mode is now the only mode. Print mode (`runPrintMessage`) is deleted. `--dangerously-skip-permissions` is always passed so MCP tool permission prompts show interactively in the TUI rather than being silently blocked.
+- `buildInteractiveEvalCode()` argv layout: `argv[0]` = launcher, `argv[1]` = CLAUDE_CLI, `argv[2]` = first flag (no gaps). Previously started at `argv[4]` creating a sparse array.
+
+### Local AI (Personal AI) — fixed
+
+- **`PersonalAiScreen.kt`** — Fixed all model download URLs. Qwen official GGUF repos only publish Q8_0, not Q4_K_M — switched Qwen3 models to `lmstudio-community` repos. Phi-4-mini switched from bartowski (401) to `lmstudio-community`. Qwen3-1.5B is gated across every public repo — replaced with **SmolLM2 1.7B** (bartowski, publicly accessible).
+
+- **`ClaudeService.kt`** — Auto-starts llama-server on session connect when `providerId == "local_llama"` and server isn't running. Shows clear error messages if binary is missing or model file not downloaded. No effect on any other provider.
+
+- **`.github/workflows/build.yml`** — Added llama-server build step (with cache). Previously only `release.yml` built `libllamaserver.so`, so debug APKs always showed "not available in this build". Fixed `ANDROID_NDK_HOME` path: use `$ANDROID_SDK_ROOT/ndk/...` inline in `run:` (not `env:` block where `$ANDROID_HOME` expands to empty).
+
+---
+
+## Previous changes (Session 18)
 
 ### llama-server local AI (on-device LLM inference)
 
@@ -205,9 +229,9 @@ Written by `NodeBridgeManager.writeConfig()` before each `startBridge()`. Re-wri
 - `libllamaserver.so` is NOT committed — CI builds it from source; local builds need `./scripts/build-llamaserver.sh`
 - When binary is absent (default until first CI build with the new step), `PersonalAiScreen` gracefully shows "not available in this build" instead of crashing
 
-### `!pty` command clarification (user confusion documented)
-- **`!pty on` is NOT a toggle** — `!pty <cmd>` runs an interactive program inside a real POSIX PTY (e.g. `!pty bash`, `!pty python3`). Typing `!pty on` tries to launch a binary named `on` → exit 127 (command not found).
-- **To enable persistent PTY mode** for Claude sessions: Settings → PTY Mode toggle. This is a settings flag, not a chat command.
+### `!pty` command clarification
+- **`!pty <cmd>` runs an interactive program** inside a real POSIX PTY (e.g. `!pty bash`, `!pty python3`). This is separate from the session PTY mode.
+- **PTY mode for Claude sessions is always on** — `getPtyMode()` defaults to `true`. There is no settings toggle; print mode has been removed entirely.
 - **To open an interactive shell**: send `!pty bash` in the chat.
 
 ---
@@ -315,29 +339,23 @@ Written by `NodeBridgeManager.writeConfig()` before each `startBridge()`. Re-wri
 - [ ] **`allowBackup="false"`** in `AndroidManifest.xml` — stops adb/cloud backup from exporting encrypted prefs. ✅ Already set.
 - [ ] **Scrub logs** — grep for `Log.*key`, `Log.*apiKey`, `Log.*baseUrl` and remove any that echo sensitive values.
 
-### Bugs found (Session 19 full audit)
+### Bugs found (audit — still open)
 
 #### Must fix
 - [ ] **`SplashActivity` shared-text routing** — routes to `TerminalActivity` without checking `isProviderConfigured()`. If provider not set, terminal opens and shows a connection error with no guidance. Fix: add `&& prefs.isProviderConfigured()` to the `sharedText != null` branch.
-- [ ] **`ClaudeService` notification ANSI regex broken** — `Regex("][^]*")` is invalid in Kotlin/Java (`[^]` = empty negation class). OSC sequences leak into notification body text. Fix: use `Regex("\\[[0-9;]*[a-zA-Z]")` + `Regex("\\][^]*")`.
 - [ ] **`ApiKeyScreen` missing Groq validation** — `buildRequest()` has no `"groq"` case; key validation silently returns `null` (= success) for Groq. Fix: add `"groq" -> builder.url("https://api.groq.com/openai/v1/models").header("Authorization", "Bearer $key").build()`.
-- [ ] **`ClaudeLoginActivity` OAuth state not verified** — `state` is generated and sent in the auth URL but the callback never verifies the returned state. Missing CSRF protection. Fix: capture returned state from `uri.getQueryParameter("state")` and compare to the generated value before exchanging the code.
+- [ ] **`ClaudeLoginActivity` OAuth state not verified** — `state` is generated and sent in the auth URL but the callback never verifies the returned state. Missing CSRF protection.
 
 #### Security
-- [ ] **`bridge_config.json` and `.credentials.json` file permissions** — both written with default permissions (world-readable on rooted devices). Fix: call `setReadable(false, false); setReadable(true, true)` after writing each file (owner-only).
+- [ ] **`.credentials.json` file permissions** — written with default permissions (world-readable on rooted devices). Fix: `setReadable(false, false); setReadable(true, true)` after writing. (`bridge_config.json` already hardened.)
 - [ ] **Port 8083 (bridge TCP) also needs auth token** — same problem as port 8082. Both ports should validate the local UUID token.
-
-#### Thread safety
-- [ ] **`ClaudeService.sessions` is not thread-safe** — `LinkedHashMap` accessed from both main thread (Binder calls) and IO coroutine threads. Replace with `ConcurrentHashMap<Int, ClaudeSession>`.
 
 #### Improvements / optimizations
 - [ ] **`SetupActivity` thread-per-poll** — spawns a new `Thread { }` every 2 s to call `isBridgeReachable()`. Use a coroutine + `delay(2000)` on `Dispatchers.IO` instead.
-- [ ] **`ComposeActivity` back from picker when `startAt="picker"`** — pressing Back on the model picker goes to the provider list screen instead of just finishing. When `startAt == "picker"` (from Settings → Change model), back should call `finish()`.
-- [ ] **MCP stdio `args` parsing ignores quoted arguments** — `argsStr.split("\\s+".toRegex())` splits on all whitespace, so arguments containing spaces break silently. Use a proper shell-tokenizer or `ProcessBuilder`-style parsing.
-- [ ] **`ScheduledPrompt` day-of-week filtering missing** — the class comment describes per-day scheduling but the data class has no `days` field and WorkManager fires every day. Add an optional `days: List<Int>` field and filter in `ScheduledPromptWorker`.
-- [ ] **`bridge.js` `readConfig()` on every message** — `fs.readFileSync` + `JSON.parse` on every spawn. Cache with `fs.watchFile()` and only re-parse on change.
-- [ ] **`callProxyStreaming` hardcoded model** — line 598 sets `model: 'claude-3-5-sonnet-20241022'`. The proxy overrides it from `cfg.modelId` anyway but it's a confusing dead value. Replace with `cfg.modelId || 'claude-3-5-sonnet-20241022'`.
-
+- [ ] **`ComposeActivity` back from picker when `startAt="picker"`** — pressing Back goes to the provider list instead of finishing. When `startAt == "picker"`, back should call `finish()`.
+- [ ] **MCP stdio `args` parsing ignores quoted arguments** — `argsStr.split("\s+".toRegex())` breaks args with spaces silently.
+- [ ] **`ScheduledPrompt` day-of-week filtering missing** — data class has no `days` field; WorkManager fires every day regardless.
+- [ ] **`callProxyStreaming` hardcoded model** — dead value `'claude-3-5-sonnet-20241022'`. Replace with `cfg.modelId || 'claude-3-5-sonnet-20241022'`.
 ### Screenshot / vision feature removal
 **Decision pending scope:** The app has a full screenshot pipeline (MediaProjection, overlay quick prompts, `pending_image.b64` in bridge.js) but **no vision-capable models** are used. This is dead weight.
 
