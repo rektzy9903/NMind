@@ -2892,6 +2892,18 @@ function startBridgeServer() {
 // reads commands from FILES_DIR/.claude/commands/*.md on every run).
 try { fs.mkdirSync(path.join(FILES_DIR, '.claude', 'commands'), { recursive: true }); } catch(_) {}
 
+// Pre-create claude settings so the theme/onboarding picker never appears.
+const claudeSettingsPath = path.join(FILES_DIR, '.claude', 'settings.json');
+if (!fs.existsSync(claudeSettingsPath)) {
+    try {
+        fs.writeFileSync(claudeSettingsPath, JSON.stringify({
+            theme: 'dark',
+            hasCompletedOnboarding: true,
+            preferredNotifChannel: 'none'
+        }, null, 2));
+    } catch (_) {}
+}
+
 if (isClaudeInstalled()) {
     log('Claude Code already installed — starting bridge server.\n');
     try { fs.writeFileSync(SETUP_DONE, 'true'); } catch (_) {}
