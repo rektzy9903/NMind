@@ -1908,6 +1908,14 @@ function buildEnv() {
         // uses cfg.apiKey to authenticate with the real provider.
         env.ANTHROPIC_API_KEY  = 'sk-ant-proxy000';
         env.ANTHROPIC_BASE_URL = cfg.baseUrl || 'http://127.0.0.1:8082';
+        // In PTY/interactive mode, claude-code's hasToken check (xb()) does NOT look at
+        // ANTHROPIC_API_KEY — it only checks ANTHROPIC_AUTH_TOKEN, CLAUDE_CODE_OAUTH_TOKEN,
+        // or a credentials file. Without one of these it shows the "Select login method"
+        // interactive selector that blocks the terminal. Setting CLAUDE_CODE_OAUTH_TOKEN
+        // to a dummy value makes xb() return hasToken:true immediately, skipping the selector.
+        // The proxy ignores whatever Bearer token claude-code sends; this value never hits
+        // the real provider.
+        env.CLAUDE_CODE_OAUTH_TOKEN = 'proxy-bypass-token';
     }
 
     // In subscription mode, pass the real model. In proxy mode, claude-code validates
@@ -2939,19 +2947,24 @@ function startBridgeServer() {
 // reads commands from FILES_DIR/.claude/commands/*.md on every run).
 try { fs.mkdirSync(path.join(FILES_DIR, '.claude', 'commands'), { recursive: true }); } catch(_) {}
 
-// Pre-create claude settings so the theme/onboarding picker never appears.
+// Pre-create/patch claude settings so the theme/onboarding picker never appears
+// and the proxy dummy key is always in the approved list.
 const claudeSettingsPath = path.join(FILES_DIR, '.claude', 'settings.json');
-if (!fs.existsSync(claudeSettingsPath)) {
-    try {
-        fs.writeFileSync(claudeSettingsPath, JSON.stringify({
-            theme: 'dark',
-            hasCompletedOnboarding: true,
-            hasShownWelcome: true,
-            skipWelcome: true,
-            preferredNotifChannel: 'none'
-        }, null, 2));
-    } catch (_) {}
-}
+try {
+    let s = {};
+    try { s = JSON.parse(fs.readFileSync(claudeSettingsPath, 'utf8')); } catch (_) {}
+    s.theme                  = s.theme || 'dark';
+    s.hasCompletedOnboarding = true;
+    s.hasShownWelcome        = true;
+    s.skipWelcome            = true;
+    s.preferredNotifChannel  = s.preferredNotifChannel || 'none';
+    // Approve the proxy dummy key so Vw() returns it for API requests without
+    // prompting the user to confirm the key (VE(key) = key.slice(-20)).
+    if (!s.customApiKeyResponses) s.customApiKeyResponses = { approved: [], rejected: [] };
+    if (!s.customApiKeyResponses.approved.includes('sk-ant-proxy000'))
+        s.customApiKeyResponses.approved.push('sk-ant-proxy000');
+    fs.writeFileSync(claudeSettingsPath, JSON.stringify(s, null, 2));
+} catch (_) {}
 
 if (isClaudeInstalled()) {
     log('Claude Code already installed — starting bridge server.\n');

@@ -635,7 +635,6 @@ html, body {
   <button class="tb-btn tb-accent" id="btn-shell">$ </button>
   <button class="tb-btn" id="btn-ctrl-c">Ctrl+C</button>
   <button class="tb-btn" id="btn-tab">Tab</button>
-  <button class="tb-btn" id="btn-enter">↵</button>
   <button class="tb-btn" id="btn-up">↑</button>
   <button class="tb-btn" id="btn-down">↓</button>
   <button class="tb-btn" id="btn-esc">Esc</button>
@@ -1577,20 +1576,37 @@ ghost.addEventListener('blur',function(){
     }
   },200);
 });
+// Send inputBuffer (or empty string) directly to PTY without the chat-message
+// path. This avoids addUserBubble + resetToIdle which cause misalignment when
+// interacting with Claude Code's TUI menus (theme picker, prompts, etc.).
+// The send button (→) still uses submitLine() for proper chat message behavior.
+function sendRawInput(){
+  const text=inputBuffer;
+  inputBuffer='';ghost.value='';historyIdx=-1;savedInput='';
+  updateInputDisp();
+  if(text.length>0){
+    if(inputHistory[inputHistory.length-1]!==text){
+      inputHistory.push(text);if(inputHistory.length>50)inputHistory.shift();
+    }
+    tbRaw(text+'\r');
+  } else {
+    tbRaw('\r');
+  }
+}
 ghost.addEventListener('input',function(){
   const val=ghost.value;
   if(val.includes('\n')){
     ghost.value=val.replace(/\n/g,'');
     inputBuffer=ghost.value;
     updateInputDisp();
-    submitLine();
+    sendRawInput();
     return;
   }
   inputBuffer=val;
   updateInputDisp();
 });
 ghost.addEventListener('keydown',function(e){
-  if(e.key==='Enter'){e.preventDefault();submitLine();}
+  if(e.key==='Enter'){e.preventDefault();sendRawInput();}
   else if(e.key==='ArrowUp'){e.preventDefault();if(inputBuffer.length===0){tbRaw('\x1b[A');}else{historyUp();}}
   else if(e.key==='ArrowDown'){e.preventDefault();if(historyIdx===-1){tbRaw('\x1b[B');}else{historyDown();}}
   else if(e.key==='ArrowLeft'){e.preventDefault();tbRaw('\x1b[D');}
@@ -1613,15 +1629,14 @@ function tbRaw(key){
   if(typeof Android!=='undefined') Android.sendInput(key);
   ghost.focus();
 }
-document.getElementById('btn-yes').addEventListener('click',function(){submitLine('y');});
-document.getElementById('btn-no').addEventListener('click',function(){submitLine('n');});
+document.getElementById('btn-yes').addEventListener('click',function(){tbRaw('y\r');ghost.focus();});
+document.getElementById('btn-no').addEventListener('click',function(){tbRaw('n\r');ghost.focus();});
 document.getElementById('btn-shell').addEventListener('click',function(){
   if(!inputBuffer.startsWith('$ ')){inputBuffer='$ '+inputBuffer;}
   ghost.value=inputBuffer;updateInputDisp();ghost.focus();
 });
 document.getElementById('btn-ctrl-c').addEventListener('click',function(){tbRaw('\x03');});
 document.getElementById('btn-tab').addEventListener('click',function(){tbRaw('\t');});
-document.getElementById('btn-enter').addEventListener('click',function(){tbRaw('\r');});
 // ↑/↓ navigate input history; send ANSI only when input is empty (i.e. PTY-style)
 document.getElementById('btn-up').addEventListener('click',function(){
   if(inputBuffer.length===0){tbRaw('\x1b[A');}else{historyUp();}
