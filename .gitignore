@@ -18,3 +18,6 @@ app/src/main/jniLibs/armeabi-v7a/libnode.so
 node_modules/
 package.json
 package-lock.json
+
+# Local dev notes — not for the repo
+CLAUDE.md
