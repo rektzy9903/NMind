@@ -12,9 +12,6 @@ jobs:
     name: Test PTY auth bypass + proxy response
     runs-on: ubuntu-latest
 
-    # Skip silently when the secret is absent (fork PRs, branches without secret)
-    if: ${{ vars.OPENROUTER_TEST_KEY != '' || secrets.OPENROUTER_TEST_KEY != '' }}
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4

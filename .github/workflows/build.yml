@@ -15,8 +15,6 @@ jobs:
   test-pty:
     name: PTY auth + proxy gate
     runs-on: ubuntu-latest
-    # Skip when the secret is absent rather than failing the whole pipeline
-    if: ${{ secrets.OPENROUTER_TEST_KEY != '' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
