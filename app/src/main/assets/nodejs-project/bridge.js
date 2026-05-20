@@ -2817,7 +2817,6 @@ function openPrintSession() {
             '.catch(function(e){process.stderr.write("import-err:"+String(e)+"\\n");process.exit(1);});';
 
         const proc = spawn(LAUNCHER, ['-e', evalCode], { env, cwd: state.cwd });
-        try { proc.stdin.end(); } catch(_) {}  // signal EOF immediately — claude reads message from argv, not stdin
         state.currentProc = proc;
         state.busy = true;
         state.thinkingDone = false;
@@ -2971,12 +2970,7 @@ function openPrintSession() {
                 continue;
             }
 
-            if (state.busy) {
-                try { if (state.socket) state.socket.write('\x1b[33m[busy — please wait]\x1b[0m\r\n'); } catch(_) {}
-                continue;
-            }
-
-            // ── bridge-local !commands ────────────────────────────────────────
+            // ── diagnostic commands — always available, even while busy ─────────
             if (line === '!help') {
                 try { if (state.socket) state.socket.write(
                     '\x1b[1m[print mode — per-message spawn]\x1b[0m\r\n' +
@@ -3072,6 +3066,12 @@ function openPrintSession() {
                 runEvalStep2.bind(null, '[4] net: connect to proxy port ' + PROXY_PORT,
                     netTestCode,
                 () => { try { if (sock2) sock2.write('\x1b[33mDone. Type !log for details.\x1b[0m\r\n'); } catch(_) {} }))));
+                continue;
+            }
+
+            // ── busy gate — all commands below wait for current request to finish ──
+            if (state.busy) {
+                try { if (state.socket) state.socket.write('\x1b[33m[busy — please wait]\x1b[0m\r\n'); } catch(_) {}
                 continue;
             }
 
