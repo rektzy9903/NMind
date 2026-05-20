@@ -120,7 +120,7 @@ private fun buildRequest(provider: Provider, key: String): Request? {
             .header("Authorization", "Bearer $key")
             .build()
         "kimi" -> builder
-            .url("https://api.moonshot.ai/v1/models")
+            .url("https://api.moonshot.ai/v1/users/me")
             .header("Authorization", "Bearer $key")
             .build()
         "groq" -> builder
