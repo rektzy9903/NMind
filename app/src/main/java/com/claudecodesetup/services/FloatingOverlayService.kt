@@ -480,13 +480,26 @@ class FloatingOverlayService : Service() {
     private fun currentModelSupportsVision(): Boolean {
         val modelId    = prefs.getModelId()
         val providerId = prefs.getProviderId()
-        val provider   = Providers.byId(providerId) ?: return true // unknown provider → assume ok
-        return provider.models.any { it.modelId == modelId && Cap.VISION in it.caps }
+        val provider   = Providers.byId(providerId) ?: return true
+        // Check static model list first; if model isn't there (live-fetched), fall back to keywords
+        val staticMatch = provider.models.find { it.modelId == modelId }
+        if (staticMatch != null) return Cap.VISION in staticMatch.caps
+        val id = modelId.lowercase()
+        return listOf("vision", "vl", "scout", "maverick", "gemini", "claude", "gpt-4", "llava", "llama-4")
+            .any { it in id }
     }
+
+    private fun isAgenticModeOn(): Boolean =
+        File(filesDir, "agentic_state").exists()
 
     private fun requestScreenshot(voiceQuery: String?) {
         if (!currentModelSupportsVision()) {
-            toast("⚠ Current model doesn't support vision — screenshot won't be analysed")
+            toast("⚠ This model doesn't support images — switch to a vision model (e.g. Gemini Flash, Llama 4 Scout)")
+            return
+        }
+        if (!isAgenticModeOn()) {
+            toast("⚠ Screenshot analysis needs Agentic mode — type !agentic in the terminal to enable it")
+            return
         }
         pendingScreenshotQuery = voiceQuery
         val svc = DeviceControlService.instance

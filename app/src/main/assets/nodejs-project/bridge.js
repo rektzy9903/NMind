@@ -42,6 +42,7 @@ const SETUP_LOG     = path.join(FILES_DIR, 'setup.log');
 const SETUP_DONE    = path.join(FILES_DIR, 'setup_done');
 const SETUP_FAILED  = path.join(FILES_DIR, 'setup_failed');
 const SESSION_FILE  = path.join(FILES_DIR, 'last_session.json');
+const SESSIONS_DIR  = path.join(FILES_DIR, 'sessions');
 const AGENTIC_FILE  = path.join(FILES_DIR, 'agentic_state');
 const CWD_FILE      = path.join(FILES_DIR, 'last_cwd');
 const UNDO_DIR      = path.join(FILES_DIR, '.undo');
@@ -244,15 +245,25 @@ let agenticEnabled = (() => { try { return fs.existsSync(AGENTIC_FILE); } catch 
 // ─── Install confirmation ──────────────────────────────────────────────────────
 // When the agentic AI tries to run an install command, we pause and ask the user.
 // "Yes, don't ask again" saves the package-manager key to disk.
-let autoApprove = (() => {
-    try { return new Set(JSON.parse(fs.readFileSync(CONFIRM_FILE, 'utf8'))); }
-    catch(_) { return new Set(); }
-})();
+function loadAutoApprove() {
+    try {
+        const data = JSON.parse(fs.readFileSync(CONFIRM_FILE, 'utf8'));
+        if (Array.isArray(data)) return new Set(data);
+        if (Array.isArray(data.allow)) return new Set(data.allow);
+    } catch(_) {}
+    return new Set();
+}
+let autoApprove = loadAutoApprove();
 const pendingConfirms = new Map(); // confirmId -> resolve fn
 let confirmIdSeq = 0;
 
 function saveAutoApprove() {
-    try { fs.writeFileSync(CONFIRM_FILE, JSON.stringify([...autoApprove])); } catch(_) {}
+    try {
+        let existing = { allow: [], deny: [] };
+        try { const d = JSON.parse(fs.readFileSync(CONFIRM_FILE, 'utf8')); if (d && Array.isArray(d.allow)) existing = d; } catch(_) {}
+        existing.allow = [...autoApprove];
+        fs.writeFileSync(CONFIRM_FILE, JSON.stringify(existing, null, 2));
+    } catch(_) {}
 }
 
 // Regex: package-manager install commands that should prompt for confirmation
@@ -1961,6 +1972,46 @@ function sanitizeKey(key) {
     return key.slice(0, 6) + '…' + key.slice(-4);
 }
 
+// ─── Per-session disk persistence ─────────────────────────────────────────────
+// Saves/restores hasHistory, cwd, sessionTokens so bridge restarts don't lose state.
+// File: filesDir/sessions/<sid>.json   TTL: 24 hours
+
+function sessionFilePath(sid) {
+    return path.join(SESSIONS_DIR, 'sess_' + String(sid).replace(/[^a-zA-Z0-9_-]/g, '_') + '.json');
+}
+
+function loadSessionState(sid) {
+    try {
+        fs.mkdirSync(SESSIONS_DIR, { recursive: true });
+        const p = sessionFilePath(sid);
+        if (!fs.existsSync(p)) return null;
+        const data = JSON.parse(fs.readFileSync(p, 'utf8'));
+        // 24-hour TTL
+        if (!data.savedAt || (Date.now() - data.savedAt) > 86400000) {
+            try { fs.unlinkSync(p); } catch(_) {}
+            return null;
+        }
+        return data;
+    } catch(_) { return null; }
+}
+
+function saveSessionState(sid, state) {
+    try {
+        fs.mkdirSync(SESSIONS_DIR, { recursive: true });
+        const data = {
+            savedAt: Date.now(),
+            hasHistory: state.hasHistory,
+            cwd: state.cwd,
+            sessionTokens: state.sessionTokens || 0,
+        };
+        fs.writeFileSync(sessionFilePath(sid), JSON.stringify(data));
+    } catch(_) {}
+}
+
+function clearSessionState(sid) {
+    try { fs.unlinkSync(sessionFilePath(sid)); } catch(_) {}
+}
+
 // Strip ANSI escape codes so captured responses store clean text in history.
 function stripAnsi(str) {
     return str.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '').replace(/\r/g, '').trim();
@@ -2618,6 +2669,15 @@ function openPrintSession() {
         }
     };
 
+    // ── Always-allow list (persisted to auto_approve.json) ───────────────────
+    function loadApproveList() {
+        try { return JSON.parse(fs.readFileSync(CONFIRM_FILE, 'utf8')); } catch(_) {}
+        return { allow: [], deny: [] };
+    }
+    function saveApproveList(list) {
+        try { fs.writeFileSync(CONFIRM_FILE, JSON.stringify(list, null, 2)); } catch(_) {}
+    }
+
     // ── Patch settings.json ───────────────────────────────────────────────────
     function patchSettings(cfg) {
         if (cfg.mode !== 'subscription') {
@@ -2637,8 +2697,81 @@ function openPrintSession() {
                 s.customApiKeyResponses.rejected.filter(k => k !== 'sk-ant-proxy000');
             s.theme = 'dark'; s.hasCompletedOnboarding = true;
             s.hasShownWelcome = true; s.skipWelcome = true;
+            // Inject always-allow tool list so those tools never prompt
+            const approveList = loadApproveList();
+            if (approveList.allow.length > 0) {
+                if (!s.permissions) s.permissions = { allow: [], deny: [] };
+                if (!Array.isArray(s.permissions.allow)) s.permissions.allow = [];
+                for (const t of approveList.allow) {
+                    if (!s.permissions.allow.includes(t)) s.permissions.allow.push(t);
+                }
+            }
             fs.writeFileSync(sp, JSON.stringify(s, null, 2));
         } catch(_) {}
+    }
+
+    // ── Process a single stream-json event from claude stdout ────────────────
+    function handleStreamEvent(evt, state, proc, firstContent, setFirstContent) {
+        // On the first JSON event, close the thinking spinner
+        if (!state.thinkingDone) {
+            state.thinkingDone = true;
+            try { if (state.socket) state.socket.write('\x1b]9;thinking-done\x07'); } catch(_) {}
+        }
+
+        if (evt.type === 'system' && evt.subtype === 'init') return;
+
+        if (evt.type === 'assistant') {
+            const content = (evt.message && evt.message.content) || [];
+            for (const block of content) {
+                if (block.type === 'text' && block.text) {
+                    if (!firstContent) setFirstContent(true);
+                    try { if (state.socket) state.socket.write(block.text); } catch(_) {}
+                }
+                // tool_use blocks trigger a permission event below; no text to render here
+            }
+            return;
+        }
+
+        // claude-code emits a permission_request event for tool calls needing approval
+        if (evt.type === 'permission_request' || (evt.type === 'tool' && evt.status === 'pending')) {
+            const toolName  = evt.tool_name || evt.tool || evt.name || 'unknown';
+            const toolInput = evt.tool_input || evt.input || {};
+            const permId    = evt.id || (Date.now() + '-' + Math.random().toString(36).slice(2));
+            const perm = { toolName, toolInput, id: permId };
+            state.pendingPerm = perm;
+            const permB64 = Buffer.from(JSON.stringify(perm)).toString('base64');
+            try { if (state.socket) state.socket.write('\x1b]9;permission:' + permB64 + '\x07'); } catch(_) {}
+            return;
+        }
+
+        if (evt.type === 'result') {
+            // Mark session has history so --continue is used on next message
+            if (!evt.is_error) {
+                state.hasHistory = true;
+                saveSessionState(state.sid, state);
+            }
+            // Update token counter from result or nested usage object
+            const u = evt.usage || {};
+            const toks = (evt.total_input_tokens || 0) + (evt.total_output_tokens || 0) ||
+                         (u.input_tokens || 0) + (u.output_tokens || 0);
+            if (toks > 0) {
+                state.sessionTokens = (state.sessionTokens || 0) + toks;
+                try { if (state.socket) state.socket.write('\x1b]9;tokens:' + state.sessionTokens + '\x07'); } catch(_) {}
+            }
+        }
+    }
+
+    // ── Handle a plain-text permission prompt written to stdout ───────────────
+    // claude-code may write "Do you want to run bash? [y/n/a]" to stdout when
+    // it cannot emit a structured event. Parse it, surface the dialog, wait.
+    function handlePermissionText(line, state, proc) {
+        // Extract tool name heuristically
+        const toolMatch = line.match(/\b(?:run|execute|use|allow)\s+(\w[\w-]*)/i);
+        const toolName  = toolMatch ? toolMatch[1] : 'tool';
+        const perm = { toolName, toolInput: { prompt: line }, id: Date.now() + '-txt' };
+        state.pendingPerm = perm;
+        const permB64 = Buffer.from(JSON.stringify(perm)).toString('base64');
+        try { if (state.socket) state.socket.write('\x1b]9;permission:' + permB64 + '\x07'); } catch(_) {}
     }
 
     // ── Spawn one claude --print process for a single user message ────────────
@@ -2649,10 +2782,14 @@ function openPrintSession() {
         const cliUrl  = 'file://' + CLAUDE_CLI;
         const exitLog = JSON.stringify(path.join(FILES_DIR, 'session_exit.log'));
 
-        // argv for print mode: --print --output-format stream-json
-        //   --dangerously-skip-permissions  → all tools auto-approved, no TUI prompts
+        // argv for print mode:
+        //   --print                         → non-interactive, exits after response
+        //   --output-format stream-json     → structured NDJSON output
         //   --continue                      → resume last session (preserves history)
-        const args = ['--print', '--output-format', 'stream-json', '--dangerously-skip-permissions'];
+        // NOTE: --dangerously-skip-permissions is intentionally omitted so claude-code
+        // asks for permission for each tool. Always-allowed tools are pre-approved in
+        // settings.json permissions.allow; others trigger our permission dialog.
+        const args = ['--print', '--output-format', 'stream-json'];
         if (state.hasHistory) args.push('--continue');
         args.push(msg);
 
@@ -2676,67 +2813,35 @@ function openPrintSession() {
         state.currentProc = proc;
         state.busy = true;
         state.thinkingDone = false;
+        state.pendingPerm = null; // {toolName, toolInput, id} — set while dialog is showing
 
         try { if (state.socket) state.socket.write('\x1b]9;thinking-start\x07'); } catch(_) {}
 
         let lineBuf = '';
-        let firstContent = false; // has any text been sent to the AI bubble yet?
+        let stderrBuf = '';
+        let firstContent = false;
 
         proc.stdout.on('data', chunk => {
             lineBuf += chunk.toString();
             const lines = lineBuf.split('\n');
-            lineBuf = lines.pop(); // hold incomplete line
+            lineBuf = lines.pop();
 
             for (const line of lines) {
                 const t = line.trim();
-                if (!t.startsWith('{')) continue;
-                let evt;
-                try { evt = JSON.parse(t); } catch(_) { continue; }
 
-                // system/init — session is live, mark history available for next message
-                if (evt.type === 'system' && evt.subtype === 'init') {
-                    state.hasHistory = true;
-                }
-
-                // assistant message — extract text blocks and tool_use blocks
-                if (evt.type === 'assistant' && evt.message && Array.isArray(evt.message.content)) {
-                    for (const block of evt.message.content) {
-                        if (block.type === 'text' && block.text) {
-                            if (!firstContent) {
-                                firstContent = true;
-                                // First real text → THINKING→RESPONDING: opens AI bubble
-                                try { if (state.socket) state.socket.write('\x1b]9;thinking-done\x07'); } catch(_) {}
-                            }
-                            try { if (state.socket) state.socket.write(block.text); } catch(_) {}
-                        }
-                        if (block.type === 'tool_use') {
-                            // Show a tool indicator. Written before the first text means it
-                            // appears in the thinking phase (sys bubble); after first text it
-                            // appears inline in the AI bubble — both look fine.
-                            const preview = JSON.stringify(block.input || {}).slice(0, 120);
-                            const toolLine = '\n\x1b[2m⚙ ' + block.name + ' ' + preview + '\x1b[0m\n';
-                            if (!firstContent) {
-                                // Still in thinking phase — write a dim sys-area line
-                                try { if (state.socket) state.socket.write(toolLine); } catch(_) {}
-                            } else {
-                                try { if (state.socket) state.socket.write(toolLine); } catch(_) {}
-                            }
-                        }
-                    }
-                }
-
-                // result event — final summary, update token display
-                if (evt.type === 'result') {
-                    state.hasHistory = true;
-                    // num_turns is a rough proxy for context usage
-                    const turns = evt.num_turns || 0;
-                    if (turns > 0) {
-                        state.sessionTokens = turns * 150;
-                        try { if (state.socket) state.socket.write('\x1b]9;tokens:' + state.sessionTokens + '\x07'); } catch(_) {}
-                    }
-                    if (evt.is_error) {
-                        const errMsg = '\n\x1b[31m[claude error] ' + (evt.result || 'unknown') + '\x1b[0m\n';
-                        try { if (state.socket) state.socket.write(errMsg); } catch(_) {}
+                // ── Permission prompt detection ────────────────────────────────
+                // claude-code without --dangerously-skip-permissions emits a
+                // permission_request event (JSON) OR plain-text prompt for unknown
+                // tool execution. Detect both and show our native dialog.
+                if (t.startsWith('{')) {
+                    let evt;
+                    try { evt = JSON.parse(t); } catch(_) { continue; }
+                    handleStreamEvent(evt, state, proc, firstContent, (fc) => { firstContent = fc; });
+                } else if (t.length > 0) {
+                    // Plain-text permission prompt (fallback for unexpected formats)
+                    // Patterns: "Allow bash?", "Do you want to run...", "[y/n/a]"
+                    if (/allow|permission|approve|proceed/i.test(t) && /\?|y\/n|\[y/i.test(t)) {
+                        handlePermissionText(t, state, proc);
                     }
                 }
             }
@@ -2744,6 +2849,7 @@ function openPrintSession() {
 
         proc.stderr.on('data', d => {
             const s = d.toString();
+            stderrBuf += s;
             if (/^\[(eval-ok|import-resolved|exit-event|unhandledRejection|regex-compat|intl-shim)\]/.test(s.trim())) return;
             log('[print] ' + s);
         });
@@ -2771,10 +2877,17 @@ function openPrintSession() {
             try { if (state.socket) state.socket.write('\x1b]9;thinking-done\x07'); } catch(_) {}
             if (code !== 0 && !firstContent) {
                 const rateLimited = (Date.now() - lastRateLimitMs) < 30000;
-                const hint = rateLimited
-                    ? '\x1b[33m⚠ Rate limited — wait 30–60 s then retry, or switch model.\x1b[0m\r\n'
-                    : '\x1b[31m[claude exited ' + code + ']\x1b[0m\r\n';
-                try { if (state.socket) state.socket.write(hint); } catch(_) {}
+                if (rateLimited) {
+                    try { if (state.socket) state.socket.write('\x1b[33m⚠ Rate limited — wait 30–60 s then retry, or switch model.\x1b[0m\r\n'); } catch(_) {}
+                } else {
+                    const errLines = stderrBuf.split('\n')
+                        .filter(l => l.trim() && !/^\[(eval-ok|import-resolved|exit-event|unhandledRejection|regex-compat|intl-shim)\]/.test(l.trim()))
+                        .slice(-8).join('\r\n');
+                    let hint = '\x1b[31m[claude exited ' + code + ']\x1b[0m\r\n';
+                    if (errLines) hint += '\x1b[2m' + errLines + '\x1b[0m\r\n';
+                    hint += '\x1b[2mType !log for bridge log\x1b[0m\r\n';
+                    try { if (state.socket) state.socket.write(hint); } catch(_) {}
+                }
             }
         });
     }
@@ -2805,6 +2918,38 @@ function openPrintSession() {
             state.inputBuf = state.inputBuf.slice(nl + 1);
             if (!line) continue;
 
+            // ── Confirm responses (agentic install confirmation) ──────────────────
+            if (line.startsWith('!confirm:')) {
+                const parts = line.slice(9).split(':');
+                const confirmId = parts[0];
+                const choice = parts.slice(1).join(':');
+                const resolve = pendingConfirms.get(confirmId);
+                if (resolve) {
+                    pendingConfirms.delete(confirmId);
+                    resolve(choice);
+                }
+                continue;
+            }
+
+            // ── Permission responses — bypass busy guard (proc is waiting on stdin) ──
+            if (line === '!perm-allow' || line === '!perm-always' || line === '!perm-deny') {
+                const perm = state.pendingPerm;
+                const proc = state.currentProc;
+                if (!perm || !proc) continue;
+                if (line === '!perm-always') {
+                    // Persist the tool name to the always-allow list
+                    const list = loadApproveList();
+                    if (!list.allow.includes(perm.toolName)) {
+                        list.allow.push(perm.toolName);
+                        saveApproveList(list);
+                    }
+                }
+                const answer = (line === '!perm-deny') ? 'n\n' : 'y\n';
+                try { proc.stdin.write(answer); } catch(_) {}
+                state.pendingPerm = null;
+                continue;
+            }
+
             if (state.busy) {
                 try { if (state.socket) state.socket.write('\x1b[33m[busy — please wait]\x1b[0m\r\n'); } catch(_) {}
                 continue;
@@ -2814,22 +2959,27 @@ function openPrintSession() {
             if (line === '!help') {
                 try { if (state.socket) state.socket.write(
                     '\x1b[1m[print mode — per-message spawn]\x1b[0m\r\n' +
-                    '  \x1b[33m!clear\x1b[0m           Start a new conversation\r\n' +
-                    '  \x1b[33m!context [path]\x1b[0m  Load file/dir as context\r\n' +
-                    '  \x1b[33m!attach <file>\x1b[0m   Attach file to next message\r\n' +
-                    '  \x1b[33m!pty <cmd>\x1b[0m       Run interactive program (bash, python3…)\r\n' +
-                    '  \x1b[33m!agentic\x1b[0m         Toggle agentic mode\r\n' +
-                    '  \x1b[33m!log\x1b[0m             Show bridge log\r\n' +
+                    '  \x1b[33m!clear\x1b[0m              Start a new conversation\r\n' +
+                    '  \x1b[33m!context [path]\x1b[0m     Load file/dir as context\r\n' +
+                    '  \x1b[33m!attach <file>\x1b[0m      Attach file to next message\r\n' +
+                    '  \x1b[33m!install <pkg>\x1b[0m      Install binary/npm package\r\n' +
+                    '  \x1b[33m!pty <cmd>\x1b[0m          Run interactive program (bash, python3…)\r\n' +
+                    '  \x1b[33m!agentic [on|off]\x1b[0m   Toggle direct agentic loop\r\n' +
+                    '  \x1b[33m!undo\x1b[0m               Restore last file written by agentic\r\n' +
+                    '  \x1b[33m!undo list\x1b[0m          Show undo snapshot history\r\n' +
+                    '  \x1b[33m!log [n]\x1b[0m            Show last n lines of bridge log (default 40)\r\n' +
                     '  \x1b[2m$ <cmd>  — run shell command\x1b[0m\r\n\r\n'
                 ); } catch(_) {}
                 continue;
             }
 
             if (line === '!clear') {
-                state.hasHistory    = false; // next message starts a fresh session
+                state.hasHistory    = false;
                 state.contextBlock  = '';
                 state.pendingAttach = null;
                 state.sessionTokens = 0;
+                state.agHistory     = [];
+                clearSessionState(state.sid);
                 try { if (state.socket) state.socket.write('\x1b]9;tokens:0\x07'); } catch(_) {}
                 try { if (state.socket) state.socket.write('\x1b]9;thinking-done\x07'); } catch(_) {}
                 try { if (state.socket) state.socket.write('\x1b[2m[history cleared — next message starts a new session]\x1b[0m\r\n'); } catch(_) {}
@@ -2873,6 +3023,59 @@ function openPrintSession() {
                     state.pendingAttach = '[Attached: ' + p + ']\n' + fs.readFileSync(p, 'utf8').slice(0, 30000);
                     try { if (state.socket) state.socket.write('\x1b[33m[attached: ' + p + ']\x1b[0m\r\n'); } catch(_) {}
                 } catch(e) { try { if (state.socket) state.socket.write('\x1b[31m[!attach: ' + e.message + ']\x1b[0m\r\n'); } catch(_) {} }
+                continue;
+            }
+
+            if (line === '!undo') {
+                try {
+                    if (!fs.existsSync(UNDO_DIR)) {
+                        try { if (state.socket) state.socket.write('\x1b[33m[no undo snapshots]\x1b[0m\r\n'); } catch(_) {}
+                        continue;
+                    }
+                    const snaps = fs.readdirSync(UNDO_DIR).sort();
+                    if (!snaps.length) {
+                        try { if (state.socket) state.socket.write('\x1b[33m[no undo snapshots]\x1b[0m\r\n'); } catch(_) {}
+                        continue;
+                    }
+                    // Most recent snapshot
+                    const latest = snaps[snaps.length - 1];
+                    const snapPath = path.join(UNDO_DIR, latest);
+                    // Filename format: <timestamp>_<safeName>
+                    const origName = latest.replace(/^\d+_/, '');
+                    const targetPath = path.resolve(state.cwd, origName);
+                    fs.copyFileSync(snapPath, targetPath);
+                    fs.unlinkSync(snapPath);
+                    try { if (state.socket) state.socket.write('\x1b[32m✓ Restored: ' + targetPath + '\x1b[0m\r\n'); } catch(_) {}
+                    log('[undo] restored ' + targetPath + ' from ' + snapPath + '\n');
+                } catch(e) {
+                    try { if (state.socket) state.socket.write('\x1b[31m[!undo: ' + e.message + ']\x1b[0m\r\n'); } catch(_) {}
+                }
+                continue;
+            }
+
+            if (line === '!undo list') {
+                try {
+                    if (!fs.existsSync(UNDO_DIR)) { try { if (state.socket) state.socket.write('[no snapshots]\r\n'); } catch(_) {} continue; }
+                    const snaps = fs.readdirSync(UNDO_DIR).sort().reverse().slice(0, 10);
+                    if (!snaps.length) { try { if (state.socket) state.socket.write('[no snapshots]\r\n'); } catch(_) {} continue; }
+                    const list = snaps.map((s, i) => {
+                        const ts = parseInt(s) || 0;
+                        const age = ts ? Math.round((Date.now() - ts) / 60000) + 'm ago' : '';
+                        return '  ' + (i === 0 ? '→ ' : '  ') + s.replace(/^\d+_/, '') + (age ? ' (' + age + ')' : '');
+                    }).join('\r\n');
+                    try { if (state.socket) state.socket.write('\x1b[2mUndo snapshots (newest first):\x1b[0m\r\n' + list + '\r\n'); } catch(_) {}
+                } catch(e) { try { if (state.socket) state.socket.write('\x1b[31m[!undo list: ' + e.message + ']\x1b[0m\r\n'); } catch(_) {} }
+                continue;
+            }
+
+            if (line.startsWith('!install')) {
+                const pkgName = line.slice(8).trim();
+                if (!pkgName) {
+                    const names = Object.keys(PACKAGE_CATALOG).join(', ');
+                    try { if (state.socket) state.socket.write('\x1b[33mUsage: !install <package>\x1b[0m\r\nAvailable: ' + names + '\r\n'); } catch(_) {}
+                } else {
+                    installPackage(pkgName, state.socket);
+                }
                 continue;
             }
 
@@ -2924,6 +3127,7 @@ function openPrintSession() {
                     try {
                         process.chdir(newDir);
                         state.cwd = newDir;
+                        saveSessionState(state.sid, state);
                         try { if (state.socket) state.socket.write('\x1b[2m[cwd: ' + newDir + ']\x1b[0m\r\n'); } catch(_) {}
                         try { if (state.socket) state.socket.write('\x1b]9;cwd:' + newDir + '\x07'); } catch(_) {}
                     } catch(e) { try { if (state.socket) state.socket.write('\x1b[31m[cd: ' + e.message + ']\x1b[0m\r\n'); } catch(_) {} }
@@ -2947,11 +3151,45 @@ function openPrintSession() {
                 continue;
             }
 
-            // ── Forward everything else to claude as a new print-mode message ──
+            // ── Forward everything else to claude or the agentic loop ──────────
             let msg = line;
             if (state.contextBlock)  { msg = state.contextBlock  + '\n\n' + msg; state.contextBlock  = ''; }
             if (state.pendingAttach) { msg = state.pendingAttach + '\n\n' + msg; state.pendingAttach = null; }
-            runMessage(msg, state);
+
+            if (fs.existsSync(AGENTIC_FILE)) {
+                state.busy = true;
+                if (!state.agHistory) state.agHistory = [];
+                state.agHistory.push({ role: 'user', content: msg });
+                let pendingImg = null;
+                const imgB64Path = path.join(FILES_DIR, 'pending_image.b64');
+                const imgMimePath = path.join(FILES_DIR, 'pending_image.mime');
+                if (fs.existsSync(imgB64Path) && fs.existsSync(imgMimePath)) {
+                    try {
+                        pendingImg = {
+                            b64: fs.readFileSync(imgB64Path, 'utf8').trim(),
+                            mime: fs.readFileSync(imgMimePath, 'utf8').trim() || 'image/jpeg'
+                        };
+                        fs.unlinkSync(imgB64Path);
+                        fs.unlinkSync(imgMimePath);
+                    } catch(_) {}
+                }
+                runAgentic(state.socket, msg, state.agHistory.slice(0, -1), state.cwd, pendingImg)
+                    .then(result => {
+                        if (result.text) state.agHistory.push({ role: 'assistant', content: result.text });
+                        if (state.agHistory.length > 40) state.agHistory = state.agHistory.slice(-40);
+                        if (result.cwd && result.cwd !== state.cwd) {
+                            state.cwd = result.cwd;
+                            try { if (state.socket) state.socket.write('\x1b]9;cwd:' + state.cwd + '\x07'); } catch(_) {}
+                        }
+                        state.busy = false;
+                    })
+                    .catch(e => {
+                        log('[agentic] unhandled: ' + e.message + '\n');
+                        state.busy = false;
+                    });
+            } else {
+                runMessage(msg, state);
+            }
         }
     }
 
@@ -2961,17 +3199,21 @@ function openPrintSession() {
 
         if (!state) {
             const cfg = readConfig();
+            // Restore persisted state if within 24-hour TTL
+            const saved = loadSessionState(sid);
             state = {
                 socket: null,
                 busy: false, thinkingDone: false,
                 currentProc: null,
+                pendingPerm: null,
                 inputBuf: '', contextBlock: '', pendingAttach: null,
-                sessionTokens: 0,
-                hasHistory: false,   // becomes true after first successful response
+                sessionTokens: saved ? (saved.sessionTokens || 0) : 0,
+                hasHistory: saved ? !!saved.hasHistory : false,
                 ptyProc: null,
-                cwd: cfg.projectPath || FILES_DIR,
+                cwd: (saved && saved.cwd) ? saved.cwd : (cfg.projectPath || FILES_DIR),
                 sid
             };
+            if (saved) log('[session:' + sid + '] restored from disk (hasHistory=' + state.hasHistory + ' cwd=' + state.cwd + ')\n');
             activeSessions.set(sid, state);
         }
 

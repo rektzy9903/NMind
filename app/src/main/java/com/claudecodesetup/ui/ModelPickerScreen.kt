@@ -13,11 +13,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -374,7 +372,7 @@ fun ModelPickerScreen(
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         Text(
-                            if (fetchError) "⚠ Could not load models" else "No free models found",
+                            if (fetchError) "⚠ Could not load models" else "No models found",
                             fontFamily = DmSansFamily, fontSize = 14.sp,
                             fontWeight = FontWeight.SemiBold, color = Color.White
                         )
@@ -410,37 +408,40 @@ fun ModelPickerScreen(
                     ) {
                         CircularProgressIndicator(
                             Modifier.size(32.dp), color = Color(0xFF8B5CF6), strokeWidth = 2.dp)
-                        Text("Loading free models…", fontFamily = DmSansFamily, fontSize = 13.sp,
+                        Text("Loading models…", fontFamily = DmSansFamily, fontSize = 13.sp,
                             color = Color(0xFF6B7280))
                     }
                 }
             } else
 
             // ── Model grid ────────────────────────────────────────────────────
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(3),
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(horizontal = 10.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                contentPadding = PaddingValues(bottom = 4.dp)
-            ) {
-                items(paged, key = { it.model.modelId }) { display ->
-                    ModelCard(
-                        display = display,
-                        isSelected = selectedModel == display.model,
-                        onSelect = { selectedModel = display.model }
-                    )
-                }
-                val emptyCount = PAGE_SIZE - paged.size
-                items(emptyCount) {
-                    Box(
-                        modifier = Modifier
-                            .aspectRatio(0.85f)
-                            .border(1.dp, Color(0x0AFFFFFF), RoundedCornerShape(12.dp))
-                            .background(Color(0x03FFFFFF), RoundedCornerShape(12.dp))
-                    )
+            {
+                val pagedFree = paged.filter { Cap.FREE in it.effectiveCaps }
+                val pagedPaid = paged.filter { Cap.FREE !in it.effectiveCaps }
+                LazyColumn(modifier = Modifier.weight(1f).padding(horizontal = 10.dp)) {
+                    if (pagedFree.isNotEmpty()) {
+                        item { SectionHeader("🆓 FREE", Color(0xFF10B981)) }
+                        item {
+                            ModelSubGrid(
+                                models = pagedFree,
+                                selectedModel = selectedModel,
+                                onSelect = { selectedModel = it }
+                            )
+                        }
+                    }
+                    if (pagedFree.isNotEmpty() && pagedPaid.isNotEmpty()) {
+                        item { Spacer(Modifier.height(4.dp)) }
+                    }
+                    if (pagedPaid.isNotEmpty()) {
+                        item { SectionHeader("💳 PAID", Color(0xFFF59E0B)) }
+                        item {
+                            ModelSubGrid(
+                                models = pagedPaid,
+                                selectedModel = selectedModel,
+                                onSelect = { selectedModel = it }
+                            )
+                        }
+                    }
                 }
             }
 
@@ -643,6 +644,61 @@ private fun ModelCard(display: ModelDisplay, isSelected: Boolean, onSelect: () -
                 contentAlignment = Alignment.Center
             ) {
                 Text("✓", fontSize = 7.sp, fontWeight = FontWeight.Bold, color = Color.Black)
+            }
+        }
+    }
+}
+
+@Composable
+private fun SectionHeader(label: String, color: Color) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp, horizontal = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .background(color.copy(alpha = 0.15f), RoundedCornerShape(6.dp))
+                .border(1.dp, color.copy(alpha = 0.3f), RoundedCornerShape(6.dp))
+                .padding(horizontal = 8.dp, vertical = 3.dp)
+        ) {
+            Text(label, fontFamily = SpaceMonoFamily, fontSize = 8.sp,
+                fontWeight = FontWeight.Bold, color = color, letterSpacing = 1.5.sp)
+        }
+        Box(modifier = Modifier.weight(1f).height(1.dp).background(color.copy(alpha = 0.12f)))
+    }
+}
+
+@Composable
+private fun ModelSubGrid(
+    models: List<ModelDisplay>,
+    selectedModel: AiModel?,
+    onSelect: (AiModel) -> Unit
+) {
+    val rows = models.chunked(3)
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        rows.forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                row.forEach { display ->
+                    Box(modifier = Modifier.weight(1f)) {
+                        ModelCard(
+                            display = display,
+                            isSelected = selectedModel == display.model,
+                            onSelect = { onSelect(display.model) }
+                        )
+                    }
+                }
+                repeat(3 - row.size) {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .aspectRatio(0.85f)
+                            .border(1.dp, Color(0x0AFFFFFF), RoundedCornerShape(12.dp))
+                            .background(Color(0x03FFFFFF), RoundedCornerShape(12.dp))
+                    )
+                }
             }
         }
     }

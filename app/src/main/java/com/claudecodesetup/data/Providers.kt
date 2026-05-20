@@ -232,7 +232,7 @@ object Providers {
         id = "anthropic",
         name = "Anthropic (Claude.ai)",
         iconUrl = "https://logo.clearbit.com/anthropic.com",
-        supportsLiveFetch = true,
+        supportsLiveFetch = false,
         signupUrl = "https://console.anthropic.com/settings/api-keys",
         rateLimit = "Subscription billing",
         malaysiaStatus = MalaysiaStatus.GREEN,

@@ -636,6 +636,18 @@ class TerminalActivity : AppCompatActivity() {
     // ─── Image picker ─────────────────────────────────────────────────────────
 
     private fun pickImage() {
+        // Check if current model supports vision
+        val modelId = prefs.getModelId().lowercase()
+        val hasVision = listOf("vision", "vl", "scout", "maverick", "gemini", "claude", "gpt-4", "llava", "llama-4")
+            .any { it in modelId }
+        if (!hasVision) {
+            android.widget.Toast.makeText(
+                this,
+                "This model doesn't support images. Switch to a vision model (e.g. Gemini Flash, Llama 4 Scout).",
+                android.widget.Toast.LENGTH_LONG
+            ).show()
+            return
+        }
         val intent = Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI)
         intent.type = "image/*"
         startActivityForResult(intent, REQUEST_IMAGE)
@@ -908,18 +920,6 @@ class TerminalActivity : AppCompatActivity() {
         }
 
         @JavascriptInterface
-        fun showConfirmDialog(filename: String) {
-            runOnUiThread {
-                AlertDialog.Builder(this@TerminalActivity)
-                    .setTitle("Claude wants to create a file")
-                    .setMessage(filename)
-                    .setPositiveButton("Yes, create it") { _, _ -> claudeService?.sendInput("y\r") }
-                    .setNegativeButton("No, skip")       { _, _ -> claudeService?.sendInput("n\r") }
-                    .show()
-            }
-        }
-
-        @JavascriptInterface
         fun saveFile(filename: String, content: String) {
             val projectPath = prefs.getProjectPath().ifEmpty { filesDir.absolutePath }
             val file = File(projectPath, filename)
@@ -993,7 +993,7 @@ class TerminalActivity : AppCompatActivity() {
 
         @JavascriptInterface
         fun sendConfirm(id: String, choice: String) {
-            claudeService?.sendInput(choice + "\r")
+            claudeService?.sendInput("!confirm:$id:$choice\r")
         }
 
         @JavascriptInterface

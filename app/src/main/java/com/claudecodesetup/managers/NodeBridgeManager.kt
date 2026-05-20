@@ -228,7 +228,6 @@ class NodeBridgeManager(private val context: Context) {
                             providerId: String = "", projectPath: String = "",
                             customSystemPrompt: String = "", prefs: AppPreferences? = null) {
         val isSubscription = mode == AppPreferences.MODE_SUBSCRIPTION
-        val authToken = if (!isSubscription) "freecc" else ""
         val effectiveBaseUrl = if (!isSubscription) "http://127.0.0.1:8082" else baseUrl
         // Ollama's OpenAI-compat endpoint is at /v1/chat/completions; users often omit the /v1.
         val normalizedBase = if (providerId == "ollama" && !baseUrl.contains("/v1")) {
@@ -247,12 +246,10 @@ class NodeBridgeManager(private val context: Context) {
             put("apiKey",             apiKey)
             put("modelId",            effectiveModelId)
             put("baseUrl",            effectiveBaseUrl)
-            put("authToken",          authToken)
             put("providerUrl",        providerUrl)
             put("modelList",          modelList)
             put("projectPath",        projectPath)
             put("customSystemPrompt", customSystemPrompt)
-            put("ptyMode",            prefs?.getPtyMode() ?: false)
             put("ptyCols",            prefs?.getPtyCols() ?: 220)
             put("ptyRows",            prefs?.getPtyRows() ?: 50)
             put("localToken",         localToken)

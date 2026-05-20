@@ -97,12 +97,12 @@ object ProvidersRepository {
     }
 
     /**
-     * Fetch live free models from OpenRouter's public models endpoint.
-     * Filters to models where both prompt and completion pricing == "0",
-     * or whose ID ends with ":free".
+     * Fetch all models from OpenRouter's public models endpoint.
+     * Free models (ID ends with ":free" or price == 0.0) get Cap.FREE added to their caps.
+     * Paid models are included without Cap.FREE.
      * Throws on network error or bad API key — caller should show a toast.
      */
-    suspend fun fetchOpenRouterFreeModels(apiKey: String): List<AiModel> =
+    suspend fun fetchOpenRouterModels(apiKey: String): List<AiModel> =
         withContext(Dispatchers.IO) {
             val req = Request.Builder()
                 .url("https://openrouter.ai/api/v1/models")
@@ -114,7 +114,7 @@ object ProvidersRepository {
                 resp.body?.string() ?: throw Exception("Empty response")
             }
             val data = JSONObject(body).getJSONArray("data")
-            val free = mutableListOf<AiModel>()
+            val models = mutableListOf<AiModel>()
             for (i in 0 until data.length()) {
                 val m       = data.getJSONObject(i)
                 val id      = m.getString("id")
@@ -122,12 +122,12 @@ object ProvidersRepository {
                 val prompt  = pricing?.optString("prompt", "1")?.toDoubleOrNull() ?: 1.0
                 val compl   = pricing?.optString("completion", "1")?.toDoubleOrNull() ?: 1.0
                 val isFree  = id.endsWith(":free") || (prompt == 0.0 && compl == 0.0)
-                if (isFree) {
-                    val name = m.optString("name", "").ifEmpty { id }
-                    free.add(AiModel(name, id, Providers.deriveCaps(id)))
-                }
+                val name    = m.optString("name", "").ifEmpty { id }
+                val caps    = Providers.deriveCaps(id).toMutableSet()
+                if (isFree) caps += Cap.FREE
+                models.add(AiModel(name, id, caps))
             }
-            free.sortedBy { it.modelId }
+            models.sortedBy { it.modelId }
         }
 
     /**
@@ -135,10 +135,10 @@ object ProvidersRepository {
      * Falls back silently to the static model list on any failure.
      */
     suspend fun fetchModels(provider: Provider, apiKey: String): List<AiModel> = when (provider.id) {
-        "openrouter"  -> fetchOpenRouterFreeModels(apiKey)
+        "openrouter"  -> fetchOpenRouterModels(apiKey)
         "nvidia_nim"  -> fetchNvidiaFreeModels(apiKey)
         "gemini"      -> fetchGeminiModels(apiKey)
-        "groq"        -> fetchOpenAiStyleModels("https://api.groq.com/openai/v1/models", apiKey, provider)
+        "groq"        -> fetchOpenAiStyleModels("https://api.groq.com/openai/v1/models", apiKey, provider, isAlwaysFree = true)
         "deepseek"    -> fetchOpenAiStyleModels("https://api.deepseek.com/models", apiKey, provider)
         "kimi"        -> fetchOpenAiStyleModels("https://api.moonshot.ai/v1/models", apiKey, provider)
         "anthropic"   -> fetchAnthropicModels(apiKey)
@@ -197,7 +197,7 @@ object ProvidersRepository {
         }
 
     /** Generic OpenAI-compatible /v1/models fetch (Groq, DeepSeek, Kimi, Meta Llama). */
-    private suspend fun fetchOpenAiStyleModels(url: String, apiKey: String, provider: Provider): List<AiModel> =
+    private suspend fun fetchOpenAiStyleModels(url: String, apiKey: String, provider: Provider, isAlwaysFree: Boolean = false): List<AiModel> =
         withContext(Dispatchers.IO) {
             val req = Request.Builder()
                 .url(url)
@@ -216,7 +216,9 @@ object ProvidersRepository {
                     id.substringAfterLast("/").split("-")
                         .joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
                 }
-                AiModel(rawName, id, Providers.deriveCaps(id))
+                val caps = Providers.deriveCaps(id).toMutableSet()
+                if (isAlwaysFree) caps += Cap.FREE
+                AiModel(rawName, id, caps)
             }.sortedBy { it.modelId }
         }
 

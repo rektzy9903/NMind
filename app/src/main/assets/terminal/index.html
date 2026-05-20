@@ -619,6 +619,9 @@ html, body {
   </div>
 </div>
 
+<!-- CWD indicator (shown above input bar when bridge sends 9;cwd:) -->
+<div id="cwd-bar" style="position:fixed;bottom:58px;left:0;right:0;padding:2px 10px;font-size:9px;font-family:'Space Mono','Courier New',monospace;color:rgba(0,200,255,0.35);letter-spacing:0.5px;z-index:89;pointer-events:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:none;"></div>
+
 <!-- Image preview indicator (shown when image is attached) -->
 <div id="img-preview" style="position:fixed;bottom:68px;left:12px;background:rgba(255,150,50,0.2);border:1px solid rgba(255,150,50,0.4);border-radius:8px;padding:4px 10px;font-size:11px;color:#fbbf24;z-index:91;display:none;cursor:pointer;">📷 Image attached ✕</div>
 
@@ -1107,6 +1110,22 @@ function handleOSC(content){
       currentAiBubble.insertBefore(det,currentAiBubble.firstChild);
       scrollToBottom();
     }
+  } else if(content.startsWith('9;permission:')){
+    var permB64=content.slice(13);
+    var perm={toolName:'tool',toolInput:{},id:Date.now()};
+    try{ perm=JSON.parse(atob(permB64)); }catch(_){}
+    showPermissionDialog(perm);
+  } else if(content.startsWith('9;cwd:')){
+    var cwd=content.slice(6);
+    var cwdBar=document.getElementById('cwd-bar');
+    if(cwdBar){
+      // Abbreviate long paths: keep last 2 path segments visible
+      var display=cwd;
+      var parts=cwd.replace(/\/+$/,'').split('/').filter(Boolean);
+      if(parts.length>3) display='…/'+parts.slice(-2).join('/');
+      cwdBar.textContent='📂 '+display;
+      cwdBar.style.display='block';
+    }
   }
 }
 
@@ -1214,6 +1233,71 @@ function showConfirmDialog(id, desc){
     row.appendChild(btn);
   });
   wrap.appendChild(row);
+  msgs.appendChild(wrap);
+  scrollToBottom();
+}
+
+// ── Permission dialog ─────────────────────────────────────────────────────────
+function showPermissionDialog(perm){
+  // Remove any stale dialog for the same id
+  var oldId='perm-dialog-'+perm.id;
+  var oldEl=document.getElementById(oldId);
+  if(oldEl)oldEl.remove();
+
+  var wrap=document.createElement('div');
+  wrap.id=oldId;
+  wrap.style.cssText='margin:8px 4px;border-radius:14px;overflow:hidden;background:rgba(20,10,40,0.85);border:1px solid rgba(147,51,234,0.4);box-shadow:0 4px 24px rgba(147,51,234,0.15);';
+
+  // Header bar
+  var hdr=document.createElement('div');
+  hdr.style.cssText='background:rgba(147,51,234,0.15);padding:10px 14px 8px;display:flex;align-items:center;gap:8px;border-bottom:1px solid rgba(147,51,234,0.2);';
+  var icon=document.createElement('span');
+  icon.textContent='🔐';
+  icon.style.fontSize='15px';
+  var title=document.createElement('span');
+  title.style.cssText='color:#d8b4fe;font-size:12px;font-family:Space Mono,monospace;font-weight:600;flex:1;';
+  title.textContent='Permission required — '+perm.toolName;
+  hdr.appendChild(icon);
+  hdr.appendChild(title);
+  wrap.appendChild(hdr);
+
+  // Input preview
+  var inputStr='';
+  try{
+    var inp=perm.toolInput||{};
+    // Show most relevant field: command > code > path > prompt > first key
+    var preview=inp.command||inp.code||inp.path||inp.prompt||inp.query||Object.values(inp)[0]||'';
+    inputStr=String(preview).slice(0,200);
+  }catch(_){}
+  if(inputStr){
+    var pre=document.createElement('div');
+    pre.style.cssText='padding:8px 14px;font-size:10px;font-family:Space Mono,monospace;color:rgba(200,200,220,0.75);white-space:pre-wrap;word-break:break-all;border-bottom:1px solid rgba(147,51,234,0.1);max-height:80px;overflow:hidden;';
+    pre.textContent=inputStr;
+    wrap.appendChild(pre);
+  }
+
+  // Buttons
+  var btnRow=document.createElement('div');
+  btnRow.style.cssText='display:flex;gap:0;';
+  var buttons=[
+    {label:'Deny',    cmd:'!perm-deny',   bg:'rgba(239,68,68,0.12)',  border:'rgba(239,68,68,0.3)',  color:'#f87171', flex:'1'},
+    {label:'Allow',   cmd:'!perm-allow',  bg:'rgba(34,197,94,0.12)',  border:'rgba(34,197,94,0.3)',  color:'#4ade80', flex:'1'},
+    {label:'Always',  cmd:'!perm-always', bg:'rgba(34,197,94,0.08)',  border:'rgba(34,197,94,0.25)', color:'#86efac', flex:'1'},
+  ];
+  buttons.forEach(function(b,i){
+    var btn=document.createElement('button');
+    btn.textContent=b.label;
+    var borderLeft=i>0?'border-left:1px solid rgba(147,51,234,0.2);':'';
+    btn.style.cssText='flex:'+b.flex+';background:'+b.bg+';border:none;'+borderLeft+'color:'+b.color+';font-size:12px;font-family:Space Mono,monospace;padding:10px 4px;cursor:pointer;letter-spacing:0.03em;';
+    btn.addEventListener('click',function(){
+      wrap.style.opacity='0.5';
+      wrap.style.pointerEvents='none';
+      if(typeof Android!=='undefined') Android.sendInput(b.cmd+'\r');
+    });
+    btnRow.appendChild(btn);
+  });
+  wrap.appendChild(btnRow);
+
   msgs.appendChild(wrap);
   scrollToBottom();
 }
