@@ -2817,6 +2817,7 @@ function openPrintSession() {
             '.catch(function(e){process.stderr.write("import-err:"+String(e)+"\\n");process.exit(1);});';
 
         const proc = spawn(LAUNCHER, ['-e', evalCode], { env, cwd: state.cwd });
+        proc.stdin.end(); // signal EOF; --print mode reads no stdin
         state.currentProc = proc;
         state.busy = true;
         state.thinkingDone = false;

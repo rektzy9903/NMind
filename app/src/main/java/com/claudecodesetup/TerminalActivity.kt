@@ -863,7 +863,10 @@ class TerminalActivity : AppCompatActivity() {
         @JavascriptInterface
         fun submitMessage(text: String) {
             if (text.isEmpty()) return
-            if (!isOnline()) {
+            // Local bridge commands (!log, !help, !test-cli, $ cmd, etc.) bypass
+            // the online check — they don't need a network connection.
+            val isLocalCmd = text.startsWith("!") || text.startsWith("$")
+            if (!isLocalCmd && !isOnline()) {
                 runOnUiThread {
                     showStatusError("No internet connection — check your network and try again")
                 }
