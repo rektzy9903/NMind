@@ -1659,6 +1659,17 @@ function submitLine(text){
   savedInput='';
   updateInputDisp();
   if(!msg && !pendingImageAttached) return;
+  // Local bridge commands (!log, !help, !clear, $ cmd, etc.) bypass the chat
+  // path entirely — they go as raw input so they don't disturb the AI bubble
+  // state machine, don't add a user bubble, and don't trigger a thinking spinner.
+  if(msg.startsWith('!')||msg.startsWith('$')){
+    if(msg.length>0&&inputHistory[inputHistory.length-1]!==msg){
+      inputHistory.push(msg);
+      if(inputHistory.length>50) inputHistory.shift();
+    }
+    if(typeof Android!=='undefined') Android.sendInput(msg+'\r');
+    return;
+  }
   const displayMsg = msg || '📷';
   // Push to input history (skip duplicates of the last entry)
   if(msg.length>0&&inputHistory[inputHistory.length-1]!==msg){

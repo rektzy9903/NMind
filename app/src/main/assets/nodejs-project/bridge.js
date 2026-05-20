@@ -2987,7 +2987,6 @@ function openPrintSession() {
                     '  \x1b[33m!test-cli\x1b[0m           Run module-loader + proxy diagnostics\r\n' +
                     '  \x1b[2m$ <cmd>  — run shell command\x1b[0m\r\n\r\n'
                 ); } catch(_) {}
-                try { if (state.socket) state.socket.write('\x1b]9;thinking-done\x07'); } catch(_) {}
                 continue;
             }
 
@@ -2999,7 +2998,6 @@ function openPrintSession() {
                 state.agHistory     = [];
                 clearSessionState(state.sid);
                 try { if (state.socket) state.socket.write('\x1b]9;tokens:0\x07'); } catch(_) {}
-                try { if (state.socket) state.socket.write('\x1b]9;thinking-done\x07'); } catch(_) {}
                 try { if (state.socket) state.socket.write('\x1b[2m[history cleared — next message starts a new session]\x1b[0m\r\n'); } catch(_) {}
                 continue;
             }
@@ -3010,14 +3008,12 @@ function openPrintSession() {
                     const logData = fs.readFileSync(SETUP_LOG, 'utf8');
                     if (state.socket) state.socket.write('\x1b[2m' + logData.split('\n').slice(-n).join('\r\n') + '\x1b[0m\r\n');
                 } catch(_) { try { if (state.socket) state.socket.write('[no log]\r\n'); } catch(_) {} }
-                try { if (state.socket) state.socket.write('\x1b]9;thinking-done\x07'); } catch(_) {}
                 continue;
             }
 
             if (line === '!test-cli') {
                 const sock2 = state.socket;
                 try { if (sock2) sock2.write('\r\n\x1b[33mRunning module-loader diagnostic (6 steps)…\x1b[0m\r\n'); } catch(_) {}
-                try { if (sock2) sock2.write('\x1b]9;thinking-done\x07'); } catch(_) {}
                 const env2 = buildEnv();
                 const cliUrl2 = 'file://' + CLAUDE_CLI;
                 const exitLog2 = JSON.stringify(SETUP_LOG);
@@ -3083,7 +3079,6 @@ function openPrintSession() {
                 else    { try { fs.unlinkSync(AGENTIC_FILE); } catch(_) {} }
                 try { if (state.socket) state.socket.write('\x1b]9;agentic:' + (on ? 'on' : 'off') + '\x07'); } catch(_) {}
                 try { if (state.socket) state.socket.write((on ? '\x1b[35m[AGENTIC ON]\x1b[0m' : '\x1b[2m[AGENTIC OFF]\x1b[0m') + '\r\n'); } catch(_) {}
-                try { if (state.socket) state.socket.write('\x1b]9;thinking-done\x07'); } catch(_) {}
                 continue;
             }
 
@@ -3096,7 +3091,6 @@ function openPrintSession() {
                         : '[File: ' + p + ']\n' + fs.readFileSync(p, 'utf8').slice(0, 30000);
                     try { if (state.socket) state.socket.write('\x1b[33m[context loaded: ' + p + ']\x1b[0m\r\n'); } catch(_) {}
                 } catch(e) { try { if (state.socket) state.socket.write('\x1b[31m[!context: ' + e.message + ']\x1b[0m\r\n'); } catch(_) {} }
-                try { if (state.socket) state.socket.write('\x1b]9;thinking-done\x07'); } catch(_) {}
                 continue;
             }
 
@@ -3106,7 +3100,6 @@ function openPrintSession() {
                     state.pendingAttach = '[Attached: ' + p + ']\n' + fs.readFileSync(p, 'utf8').slice(0, 30000);
                     try { if (state.socket) state.socket.write('\x1b[33m[attached: ' + p + ']\x1b[0m\r\n'); } catch(_) {}
                 } catch(e) { try { if (state.socket) state.socket.write('\x1b[31m[!attach: ' + e.message + ']\x1b[0m\r\n'); } catch(_) {} }
-                try { if (state.socket) state.socket.write('\x1b]9;thinking-done\x07'); } catch(_) {}
                 continue;
             }
 
@@ -3114,13 +3107,11 @@ function openPrintSession() {
                 try {
                     if (!fs.existsSync(UNDO_DIR)) {
                         try { if (state.socket) state.socket.write('\x1b[33m[no undo snapshots]\x1b[0m\r\n'); } catch(_) {}
-                        try { if (state.socket) state.socket.write('\x1b]9;thinking-done\x07'); } catch(_) {}
                         continue;
                     }
                     const snaps = fs.readdirSync(UNDO_DIR).sort();
                     if (!snaps.length) {
                         try { if (state.socket) state.socket.write('\x1b[33m[no undo snapshots]\x1b[0m\r\n'); } catch(_) {}
-                        try { if (state.socket) state.socket.write('\x1b]9;thinking-done\x07'); } catch(_) {}
                         continue;
                     }
                     // Most recent snapshot
@@ -3136,15 +3127,14 @@ function openPrintSession() {
                 } catch(e) {
                     try { if (state.socket) state.socket.write('\x1b[31m[!undo: ' + e.message + ']\x1b[0m\r\n'); } catch(_) {}
                 }
-                try { if (state.socket) state.socket.write('\x1b]9;thinking-done\x07'); } catch(_) {}
                 continue;
             }
 
             if (line === '!undo list') {
                 try {
-                    if (!fs.existsSync(UNDO_DIR)) { try { if (state.socket) state.socket.write('[no snapshots]\r\n'); } catch(_) {} try { if (state.socket) state.socket.write('\x1b]9;thinking-done\x07'); } catch(_) {} continue; }
+                    if (!fs.existsSync(UNDO_DIR)) { try { if (state.socket) state.socket.write('[no snapshots]\r\n'); } catch(_) {} continue; }
                     const snaps = fs.readdirSync(UNDO_DIR).sort().reverse().slice(0, 10);
-                    if (!snaps.length) { try { if (state.socket) state.socket.write('[no snapshots]\r\n'); } catch(_) {} try { if (state.socket) state.socket.write('\x1b]9;thinking-done\x07'); } catch(_) {} continue; }
+                    if (!snaps.length) { try { if (state.socket) state.socket.write('[no snapshots]\r\n'); } catch(_) {} continue; }
                     const list = snaps.map((s, i) => {
                         const ts = parseInt(s) || 0;
                         const age = ts ? Math.round((Date.now() - ts) / 60000) + 'm ago' : '';
@@ -3152,7 +3142,6 @@ function openPrintSession() {
                     }).join('\r\n');
                     try { if (state.socket) state.socket.write('\x1b[2mUndo snapshots (newest first):\x1b[0m\r\n' + list + '\r\n'); } catch(_) {}
                 } catch(e) { try { if (state.socket) state.socket.write('\x1b[31m[!undo list: ' + e.message + ']\x1b[0m\r\n'); } catch(_) {} }
-                try { if (state.socket) state.socket.write('\x1b]9;thinking-done\x07'); } catch(_) {}
                 continue;
             }
 
@@ -3164,7 +3153,6 @@ function openPrintSession() {
                 } else {
                     installPackage(pkgName, state.socket);
                 }
-                try { if (state.socket) state.socket.write('\x1b]9;thinking-done\x07'); } catch(_) {}
                 continue;
             }
 
@@ -3173,12 +3161,10 @@ function openPrintSession() {
                 const ptyCmd = line.slice(5).trim();
                 if (!ptyCmd) {
                     try { if (state.socket) state.socket.write('\x1b[33mUsage: !pty <command>  e.g. !pty bash\x1b[0m\r\n'); } catch(_) {}
-                    try { if (state.socket) state.socket.write('\x1b]9;thinking-done\x07'); } catch(_) {}
                     continue;
                 }
                 if (!fs.existsSync(PTY_HELPER)) {
                     try { if (state.socket) state.socket.write('\x1b[31m✗ libpty-helper.so not found.\x1b[0m\r\n'); } catch(_) {}
-                    try { if (state.socket) state.socket.write('\x1b]9;thinking-done\x07'); } catch(_) {}
                     continue;
                 }
                 const ptyCfg = readConfig();
@@ -3190,23 +3176,19 @@ function openPrintSession() {
                         { env: ptyEnv, cwd: state.cwd });
                 } catch(e) {
                     try { if (state.socket) state.socket.write('\x1b[31m[PTY] Failed: ' + e.message + '\x1b[0m\r\n'); } catch(_) {}
-                    try { if (state.socket) state.socket.write('\x1b]9;thinking-done\x07'); } catch(_) {}
                     continue;
                 }
                 state.ptyProc = ptyProc;
                 try { if (state.socket) state.socket.write('\x1b[33m[PTY] ' + ptyCmd + ' — Ctrl+D or exit to return\x1b[0m\r\n\r\n'); } catch(_) {}
-                try { if (state.socket) state.socket.write('\x1b]9;thinking-done\x07'); } catch(_) {}  // PTY takes over; clear spinner
                 ptyProc.stdout.on('data', d2 => { try { if (state.socket) state.socket.write(d2); } catch(_) {} });
                 ptyProc.stderr.on('data', d2 => { try { if (state.socket) state.socket.write(d2); } catch(_) {} });
                 ptyProc.on('close', code2 => {
                     state.ptyProc = null;
                     try { if (state.socket) state.socket.write('\r\n\x1b[33m[PTY] ' + ptyCmd + ' ended (exit ' + (code2 || 0) + ')\x1b[0m\r\n\r\n'); } catch(_) {}
-                    try { if (state.socket) state.socket.write('\x1b]9;thinking-done\x07'); } catch(_) {}
                 });
                 ptyProc.on('error', e => {
                     state.ptyProc = null;
                     try { if (state.socket) state.socket.write('\x1b[31m[PTY] Error: ' + e.message + '\x1b[0m\r\n'); } catch(_) {}
-                    try { if (state.socket) state.socket.write('\x1b]9;thinking-done\x07'); } catch(_) {}
                 });
                 if (state.socket) state.socket.once('close', () => {
                     try { if (state.ptyProc === ptyProc) { ptyProc.kill(); state.ptyProc = null; } } catch(_) {}
@@ -3226,10 +3208,8 @@ function openPrintSession() {
                         try { if (state.socket) state.socket.write('\x1b[2m[cwd: ' + newDir + ']\x1b[0m\r\n'); } catch(_) {}
                         try { if (state.socket) state.socket.write('\x1b]9;cwd:' + newDir + '\x07'); } catch(_) {}
                     } catch(e) { try { if (state.socket) state.socket.write('\x1b[31m[cd: ' + e.message + ']\x1b[0m\r\n'); } catch(_) {} }
-                    try { if (state.socket) state.socket.write('\x1b]9;thinking-done\x07'); } catch(_) {}
                 } else {
                     state.busy = true;
-                    try { if (state.socket) state.socket.write('\x1b]9;thinking-start\x07'); } catch(_) {}
                     const sh = spawn('/system/bin/sh', ['-c', cmd], { env: buildEnv(), cwd: state.cwd });
                     sh.stdout.on('data', d2 => { try { if (state.socket) state.socket.write(d2); } catch(_) {} });
                     sh.stderr.on('data', d2 => { try { if (state.socket) state.socket.write(d2); } catch(_) {} });
@@ -3240,7 +3220,6 @@ function openPrintSession() {
                     }, 30000);
                     sh.on('close', () => {
                         clearTimeout(shTid);
-                        try { if (state.socket) state.socket.write('\x1b]9;thinking-done\x07'); } catch(_) {}
                         state.busy = false;
                     });
                 }
