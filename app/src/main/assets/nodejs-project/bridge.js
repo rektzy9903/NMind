@@ -2782,22 +2782,28 @@ function openPrintSession() {
         const cliUrl  = 'file://' + CLAUDE_CLI;
         const exitLog = JSON.stringify(path.join(FILES_DIR, 'session_exit.log'));
 
-        // argv for print mode:
-        //   --print                         → non-interactive, exits after response
-        //   --output-format stream-json     → structured NDJSON output
-        //   --continue                      → resume last session (preserves history)
-        // NOTE: --dangerously-skip-permissions is intentionally omitted so claude-code
-        // asks for permission for each tool. Always-allowed tools are pre-approved in
-        // settings.json permissions.allow; others trigger our permission dialog.
-        const args = ['--print', '--verbose', '--output-format', 'stream-json'];
-        if (state.hasHistory) args.push('--continue');
-        args.push(msg);
-
-        const argvCode = args.map((a, i) =>
-            'process.argv[' + (i + 2) + ']=' + JSON.stringify(a) + ';'
-        ).join('') + 'process.argv.length=' + (args.length + 2) + ';';
+        // argv for print mode — order matters for claude-code v2.1.112 arg parser:
+        //   --output-format stream-json  → structured NDJSON output (must come first)
+        //   --print                      → non-interactive, exits after response
+        //   --verbose                    → required alongside --output-format=stream-json
+        //   --continue                   → resume last session (preserves history)
+        //   <message>                    → the user's message
+        let argvCode =
+            'process.argv[2]="--output-format";' +
+            'process.argv[3]="stream-json";' +
+            'process.argv[4]="--print";' +
+            'process.argv[5]="--verbose";';
+        let argvLen = 6;
+        if (state.hasHistory) {
+            argvCode += 'process.argv[' + argvLen + ']="--continue";';
+            argvLen++;
+        }
+        argvCode += 'process.argv[' + argvLen + ']=' + JSON.stringify(msg) + ';';
+        argvLen++;
+        argvCode += 'process.argv.length=' + argvLen + ';';
 
         const evalCode =
+            'process.stderr.write("[eval-ok]\\n");' +
             'process.on("exit",function(c){' +
             'try{require("fs").appendFileSync(' + exitLog + ',"[print-exit] "+c+"\\n");}catch(_){}});' +
             'process.on("unhandledRejection",function(r){' +
@@ -2807,10 +2813,11 @@ function openPrintSession() {
             'process.argv[1]=' + JSON.stringify(CLAUDE_CLI) + ';' +
             argvCode +
             'import(' + JSON.stringify(cliUrl) + ')' +
+            '.then(function(){try{require("fs").appendFileSync(' + exitLog + ',"[import-resolved]\\n");}catch(_){}})' +
             '.catch(function(e){process.stderr.write("import-err:"+String(e)+"\\n");process.exit(1);});';
 
         const proc = spawn(LAUNCHER, ['-e', evalCode], { env, cwd: state.cwd });
-        try { proc.stdin.end(); } catch(_) {}  // signal EOF so claude doesn't wait 3 s for stdin
+        try { proc.stdin.end(); } catch(_) {}  // signal EOF immediately — claude reads message from argv, not stdin
         state.currentProc = proc;
         state.busy = true;
         state.thinkingDone = false;
@@ -2836,13 +2843,19 @@ function openPrintSession() {
                 // tool execution. Detect both and show our native dialog.
                 if (t.startsWith('{')) {
                     let evt;
-                    try { evt = JSON.parse(t); } catch(_) { continue; }
+                    try { evt = JSON.parse(t); } catch(_) {
+                        // Non-JSON line — forward raw so user can see unexpected output
+                        try { if (state.socket) state.socket.write(line + '\n'); } catch(_) {}
+                        continue;
+                    }
                     handleStreamEvent(evt, state, proc, firstContent, (fc) => { firstContent = fc; });
                 } else if (t.length > 0) {
                     // Plain-text permission prompt (fallback for unexpected formats)
                     // Patterns: "Allow bash?", "Do you want to run...", "[y/n/a]"
                     if (/allow|permission|approve|proceed/i.test(t) && /\?|y\/n|\[y/i.test(t)) {
                         handlePermissionText(t, state, proc);
+                    } else {
+                        try { if (state.socket) state.socket.write(line + '\n'); } catch(_) {}
                     }
                 }
             }
@@ -2851,8 +2864,15 @@ function openPrintSession() {
         proc.stderr.on('data', d => {
             const s = d.toString();
             stderrBuf += s;
-            if (/^\[(eval-ok|import-resolved|exit-event|unhandledRejection|regex-compat|intl-shim)\]/.test(s.trim())) return;
-            log('[print] ' + s);
+            log('[print-stderr] ' + s);
+            // Strip bootstrap noise; write real errors to terminal so user can see them
+            const lines = s.split('\n').filter(l => {
+                const t = l.trim();
+                return t && !/^\[(eval-ok|import-resolved|exit-event|unhandledRejection|regex-compat|intl-shim)\]/.test(t);
+            });
+            if (lines.length) {
+                try { if (state.socket) state.socket.write(lines.join('\n')); } catch(_) {}
+            }
         });
 
         proc.on('error', e => {
@@ -2969,6 +2989,7 @@ function openPrintSession() {
                     '  \x1b[33m!undo\x1b[0m               Restore last file written by agentic\r\n' +
                     '  \x1b[33m!undo list\x1b[0m          Show undo snapshot history\r\n' +
                     '  \x1b[33m!log [n]\x1b[0m            Show last n lines of bridge log (default 40)\r\n' +
+                    '  \x1b[33m!test-cli\x1b[0m           Run module-loader + proxy diagnostics\r\n' +
                     '  \x1b[2m$ <cmd>  — run shell command\x1b[0m\r\n\r\n'
                 ); } catch(_) {}
                 try { if (state.socket) state.socket.write('\x1b]9;thinking-done\x07'); } catch(_) {}
@@ -2995,6 +3016,62 @@ function openPrintSession() {
                     if (state.socket) state.socket.write('\x1b[2m' + logData.split('\n').slice(-n).join('\r\n') + '\x1b[0m\r\n');
                 } catch(_) { try { if (state.socket) state.socket.write('[no log]\r\n'); } catch(_) {} }
                 try { if (state.socket) state.socket.write('\x1b]9;thinking-done\x07'); } catch(_) {}
+                continue;
+            }
+
+            if (line === '!test-cli') {
+                const sock2 = state.socket;
+                try { if (sock2) sock2.write('\r\n\x1b[33mRunning module-loader diagnostic (6 steps)…\x1b[0m\r\n'); } catch(_) {}
+                try { if (sock2) sock2.write('\x1b]9;thinking-done\x07'); } catch(_) {}
+                const env2 = buildEnv();
+                const cliUrl2 = 'file://' + CLAUDE_CLI;
+                const exitLog2 = JSON.stringify(SETUP_LOG);
+
+                function runEvalStep2(label, evalCode2, cb) {
+                    let out = '', err = '';
+                    let ch;
+                    try { ch = spawn(LAUNCHER, ['-e', evalCode2], { env: env2, cwd: FILES_DIR }); ch.stdin.end(); }
+                    catch(e) { try { if (sock2) sock2.write('\x1b[31m  ' + label + ': spawn-err ' + e.message + '\x1b[0m\r\n'); } catch(_) {} cb(); return; }
+                    ch.stdout.on('data', d => { out += d.toString(); });
+                    ch.stderr.on('data', d => { err += d.toString(); });
+                    const tid = setTimeout(() => { try { ch.kill(); } catch(_) {} try { if (sock2) sock2.write('\x1b[31m  ' + label + ': TIMEOUT\x1b[0m\r\n'); } catch(_) {} cb(); }, 30000);
+                    ch.on('close', code => {
+                        clearTimeout(tid);
+                        log('[test-cli] ' + label + ' exit=' + code + ' out=' + JSON.stringify(out.slice(0,200)) + ' err=' + JSON.stringify(err.slice(0,300)) + '\n');
+                        const mark = code === 0 ? '\x1b[32m✓' : '\x1b[31m✗';
+                        let msg2 = mark + ' ' + label + ' exit=' + code + '\x1b[0m';
+                        if (out.trim()) msg2 += '  out:' + out.trim().slice(0,80);
+                        if (err.trim()) msg2 += '\r\n    \x1b[31merr:' + err.trim().slice(0,200) + '\x1b[0m';
+                        try { if (sock2) sock2.write('  ' + msg2 + '\r\n'); } catch(_) {}
+                        cb();
+                    });
+                }
+
+                const netTestCode =
+                    'var net=require("net");var c=net.connect(' + PROXY_PORT + ',"' + HOST + '",function(){' +
+                    'process.stdout.write("net-ok\\n");c.destroy();process.exit(0);});' +
+                    'c.on("error",function(e){process.stdout.write("net-fail:"+e.message+"\\n");process.exit(1);});' +
+                    'setTimeout(function(){process.stdout.write("net-timeout\\n");process.exit(1);},5000);';
+
+                runEvalStep2('[1] node launcher self-test',
+                    "process.stdout.write('ok\\n');",
+                runEvalStep2.bind(null, '[2] import cli.js --version',
+                    'process.argv[1]=' + JSON.stringify(CLAUDE_CLI) + ';process.argv[2]="--version";process.argv.length=3;' +
+                    'import(' + JSON.stringify(cliUrl2) + ').catch(function(e){process.stderr.write("ERR:"+String(e)+"\\n");process.exit(1)});',
+                runEvalStep2.bind(null, '[3] cli.js --print hello',
+                    'process.stderr.write("[eval-ok]\\n");' +
+                    'process.on("unhandledRejection",function(r){try{require("fs").appendFileSync(' + exitLog2 + ',"[unhandledRejection] "+String(r&&(r.stack||r.message)||r).slice(0,600)+"\\n");}catch(_){}});' +
+                    regexpShim + intlShim +
+                    'process.argv[1]=' + JSON.stringify(CLAUDE_CLI) + ';' +
+                    'process.argv[2]="--output-format";process.argv[3]="stream-json";' +
+                    'process.argv[4]="--print";process.argv[5]="--verbose";' +
+                    'process.argv[6]="hello";process.argv.length=7;' +
+                    'import(' + JSON.stringify(cliUrl2) + ')' +
+                    '.then(function(){try{require("fs").appendFileSync(' + exitLog2 + ',"[import-resolved]\\n");}catch(_){}})' +
+                    '.catch(function(e){process.stderr.write("ERR:"+String(e)+"\\n");process.exit(1)});',
+                runEvalStep2.bind(null, '[4] net: connect to proxy port ' + PROXY_PORT,
+                    netTestCode,
+                () => { try { if (sock2) sock2.write('\x1b[33mDone. Type !log for details.\x1b[0m\r\n'); } catch(_) {} }))));
                 continue;
             }
 
