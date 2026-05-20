@@ -2730,19 +2730,46 @@ function openPrintSession() {
             for (const block of content) {
                 if (block.type === 'text' && block.text) {
                     if (!firstContent) setFirstContent(true);
+                    state.lastAiText = (state.lastAiText || '') + block.text;
+                    if (state.lastAiText.length > 2000) state.lastAiText = state.lastAiText.slice(-2000);
                     try { if (state.socket) state.socket.write(block.text); } catch(_) {}
                 }
-                // tool_use blocks trigger a permission event below; no text to render here
+                // tool_use blocks are handled by the isPermEvent check below
             }
-            return;
+            // If this assistant event contains tool_use, fall through to isPermEvent check
+            if (!content.some(b => b.type === 'tool_use')) return;
         }
 
-        // claude-code emits a permission_request event for tool calls needing approval
-        if (evt.type === 'permission_request' || (evt.type === 'tool' && evt.status === 'pending')) {
-            const toolName  = evt.tool_name || evt.tool || evt.name || 'unknown';
-            const toolInput = evt.tool_input || evt.input || {};
-            const permId    = evt.id || (Date.now() + '-' + Math.random().toString(36).slice(2));
-            const perm = { toolName, toolInput, id: permId };
+        // claude-code emits a permission_request event for tool calls needing approval.
+        // v2.1.112 stream-json may use several field layouts — cover all known variants.
+        const isPermEvent =
+            evt.type === 'permission_request' ||
+            (evt.type === 'tool' && (evt.status === 'pending' || evt.status === 'awaiting_approval')) ||
+            evt.type === 'tool_approval_request' ||
+            (evt.type === 'assistant' && evt.message && (evt.message.content || []).some(b => b.type === 'tool_use'));
+        if (isPermEvent) {
+            // Extract tool name + input from whichever field layout is present
+            let toolName = evt.tool_name || evt.tool || evt.name || 'tool';
+            let toolInput = evt.tool_input || evt.input || {};
+            let aiText = '';
+            // assistant event: grab text + first tool_use block
+            if (evt.type === 'assistant' && evt.message) {
+                const blocks = evt.message.content || [];
+                const tb = blocks.find(b => b.type === 'tool_use');
+                if (tb) { toolName = tb.name || toolName; toolInput = tb.input || toolInput; }
+                aiText = blocks.filter(b => b.type === 'text').map(b => b.text || '').join(' ');
+            }
+            // Extract backtick-quoted commands/paths from surrounding AI text as suggestions
+            const suggestions = [];
+            const btre = /`([^`\n]{2,80})`/g;
+            let m;
+            while ((m = btre.exec(aiText + ' ' + (state.lastAiText || ''))) !== null) {
+                const s = m[1].trim();
+                if (s && !suggestions.includes(s)) suggestions.push(s);
+                if (suggestions.length >= 4) break;
+            }
+            const permId = evt.id || (Date.now() + '-' + Math.random().toString(36).slice(2));
+            const perm = { toolName, toolInput, id: permId, suggestions };
             state.pendingPerm = perm;
             const permB64 = Buffer.from(JSON.stringify(perm)).toString('base64');
             try { if (state.socket) state.socket.write('\x1b]9;permission:' + permB64 + '\x07'); } catch(_) {}
@@ -2822,11 +2849,13 @@ function openPrintSession() {
             '.catch(function(e){process.stderr.write("import-err:"+String(e)+"\\n");process.exit(1);});';
 
         const proc = spawn(LAUNCHER, ['-e', evalCode], { env, cwd: state.cwd });
-        proc.stdin.end(); // signal EOF; --print mode reads no stdin
+        // Keep stdin open — needed so permission-prompt answers can be written.
+        // claude-code --print exits on its own after the response; stdin EOF not required.
         state.currentProc = proc;
         state.busy = true;
         state.thinkingDone = false;
-        state.pendingPerm = null; // {toolName, toolInput, id} — set while dialog is showing
+        state.pendingPerm = null;
+        state.lastAiText = '';
 
         try { if (state.socket) state.socket.write('\x1b]9;thinking-start\x07'); } catch(_) {}
 
@@ -2947,7 +2976,11 @@ function openPrintSession() {
         state.inputBuf += raw;
         let nl;
         while ((nl = state.inputBuf.search(/[\r\n]/)) !== -1) {
-            const line = state.inputBuf.slice(0, nl).replace(/[\x00-\x08\x0b-\x1f\x7f]/g, '').trim();
+            const line = state.inputBuf.slice(0, nl)
+                .replace(/[\x00-\x08\x0b-\x1f\x7f]/g, '')
+                .replace(/！/g, '!')
+                .replace(/[​‌‍﻿⁠]/g, '')
+                .trim();
             state.inputBuf = state.inputBuf.slice(nl + 1);
             if (!line) continue;
 
@@ -2965,11 +2998,11 @@ function openPrintSession() {
             }
 
             // ── Permission responses — bypass busy guard (proc is waiting on stdin) ──
-            if (line === '!perm-allow' || line === '!perm-always' || line === '!perm-deny') {
+            if (line.startsWith('!perm-allow') || line.startsWith('!perm-always') || line.startsWith('!perm-deny')) {
                 const perm = state.pendingPerm;
                 const proc = state.currentProc;
                 if (!perm || !proc) continue;
-                if (line === '!perm-always') {
+                if (line.startsWith('!perm-always')) {
                     // Persist the tool name to the always-allow list
                     const list = loadApproveList();
                     if (!list.allow.includes(perm.toolName)) {
@@ -2977,7 +3010,7 @@ function openPrintSession() {
                         saveApproveList(list);
                     }
                 }
-                const answer = (line === '!perm-deny') ? 'n\n' : 'y\n';
+                const answer = line.startsWith('!perm-deny') ? 'n\n' : 'y\n';
                 try { proc.stdin.write(answer); } catch(_) {}
                 state.pendingPerm = null;
                 continue;
@@ -2987,7 +3020,7 @@ function openPrintSession() {
             // These only read files / print static text; they don't touch the
             // running claude process. SYS_FENCE ensures output routes to a sys
             // bubble and never pollutes the AI bubble.
-            if (line === '!help') {
+            if (line.startsWith('!help')) {
                 try { if (state.socket) state.socket.write(SYS_FENCE +
                     '\x1b[1m[print mode — per-message spawn]\x1b[0m\r\n' +
                     '  \x1b[33m!clear\x1b[0m              Start a new conversation\r\n' +
@@ -3049,12 +3082,18 @@ function openPrintSession() {
 
             // ── busy gate — all commands below wait for current request to finish ──
             if (state.busy) {
-                try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[33m[busy — please wait]\x1b[0m\r\n'); } catch(_) {}
+                // !cmd/$ cmd: index.html shows an inline "queued" indicator in the cmd
+                // bubble — no separate sys message needed (and it would interfere with
+                // the next command's sys bubble due to async timing).
+                // For plain text messages, tell the user to wait.
+                if (!line.startsWith('!') && !line.startsWith('$')) {
+                    try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[33m[busy — please wait]\x1b[0m\r\n'); } catch(_) {}
+                }
                 continue;
             }
 
             // ── diagnostic commands — only run when NOT busy ──────────────────────
-            if (line === '!clear') {
+            if (line.startsWith('!clear')) {
                 state.hasHistory    = false;
                 state.contextBlock  = '';
                 state.pendingAttach = null;
@@ -3066,7 +3105,7 @@ function openPrintSession() {
                 continue;
             }
 
-            if (line === '!test-cli') {
+            if (line.startsWith('!test-cli')) {
                 const sock2 = state.socket;
                 try { if (sock2) sock2.write(SYS_FENCE + '\r\n\x1b[33mRunning module-loader diagnostic (6 steps)…\x1b[0m\r\n'); } catch(_) {}
                 const env2 = buildEnv();

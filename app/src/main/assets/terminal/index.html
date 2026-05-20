@@ -1155,7 +1155,8 @@ function addUserBubble(text){
 
 // Terminal command bubble — right-aligned like user bubble but with green
 // monospace styling so it's visually distinct from normal chat messages.
-function addCmdBubble(text){
+// queued=true adds an inline "⟳ queued" note when bridge will block the command.
+function addCmdBubble(text,queued){
   const row=document.createElement('div');
   row.className='msg-row user-row';
   const av=document.createElement('div');
@@ -1166,6 +1167,12 @@ function addCmdBubble(text){
   bub.className='bubble user-bubble';
   bub.textContent=text;
   bub.style.cssText='background:linear-gradient(135deg,rgba(0,80,40,0.22) 0%,rgba(0,80,40,0.1) 100%);border-color:rgba(0,180,80,0.3);color:#86efac;font-family:Space Mono,Courier New,monospace;';
+  if(queued){
+    const hint=document.createElement('span');
+    hint.style.cssText='display:block;font-size:9px;color:rgba(251,191,36,0.55);margin-top:2px;letter-spacing:0.3px;';
+    hint.textContent='⏳ queued — waiting for AI response';
+    bub.appendChild(hint);
+  }
   row.appendChild(av);
   row.appendChild(bub);
   msgs.appendChild(row);
@@ -1257,6 +1264,9 @@ function showConfirmDialog(id, desc){
 }
 
 // ── Permission dialog ─────────────────────────────────────────────────────────
+// perm = { toolName, toolInput, id, suggestions? }
+// suggestions: optional array of strings extracted from AI's preceding text
+// (e.g. alternative commands the AI mentioned: ["ls -la", "find . -name *"])
 function showPermissionDialog(perm){
   // Remove any stale dialog for the same id
   var oldId='perm-dialog-'+perm.id;
@@ -1275,39 +1285,62 @@ function showPermissionDialog(perm){
   icon.style.fontSize='15px';
   var title=document.createElement('span');
   title.style.cssText='color:#d8b4fe;font-size:12px;font-family:Space Mono,monospace;font-weight:600;flex:1;';
-  title.textContent='Permission required — '+perm.toolName;
+  title.textContent='Permission — '+perm.toolName;
   hdr.appendChild(icon);
   hdr.appendChild(title);
   wrap.appendChild(hdr);
 
-  // Input preview
+  // Command/input preview (what Claude wants to run)
   var inputStr='';
   try{
     var inp=perm.toolInput||{};
-    // Show most relevant field: command > code > path > prompt > first key
     var preview=inp.command||inp.code||inp.path||inp.prompt||inp.query||Object.values(inp)[0]||'';
-    inputStr=String(preview).slice(0,200);
+    inputStr=String(preview).slice(0,300);
   }catch(_){}
   if(inputStr){
     var pre=document.createElement('div');
-    pre.style.cssText='padding:8px 14px;font-size:10px;font-family:Space Mono,monospace;color:rgba(200,200,220,0.75);white-space:pre-wrap;word-break:break-all;border-bottom:1px solid rgba(147,51,234,0.1);max-height:80px;overflow:hidden;';
-    pre.textContent=inputStr;
+    pre.style.cssText='padding:8px 14px 6px;font-size:11px;font-family:Space Mono,monospace;color:rgba(200,220,255,0.85);white-space:pre-wrap;word-break:break-all;border-bottom:1px solid rgba(147,51,234,0.1);max-height:90px;overflow:hidden;';
+    pre.textContent='▶ '+inputStr;
     wrap.appendChild(pre);
   }
 
-  // Buttons
+  // AI suggestion chips — alternative commands Claude mentioned in its text
+  var suggs=(perm.suggestions||[]).filter(function(s){return s&&s!==inputStr;}).slice(0,4);
+  if(suggs.length){
+    var suggRow=document.createElement('div');
+    suggRow.style.cssText='padding:6px 10px 4px;display:flex;flex-wrap:wrap;gap:5px;border-bottom:1px solid rgba(147,51,234,0.08);';
+    var suggLabel=document.createElement('div');
+    suggLabel.style.cssText='width:100%;font-size:9px;color:rgba(147,51,234,0.6);letter-spacing:0.5px;margin-bottom:2px;font-family:Space Mono,monospace;';
+    suggLabel.textContent='AI SUGGESTIONS';
+    suggRow.appendChild(suggLabel);
+    suggs.forEach(function(s){
+      var chip=document.createElement('button');
+      chip.textContent=s;
+      chip.style.cssText='background:rgba(147,51,234,0.12);border:1px solid rgba(147,51,234,0.3);border-radius:10px;color:#c4b5fd;font-size:10px;font-family:Space Mono,monospace;padding:3px 10px;cursor:pointer;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+      chip.title=s;
+      chip.addEventListener('click',function(){
+        wrap.style.opacity='0.5';wrap.style.pointerEvents='none';
+        // Send the alternative command directly as a new message
+        submitLine(s);
+      });
+      suggRow.appendChild(chip);
+    });
+    wrap.appendChild(suggRow);
+  }
+
+  // Allow / Always / Deny buttons
   var btnRow=document.createElement('div');
   btnRow.style.cssText='display:flex;gap:0;';
   var buttons=[
-    {label:'Deny',    cmd:'!perm-deny',   bg:'rgba(239,68,68,0.12)',  border:'rgba(239,68,68,0.3)',  color:'#f87171', flex:'1'},
-    {label:'Allow',   cmd:'!perm-allow',  bg:'rgba(34,197,94,0.12)',  border:'rgba(34,197,94,0.3)',  color:'#4ade80', flex:'1'},
-    {label:'Always',  cmd:'!perm-always', bg:'rgba(34,197,94,0.08)',  border:'rgba(34,197,94,0.25)', color:'#86efac', flex:'1'},
+    {label:'Deny',   cmd:'!perm-deny',   bg:'rgba(239,68,68,0.12)', border:'rgba(239,68,68,0.3)',  color:'#f87171'},
+    {label:'Allow',  cmd:'!perm-allow',  bg:'rgba(34,197,94,0.12)', border:'rgba(34,197,94,0.3)',  color:'#4ade80'},
+    {label:'Always', cmd:'!perm-always', bg:'rgba(34,197,94,0.08)', border:'rgba(34,197,94,0.25)', color:'#86efac'},
   ];
   buttons.forEach(function(b,i){
     var btn=document.createElement('button');
     btn.textContent=b.label;
     var borderLeft=i>0?'border-left:1px solid rgba(147,51,234,0.2);':'';
-    btn.style.cssText='flex:'+b.flex+';background:'+b.bg+';border:none;'+borderLeft+'color:'+b.color+';font-size:12px;font-family:Space Mono,monospace;padding:10px 4px;cursor:pointer;letter-spacing:0.03em;';
+    btn.style.cssText='flex:1;background:'+b.bg+';border:none;'+borderLeft+'color:'+b.color+';font-size:12px;font-family:Space Mono,monospace;padding:10px 4px;cursor:pointer;letter-spacing:0.03em;';
     btn.addEventListener('click',function(){
       wrap.style.opacity='0.5';
       wrap.style.pointerEvents='none';
@@ -1552,6 +1585,8 @@ function finalizeAiBubble(){
       const ttsText=displayText.replace(/\x1b\[[0-9;]*m/g,'').replace(/```[\s\S]*?```/g,'[code block]').replace(/[*_#`]/g,'').trim().slice(0,500);
       if(ttsText) Android.speakText(ttsText);
     }
+    // If Claude ended with a question / action-request, show Yes/No quick-reply chips
+    maybeShowYesNo(displayText);
     scrollToBottom();
   }
   rawAiText='';
@@ -1559,6 +1594,34 @@ function finalizeAiBubble(){
   currentAiAnsi=null;
   aiBubbleHasContent=false;
   chatState='IDLE';
+}
+
+// Show Yes / No quick-reply chips when Claude asks a yes-or-no question or
+// requests confirmation before proceeding (run, delete, install, overwrite…).
+function maybeShowYesNo(text){
+  var old=document.getElementById('yn-bar');
+  if(old)old.remove();
+  var plain=text.replace(/\x1b\[[0-9;]*[mA-Za-z]/g,'').trim();
+  if(!plain) return;
+  // Must end with ? or contain a common action-confirmation phrase
+  var endsQ=/[?？]\s*$/.test(plain);
+  var hasIntent=/\b(shall i|should i|would you like|do you want|do you need|want me to|let me know if|proceed\b|confirm\b|run this|execute this|apply this|overwrite|delete this|install this|go ahead)\b/i.test(plain);
+  if(!endsQ && !hasIntent) return;
+  var bar=document.createElement('div');
+  bar.id='yn-bar';
+  bar.style.cssText='display:flex;gap:8px;padding:6px 12px 2px;flex-wrap:wrap;';
+  [['Yes','y'],['No','n'],['Proceed','proceed']].forEach(function(pair){
+    var btn=document.createElement('button');
+    btn.textContent=pair[0];
+    btn.style.cssText='background:rgba(100,64,255,0.15);border:1px solid rgba(100,64,255,0.3);border-radius:14px;color:#c8b8ff;font-size:11px;font-family:Space Mono,monospace;padding:4px 14px;cursor:pointer;';
+    btn.addEventListener('click',function(){
+      bar.remove();
+      submitLine(pair[1]);
+    });
+    bar.appendChild(btn);
+  });
+  msgs.appendChild(bar);
+  scrollToBottom();
 }
 
 function getSysBubble(){
@@ -1695,9 +1758,14 @@ function submitLine(text){
       inputHistory.push(msg);
       if(inputHistory.length>50) inputHistory.shift();
     }
+    // Commands that bypass the bridge busy gate (always run immediately):
+    const alwaysRuns=msg.startsWith('!log')||msg.startsWith('!help')||
+                     msg.startsWith('$ ')||msg.startsWith('!confirm:')||
+                     msg.startsWith('!perm-');
+    const willBeQueued=!alwaysRuns&&(chatState==='RESPONDING'||chatState==='THINKING');
     // Fresh sys bubble so bridge output appears below this cmd bubble
     sysEl=null; sysAnsi=makeAnsiState();
-    addCmdBubble(msg);
+    addCmdBubble(msg,willBeQueued);
     if(typeof Android!=='undefined') Android.sendInput(msg+'\r');
     return;
   }
