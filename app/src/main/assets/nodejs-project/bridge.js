@@ -3321,7 +3321,40 @@ function openPrintSession() {
                         state.busy = false;
                     });
             } else {
-                runMessage(msg, state);
+                // Image attached in print mode — route through runAgentic which builds
+                // the multimodal content block for the API (proxy or Anthropic direct).
+                const imgB64Path  = path.join(FILES_DIR, 'pending_image.b64');
+                const imgMimePath = path.join(FILES_DIR, 'pending_image.mime');
+                if (fs.existsSync(imgB64Path) && fs.existsSync(imgMimePath)) {
+                    let pendingImg = null;
+                    try {
+                        pendingImg = {
+                            b64:  fs.readFileSync(imgB64Path,  'utf8').trim(),
+                            mime: fs.readFileSync(imgMimePath, 'utf8').trim() || 'image/jpeg'
+                        };
+                        fs.unlinkSync(imgB64Path);
+                        fs.unlinkSync(imgMimePath);
+                    } catch(_) {}
+                    state.busy = true;
+                    if (!state.agHistory) state.agHistory = [];
+                    state.agHistory.push({ role: 'user', content: msg });
+                    runAgentic(state.socket, msg, state.agHistory.slice(0, -1), state.cwd, pendingImg)
+                        .then(result => {
+                            if (result.text) state.agHistory.push({ role: 'assistant', content: result.text });
+                            if (state.agHistory.length > 40) state.agHistory = state.agHistory.slice(-40);
+                            if (result.cwd && result.cwd !== state.cwd) {
+                                state.cwd = result.cwd;
+                                try { if (state.socket) state.socket.write('\x1b]9;cwd:' + state.cwd + '\x07'); } catch(_) {}
+                            }
+                            state.busy = false;
+                        })
+                        .catch(e => {
+                            log('[image-agentic] unhandled: ' + e.message + '\n');
+                            state.busy = false;
+                        });
+                } else {
+                    runMessage(msg, state);
+                }
             }
         }
     }
@@ -3341,12 +3374,14 @@ function openPrintSession() {
                 pendingPerm: null,
                 inputBuf: '', contextBlock: '', pendingAttach: null,
                 sessionTokens: saved ? (saved.sessionTokens || 0) : 0,
-                hasHistory: saved ? !!saved.hasHistory : false,
+                // Project mode: restore hasHistory from disk so history persists across restarts.
+                // Normal chat: always start fresh — don't carry conversation across app restarts.
+                hasHistory: (cfg.projectPath && saved) ? !!saved.hasHistory : false,
                 ptyProc: null,
                 cwd: (saved && saved.cwd) ? saved.cwd : (cfg.projectPath || FILES_DIR),
                 sid
             };
-            if (saved) log('[session:' + sid + '] restored from disk (hasHistory=' + state.hasHistory + ' cwd=' + state.cwd + ')\n');
+            if (saved) log('[session:' + sid + '] restored from disk (hasHistory=' + state.hasHistory + ' cwd=' + state.cwd + ' projectMode=' + !!cfg.projectPath + ')\n');
             activeSessions.set(sid, state);
         }
 
@@ -3358,6 +3393,23 @@ function openPrintSession() {
         try { socket.write('\x1b]9;tokens:' + state.sessionTokens + '\x07'); } catch(_) {}
         try { socket.write('\x1b]9;thinking-done\x07'); } catch(_) {}
         if (state.busy) try { socket.write('\x1b]9;thinking-start\x07'); } catch(_) {}
+
+        // Show project mode banner once per session attach (guard via _projectBannerShown)
+        const sessionCfg = readConfig();
+        if (sessionCfg.projectPath && !state._projectBannerShown) {
+            state._projectBannerShown = true;
+            const projName = sessionCfg.projectPath.split('/').filter(Boolean).pop() || sessionCfg.projectPath;
+            const histMsg = state.hasHistory
+                ? '\x1b[32mHistory restored — use \x1b[1m!clear\x1b[22m to start fresh\x1b[0m'
+                : '\x1b[90mNew project session\x1b[0m';
+            try {
+                socket.write(
+                    SYS_FENCE +
+                    '\x1b[36m📂 Project: \x1b[1m' + projName + '\x1b[0m\x1b[36m  \x1b[2m' + sessionCfg.projectPath + '\x1b[0m\r\n' +
+                    histMsg + '\r\n'
+                );
+            } catch(_) {}
+        }
 
         socket.on('data', d => handleInput(d, state));
 

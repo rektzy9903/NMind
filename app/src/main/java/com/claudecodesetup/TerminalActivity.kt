@@ -708,11 +708,24 @@ class TerminalActivity : AppCompatActivity() {
                 val baos = ByteArrayOutputStream()
                 scaled.compress(Bitmap.CompressFormat.JPEG, 80, baos)
                 val b64 = Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP)
-                // Write directly to file — avoids passing large base64 through JS interface
+                // Write full-res image to file for the bridge to read
                 File(filesDir, "pending_image.b64").writeText(b64)
                 File(filesDir, "pending_image.mime").writeText("image/jpeg")
+                // Create a small thumbnail (150px max) to show in the chat bubble
+                val thumbSize = 150
+                val thumb = Bitmap.createScaledBitmap(
+                    scaled,
+                    if (scaled.width >= scaled.height) thumbSize else (thumbSize * scaled.width / scaled.height),
+                    if (scaled.height >= scaled.width) thumbSize else (thumbSize * scaled.height / scaled.width),
+                    true
+                )
+                val tbaos = ByteArrayOutputStream()
+                thumb.compress(Bitmap.CompressFormat.JPEG, 70, tbaos)
+                val thumbB64 = Base64.encodeToString(tbaos.toByteArray(), Base64.NO_WRAP)
+                val dataUrl = "data:image/jpeg;base64,$thumbB64"
                 runOnUiThread {
-                    binding.webViewTerminal.evaluateJavascript("window.termSetImageReady()", null)
+                    val escaped = dataUrl.replace("'", "\\'")
+                    binding.webViewTerminal.evaluateJavascript("window.termSetImageReady('$escaped')", null)
                 }
             } catch (e: Exception) {
                 android.widget.Toast.makeText(this, "Image error: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()

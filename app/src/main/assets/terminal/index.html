@@ -623,7 +623,11 @@ html, body {
 <div id="cwd-bar" style="position:fixed;bottom:58px;left:0;right:0;padding:2px 10px;font-size:9px;font-family:'Space Mono','Courier New',monospace;color:rgba(0,200,255,0.35);letter-spacing:0.5px;z-index:89;pointer-events:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:none;"></div>
 
 <!-- Image preview indicator (shown when image is attached) -->
-<div id="img-preview" style="position:fixed;bottom:68px;left:12px;background:rgba(255,150,50,0.2);border:1px solid rgba(255,150,50,0.4);border-radius:8px;padding:4px 10px;font-size:11px;color:#fbbf24;z-index:91;display:none;cursor:pointer;">📷 Image attached ✕</div>
+<div id="img-preview" style="position:fixed;bottom:68px;left:12px;background:rgba(255,150,50,0.15);border:1px solid rgba(255,150,50,0.35);border-radius:10px;padding:4px 8px 4px 6px;z-index:91;display:none;cursor:pointer;display:none;align-items:center;gap:6px;">
+  <img id="img-thumb" src="" style="height:40px;width:40px;object-fit:cover;border-radius:6px;display:none;">
+  <span id="img-label" style="font-size:11px;color:#fbbf24;">📷 Image attached</span>
+  <span style="font-size:11px;color:rgba(251,191,36,0.6);">✕</span>
+</div>
 
 <!-- Input bar -->
 <div id="input-bar">
@@ -1130,7 +1134,7 @@ function handleOSC(content){
 }
 
 // ── Bubble creators ───────────────────────────────────────────────────────────
-function addUserBubble(text){
+function addUserBubble(text, imgDataUrl){
   const row=document.createElement('div');
   row.className='msg-row user-row';
   const av=document.createElement('div');
@@ -1138,11 +1142,21 @@ function addUserBubble(text){
   av.textContent='U';
   const bub=document.createElement('div');
   bub.className='bubble user-bubble';
-  bub.textContent=text;
+  if(imgDataUrl){
+    const thumb=document.createElement('img');
+    thumb.src=imgDataUrl;
+    thumb.style.cssText='display:block;max-width:180px;max-height:140px;border-radius:8px;margin-bottom:6px;object-fit:cover;';
+    bub.appendChild(thumb);
+  }
+  if(text){
+    const span=document.createElement('span');
+    span.textContent=text;
+    bub.appendChild(span);
+  }
   bub.title='Tap to edit';
   bub.addEventListener('click',function(){
     if(window.getSelection&&window.getSelection().toString()) return;
-    inputBuffer=bub.textContent;
+    inputBuffer=bub.querySelector('span')?bub.querySelector('span').textContent:text;
     ghost.value=inputBuffer;
     updateInputDisp();
     ghost.focus();
@@ -1720,17 +1734,29 @@ window.termSetInput=function(text){
 
 // ── Image attachment state ────────────────────────────────────────────────────
 let pendingImageAttached = false;
+let pendingImageDataUrl = null;
 const imgPreviewEl = document.getElementById('img-preview');
+const imgThumbEl   = document.getElementById('img-thumb');
 
-// Called by Kotlin after image is written to pending_image.b64 on disk
-window.termSetImageReady = function() {
+// Called by Kotlin after image is written to pending_image.b64 on disk.
+// dataUrl: optional small thumbnail for preview display only.
+window.termSetImageReady = function(dataUrl) {
   pendingImageAttached = true;
-  imgPreviewEl.style.display = 'block';
+  pendingImageDataUrl  = dataUrl || null;
+  if (dataUrl) {
+    imgThumbEl.src = dataUrl;
+    imgThumbEl.style.display = 'block';
+  } else {
+    imgThumbEl.style.display = 'none';
+  }
+  imgPreviewEl.style.display = 'flex';
 };
 
 imgPreviewEl.addEventListener('click', function() {
   pendingImageAttached = false;
+  pendingImageDataUrl  = null;
   imgPreviewEl.style.display = 'none';
+  imgThumbEl.src = '';
   if(typeof Android!=='undefined') Android.cancelPendingImage();
 });
 
@@ -1780,15 +1806,17 @@ function submitLine(text){
   sysAnsi=makeAnsiState();
   // Remove suggestions bar if present
   const sb=document.getElementById('suggestions-bar');if(sb)sb.remove();
-  addUserBubble(displayMsg);
-  if(typeof Android!=='undefined'){
-    if(pendingImageAttached){
-      pendingImageAttached=false;
-      imgPreviewEl.style.display='none';
-      Android.submitMessageWithImage(msg);
-    } else {
-      Android.submitMessage(msg);
-    }
+  if(pendingImageAttached){
+    const thumbUrl = pendingImageDataUrl;
+    pendingImageAttached = false;
+    pendingImageDataUrl  = null;
+    imgPreviewEl.style.display = 'none';
+    imgThumbEl.src = '';
+    addUserBubble(displayMsg, thumbUrl);
+    if(typeof Android!=='undefined') Android.submitMessageWithImage(msg);
+  } else {
+    addUserBubble(displayMsg);
+    if(typeof Android!=='undefined') Android.submitMessage(msg);
   }
 }
 
