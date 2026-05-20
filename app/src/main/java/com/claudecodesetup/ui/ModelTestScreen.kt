@@ -21,6 +21,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.claudecodesetup.data.AiModel
+import com.claudecodesetup.data.Cap
 import com.claudecodesetup.data.Providers
 import com.claudecodesetup.data.ProvidersRepository
 import kotlinx.coroutines.*
@@ -209,7 +210,7 @@ private fun TabbedModelTestScreen(
         scope.launch {
             try {
                 if (orApiKey.isEmpty()) { orLoad = ModelLoadState.Error("No OpenRouter key configured"); return@launch }
-                val models = ProvidersRepository.fetchOpenRouterFreeModels(orApiKey)
+                val models = ProvidersRepository.fetchOpenRouterModels(orApiKey).filter { Cap.FREE in it.caps }
                 orLoad = if (models.isEmpty()) ModelLoadState.Error("No free models found")
                          else ModelLoadState.Loaded(models)
             } catch (e: Exception) {
