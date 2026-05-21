@@ -1614,27 +1614,37 @@ function finalizeAiBubble(){
   chatState='IDLE';
 }
 
-// Show Yes / No quick-reply chips when Claude asks a yes-or-no question or
-// requests confirmation before proceeding (run, delete, install, overwrite…).
+// Show quick-reply chips when Claude asks for confirmation.
+// Guardian prompt "Proceed?" → No / Yes / Always (full words so Claude reads them in context).
+// General yes/no questions → No / Yes.
 function maybeShowYesNo(text){
   var old=document.getElementById('yn-bar');
   if(old)old.remove();
   var plain=text.replace(/\x1b\[[0-9;]*[mA-Za-z]/g,'').trim();
   if(!plain) return;
-  // Must end with ? or contain a common action-confirmation phrase
   var endsQ=/[?？]\s*$/.test(plain);
   var hasIntent=/\b(shall i|should i|would you like|do you want|do you need|want me to|let me know if|proceed\b|confirm\b|run this|execute this|apply this|overwrite|delete this|install this|go ahead)\b/i.test(plain);
   if(!endsQ && !hasIntent) return;
+
+  // Guardian "Proceed?" → 3 chips with Always option
+  var isGuardian=/\bproceed\b/i.test(plain);
+  var chips=isGuardian
+    ? [['No','No','rgba(239,68,68,0.15)','rgba(239,68,68,0.35)','#f87171'],
+       ['Yes','Yes','rgba(34,197,94,0.12)','rgba(34,197,94,0.35)','#86efac'],
+       ['Always','Always','rgba(251,191,36,0.12)','rgba(251,191,36,0.35)','#fcd34d']]
+    : [['No','No','rgba(239,68,68,0.15)','rgba(239,68,68,0.35)','#f87171'],
+       ['Yes','Yes','rgba(34,197,94,0.12)','rgba(34,197,94,0.35)','#86efac']];
+
   var bar=document.createElement('div');
   bar.id='yn-bar';
   bar.style.cssText='display:flex;gap:8px;padding:6px 12px 2px;flex-wrap:wrap;';
-  [['Yes','y'],['No','n'],['Proceed','proceed']].forEach(function(pair){
+  chips.forEach(function(c){
     var btn=document.createElement('button');
-    btn.textContent=pair[0];
-    btn.style.cssText='background:rgba(100,64,255,0.15);border:1px solid rgba(100,64,255,0.3);border-radius:14px;color:#c8b8ff;font-size:11px;font-family:Space Mono,monospace;padding:4px 14px;cursor:pointer;';
+    btn.textContent=c[0];
+    btn.style.cssText='background:'+c[2]+';border:1px solid '+c[3]+';border-radius:14px;color:'+c[4]+';font-size:11px;font-family:Space Mono,monospace;padding:4px 14px;cursor:pointer;';
     btn.addEventListener('click',function(){
       bar.remove();
-      submitLine(pair[1]);
+      submitLine(c[1]);
     });
     bar.appendChild(btn);
   });
