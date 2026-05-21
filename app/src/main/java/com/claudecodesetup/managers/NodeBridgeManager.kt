@@ -41,6 +41,26 @@ class NodeBridgeManager(private val context: Context) {
             "gemini-2.5-pro-preview-05-06"   to "gemini-2.5-pro",
             "gemini-2.5-pro-preview-03-25"   to "gemini-2.5-pro"
         )
+
+        /** Shell-like word split: honours single/double quotes so paths with spaces work. */
+        fun shellSplit(s: String): List<String> {
+            val result = mutableListOf<String>()
+            val buf = StringBuilder()
+            var inSingle = false
+            var inDouble = false
+            for (c in s.trim()) {
+                when {
+                    inSingle -> if (c == '\'') inSingle = false else buf.append(c)
+                    inDouble -> if (c == '"')  inDouble = false else buf.append(c)
+                    c == '\'' -> inSingle = true
+                    c == '"'  -> inDouble = true
+                    c == ' ' || c == '\t' -> { if (buf.isNotEmpty()) { result.add(buf.toString()); buf.clear() } }
+                    else -> buf.append(c)
+                }
+            }
+            if (buf.isNotEmpty()) result.add(buf.toString())
+            return result
+        }
     }
 
     // ─── Bridge reachability ──────────────────────────────────────────────────
@@ -292,25 +312,4 @@ class NodeBridgeManager(private val context: Context) {
         }
     }
 
-    companion object {
-        /** Shell-like word split: honours single/double quotes so paths with spaces work. */
-        fun shellSplit(s: String): List<String> {
-            val result = mutableListOf<String>()
-            val buf = StringBuilder()
-            var inSingle = false
-            var inDouble = false
-            for (c in s.trim()) {
-                when {
-                    inSingle -> if (c == '\'') inSingle = false else buf.append(c)
-                    inDouble -> if (c == '"')  inDouble = false else buf.append(c)
-                    c == '\'' -> inSingle = true
-                    c == '"'  -> inDouble = true
-                    c == ' ' || c == '\t' -> { if (buf.isNotEmpty()) { result.add(buf.toString()); buf.clear() } }
-                    else -> buf.append(c)
-                }
-            }
-            if (buf.isNotEmpty()) result.add(buf.toString())
-            return result
-        }
-    }
 }
