@@ -897,13 +897,15 @@ class TerminalActivity : AppCompatActivity() {
         @JavascriptInterface
         fun submitMessage(text: String) {
             if (text.isEmpty()) return
-            // Local bridge commands (!log, !help, !test-cli, $ cmd, etc.) must NEVER
-            // go through the AI path. If JS accidentally routes one here, redirect it
-            // to the raw sendInput path so no thinking spinner fires and no AI call
-            // is made. This is a safety net — JS should route these via sendInput().
-            val isLocalCmd = text.startsWith("!") || text.startsWith("$")
+            // Strip zero-width / invisible Unicode chars Android IME may prepend,
+            // then check for local bridge commands (!log, !test-cli, $ cmd, etc.).
+            // If JS accidentally routed a ! command through submitMessage (because the
+            // ZW char made startsWith('!') return false in JS), catch it here so no
+            // thinking spinner fires and no AI call is made.
+            val clean = text.replace(Regex("[\u200b\u200c\u200d\ufeff\u2060\u00ad\u2028\u2029]"), "").trim()
+            val isLocalCmd = clean.startsWith("!") || clean.startsWith("$")
             if (isLocalCmd) {
-                claudeService?.sendInput(text + "\r")
+                claudeService?.sendInput(clean + "\r")
                 return
             }
             if (!isOnline()) {

@@ -1122,6 +1122,13 @@ function handleOSC(content){
     var perm={toolName:'tool',toolInput:{},id:Date.now()};
     try{ perm=JSON.parse(atob(permB64)); }catch(_){}
     showPermissionDialog(perm);
+  } else if(content==='9;clear-ui'){
+    // !clear: wipe all chat bubbles from the UI and reset to idle state
+    resetToIdle();
+    msgs.innerHTML='';
+    msgs.appendChild(thinkBub);
+    sysEl=null; sysAnsi=makeAnsiState();
+    currentAiBubble=null; currentAiAnsi=null;
   } else if(content.startsWith('9;cwd:')){
     var cwd=content.slice(6);
     var cwdBar=document.getElementById('cwd-bar');
@@ -2006,7 +2013,12 @@ ghost.addEventListener('keydown',function(e){
 // Tap to focus keyboard
 inputWrap.addEventListener('click',function(){ghost.focus();});
 msgs.addEventListener('click',function(){ghost.focus();scrollToBottom();});
-document.getElementById('send-btn').addEventListener('click',function(){submitLine();ghost.focus();});
+document.getElementById('send-btn').addEventListener('click',function(){
+  // Sync inputBuffer from ghost.value before routing — IME may not have fired
+  // the input event yet if the user tapped Send while still composing.
+  if(ghost.value) inputBuffer=ghost.value;
+  submitLine();ghost.focus();
+});
 
 // ── Toolbar buttons ───────────────────────────────────────────────────────────
 function tbRaw(key){

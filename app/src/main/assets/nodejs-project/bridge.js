@@ -3176,6 +3176,7 @@ function openPrintSession() {
                 clearSessionState(state.sid);
                 clearClaudeSessionFiles();
                 try { if (state.socket) state.socket.write('\x1b]9;tokens:0\x07'); } catch(_) {}
+                try { if (state.socket) state.socket.write('\x1b]9;clear-ui\x07'); } catch(_) {}
                 try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[2m[history cleared — next message starts a new session]\x1b[0m\r\n'); } catch(_) {}
                 continue;
             }
