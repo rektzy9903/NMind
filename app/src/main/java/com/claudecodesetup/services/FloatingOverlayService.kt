@@ -554,9 +554,10 @@ class FloatingOverlayService : Service() {
 
         runCatching { s.close() }
         socket = null; outputStream = null
-        if (!shouldConnect) return
-        delay(1000)
-        connectSocket()
+        if (shouldConnect) {
+            delay(1000)
+            connectSocket()
+        }
     }
 
     private fun sendToSocket(text: String) {
