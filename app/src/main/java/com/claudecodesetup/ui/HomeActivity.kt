@@ -2,7 +2,6 @@ package com.claudecodesetup.ui
 
 import android.content.Intent
 import android.os.Bundle
-import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import com.claudecodesetup.R
@@ -26,7 +25,7 @@ class HomeActivity : ComponentActivity() {
                     else startActivity(Intent(this, ComposeActivity::class.java))
                 },
                 onSettings = { startActivity(Intent(this, SettingsActivity::class.java)) },
-                onProjects = { Toast.makeText(this, "Coming soon", Toast.LENGTH_SHORT).show() },
+                onProjects = { startActivity(Intent(this, ProjectManagerActivity::class.java)) },
             )
         }
     }
