@@ -77,9 +77,11 @@ class ClaudeLoginActivity : ComponentActivity() {
                         AndroidView(
                             factory = { ctx ->
                                 WebView(ctx).apply {
-                                    settings.javaScriptEnabled  = true
-                                    settings.domStorageEnabled  = true
-                                    settings.databaseEnabled    = true
+                                    settings.javaScriptEnabled       = true
+                                    settings.domStorageEnabled       = true
+                                    settings.databaseEnabled         = true
+                                    settings.setSupportMultipleWindows(true)
+                                    settings.javaScriptCanOpenWindowsAutomatically = true
                                     // Remove the "wv" WebView marker so Google OAuth doesn't block us
                                     settings.userAgentString =
                                         "Mozilla/5.0 (Linux; Android 14; Pixel 8) " +
@@ -88,8 +90,28 @@ class ClaudeLoginActivity : ComponentActivity() {
                                     // Allow cross-domain cookies (required for Google sign-in)
                                     CookieManager.getInstance().setAcceptCookie(true)
                                     CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
-                                    // Handle any popup windows Google might open
-                                    webChromeClient = WebChromeClient()
+                                    // Handle popup windows Google might open during OAuth
+                                    webChromeClient = object : WebChromeClient() {
+                                        override fun onCreateWindow(
+                                            view: WebView, isDialog: Boolean,
+                                            isUserGesture: Boolean, resultMsg: android.os.Message?
+                                        ): Boolean {
+                                            // Load popup URLs in the same WebView instead of a new window
+                                            val newWebView = WebView(view.context)
+                                            newWebView.webViewClient = object : WebViewClient() {
+                                                override fun shouldOverrideUrlLoading(
+                                                    v: WebView, request: WebResourceRequest
+                                                ): Boolean {
+                                                    view.loadUrl(request.url.toString())
+                                                    return true
+                                                }
+                                            }
+                                            val transport = resultMsg?.obj as? WebView.WebViewTransport
+                                            transport?.webView = newWebView
+                                            resultMsg?.sendToTarget()
+                                            return true
+                                        }
+                                    }
 
                                     fun handleCallbackUrl(uri: Uri): Boolean {
                                         val url = uri.toString()
@@ -129,12 +151,37 @@ class ClaudeLoginActivity : ComponentActivity() {
                                             request: WebResourceRequest
                                         ): Boolean = handleCallbackUrl(request.url)
 
-                                        // onPageStarted catches redirects that shouldOverrideUrlLoading misses
+                                        // Catches server-side 302 redirects that shouldOverrideUrlLoading misses.
+                                        // Stop loading immediately to prevent the blank callback page from rendering.
                                         override fun onPageStarted(
                                             view: WebView, url: String, favicon: android.graphics.Bitmap?
                                         ) {
                                             super.onPageStarted(view, url, favicon)
+                                            if (handleCallbackUrl(Uri.parse(url))) {
+                                                view.stopLoading()
+                                                view.loadUrl("about:blank")
+                                            }
+                                        }
+
+                                        // Final safety net: catches any page that fully loaded before we could stop it.
+                                        override fun onPageFinished(view: WebView, url: String) {
+                                            super.onPageFinished(view, url)
                                             handleCallbackUrl(Uri.parse(url))
+                                        }
+
+                                        // Show error if Google blocks the WebView sign-in flow
+                                        override fun onReceivedError(
+                                            view: WebView,
+                                            request: android.webkit.WebResourceRequest,
+                                            error: android.webkit.WebResourceError
+                                        ) {
+                                            super.onReceivedError(view, request, error)
+                                            if (request.isForMainFrame && phase == "webview") {
+                                                val desc = error.description?.toString() ?: ""
+                                                if (desc.contains("net::ERR_ABORTED", ignoreCase = true)) return
+                                                errorMsg = "Page failed to load: $desc\n\nIf you used Google sign-in, try using email + password instead."
+                                                phase = "error"
+                                            }
                                         }
                                     }
                                     loadUrl(authUrl)
