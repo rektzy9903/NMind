@@ -1314,8 +1314,11 @@ function startProxyServer(onReady) {
         // Reject any request that does not present valid credentials.
         const tokenHeader = req.headers['x-local-token'] || '';
         const authHeader  = req.headers['authorization'] || '';
+        const apiKeyHeader = req.headers['x-api-key'] || '';
         const hasValidToken = proxyLocalToken && tokenHeader === proxyLocalToken;
-        const hasProxyKey   = authHeader === 'Bearer sk-ant-proxy000';
+        // claude-code (Anthropic SDK) sends x-api-key, not Authorization: Bearer
+        const hasProxyKey   = authHeader === 'Bearer sk-ant-proxy000'
+                           || apiKeyHeader === 'sk-ant-proxy000';
         if (!hasValidToken && !hasProxyKey) {
             log('[proxy] 401 — missing or invalid auth on ' + req.method + ' ' + req.url + '\n');
             res.writeHead(401, { 'Content-Type': 'application/json' });
