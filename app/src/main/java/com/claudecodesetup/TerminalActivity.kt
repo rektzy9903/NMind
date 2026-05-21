@@ -207,7 +207,9 @@ class TerminalActivity : AppCompatActivity() {
             javaScriptEnabled = true
             domStorageEnabled = true
             cacheMode = WebSettings.LOAD_DEFAULT
-            allowFileAccess = true
+            allowFileAccess = true                    // needed to load android_asset/terminal/index.html
+            allowFileAccessFromFileURLs = false       // prevent JS from reading arbitrary file:// paths
+            allowUniversalAccessFromFileURLs = false  // prevent cross-origin file:// reads
             setSupportZoom(true)
             builtInZoomControls = true
             displayZoomControls = false   // hide the +/- overlay buttons

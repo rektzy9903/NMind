@@ -387,7 +387,8 @@ class ClaudeService : LifecycleService() {
     // ─── WakeLock ─────────────────────────────────────────────────────────────
 
     private fun acquireWakeLock() {
-        if (!wakeLock.isHeld) wakeLock.acquire(4 * 60 * 60 * 1000L)
+        @Suppress("WakelockTimeout")
+        if (!wakeLock.isHeld) wakeLock.acquire() // released explicitly in releaseWakeLock()
     }
 
     private fun releaseWakeLock() {

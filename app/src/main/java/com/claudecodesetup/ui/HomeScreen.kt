@@ -43,24 +43,26 @@ fun HomeScreen(
     onSettings: () -> Unit,
     onProjects: () -> Unit = {},
 ) {
-    val infiniteTransition = rememberInfiniteTransition(label = "home")
+    // Separate transitions so the fast pulse (900 ms) doesn't force slow orbs to recompose
+    val orbTransition   = rememberInfiniteTransition(label = "orbs")
+    val pulseTransition = rememberInfiniteTransition(label = "pulse")
 
-    val orb1Y by infiniteTransition.animateFloat(
+    val orb1Y by orbTransition.animateFloat(
         initialValue = 0f, targetValue = 40f,
         animationSpec = infiniteRepeatable(tween(4200, easing = EaseInOut), RepeatMode.Reverse),
         label = "orb1"
     )
-    val orb2X by infiniteTransition.animateFloat(
+    val orb2X by orbTransition.animateFloat(
         initialValue = 0f, targetValue = -30f,
         animationSpec = infiniteRepeatable(tween(5800, easing = EaseInOut), RepeatMode.Reverse),
         label = "orb2"
     )
-    val orb3Y by infiniteTransition.animateFloat(
+    val orb3Y by orbTransition.animateFloat(
         initialValue = 0f, targetValue = 25f,
         animationSpec = infiniteRepeatable(tween(7000, easing = EaseInOut), RepeatMode.Reverse),
         label = "orb3"
     )
-    val pulseAlpha by infiniteTransition.animateFloat(
+    val pulseAlpha by pulseTransition.animateFloat(
         initialValue = 0.45f, targetValue = 1f,
         animationSpec = infiniteRepeatable(tween(900, easing = EaseInOut), RepeatMode.Reverse),
         label = "pulse"
