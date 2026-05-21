@@ -1,9 +1,12 @@
 package com.claudecodesetup.ui
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -12,25 +15,39 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.ui.draw.clip
 import coil.compose.SubcomposeAsyncImage
+import com.claudecodesetup.data.AppPreferences
 import com.claudecodesetup.data.Provider
 import com.claudecodesetup.data.Providers
 import com.claudecodesetup.data.ProvidersRepository
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import java.util.concurrent.TimeUnit
 
 // ── Simple question screens ───────────────────────────────────────────────────
 
@@ -277,6 +294,317 @@ internal fun providerDisplayInfo(id: String): Triple<String, Color, String> = wh
     "anthropic"  -> Triple("🧬", Color(0xFF8B5CF6), "Subscription")
     "groq"       -> Triple("⚡", Color(0xFFF97316), "14,400/day")
     else         -> Triple("🤖", Color(0xFF6440FF), "AI Provider")
+}
+
+// ── Local / Ollama server screen ──────────────────────────────────────────────
+
+private enum class ConnStatus { IDLE, CHECKING, OK, ERROR }
+
+@Composable
+fun LocalModelsScreen(
+    onModelSelected: (String) -> Unit,
+    onRemoteServer: (String) -> Unit,
+    onBack: () -> Unit
+) {
+    val context = LocalContext.current
+    val prefs = remember { AppPreferences(context) }
+    val scope = rememberCoroutineScope()
+
+    // Default to emulator-friendly address; saved URL wins if present
+    val defaultUrl = prefs.getCustomBaseUrlForProvider("ollama")
+        .ifEmpty { "http://10.0.2.2:11434" }
+
+    var serverUrl by remember { mutableStateOf(defaultUrl) }
+    var connStatus by remember { mutableStateOf(ConnStatus.IDLE) }
+    var errorMsg by remember { mutableStateOf("") }
+
+    var entered by remember { mutableStateOf(false) }
+    val entryAlpha by animateFloatAsState(if (entered) 1f else 0f, tween(400), label = "alpha")
+    val entryOffset by animateFloatAsState(
+        if (entered) 0f else 20f, tween(400, easing = FastOutSlowInEasing), label = "offset")
+    LaunchedEffect(Unit) { entered = true }
+
+    val accentColor = Color(0xFFEF4444)
+
+    val cardBorderColor by animateColorAsState(
+        when (connStatus) {
+            ConnStatus.IDLE     -> Color(0x1AFFFFFF)
+            ConnStatus.CHECKING -> Color(0x9960A5FA)
+            ConnStatus.OK       -> Color(0xFF10B981)
+            ConnStatus.ERROR    -> Color(0xFFEF4444)
+        }, tween(250), label = "border"
+    )
+
+    fun testConnection() {
+        val url = serverUrl.trim()
+        if (url.isEmpty()) {
+            connStatus = ConnStatus.ERROR
+            errorMsg = "Please enter the server URL"
+            return
+        }
+        connStatus = ConnStatus.CHECKING
+        scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                try {
+                    val testUrl = url.trimEnd('/') + "/api/tags"
+                    val client = OkHttpClient.Builder()
+                        .connectTimeout(5, TimeUnit.SECONDS)
+                        .readTimeout(5, TimeUnit.SECONDS)
+                        .build()
+                    val resp = client.newCall(
+                        Request.Builder().url(testUrl).build()
+                    ).execute()
+                    val code = resp.code
+                    resp.body?.close()
+                    if (code in 200..299) null
+                    else "Server returned HTTP $code — check URL"
+                } catch (e: Exception) {
+                    "Cannot reach server — is Ollama running?"
+                }
+            }
+            if (result == null) {
+                connStatus = ConnStatus.OK
+            } else {
+                connStatus = ConnStatus.ERROR
+                errorMsg = result
+            }
+        }
+    }
+
+    AppBackground {
+        Column(modifier = Modifier.fillMaxSize()) {
+            // Back row
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 12.dp)
+            ) {
+                Text(
+                    "←", fontSize = 20.sp, color = Color(0xFF60A5FA),
+                    modifier = Modifier
+                        .clickable(onClick = onBack)
+                        .padding(end = 10.dp, top = 4.dp, bottom = 4.dp)
+                )
+            }
+
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    modifier = Modifier
+                        .widthIn(max = 360.dp)
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp)
+                        .graphicsLayer {
+                            alpha = entryAlpha
+                            translationY = entryOffset * density
+                        }
+                        .glowShadow(Color(0x1AEF4444), 20.dp, 24.dp)
+                        .background(Color(0x12FFFFFF), RoundedCornerShape(24.dp))
+                        .border(1.dp, Color(0x1AFFFFFF), RoundedCornerShape(24.dp))
+                        .padding(28.dp),
+                    verticalArrangement = Arrangement.spacedBy(22.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    // Icon
+                    Box(
+                        modifier = Modifier
+                            .size(62.dp)
+                            .background(
+                                Brush.linearGradient(
+                                    listOf(accentColor.copy(alpha = 0.22f), accentColor.copy(alpha = 0.12f))
+                                ),
+                                RoundedCornerShape(18.dp)
+                            )
+                            .border(1.dp, accentColor.copy(alpha = 0.4f), RoundedCornerShape(18.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("💻", fontSize = 26.sp)
+                    }
+
+                    Text(
+                        "OLLAMA", fontFamily = SpaceMonoFamily, fontSize = 8.sp,
+                        letterSpacing = 3.sp, color = accentColor
+                    )
+                    Text(
+                        "Connect to Ollama",
+                        fontFamily = DmSansFamily, fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold, color = Color.White,
+                        textAlign = TextAlign.Center
+                    )
+                    Text(
+                        "Enter your Ollama server URL and test the connection, then continue to pick a model.",
+                        fontFamily = DmSansFamily, fontSize = 12.sp,
+                        color = Color(0xFF9CA3AF), textAlign = TextAlign.Center
+                    )
+
+                    // URL input
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            "Server URL", fontFamily = DmSansFamily,
+                            fontSize = 11.sp, fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFF9CA3AF)
+                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Color(0x0AFFFFFF), RoundedCornerShape(12.dp))
+                                .border(1.dp, cardBorderColor, RoundedCornerShape(12.dp))
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            BasicTextField(
+                                value = serverUrl,
+                                onValueChange = {
+                                    serverUrl = it
+                                    if (connStatus != ConnStatus.IDLE) connStatus = ConnStatus.IDLE
+                                },
+                                modifier = Modifier.weight(1f),
+                                textStyle = TextStyle(
+                                    fontFamily = SpaceMonoFamily, fontSize = 12.sp,
+                                    color = Color.White
+                                ),
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(
+                                    keyboardType = KeyboardType.Uri,
+                                    imeAction = ImeAction.Done
+                                ),
+                                keyboardActions = KeyboardActions(
+                                    onDone = { testConnection() }
+                                ),
+                                decorationBox = { inner ->
+                                    Box(contentAlignment = Alignment.CenterStart) {
+                                        if (serverUrl.isEmpty()) {
+                                            Text(
+                                                "http://10.0.2.2:11434",
+                                                fontFamily = SpaceMonoFamily, fontSize = 12.sp,
+                                                color = Color(0x55FFFFFF)
+                                            )
+                                        }
+                                        inner()
+                                    }
+                                }
+                            )
+                        }
+
+                        // Status feedback
+                        AnimatedVisibility(
+                            visible = connStatus == ConnStatus.OK || connStatus == ConnStatus.ERROR,
+                            enter = fadeIn(tween(200)),
+                            exit = fadeOut(tween(200))
+                        ) {
+                            Text(
+                                text = if (connStatus == ConnStatus.OK) "Connected successfully!" else errorMsg,
+                                fontFamily = DmSansFamily, fontSize = 11.sp,
+                                color = if (connStatus == ConnStatus.OK) Color(0xFF10B981) else Color(0xFFEF4444)
+                            )
+                        }
+                    }
+
+                    // Test Connection button
+                    val testInteraction = remember { MutableInteractionSource() }
+                    val testPressed by testInteraction.collectIsPressedAsState()
+                    val testScale by animateFloatAsState(if (testPressed) 0.97f else 1f, tween(150), label = "test_btn")
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(46.dp)
+                            .graphicsLayer { scaleX = testScale; scaleY = testScale }
+                            .background(Color(0x0FFFFFFF), RoundedCornerShape(13.dp))
+                            .border(1.dp, Color(0x1AFFFFFF), RoundedCornerShape(13.dp))
+                            .clickable(
+                                interactionSource = testInteraction,
+                                indication = null,
+                                enabled = connStatus != ConnStatus.CHECKING
+                            ) { testConnection() },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            if (connStatus == ConnStatus.CHECKING) {
+                                CircularProgressIndicator(
+                                    Modifier.size(14.dp),
+                                    color = Color(0xFF60A5FA),
+                                    strokeWidth = 2.dp
+                                )
+                            }
+                            Text(
+                                text = when (connStatus) {
+                                    ConnStatus.CHECKING -> "Checking…"
+                                    ConnStatus.OK       -> "✓  Connected"
+                                    else                -> "Test Connection"
+                                },
+                                fontFamily = DmSansFamily, fontSize = 14.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = when (connStatus) {
+                                    ConnStatus.OK    -> Color(0xFF10B981)
+                                    ConnStatus.ERROR -> Color(0xFFEF4444)
+                                    else             -> Color(0xFF9CA3AF)
+                                }
+                            )
+                        }
+                    }
+
+                    // Continue button — enabled after successful test
+                    val continueInteraction = remember { MutableInteractionSource() }
+                    val continuePressed by continueInteraction.collectIsPressedAsState()
+                    val continueScale by animateFloatAsState(if (continuePressed) 0.97f else 1f, tween(150), label = "cont_btn")
+                    val continueEnabled = connStatus == ConnStatus.OK
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(50.dp)
+                            .graphicsLayer { scaleX = continueScale; scaleY = continueScale }
+                            .glowShadow(
+                                if (continueEnabled) Color(0x66EF4444) else Color.Transparent,
+                                12.dp, 13.dp
+                            )
+                            .background(
+                                if (continueEnabled)
+                                    Brush.linearGradient(listOf(Color(0xFFEF4444), Color(0xFFDC2626)))
+                                else
+                                    Brush.linearGradient(listOf(Color(0xFF374151), Color(0xFF374151))),
+                                RoundedCornerShape(13.dp)
+                            )
+                            .clickable(
+                                interactionSource = continueInteraction,
+                                indication = null,
+                                enabled = continueEnabled
+                            ) {
+                                val url = serverUrl.trim()
+                                prefs.setCustomBaseUrlForProvider("ollama", url)
+                                onRemoteServer(url)
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            "Continue →",
+                            fontFamily = DmSansFamily, fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (continueEnabled) Color.White else Color(0xFF6B7280)
+                        )
+                    }
+
+                    // Hint
+                    Text(
+                        "Run `ollama serve` on your computer, then enter its LAN IP above.",
+                        fontFamily = DmSansFamily, fontSize = 11.sp,
+                        color = Color(0xFF4B5563), textAlign = TextAlign.Center
+                    )
+                }
+            }
+        }
+    }
 }
 
 // ── Shared button components ──────────────────────────────────────────────────

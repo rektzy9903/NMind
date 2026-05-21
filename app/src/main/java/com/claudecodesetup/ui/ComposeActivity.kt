@@ -146,7 +146,10 @@ private fun AppRoot(
             onConfirm = { model ->
                 onComplete(selectedProvider ?: Providers.GEMINI, storedKey, model)
             },
-            onBack = { screen = if (startAt == "picker" || startAt == "providers") "providers" else "key" }
+            onBack = {
+                if (startAt == "picker") (context as? android.app.Activity)?.finish()
+                else screen = if (startAt == "providers") "providers" else "key"
+            }
         )
     }
 }

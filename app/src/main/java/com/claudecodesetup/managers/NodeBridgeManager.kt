@@ -132,9 +132,14 @@ class NodeBridgeManager(private val context: Context) {
                 mcpHttpFile.delete()
                 return
             }
-            mcpFile.writeText(org.json.JSONObject().apply { put("mcpServers", mcpServers) }.toString())
-            if (httpEntries.length() > 0) mcpHttpFile.writeText(httpEntries.toString())
-            else mcpHttpFile.delete()
+            val mcpTmpFile = File(context.filesDir, "mcp_config.json.tmp")
+            mcpTmpFile.writeText(org.json.JSONObject().apply { put("mcpServers", mcpServers) }.toString())
+            mcpTmpFile.renameTo(mcpFile)
+            if (httpEntries.length() > 0) {
+                val mcpHttpTmpFile = File(context.filesDir, "mcp_http.json.tmp")
+                mcpHttpTmpFile.writeText(httpEntries.toString())
+                mcpHttpTmpFile.renameTo(mcpHttpFile)
+            } else mcpHttpFile.delete()
         } catch (e: Exception) {
             Log.e(TAG, "Could not write MCP config", e)
         }
@@ -275,7 +280,9 @@ class NodeBridgeManager(private val context: Context) {
         }
         try {
             val configFile = File(context.filesDir, CONFIG_FILE)
-            configFile.writeText(json.toString())
+            val tempFile = File(context.filesDir, "$CONFIG_FILE.tmp")
+            tempFile.writeText(json.toString())
+            tempFile.renameTo(configFile)
             configFile.setReadable(false, false)
             configFile.setReadable(true, true)
             configFile.setWritable(false, false)

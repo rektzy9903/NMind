@@ -1,12 +1,15 @@
 package com.claudecodesetup.services
 
+import android.content.Context
 import android.util.Log
 import org.json.JSONObject
 import java.io.BufferedReader
+import java.io.File
 import java.io.InputStreamReader
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
+import java.security.MessageDigest
 
 /**
  * Minimal HTTP server on port 8081 that exposes DeviceControlService methods
@@ -15,6 +18,10 @@ import java.net.Socket
  * Request:  { "action": "read_screen" | "tap" | "type_text" | "open_app" | "screenshot",
  *             "x": <float>, "y": <float>, "text": <str>, "package": <str> }
  * Response: { "result": <string>, "error": <boolean> }
+ *
+ * Every request must include the header:
+ *   x-local-token: <UUID written to filesDir/local_token by NodeBridgeManager>
+ * Missing or incorrect tokens receive HTTP 401.
  */
 class DeviceControlHttpServer {
 
@@ -26,9 +33,23 @@ class DeviceControlHttpServer {
     private var serverSocket: ServerSocket? = null
     @Volatile private var running = false
 
-    fun start() {
+    /** Cached copy of the local auth token (loaded once at start). */
+    @Volatile private var cachedToken: ByteArray? = null
+
+    fun start(context: Context) {
         if (running) return
         running = true
+
+        // Load the shared local_token once at startup so every request handler
+        // has it available without hitting the filesystem on the hot path.
+        val tokenFile = File(context.filesDir, "local_token")
+        cachedToken = try {
+            tokenFile.readText().trim().toByteArray(Charsets.UTF_8)
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not read local_token — all requests will be rejected: ${e.message}")
+            null
+        }
+
         Thread({
             try {
                 serverSocket = ServerSocket(PORT, 8, InetAddress.getByName("127.0.0.1"))
@@ -48,6 +69,27 @@ class DeviceControlHttpServer {
         try { serverSocket?.close() } catch (_: Exception) {}
     }
 
+    /**
+     * Constant-time byte-array comparison to prevent timing-based token leakage.
+     * Returns true only when both arrays have identical length and contents.
+     */
+    private fun safeEquals(a: ByteArray, b: ByteArray): Boolean {
+        return MessageDigest.isEqual(a, b)
+    }
+
+    private fun send401(client: Socket) {
+        val body = """{"error":"unauthorized"}"""
+        val response = ("HTTP/1.1 401 Unauthorized\r\n" +
+            "Content-Type: application/json\r\n" +
+            "Content-Length: ${body.toByteArray().size}\r\n" +
+            "Connection: close\r\n\r\n" +
+            body)
+        try {
+            client.getOutputStream().write(response.toByteArray())
+            client.getOutputStream().flush()
+        } catch (_: Exception) {}
+    }
+
     private fun handleClient(client: Socket) {
         try {
             client.soTimeout = 10000
@@ -55,11 +97,26 @@ class DeviceControlHttpServer {
 
             // Read HTTP request headers
             var contentLength = 0
+            var tokenHeader: String? = null
             var line = reader.readLine()
             while (!line.isNullOrEmpty()) {
-                if (line.lowercase().startsWith("content-length:"))
+                val lower = line.lowercase()
+                if (lower.startsWith("content-length:"))
                     contentLength = line.substringAfter(":").trim().toIntOrNull() ?: 0
+                if (lower.startsWith("x-local-token:"))
+                    tokenHeader = line.substringAfter(":").trim()
                 line = reader.readLine()
+            }
+
+            // Validate x-local-token before processing any request body.
+            val expected = cachedToken
+            if (expected == null ||
+                tokenHeader == null ||
+                !safeEquals(expected, tokenHeader.toByteArray(Charsets.UTF_8))
+            ) {
+                Log.w(TAG, "Rejected request — invalid or missing x-local-token")
+                send401(client)
+                return
             }
 
             // Read body

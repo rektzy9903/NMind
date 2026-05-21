@@ -15,11 +15,13 @@ class PreviewActivity : AppCompatActivity() {
         wv.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
-            allowFileAccess = true
+            allowFileAccess = true          // needed to load the project's own index.html
+            // Disabled: would let any file:// page read other local files via XHR/fetch,
+            // turning a malicious project page into a local-file exfiltration vector.
             @Suppress("DEPRECATION")
-            allowFileAccessFromFileURLs = true
+            allowFileAccessFromFileURLs = false
             @Suppress("DEPRECATION")
-            allowUniversalAccessFromFileURLs = true
+            allowUniversalAccessFromFileURLs = false
         }
         wv.webViewClient = WebViewClient()
         setContentView(wv)

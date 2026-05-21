@@ -6,7 +6,9 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.provider.Settings
+import android.util.Log
 import androidx.core.app.NotificationCompat
+import java.io.File
 import com.claudecodesetup.ClaudeApp
 import com.claudecodesetup.R
 import com.claudecodesetup.TerminalActivity
@@ -20,6 +22,12 @@ class BootReceiver : BroadcastReceiver() {
 
         val prefs = AppPreferences(context)
         if (!prefs.isNodeSetupComplete() || !prefs.isProviderConfigured()) return
+
+        val bridgeConfig = File(context.filesDir, "bridge_config.json")
+        if (!bridgeConfig.exists()) {
+            Log.w("BootReceiver", "bridge_config.json missing — skipping auto-start")
+            return
+        }
 
         // Restart the floating overlay if it was enabled before reboot
         if (prefs.getOverlayEnabled() && Settings.canDrawOverlays(context)) {

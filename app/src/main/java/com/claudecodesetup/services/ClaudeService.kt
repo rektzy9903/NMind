@@ -110,7 +110,7 @@ class ClaudeService : LifecycleService() {
         val pm = getSystemService(PowerManager::class.java)
         wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "ClaudeCode:WakeLock")
         startForeground(NOTIF_ID, buildNotification("Nexus Mind is ready"))
-        deviceControlServer.start()
+        deviceControlServer.start(this)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -134,7 +134,10 @@ class ClaudeService : LifecycleService() {
     // ─── Session lifecycle ────────────────────────────────────────────────────
 
     fun createSession(mode: String, initialCwd: String = ""): Int {
-        if (sessions.size >= MAX_SESSIONS) return -1
+        if (sessions.size >= MAX_SESSIONS) {
+            onOutput?.invoke(-1, "\r\n[31m[Max $MAX_SESSIONS sessions reached — close a tab first.][0m\r\n")
+            return -1
+        }
 
         val id      = nextSessionId++
         val session = ClaudeSession(id, "Session ${id + 1}")
@@ -409,7 +412,7 @@ class ClaudeService : LifecycleService() {
             .setContentTitle("Nexus Mind")
             .setContentText(text)
             .setContentIntent(openIntent)
-            .setOngoing(true)
+            .setOngoing(sessions.isEmpty())
             .addAction(Notification.Action.Builder(null, "Stop", stopIntent).build())
             .build()
     }
@@ -427,7 +430,7 @@ class ClaudeService : LifecycleService() {
 
     private fun fireResponseNotification() {
         responseNotifPending = false
-        if (isActivityVisible) return
+        if (instance == null || isActivityVisible) return
         val preview = responsePreviewBuf.toString().take(120).trimEnd().replace('\n', ' ')
         responsePreviewBuf.clear()
         val bodyText = if (preview.isNotBlank()) preview else "AI response ready — tap to view"

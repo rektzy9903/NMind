@@ -6,3 +6,8 @@
 -keep public class * extends android.webkit.WebViewClient
 -dontwarn okhttp3.**
 -keep class okhttp3.** { *; }
+
+# Preserve JNI native method declarations
+-keepclasseswithmembernames class * {
+    native <methods>;
+}

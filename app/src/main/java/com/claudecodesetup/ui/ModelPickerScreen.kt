@@ -187,6 +187,12 @@ fun ModelPickerScreen(
     var page by remember { mutableStateOf(0) }
     var selectedModel by remember { mutableStateOf<AiModel?>(displays.firstOrNull()?.model) }
 
+    LaunchedEffect(displays) {
+        if (selectedModel != null && displays.none { it.model == selectedModel }) {
+            selectedModel = displays.firstOrNull()?.model
+        }
+    }
+
     val filtered = remember(selectedCap, searchQuery, displays) {
         var list = if (selectedCap == null) displays else displays.filter { selectedCap in it.effectiveCaps }
         if (searchQuery.isNotBlank()) {

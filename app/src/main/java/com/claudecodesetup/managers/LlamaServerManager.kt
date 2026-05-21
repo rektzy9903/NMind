@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import java.io.File
 import java.net.Socket
+import kotlinx.coroutines.delay
 
 class LlamaServerManager private constructor(private val context: Context) {
 
@@ -68,11 +69,11 @@ class LlamaServerManager private constructor(private val context: Context) {
     }
 
     /** Polls until the server responds on its port or the timeout elapses. */
-    fun waitUntilReady(timeoutMs: Long = 30_000L): Boolean {
+    suspend fun waitUntilReady(timeoutMs: Long = 30_000L): Boolean {
         val deadline = System.currentTimeMillis() + timeoutMs
         while (System.currentTimeMillis() < deadline) {
             if (isServerRunning()) return true
-            Thread.sleep(500)
+            delay(500L)
         }
         return false
     }

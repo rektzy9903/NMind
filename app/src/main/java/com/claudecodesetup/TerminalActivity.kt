@@ -40,6 +40,8 @@ import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.Locale
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 class TerminalActivity : AppCompatActivity() {
 
@@ -185,12 +187,14 @@ class TerminalActivity : AppCompatActivity() {
         tts = null
         speechRecognizer?.destroy()
         speechRecognizer = null
+        // Null all callbacks unconditionally before unbinding to prevent callbacks
+        // firing on a partially-destroyed activity if the binder delivers one last event.
+        claudeService?.onOutput = null
+        claudeService?.onSessionAdded = null
+        claudeService?.onSessionEnded = null
         if (serviceBound) {
             claudeService?.isActivityVisible = false
-            claudeService?.onOutput = null
-            claudeService?.onSessionAdded = null
-            claudeService?.onSessionEnded = null
-            unbindService(serviceConnection)
+            try { unbindService(serviceConnection) } catch (_: Exception) {}
             serviceBound = false
         }
     }
@@ -891,10 +895,16 @@ class TerminalActivity : AppCompatActivity() {
         @JavascriptInterface
         fun submitMessage(text: String) {
             if (text.isEmpty()) return
-            // Local bridge commands (!log, !help, !test-cli, $ cmd, etc.) bypass
-            // the online check — they don't need a network connection.
+            // Local bridge commands (!log, !help, !test-cli, $ cmd, etc.) must NEVER
+            // go through the AI path. If JS accidentally routes one here, redirect it
+            // to the raw sendInput path so no thinking spinner fires and no AI call
+            // is made. This is a safety net — JS should route these via sendInput().
             val isLocalCmd = text.startsWith("!") || text.startsWith("$")
-            if (!isLocalCmd && !isOnline()) {
+            if (isLocalCmd) {
+                claudeService?.sendInput(text + "\r")
+                return
+            }
+            if (!isOnline()) {
                 runOnUiThread {
                     showStatusError("No internet connection — check your network and try again")
                 }
@@ -954,22 +964,54 @@ class TerminalActivity : AppCompatActivity() {
         fun saveFile(filename: String, content: String) {
             val projectPath = prefs.getProjectPath().ifEmpty { filesDir.absolutePath }
             val file = File(projectPath, filename)
-            try {
-                file.parentFile?.mkdirs()
-                file.writeText(content, Charsets.UTF_8)
-                runOnUiThread {
-                    android.widget.Toast.makeText(
-                        this@TerminalActivity,
-                        "Saved: ${file.absolutePath}",
-                        android.widget.Toast.LENGTH_SHORT
-                    ).show()
+            val absPath = file.canonicalPath
+            val sandboxPaths = listOfNotNull(
+                filesDir.canonicalPath,
+                getExternalFilesDir(null)?.canonicalPath
+            )
+            val inSandbox = sandboxPaths.any { absPath.startsWith(it) }
+
+            fun doWrite() {
+                try {
+                    file.parentFile?.mkdirs()
+                    file.writeText(content, Charsets.UTF_8)
+                    runOnUiThread {
+                        android.widget.Toast.makeText(
+                            this@TerminalActivity,
+                            "Saved: $absPath",
+                            android.widget.Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                } catch (e: Exception) {
+                    runOnUiThread {
+                        android.widget.Toast.makeText(
+                            this@TerminalActivity,
+                            "Save failed: ${e.message}",
+                            android.widget.Toast.LENGTH_SHORT
+                        ).show()
+                    }
                 }
-            } catch (e: Exception) {
+            }
+
+            if (inSandbox) {
+                doWrite()
+            } else {
+                // Path is outside the app sandbox — require explicit user confirmation.
+                val latch = CountDownLatch(1)
+                var allowed = false
                 runOnUiThread {
+                    AlertDialog.Builder(this@TerminalActivity)
+                        .setTitle("Save file outside app storage?")
+                        .setMessage("The page wants to write to:\n$absPath")
+                        .setPositiveButton("Allow") { _, _ -> allowed = true; latch.countDown() }
+                        .setNegativeButton("Deny")  { _, _ -> latch.countDown() }
+                        .setOnCancelListener       { latch.countDown() }
+                        .show()
+                }
+                latch.await(30, TimeUnit.SECONDS)
+                if (allowed) doWrite() else runOnUiThread {
                     android.widget.Toast.makeText(
-                        this@TerminalActivity,
-                        "Save failed: ${e.message}",
-                        android.widget.Toast.LENGTH_SHORT
+                        this@TerminalActivity, "Save denied by user", android.widget.Toast.LENGTH_SHORT
                     ).show()
                 }
             }
@@ -1037,7 +1079,8 @@ class TerminalActivity : AppCompatActivity() {
 
         @JavascriptInterface
         fun runAndFeedback(code: String, lang: String) {
-            Thread {
+            val sessionId = activeSessionId
+            lifecycleScope.launch(Dispatchers.IO) {
                 val escapedCode = code.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n")
                 val cmd = when (lang.lowercase()) {
                     "python", "py" -> "python3 -c \"$escapedCode\""
@@ -1057,15 +1100,17 @@ class TerminalActivity : AppCompatActivity() {
                     "Error running code: ${e.message}"
                 }
                 val feedback = "I ran the code. Here's the output:\n```\n$result\n```\nWhat does this mean / what should I do next?"
-                lastSentMessage[activeSessionId] = feedback
-                sessionBusy[activeSessionId] = true
-                runOnUiThread {
-                    showStatusThinking()
-                    startThinkingTimeout()
-                    binding.webViewTerminal.evaluateJavascript("window.termResetRunBtn()", null)
+                withContext(Dispatchers.Main) {
+                    if (sessionId == activeSessionId && !isDestroyed) {
+                        lastSentMessage[sessionId] = feedback
+                        sessionBusy[sessionId] = true
+                        showStatusThinking()
+                        startThinkingTimeout()
+                        binding.webViewTerminal.evaluateJavascript("window.termResetRunBtn()", null)
+                        claudeService?.sendInput(feedback + "\r")
+                    }
                 }
-                claudeService?.sendInput(feedback + "\r")
-            }.start()
+            }
         }
 
         @JavascriptInterface

@@ -268,6 +268,7 @@ function saveAutoApprove() {
         try { const d = JSON.parse(fs.readFileSync(CONFIRM_FILE, 'utf8')); if (d && Array.isArray(d.allow)) existing = d; } catch(_) {}
         existing.allow = [...autoApprove];
         fs.writeFileSync(CONFIRM_FILE, JSON.stringify(existing, null, 2));
+        try { fs.chmodSync(CONFIRM_FILE, 0o600); } catch(_) {}
     } catch(_) {}
 }
 
@@ -569,12 +570,15 @@ function fetchDdgHtml(query, maxResults, cwd, resolve) {
 function deviceControlTool(input, cwd) {
     return new Promise(resolve => {
         const body = JSON.stringify(input);
+        let localToken = '';
+        try { localToken = fs.readFileSync(path.join(FILES_DIR, 'local_token'), 'utf8').trim().slice(0, 200); } catch(_) {}
         const req = http.request({
             hostname: HOST, port: DEVICE_CONTROL_PORT,
             path: '/device', method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Content-Length': Buffer.byteLength(body)
+                'Content-Length': Buffer.byteLength(body),
+                'x-local-token': localToken
             }
         }, res => {
             let data = '';
@@ -625,7 +629,9 @@ function callProxyStreaming(socket, messages, tools, onThinkingDone) {
             ? (cfg.apiKey || 'sk-ant-key')
             : 'sk-ant-proxy000';
         let localToken = '';
-        try { localToken = fs.readFileSync(path.join(FILES_DIR, 'local_token'), 'utf8').trim(); } catch(_) {}
+        try { localToken = fs.readFileSync(path.join(FILES_DIR, 'local_token'), 'utf8').trim().slice(0, 200); } catch(_) {}
+        // M21: hoisted at Promise scope so req.on('error'/'close') can clear it too
+        let idleTimer = null;
         const req = http.request({
             hostname: HOST, port: PROXY_PORT,
             path: '/v1/messages', method: 'POST',
@@ -642,7 +648,15 @@ function callProxyStreaming(socket, messages, tools, onThinkingDone) {
             let stopReason = 'end_turn';
             let thinkingSignalled = false;
 
+            function resetIdleTimer() {
+                clearTimeout(idleTimer);
+                idleTimer = setTimeout(() => { req.destroy(new Error('stream idle timeout')); }, 30000);
+            }
+            // Start the idle timer as soon as the response headers arrive
+            resetIdleTimer();
+
             res.on('data', chunk => {
+                resetIdleTimer();
                 buf += chunk.toString();
                 const lines = buf.split('\n');
                 buf = lines.pop();
@@ -675,6 +689,7 @@ function callProxyStreaming(socket, messages, tools, onThinkingDone) {
             });
 
             res.on('end', () => {
+                clearTimeout(idleTimer);
                 // Rebuild content array in block-index order
                 const content = [];
                 const allIdx = new Set([...Object.keys(textBlocks), ...Object.keys(toolBlocks)].map(Number));
@@ -688,12 +703,12 @@ function callProxyStreaming(socket, messages, tools, onThinkingDone) {
                 }
                 resolve({ content, stop_reason: stopReason });
             });
-            res.on('error', reject);
+            res.on('error', e => { clearTimeout(idleTimer); reject(e); });
         });
 
         const tid = setTimeout(() => { req.destroy(); reject(new Error('Proxy stream timeout')); }, 120000);
-        req.on('error', e => { clearTimeout(tid); reject(e); });
-        req.on('close', () => clearTimeout(tid));
+        req.on('error', e => { clearTimeout(tid); clearTimeout(idleTimer); reject(e); });
+        req.on('close', () => { clearTimeout(tid); clearTimeout(idleTimer); });
         req.write(body); req.end();
     });
 }
@@ -1071,6 +1086,11 @@ function patchCliJsForAndroid(cliPath) {
     let n = 0;
 
     function rep(from, to) {
+        // M22: log failures so they appear in !log output
+        if (!src.includes(from)) {
+            console.error('[patch] FAILED to find pattern: ' + String(from).slice(0, 80));
+            return;
+        }
         const parts = src.split(from);
         if (parts.length === 1) return;
         n += parts.length - 1;
@@ -1282,7 +1302,28 @@ function waitForRetry(callback) {
 // Meta Llama, and Ollama. Handles both streaming and non-streaming responses.
 
 function startProxyServer(onReady) {
+    // Load the shared local_token once at server start for auth checks.
+    // Requests are accepted when they carry either:
+    //   x-local-token: <localToken>  (any authorised caller that obtained the token)
+    //   Authorization: Bearer sk-ant-proxy000  (claude-code running inside this process)
+    let proxyLocalToken = '';
+    try { proxyLocalToken = fs.readFileSync(path.join(FILES_DIR, 'local_token'), 'utf8').trim().slice(0, 200); } catch(_) {}
+
     const proxy = http.createServer((req, res) => {
+        // ── Auth gate ──────────────────────────────────────────────────────────
+        // Reject any request that does not present valid credentials.
+        const tokenHeader = req.headers['x-local-token'] || '';
+        const authHeader  = req.headers['authorization'] || '';
+        const hasValidToken = proxyLocalToken && tokenHeader === proxyLocalToken;
+        const hasProxyKey   = authHeader === 'Bearer sk-ant-proxy000';
+        if (!hasValidToken && !hasProxyKey) {
+            log('[proxy] 401 — missing or invalid auth on ' + req.method + ' ' + req.url + '\n');
+            res.writeHead(401, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'unauthorized' }));
+            return;
+        }
+        // ── End auth gate ──────────────────────────────────────────────────────
+
         // Log every incoming request so we can see if cli.js reaches the proxy at all.
         log('[proxy] ' + req.method + ' ' + req.url + '\n');
 
@@ -1510,6 +1551,7 @@ function handleProxyRequest(anthReq, res) {
                 const next = modelList[idx + 1];
                 if (next && next !== modelId) {
                     log('[proxy] 429 exhausted — switching to ' + next + '\n');
+                    // M8: reset delayMs to initial value when switching models
                     attempt(next, 2, 2);
                 } else {
                     proxyError(res, 429, 'Rate limited. All fallback models exhausted — switch provider in Settings.');
@@ -2051,8 +2093,9 @@ function clearClaudeSessionFiles() {
 }
 
 // Strip ANSI escape codes so captured responses store clean text in history.
+// Also strips OSC sequences (\x1b]...\x07), DCS/PM/APC/SOS/ST sequences, and C1 CSI.
 function stripAnsi(str) {
-    return str.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '').replace(/\r/g, '').trim();
+    return str.replace(/\x1B\[[0-9;]*[a-zA-Z]|\x1b\][^\x07]*\x07|\x1b[PX^_].*?\x1b\\|\x9b[0-9;]*[a-zA-Z]/g, '').replace(/\r/g, '').trim();
 }
 
 // Simple line-diff for code diff visualization (shows +/- lines between old and new text)
@@ -2374,10 +2417,13 @@ function testLauncher() {
 // Downloads static ARM64 binaries or npm installs packages, writing to BIN_DIR.
 
 function installPackage(name, socket) {
+    // All output from installPackage must be SYS_FENCE'd so it routes to a sys
+    // bubble even when chatState === 'RESPONDING' on the JavaScript side.
+    const sw = msg => { try { socket.write(SYS_FENCE + msg); } catch(_) {} };
     const pkg = PACKAGE_CATALOG[name];
     if (!pkg) {
         const names = Object.keys(PACKAGE_CATALOG).join(', ');
-        try { socket.write('\x1b[31m✗ Unknown package: ' + name + '\x1b[0m\r\n' +
+        try { sw('\x1b[31m✗ Unknown package: ' + name + '\x1b[0m\r\n' +
             '\x1b[2mAvailable: ' + names + '\x1b[0m\r\n\r\n'); } catch(_) {}
         return;
     }
@@ -2386,11 +2432,11 @@ function installPackage(name, socket) {
 
     if (pkg.type === 'binary') {
         if (fs.existsSync(binPath)) {
-            try { socket.write('\x1b[32m✓ ' + name + ' already installed.\x1b[0m Run \x1b[33m$ ' + (pkg.bin || name) + ' --help\x1b[0m to verify.\r\n\r\n'); } catch(_) {}
+            try { sw('\x1b[32m✓ ' + name + ' already installed.\x1b[0m Run \x1b[33m$ ' + (pkg.bin || name) + ' --help\x1b[0m to verify.\r\n\r\n'); } catch(_) {}
             return;
         }
         try { fs.mkdirSync(BIN_DIR, { recursive: true }); } catch(_) {}
-        try { socket.write('\x1b[33mDownloading ' + name + ' (' + (pkg.size || '?') + ')…\x1b[0m\r\n'); } catch(_) {}
+        try { sw('\x1b[33mDownloading ' + name + ' (' + (pkg.size || '?') + ')…\x1b[0m\r\n'); } catch(_) {}
         log('[install] downloading ' + name + ' from ' + pkg.url + '\n');
 
         const tmpPath = binPath + '.tmp';
@@ -2415,17 +2461,17 @@ function installPackage(name, socket) {
                             try { fs.symlinkSync(binPath, link); linked++; } catch(_) {}
                         }
                     }
-                    try { socket.write('\x1b[32m✓ busybox installed.\x1b[0m ' + linked + ' symlinks created.\r\n' +
+                    try { sw('\x1b[32m✓ busybox installed.\x1b[0m ' + linked + ' symlinks created.\r\n' +
                         '\x1b[2mNow available: wget, tar, gzip, grep, sed, awk, find, nano, and more.\x1b[0m\r\n\r\n'); } catch(_) {}
                     log('[install] busybox: ' + linked + ' symlinks created\n');
                 });
             } else {
-                try { socket.write('\x1b[32m✓ ' + name + ' installed.\x1b[0m Run \x1b[33m$ ' + (pkg.bin || name) + ' --help\x1b[0m to verify.\r\n\r\n'); } catch(_) {}
+                try { sw('\x1b[32m✓ ' + name + ' installed.\x1b[0m Run \x1b[33m$ ' + (pkg.bin || name) + ' --help\x1b[0m to verify.\r\n\r\n'); } catch(_) {}
                 log('[install] ' + name + ' installed at ' + binPath + '\n');
             }
         }).catch(e => {
             try { fs.unlinkSync(tmpPath); } catch(_) {}
-            try { socket.write('\x1b[31m✗ Download failed: ' + e.message + '\x1b[0m\r\n\r\n'); } catch(_) {}
+            try { sw('\x1b[31m✗ Download failed: ' + e.message + '\x1b[0m\r\n\r\n'); } catch(_) {}
             log('[install] ' + name + ' download failed: ' + e.message + '\n');
         });
 
@@ -2435,7 +2481,7 @@ function installPackage(name, socket) {
         const distDir = path.join(FILES_DIR, 'opt', name + '-dist');
         const primaryBin = path.join(BIN_DIR, name === 'python3' ? 'python3' : name);
         if (fs.existsSync(primaryBin)) {
-            try { socket.write('\x1b[32m✓ ' + name + ' already installed.\x1b[0m Run \x1b[33m$ ' + name + ' --version\x1b[0m\r\n\r\n'); } catch(_) {}
+            try { sw('\x1b[32m✓ ' + name + ' already installed.\x1b[0m Run \x1b[33m$ ' + name + ' --version\x1b[0m\r\n\r\n'); } catch(_) {}
             return;
         }
         const ext  = isXz ? '.tar.xz' : '.tar.gz';
@@ -2443,27 +2489,27 @@ function installPackage(name, socket) {
         const tarPath     = path.join(FILES_DIR, name + '.tar');
 
         if (isXz && !fs.existsSync(path.join(BIN_DIR, 'busybox'))) {
-            try { socket.write('\x1b[31m✗ ' + name + ' requires busybox for .tar.xz.\x1b[0m Run \x1b[33m!install busybox\x1b[0m first.\r\n\r\n'); } catch(_) {}
+            try { sw('\x1b[31m✗ ' + name + ' requires busybox for .tar.xz.\x1b[0m Run \x1b[33m!install busybox\x1b[0m first.\r\n\r\n'); } catch(_) {}
             return;
         }
 
         (async () => {
             // Resolve URL dynamically
             let url;
-            if (name === 'python3')     { try { socket.write('\x1b[33mResolving latest Python ARM64…\x1b[0m\r\n'); } catch(_) {} url = await resolveLatestPythonUrl(); }
-            else if (name === 'go')     { try { socket.write('\x1b[33mResolving latest Go ARM64…\x1b[0m\r\n'); } catch(_) {} url = await resolveLatestGoUrl(); }
-            else if (name === 'zig')    { try { socket.write('\x1b[33mResolving latest Zig ARM64…\x1b[0m\r\n'); } catch(_) {} url = await resolveLatestZigUrl(); }
+            if (name === 'python3')     { try { sw('\x1b[33mResolving latest Python ARM64…\x1b[0m\r\n'); } catch(_) {} url = await resolveLatestPythonUrl(); }
+            else if (name === 'go')     { try { sw('\x1b[33mResolving latest Go ARM64…\x1b[0m\r\n'); } catch(_) {} url = await resolveLatestGoUrl(); }
+            else if (name === 'zig')    { try { sw('\x1b[33mResolving latest Zig ARM64…\x1b[0m\r\n'); } catch(_) {} url = await resolveLatestZigUrl(); }
             else if (pkg.url)           { url = pkg.url; }
             else throw new Error('No URL resolver for ' + name);
 
-            try { socket.write('\x1b[33mDownloading ' + name + ' (' + (pkg.size || '') + ')…\x1b[0m\r\n'); } catch(_) {}
+            try { sw('\x1b[33mDownloading ' + name + ' (' + (pkg.size || '') + ')…\x1b[0m\r\n'); } catch(_) {}
             log('[install] ' + name + ' url: ' + url + '\n');
             await downloadFile(url, archivePath);
             fs.mkdirSync(distDir, { recursive: true });
 
             if (isXz) {
                 // busybox tar -Jxf handles xz natively
-                try { socket.write('\x1b[33mExtracting ' + name + '… (this may take a minute)\x1b[0m\r\n'); } catch(_) {}
+                try { sw('\x1b[33mExtracting ' + name + '… (this may take a minute)\x1b[0m\r\n'); } catch(_) {}
                 const bb = path.join(BIN_DIR, 'busybox');
                 await new Promise((res, rej) => {
                     const tar = spawn(bb, ['tar', '-Jxf', archivePath, '-C', distDir],
@@ -2475,14 +2521,14 @@ function installPackage(name, socket) {
                 try { fs.unlinkSync(archivePath); } catch(_) {}
             } else {
                 // Decompress gz in Node.js (toybox tar may lack -z), then system tar
-                try { socket.write('\x1b[33mDecompressing…\x1b[0m\r\n'); } catch(_) {}
+                try { sw('\x1b[33mDecompressing…\x1b[0m\r\n'); } catch(_) {}
                 await new Promise((res, rej) => {
                     const zlib = require('zlib');
                     fs.createReadStream(archivePath).pipe(zlib.createGunzip())
                         .pipe(fs.createWriteStream(tarPath)).on('finish', res).on('error', rej);
                 });
                 try { fs.unlinkSync(archivePath); } catch(_) {}
-                try { socket.write('\x1b[33mExtracting ' + name + '… (this may take a minute)\x1b[0m\r\n'); } catch(_) {}
+                try { sw('\x1b[33mExtracting ' + name + '… (this may take a minute)\x1b[0m\r\n'); } catch(_) {}
                 await new Promise((res, rej) => {
                     const tar = spawn('/system/bin/tar', ['-xf', tarPath, '-C', distDir],
                         { env: { PATH: '/system/bin:/system/xbin' } });
@@ -2516,7 +2562,7 @@ function installPackage(name, socket) {
                     mkWrap('pip3', path.join(pyBinDir, pip3), { PYTHONHOME: pyHome });
                     mkWrap('pip',  path.join(pyBinDir, pip3), { PYTHONHOME: pyHome });
                 }
-                try { socket.write('\x1b[32m✓ python3 installed.\x1b[0m Run \x1b[33m$ python3 --version\x1b[0m\r\n' +
+                try { sw('\x1b[32m✓ python3 installed.\x1b[0m Run \x1b[33m$ python3 --version\x1b[0m\r\n' +
                     '\x1b[2mCommands: python3, python' + (pip3 ? ', pip3, pip' : '') + '\x1b[0m\r\n\r\n'); } catch(_) {}
             } else if (pkg.post === 'go') {
                 const goRoot = path.join(distDir, 'go');
@@ -2524,7 +2570,7 @@ function installPackage(name, socket) {
                 fs.mkdirSync(goPath, { recursive: true });
                 mkWrap('go',    path.join(goRoot, 'bin', 'go'),    { GOROOT: goRoot, GOPATH: goPath, HOME: FILES_DIR });
                 mkWrap('gofmt', path.join(goRoot, 'bin', 'gofmt'), { GOROOT: goRoot, GOPATH: goPath, HOME: FILES_DIR });
-                try { socket.write('\x1b[32m✓ go installed.\x1b[0m Run \x1b[33m$ go version\x1b[0m\r\n' +
+                try { sw('\x1b[32m✓ go installed.\x1b[0m Run \x1b[33m$ go version\x1b[0m\r\n' +
                     '\x1b[2mCommands: go, gofmt  |  GOPATH: ' + goPath + '\x1b[0m\r\n\r\n'); } catch(_) {}
             } else if (pkg.post === 'zig') {
                 // Zig extracts to zig-linux-aarch64-VERSION/ inside distDir
@@ -2537,14 +2583,14 @@ function installPackage(name, socket) {
                 const cppW = '#!/system/bin/sh\nexec "' + zigBin + '" c++ "$@"\n';
                 fs.writeFileSync(path.join(BIN_DIR, 'zig-cc'),  ccW);  fs.chmodSync(path.join(BIN_DIR, 'zig-cc'),  0o755);
                 fs.writeFileSync(path.join(BIN_DIR, 'zig-c++'), cppW); fs.chmodSync(path.join(BIN_DIR, 'zig-c++'), 0o755);
-                try { socket.write('\x1b[32m✓ zig installed.\x1b[0m Run \x1b[33m$ zig version\x1b[0m\r\n' +
+                try { sw('\x1b[32m✓ zig installed.\x1b[0m Run \x1b[33m$ zig version\x1b[0m\r\n' +
                     '\x1b[2mCommands: zig, zig-cc (C), zig-c++ (C++)\x1b[0m\r\n\r\n'); } catch(_) {}
             }
             log('[install] ' + name + ' installed at ' + distDir + '\n');
         })().catch(e => {
             try { fs.unlinkSync(archivePath); } catch(_) {}
             try { fs.unlinkSync(tarPath); } catch(_) {}
-            try { socket.write('\x1b[31m✗ ' + name + ' install failed: ' + e.message + '\x1b[0m\r\n\r\n'); } catch(_) {}
+            try { sw('\x1b[31m✗ ' + name + ' install failed: ' + e.message + '\x1b[0m\r\n\r\n'); } catch(_) {}
             log('[install] ' + name + ' failed: ' + e.message + '\n');
         });
 
@@ -2557,26 +2603,26 @@ function installPackage(name, socket) {
         const alreadyOk = fs.existsSync(primaryBin) &&
             (!isGit || !fs.readFileSync(primaryBin, 'utf8').includes('isomorphic'));
         if (alreadyOk) {
-            try { socket.write('\x1b[32m✓ ' + name + ' already installed.\x1b[0m\r\n\r\n'); } catch(_) {}
+            try { sw('\x1b[32m✓ ' + name + ' already installed.\x1b[0m\r\n\r\n'); } catch(_) {}
             return;
         }
         const bb = path.join(BIN_DIR, 'busybox');
         if (!fs.existsSync(bb)) {
-            try { socket.write('\x1b[31m✗ busybox required first.\x1b[0m Run \x1b[33m!install busybox\x1b[0m then retry.\r\n\r\n'); } catch(_) {}
+            try { sw('\x1b[31m✗ busybox required first.\x1b[0m Run \x1b[33m!install busybox\x1b[0m then retry.\r\n\r\n'); } catch(_) {}
             return;
         }
         const bbEnv  = { PATH: BIN_DIR + ':/system/bin:/system/xbin', TMPDIR: FILES_DIR };
         const destDir = path.join(FILES_DIR, pkg.dest);
 
         (async () => {
-            try { socket.write('\x1b[33mFetching Termux package index…\x1b[0m\r\n'); } catch(_) {}
+            try { sw('\x1b[33mFetching Termux package index…\x1b[0m\r\n'); } catch(_) {}
             const pkgs = await resolveTermuxUrls(pkg.packages);
 
             for (const { name: pkgName, url } of pkgs) {
-                try { socket.write('\x1b[33mDownloading ' + pkgName + '…\x1b[0m\r\n'); } catch(_) {}
+                try { sw('\x1b[33mDownloading ' + pkgName + '…\x1b[0m\r\n'); } catch(_) {}
                 const debPath = path.join(FILES_DIR, pkgName + '.deb');
                 await downloadFile(url, debPath);
-                try { socket.write('\x1b[33mExtracting ' + pkgName + '…\x1b[0m\r\n'); } catch(_) {}
+                try { sw('\x1b[33mExtracting ' + pkgName + '…\x1b[0m\r\n'); } catch(_) {}
                 await extractDeb(debPath, destDir, bb, bbEnv);
                 try { fs.unlinkSync(debPath); } catch(_) {}
             }
@@ -2594,7 +2640,7 @@ function installPackage(name, socket) {
                 mkWrap('git', path.join(destDir, 'bin', 'git'),
                     'export GIT_EXEC_PATH="' + path.join(destDir, 'libexec', 'git-core') + '"\n' +
                     'export GIT_TEMPLATE_DIR="' + path.join(destDir, 'share', 'git-core', 'templates') + '"\n');
-                try { socket.write('\x1b[32m✓ git installed.\x1b[0m Run \x1b[33m$ git --version\x1b[0m\r\n' +
+                try { sw('\x1b[32m✓ git installed.\x1b[0m Run \x1b[33m$ git --version\x1b[0m\r\n' +
                     '\x1b[2mFor HTTPS auth: git config credential.helper store\x1b[0m\r\n\r\n'); } catch(_) {}
             } else if (pkg.post === 'ssh-termux') {
                 const sshBinDir = path.join(destDir, 'bin');
@@ -2603,7 +2649,7 @@ function installPackage(name, socket) {
                     if (fs.existsSync(real)) mkWrap(b, real);
                 }
                 try { fs.mkdirSync(path.join(FILES_DIR, '.ssh'), { mode: 0o700 }); } catch(_) {}
-                try { socket.write('\x1b[32m✓ ssh installed.\x1b[0m Run \x1b[33m$ ssh -V\x1b[0m\r\n' +
+                try { sw('\x1b[32m✓ ssh installed.\x1b[0m Run \x1b[33m$ ssh -V\x1b[0m\r\n' +
                     '\x1b[2mCommands: ssh, scp, sftp, ssh-keygen\x1b[0m\r\n\r\n'); } catch(_) {}
             } else if (pkg.post === 'ruby-termux') {
                 const rubyBinDir = path.join(destDir, 'bin');
@@ -2614,7 +2660,7 @@ function installPackage(name, socket) {
                     const real = path.join(rubyBinDir, b);
                     if (fs.existsSync(real)) mkWrap(b, real);
                 }
-                try { socket.write('\x1b[32m✓ ruby installed.\x1b[0m Run \x1b[33m$ ruby --version\x1b[0m\r\n' +
+                try { sw('\x1b[32m✓ ruby installed.\x1b[0m Run \x1b[33m$ ruby --version\x1b[0m\r\n' +
                     '\x1b[2mCommands: ruby, irb, gem, rake\x1b[0m\r\n\r\n'); } catch(_) {}
             } else if (pkg.post === 'clang-termux') {
                 const clangBinDir = path.join(destDir, 'bin');
@@ -2627,32 +2673,32 @@ function installPackage(name, socket) {
                 const clangppWrap = path.join(BIN_DIR, 'clang++');
                 if (fs.existsSync(clangWrap))   { try { fs.symlinkSync(clangWrap,   path.join(BIN_DIR, 'cc'));  } catch(_) {} }
                 if (fs.existsSync(clangppWrap)) { try { fs.symlinkSync(clangppWrap, path.join(BIN_DIR, 'c++')); } catch(_) {} }
-                try { socket.write('\x1b[32m✓ clang installed.\x1b[0m Run \x1b[33m$ clang --version\x1b[0m\r\n' +
+                try { sw('\x1b[32m✓ clang installed.\x1b[0m Run \x1b[33m$ clang --version\x1b[0m\r\n' +
                     '\x1b[2mCommands: clang, clang++, cc, c++\x1b[0m\r\n\r\n'); } catch(_) {}
             } else {
                 // Generic: wrap all binaries found in bin/
                 const binDir2 = path.join(destDir, 'bin');
                 if (fs.existsSync(binDir2))
                     for (const b of fs.readdirSync(binDir2)) { try { mkWrap(b, path.join(binDir2, b)); } catch(_) {} }
-                try { socket.write('\x1b[32m✓ ' + name + ' installed.\x1b[0m\r\n\r\n'); } catch(_) {}
+                try { sw('\x1b[32m✓ ' + name + ' installed.\x1b[0m\r\n\r\n'); } catch(_) {}
             }
             log('[install] ' + name + ' installed at ' + destDir + '\n');
         })().catch(e => {
-            try { socket.write('\x1b[31m✗ ' + name + ' install failed: ' + e.message + '\x1b[0m\r\n\r\n'); } catch(_) {}
+            try { sw('\x1b[31m✗ ' + name + ' install failed: ' + e.message + '\x1b[0m\r\n\r\n'); } catch(_) {}
             log('[install] ' + name + ' failed: ' + e.message + '\n');
         });
 
     } else if (pkg.type === 'npm') {
-        try { socket.write('\x1b[33mInstalling ' + name + ' via npm…\x1b[0m\r\n'); } catch(_) {}
+        try { sw('\x1b[33mInstalling ' + name + ' via npm…\x1b[0m\r\n'); } catch(_) {}
         const npmCmd = 'npm install --prefix ' + JSON.stringify(NPM_PREFIX) + ' ' + pkg.pkg;
         const child = spawn('/system/bin/sh', ['-c', npmCmd], { env: buildEnv(), cwd: FILES_DIR });
-        child.stdout.on('data', d => { try { socket.write(d); } catch(_) {} });
-        child.stderr.on('data', d => { try { socket.write('\x1b[2m' + d.toString() + '\x1b[0m'); } catch(_) {} });
+        child.stdout.on('data', d => { try { sw(d); } catch(_) {} });
+        child.stderr.on('data', d => { try { sw('\x1b[2m' + d.toString() + '\x1b[0m'); } catch(_) {} });
         child.on('close', code => {
             if (code !== 0) {
-                try { socket.write('\x1b[31m✗ npm install failed (exit ' + code + ')\x1b[0m\r\n\r\n'); } catch(_) {}
+                try { sw('\x1b[31m✗ npm install failed (exit ' + code + ')\x1b[0m\r\n\r\n'); } catch(_) {}
             } else {
-                try { socket.write('\x1b[32m✓ ' + name + ' installed.\x1b[0m\r\n\r\n'); } catch(_) {}
+                try { sw('\x1b[32m✓ ' + name + ' installed.\x1b[0m\r\n\r\n'); } catch(_) {}
                 log('[install] npm package ' + pkg.pkg + ' installed\n');
             }
         });
@@ -2713,7 +2759,10 @@ function openPrintSession() {
         return { allow: [], deny: [] };
     }
     function saveApproveList(list) {
-        try { fs.writeFileSync(CONFIRM_FILE, JSON.stringify(list, null, 2)); } catch(_) {}
+        try {
+            fs.writeFileSync(CONFIRM_FILE, JSON.stringify(list, null, 2));
+            try { fs.chmodSync(CONFIRM_FILE, 0o600); } catch(_) {}
+        } catch(_) {}
     }
 
     // ── Patch settings.json ───────────────────────────────────────────────────
@@ -2936,8 +2985,9 @@ function openPrintSession() {
                 if (t.startsWith('{')) {
                     let evt;
                     try { evt = JSON.parse(t); } catch(_) {
-                        // Non-JSON line — forward raw so user can see unexpected output
-                        try { if (state.socket) state.socket.write(line + '\n'); } catch(_) {}
+                        // Non-JSON line — forward raw wrapped in SYS_FENCE so it routes
+                        // to a sys bubble and never pollutes the AI bubble.
+                        try { if (state.socket) state.socket.write(SYS_FENCE + line + '\n'); } catch(_) {}
                         continue;
                     }
                     handleStreamEvent(evt, state, proc, firstContent, (fc) => { firstContent = fc; });
@@ -2947,7 +2997,8 @@ function openPrintSession() {
                     if (/allow|permission|approve|proceed/i.test(t) && /\?|y\/n|\[y/i.test(t)) {
                         handlePermissionText(t, state, proc);
                     } else {
-                        try { if (state.socket) state.socket.write(line + '\n'); } catch(_) {}
+                        // Non-JSON plain output — SYS_FENCE so it always lands in a sys bubble
+                        try { if (state.socket) state.socket.write(SYS_FENCE + line + '\n'); } catch(_) {}
                     }
                 }
             }
@@ -2996,9 +3047,15 @@ function openPrintSession() {
                 if (rateLimited) {
                     try { if (state.socket) state.socket.write('\x1b[33m⚠ Rate limited — wait 30–60 s then retry, or switch model.\x1b[0m\r\n'); } catch(_) {}
                 } else {
-                    const errLines = stderrBuf.split('\n')
-                        .filter(l => l.trim() && !/^\[(eval-ok|import-resolved|exit-event|unhandledRejection|regex-compat|intl-shim)\]/.test(l.trim()))
-                        .slice(-8).join('\r\n');
+                    // M13: show first error-keyword line + last 3 lines (deduped)
+                    const filteredStderr = stderrBuf.split('\n')
+                        .filter(l => l.trim() && !/^\[(eval-ok|import-resolved|exit-event|unhandledRejection|regex-compat|intl-shim)\]/.test(l.trim()));
+                    const firstErrLine = filteredStderr.find(l => /Error|error|ERR/.test(l)) || filteredStderr[0] || '';
+                    const lastThree = filteredStderr.slice(-3);
+                    const combined = firstErrLine
+                        ? [firstErrLine, ...lastThree.filter(l => l !== firstErrLine)]
+                        : lastThree;
+                    const errLines = combined.join('\r\n');
                     let hint;
                     if (code === 143) {
                         hint = '\x1b[31m✗ Request timed out (120 s)\x1b[0m\r\n' +
@@ -3051,6 +3108,14 @@ function openPrintSession() {
             if (line.startsWith('$') && !line.startsWith('$ ') && line.length > 1) line = '$ ' + line.slice(1).trimStart();
             // Bare "!" or "$" alone is a no-op
             if (line === '!' || line === '$') continue;
+            // Lowercase the ! command verb — Android autocorrect/autocapitalize treats
+            // "!" as sentence-ending punctuation and capitalizes the next character
+            // (e.g. "!Test-cli" instead of "!test-cli"), breaking all startsWith checks.
+            // Only lowercase the verb itself, not any arguments after the first space.
+            if (line.startsWith('!')) {
+                const sp = line.indexOf(' ');
+                line = (sp === -1 ? line : line.slice(0, sp)).toLowerCase() + (sp === -1 ? '' : line.slice(sp));
+            }
 
             // ── Confirm responses (agentic install confirmation) ──────────────────
             if (line.startsWith('!confirm:')) {
@@ -3122,14 +3187,15 @@ function openPrintSession() {
                     '  \x1b[33m!clear\x1b[0m              Start a new conversation\r\n' +
                     '  \x1b[33m!context [path]\x1b[0m     Load file/dir as context\r\n' +
                     '  \x1b[33m!attach <file>\x1b[0m      Attach file to next message\r\n' +
-                    '  \x1b[33m!install <pkg>\x1b[0m      Install binary/npm package\r\n' +
+                    '  \x1b[33m!install [pkg]\x1b[0m      Install binary/npm (no arg = list available)\r\n' +
                     '  \x1b[33m!pty <cmd>\x1b[0m          Run interactive program (bash, python3…)\r\n' +
                     '  \x1b[33m!agentic [on|off]\x1b[0m   Toggle direct agentic loop\r\n' +
                     '  \x1b[33m!undo\x1b[0m               Restore last file written by agentic\r\n' +
                     '  \x1b[33m!undo list\x1b[0m          Show undo snapshot history\r\n' +
                     '  \x1b[33m!log [n]\x1b[0m            Show last n lines of bridge log (default 40)\r\n' +
                     '  \x1b[33m!test-cli\x1b[0m           Run module-loader + proxy diagnostics\r\n' +
-                    '  \x1b[2m$ <cmd>  — run shell command\x1b[0m\r\n\r\n'
+                    '  \x1b[33m!help\x1b[0m               Show this help\r\n' +
+                    '  \x1b[33m$ <cmd>\x1b[0m             Run a shell command\r\n\r\n'
                 ); } catch(_) {}
                 continue;
             }
@@ -3245,7 +3311,7 @@ function openPrintSession() {
                 if (on) { try { fs.writeFileSync(AGENTIC_FILE, '1'); } catch(_) {} }
                 else    { try { fs.unlinkSync(AGENTIC_FILE); } catch(_) {} }
                 try { if (state.socket) state.socket.write('\x1b]9;agentic:' + (on ? 'on' : 'off') + '\x07'); } catch(_) {}
-                try { if (state.socket) state.socket.write((on ? '\x1b[35m[AGENTIC ON]\x1b[0m' : '\x1b[2m[AGENTIC OFF]\x1b[0m') + '\r\n'); } catch(_) {}
+                try { if (state.socket) state.socket.write(SYS_FENCE + (on ? '\x1b[35m[AGENTIC ON]\x1b[0m' : '\x1b[2m[AGENTIC OFF]\x1b[0m') + '\r\n'); } catch(_) {}
                 continue;
             }
 
@@ -3256,8 +3322,8 @@ function openPrintSession() {
                     state.contextBlock = st.isDirectory()
                         ? '[Directory: ' + p + ']\n' + fs.readdirSync(p).slice(0, 80).join('\n')
                         : '[File: ' + p + ']\n' + fs.readFileSync(p, 'utf8').slice(0, 30000);
-                    try { if (state.socket) state.socket.write('\x1b[33m[context loaded: ' + p + ']\x1b[0m\r\n'); } catch(_) {}
-                } catch(e) { try { if (state.socket) state.socket.write('\x1b[31m[!context: ' + e.message + ']\x1b[0m\r\n'); } catch(_) {} }
+                    try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[33m[context loaded: ' + p + ']\x1b[0m\r\n'); } catch(_) {}
+                } catch(e) { try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[31m[!context: ' + e.message + ']\x1b[0m\r\n'); } catch(_) {} }
                 continue;
             }
 
@@ -3265,50 +3331,49 @@ function openPrintSession() {
                 const p = line.slice(7).trim();
                 try {
                     state.pendingAttach = '[Attached: ' + p + ']\n' + fs.readFileSync(p, 'utf8').slice(0, 30000);
-                    try { if (state.socket) state.socket.write('\x1b[33m[attached: ' + p + ']\x1b[0m\r\n'); } catch(_) {}
-                } catch(e) { try { if (state.socket) state.socket.write('\x1b[31m[!attach: ' + e.message + ']\x1b[0m\r\n'); } catch(_) {} }
+                    try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[33m[attached: ' + p + ']\x1b[0m\r\n'); } catch(_) {}
+                } catch(e) { try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[31m[!attach: ' + e.message + ']\x1b[0m\r\n'); } catch(_) {} }
                 continue;
             }
 
-            if (line === '!undo') {
-                try {
-                    if (!fs.existsSync(UNDO_DIR)) {
-                        try { if (state.socket) state.socket.write('\x1b[33m[no undo snapshots]\x1b[0m\r\n'); } catch(_) {}
-                        continue;
+            // !undo / !undo list — unified handler (exact-match on "list" arg, case-insensitive)
+            if (line === '!undo' || line.startsWith('!undo ')) {
+                const undoArg = line.slice(5).trim().toLowerCase();
+                if (undoArg === 'list') {
+                    try {
+                        if (!fs.existsSync(UNDO_DIR)) { try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[2m[no snapshots]\x1b[0m\r\n'); } catch(_) {} continue; }
+                        const snaps = fs.readdirSync(UNDO_DIR).sort().reverse().slice(0, 10);
+                        if (!snaps.length) { try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[2m[no snapshots]\x1b[0m\r\n'); } catch(_) {} continue; }
+                        const list = snaps.map((s, i) => {
+                            const ts = parseInt(s) || 0;
+                            const age = ts ? Math.round((Date.now() - ts) / 60000) + 'm ago' : '';
+                            return '  ' + (i === 0 ? '→ ' : '  ') + s.replace(/^\d+_/, '') + (age ? ' (' + age + ')' : '');
+                        }).join('\r\n');
+                        try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[2mUndo snapshots (newest first):\x1b[0m\r\n' + list + '\r\n'); } catch(_) {}
+                    } catch(e) { try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[31m[!undo list: ' + e.message + ']\x1b[0m\r\n'); } catch(_) {} }
+                } else {
+                    try {
+                        if (!fs.existsSync(UNDO_DIR)) {
+                            try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[33m[no undo snapshots]\x1b[0m\r\n'); } catch(_) {}
+                            continue;
+                        }
+                        const snaps = fs.readdirSync(UNDO_DIR).sort();
+                        if (!snaps.length) {
+                            try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[33m[no undo snapshots]\x1b[0m\r\n'); } catch(_) {}
+                            continue;
+                        }
+                        const latest = snaps[snaps.length - 1];
+                        const snapPath = path.join(UNDO_DIR, latest);
+                        const origName = latest.replace(/^\d+_/, '');
+                        const targetPath = path.resolve(state.cwd, origName);
+                        fs.copyFileSync(snapPath, targetPath);
+                        fs.unlinkSync(snapPath);
+                        try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[32m✓ Restored: ' + targetPath + '\x1b[0m\r\n'); } catch(_) {}
+                        log('[undo] restored ' + targetPath + ' from ' + snapPath + '\n');
+                    } catch(e) {
+                        try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[31m[!undo: ' + e.message + ']\x1b[0m\r\n'); } catch(_) {}
                     }
-                    const snaps = fs.readdirSync(UNDO_DIR).sort();
-                    if (!snaps.length) {
-                        try { if (state.socket) state.socket.write('\x1b[33m[no undo snapshots]\x1b[0m\r\n'); } catch(_) {}
-                        continue;
-                    }
-                    // Most recent snapshot
-                    const latest = snaps[snaps.length - 1];
-                    const snapPath = path.join(UNDO_DIR, latest);
-                    // Filename format: <timestamp>_<safeName>
-                    const origName = latest.replace(/^\d+_/, '');
-                    const targetPath = path.resolve(state.cwd, origName);
-                    fs.copyFileSync(snapPath, targetPath);
-                    fs.unlinkSync(snapPath);
-                    try { if (state.socket) state.socket.write('\x1b[32m✓ Restored: ' + targetPath + '\x1b[0m\r\n'); } catch(_) {}
-                    log('[undo] restored ' + targetPath + ' from ' + snapPath + '\n');
-                } catch(e) {
-                    try { if (state.socket) state.socket.write('\x1b[31m[!undo: ' + e.message + ']\x1b[0m\r\n'); } catch(_) {}
                 }
-                continue;
-            }
-
-            if (line === '!undo list') {
-                try {
-                    if (!fs.existsSync(UNDO_DIR)) { try { if (state.socket) state.socket.write('[no snapshots]\r\n'); } catch(_) {} continue; }
-                    const snaps = fs.readdirSync(UNDO_DIR).sort().reverse().slice(0, 10);
-                    if (!snaps.length) { try { if (state.socket) state.socket.write('[no snapshots]\r\n'); } catch(_) {} continue; }
-                    const list = snaps.map((s, i) => {
-                        const ts = parseInt(s) || 0;
-                        const age = ts ? Math.round((Date.now() - ts) / 60000) + 'm ago' : '';
-                        return '  ' + (i === 0 ? '→ ' : '  ') + s.replace(/^\d+_/, '') + (age ? ' (' + age + ')' : '');
-                    }).join('\r\n');
-                    try { if (state.socket) state.socket.write('\x1b[2mUndo snapshots (newest first):\x1b[0m\r\n' + list + '\r\n'); } catch(_) {}
-                } catch(e) { try { if (state.socket) state.socket.write('\x1b[31m[!undo list: ' + e.message + ']\x1b[0m\r\n'); } catch(_) {} }
                 continue;
             }
 
@@ -3316,7 +3381,7 @@ function openPrintSession() {
                 const pkgName = line.slice(8).trim();
                 if (!pkgName) {
                     const names = Object.keys(PACKAGE_CATALOG).join(', ');
-                    try { if (state.socket) state.socket.write('\x1b[33mUsage: !install <package>\x1b[0m\r\nAvailable: ' + names + '\r\n'); } catch(_) {}
+                    try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[33mAvailable packages:\x1b[0m ' + names + '\r\n\x1b[2mUsage: !install <package>\x1b[0m\r\n'); } catch(_) {}
                 } else {
                     installPackage(pkgName, state.socket);
                 }
@@ -3327,11 +3392,11 @@ function openPrintSession() {
             if (line.startsWith('!pty ') || line === '!pty') {
                 const ptyCmd = line.slice(5).trim();
                 if (!ptyCmd) {
-                    try { if (state.socket) state.socket.write('\x1b[33mUsage: !pty <command>  e.g. !pty bash\x1b[0m\r\n'); } catch(_) {}
+                    try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[33mUsage: !pty <command>  e.g. !pty bash\x1b[0m\r\n'); } catch(_) {}
                     continue;
                 }
                 if (!fs.existsSync(PTY_HELPER)) {
-                    try { if (state.socket) state.socket.write('\x1b[31m✗ libpty-helper.so not found.\x1b[0m\r\n'); } catch(_) {}
+                    try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[31m✗ libpty-helper.so not found.\x1b[0m\r\n'); } catch(_) {}
                     continue;
                 }
                 const ptyCfg = readConfig();
@@ -3342,24 +3407,37 @@ function openPrintSession() {
                         [String(ptyCfg.ptyCols || 220), String(ptyCfg.ptyRows || 50), ...ptyCmd.split(/\s+/)],
                         { env: ptyEnv, cwd: state.cwd });
                 } catch(e) {
-                    try { if (state.socket) state.socket.write('\x1b[31m[PTY] Failed: ' + e.message + '\x1b[0m\r\n'); } catch(_) {}
+                    try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[31m[PTY] Failed: ' + e.message + '\x1b[0m\r\n'); } catch(_) {}
                     continue;
                 }
                 state.ptyProc = ptyProc;
-                try { if (state.socket) state.socket.write('\x1b[33m[PTY] ' + ptyCmd + ' — Ctrl+D or exit to return\x1b[0m\r\n\r\n'); } catch(_) {}
+                // Start/end banners use SYS_FENCE so they land in a sys bubble even
+                // if chatState is RESPONDING. PTY raw output (stdout/stderr) is NOT
+                // fenced — it's intentional terminal passthrough rendered by the ANSI
+                // engine, and !pty is never run while the bridge is busy (state.busy).
+                try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[33m[PTY] ' + ptyCmd + ' — Ctrl+D or exit to return\x1b[0m\r\n\r\n'); } catch(_) {}
                 ptyProc.stdout.on('data', d2 => { try { if (state.socket) state.socket.write(d2); } catch(_) {} });
                 ptyProc.stderr.on('data', d2 => { try { if (state.socket) state.socket.write(d2); } catch(_) {} });
                 ptyProc.on('close', code2 => {
                     state.ptyProc = null;
-                    try { if (state.socket) state.socket.write('\r\n\x1b[33m[PTY] ' + ptyCmd + ' ended (exit ' + (code2 || 0) + ')\x1b[0m\r\n\r\n'); } catch(_) {}
+                    try { if (state.socket) state.socket.write(SYS_FENCE + '\r\n\x1b[33m[PTY] ' + ptyCmd + ' ended (exit ' + (code2 || 0) + ')\x1b[0m\r\n\r\n'); } catch(_) {}
                 });
                 ptyProc.on('error', e => {
                     state.ptyProc = null;
-                    try { if (state.socket) state.socket.write('\x1b[31m[PTY] Error: ' + e.message + '\x1b[0m\r\n'); } catch(_) {}
+                    try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[31m[PTY] Error: ' + e.message + '\x1b[0m\r\n'); } catch(_) {}
                 });
                 if (state.socket) state.socket.once('close', () => {
                     try { if (state.ptyProc === ptyProc) { ptyProc.kill(); state.ptyProc = null; } } catch(_) {}
                 });
+                continue;
+            }
+
+            // ── Catch-all: unrecognized ! command — NEVER send to AI ────────────
+            // Any ! text that reached this point matched none of the known handlers.
+            // Without this guard, autocorrect variants ("!Test-cli"), typos, or
+            // future unknown commands would fall through to runMessage() and reach AI.
+            if (line.startsWith('!')) {
+                try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[33m[unknown command: ' + line.slice(0, 40) + ']\x1b[0m — type \x1b[33m!help\x1b[0m for commands\r\n'); } catch(_) {}
                 continue;
             }
 
@@ -3381,8 +3459,7 @@ function openPrintSession() {
                             b64: fs.readFileSync(imgB64Path, 'utf8').trim(),
                             mime: fs.readFileSync(imgMimePath, 'utf8').trim() || 'image/jpeg'
                         };
-                        fs.unlinkSync(imgB64Path);
-                        fs.unlinkSync(imgMimePath);
+                        // M7: delete AFTER runAgentic completes (in finally block below)
                     } catch(_) {}
                 }
                 runAgentic(state.socket, msg, state.agHistory.slice(0, -1), state.cwd, pendingImg)
@@ -3398,6 +3475,11 @@ function openPrintSession() {
                     .catch(e => {
                         log('[agentic] unhandled: ' + e.message + '\n');
                         state.busy = false;
+                    })
+                    .finally(() => {
+                        // M7: delete pending image files after runAgentic completes
+                        try { fs.unlinkSync(imgB64Path); } catch(_) {}
+                        try { fs.unlinkSync(imgMimePath); } catch(_) {}
                     });
             } else {
                 // Image attached in print mode — route through runAgentic which builds
@@ -3411,8 +3493,7 @@ function openPrintSession() {
                             b64:  fs.readFileSync(imgB64Path,  'utf8').trim(),
                             mime: fs.readFileSync(imgMimePath, 'utf8').trim() || 'image/jpeg'
                         };
-                        fs.unlinkSync(imgB64Path);
-                        fs.unlinkSync(imgMimePath);
+                        // M7: delete AFTER runAgentic completes (in finally block below)
                     } catch(_) {}
                     state.busy = true;
                     if (!state.agHistory) state.agHistory = [];
@@ -3430,6 +3511,11 @@ function openPrintSession() {
                         .catch(e => {
                             log('[image-agentic] unhandled: ' + e.message + '\n');
                             state.busy = false;
+                        })
+                        .finally(() => {
+                            // M7: delete pending image files after runAgentic completes
+                            try { fs.unlinkSync(imgB64Path); } catch(_) {}
+                            try { fs.unlinkSync(imgMimePath); } catch(_) {}
                         });
                 } else {
                     runMessage(msg, state);
@@ -3462,6 +3548,15 @@ function openPrintSession() {
             };
             if (saved) log('[session:' + sid + '] restored from disk (hasHistory=' + state.hasHistory + ' cwd=' + state.cwd + ' projectMode=' + !!cfg.projectPath + ')\n');
             activeSessions.set(sid, state);
+        } else {
+            // M6: on reconnect, kill any stale process from a previous connection so
+            // the new connection starts idle and doesn't inherit a dangling busy state.
+            if (state.currentProc) {
+                try { state.currentProc.kill('SIGTERM'); } catch(_) {}
+                state.currentProc = null;
+            }
+            state.busy = false;
+            state.thinkingDone = false;
         }
 
         state.socket = socket;
@@ -3529,8 +3624,10 @@ function openPrintSession() {
                 sid = parts[0];
                 const token = parts[1] || '';
                 let expectedToken = '';
-                try { expectedToken = fs.readFileSync(path.join(FILES_DIR, 'local_token'), 'utf8').trim(); } catch(_) {}
-                if (expectedToken && token !== expectedToken) {
+                try { expectedToken = fs.readFileSync(path.join(FILES_DIR, 'local_token'), 'utf8').trim().slice(0, 200); } catch(_) {}
+                // Reject if token missing/empty OR if presented token does not match.
+                // An empty expectedToken must never match anything — reject all.
+                if (!expectedToken || token !== expectedToken) {
                     try { rawSocket.write('\r\n\x1b[31mUnauthorized connection rejected.\x1b[0m\r\n'); rawSocket.end(); } catch(_) {}
                     return;
                 }

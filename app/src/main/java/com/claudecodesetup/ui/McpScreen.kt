@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -16,11 +17,41 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.claudecodesetup.data.AppPreferences
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
 
 data class McpServer(val name: String, val url: String)
 data class McpStdioServer(val name: String, val command: String, val args: String)
+
+enum class PingStatus { CHECKING, OK, ERROR }
+
+/** Pings an HTTP MCP server by sending a minimal JSON-RPC initialize request.
+ *  Any HTTP response (even 4xx/5xx) means the server is reachable → OK.
+ *  Connection failure / timeout → ERROR. */
+suspend fun pingMcpServer(url: String): PingStatus = withContext(Dispatchers.IO) {
+    try {
+        val conn = URL(url).openConnection() as HttpURLConnection
+        conn.requestMethod = "POST"
+        conn.setRequestProperty("Content-Type", "application/json")
+        conn.connectTimeout = 5_000
+        conn.readTimeout   = 5_000
+        conn.doOutput = true
+        conn.outputStream.use { out ->
+            out.write("""{"jsonrpc":"2.0","method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{}},"id":1}""".toByteArray())
+        }
+        val code = conn.responseCode
+        conn.disconnect()
+        if (code > 0) PingStatus.OK else PingStatus.ERROR
+    } catch (_: Exception) {
+        PingStatus.ERROR
+    }
+}
 
 @Composable
 fun McpScreen(
@@ -32,6 +63,27 @@ fun McpScreen(
     var showAddDialog by remember { mutableStateOf(false) }
     var confirmDeleteIndex by remember { mutableStateOf(-1) }
     var confirmDeleteStdioIndex by remember { mutableStateOf(-1) }
+
+    // Ping status for each HTTP server, keyed by server name
+    var pingStatus by remember { mutableStateOf<Map<String, PingStatus>>(emptyMap()) }
+
+    // Track in-flight ping jobs so they can be cancelled on disposal
+    val pendingJobs = remember { mutableListOf<Job>() }
+    DisposableEffect(servers) {
+        onDispose { pendingJobs.forEach { it.cancel() }; pendingJobs.clear() }
+    }
+
+    // Ping all HTTP servers in parallel whenever the list changes
+    LaunchedEffect(servers) {
+        pingStatus = servers.associate { it.name to PingStatus.CHECKING }
+        servers.forEach { srv ->
+            val job = launch {
+                val result = pingMcpServer(srv.url)
+                pingStatus = pingStatus + (srv.name to result)
+            }
+            pendingJobs.add(job)
+        }
+    }
 
     AppBackground {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -114,8 +166,16 @@ fun McpScreen(
                         }
                         items(servers.indices.toList()) { i ->
                             val s = servers[i]
+                            val status = pingStatus[s.name] ?: PingStatus.CHECKING
                             McpServerCard(
                                 name = s.name, subtitle = s.url,
+                                pingStatus = status,
+                                onPing = {
+                                    pingStatus = pingStatus + (s.name to PingStatus.CHECKING)
+                                },
+                                onPingResult = { result ->
+                                    pingStatus = pingStatus + (s.name to result)
+                                },
                                 onDelete = { confirmDeleteIndex = i }
                             )
                         }
@@ -296,7 +356,16 @@ fun McpScreen(
 }
 
 @Composable
-private fun McpServerCard(name: String, subtitle: String, onDelete: () -> Unit) {
+private fun McpServerCard(
+    name: String,
+    subtitle: String,
+    pingStatus: PingStatus? = null,       // null = stdio (no live check)
+    onPing: (() -> Unit)? = null,
+    onPingResult: ((PingStatus) -> Unit)? = null,
+    onDelete: () -> Unit
+) {
+    val coroutineScope = rememberCoroutineScope()
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -310,10 +379,45 @@ private fun McpServerCard(name: String, subtitle: String, onDelete: () -> Unit) 
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            Text(
-                name, fontFamily = DmSansFamily, fontSize = 15.sp,
-                fontWeight = FontWeight.SemiBold, color = Color.White
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    name, fontFamily = DmSansFamily, fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold, color = Color.White
+                )
+                // Status dot — only for HTTP servers (pingStatus != null)
+                if (pingStatus != null) {
+                    val dotColor = when (pingStatus) {
+                        PingStatus.OK       -> Color(0xFF22C55E)  // green
+                        PingStatus.ERROR    -> Color(0xFFEF4444)  // red
+                        PingStatus.CHECKING -> Color(0xFF6B7280)  // gray (pulsing would need animation)
+                    }
+                    val dotLabel = when (pingStatus) {
+                        PingStatus.OK       -> "live"
+                        PingStatus.ERROR    -> "unreachable"
+                        PingStatus.CHECKING -> "checking…"
+                    }
+                    Box(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .background(dotColor, CircleShape)
+                            .clickable {
+                                if (pingStatus != PingStatus.CHECKING && onPing != null && onPingResult != null) {
+                                    onPing()
+                                    coroutineScope.launch {
+                                        onPingResult(pingMcpServer(subtitle))
+                                    }
+                                }
+                            }
+                    )
+                    Text(
+                        dotLabel, fontFamily = SpaceMonoFamily,
+                        fontSize = 9.sp, color = dotColor
+                    )
+                }
+            }
             Text(
                 subtitle, fontFamily = SpaceMonoFamily,
                 fontSize = 10.sp, color = Color(0xFF6B7280)

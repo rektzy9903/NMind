@@ -1028,6 +1028,9 @@ let sysEl            = null;
 let sysAnsi          = makeAnsiState();
 let sysRenderQueued  = false;
 
+// L6 — WeakMap for bubble raw text (avoids expando DOM property)
+const bubbleRawText = new WeakMap();
+
 function scrollToBottom(){
   msgs.scrollTop = msgs.scrollHeight;
 }
@@ -1494,9 +1497,13 @@ function extractResponseFromPty(raw){
     .replace(/\x1b[^[\]]/g,'')
     .replace(/\r\n/g,'\n')
     .replace(/\r/g,'\n');
+  // M3: use lastIndexOf so that ✦ appearing inside AI output doesn't cause a wrong slice.
   var idx=stripped.lastIndexOf('✦'); // ✦
   if(idx===-1) return null;
   var text=stripped.slice(idx+1);
+  // M3: sanity check — if the extracted text is unreasonably long we likely hit
+  // the wrong marker; fall back to returning null so caller uses raw text.
+  if(text.length>50000) return null;
   // Trim off the input prompt and anything after it
   var promptMatch=text.search(/\n\s*[❯>]\s*\n?$/m);
   if(promptMatch!==-1) text=text.slice(0,promptMatch);
@@ -1523,7 +1530,7 @@ function startAiBubble(){
   copyBtn.textContent='⎘ Copy';
   copyBtn.title='Copy response';
   copyBtn.addEventListener('click',function(){
-    var text=bub._rawText||bub.textContent||'';
+    var text=bubbleRawText.get(bub)||bub.textContent||'';
     if(typeof Android!=='undefined') Android.copyText(text);
     copyBtn.textContent='✓ Copied';
     setTimeout(function(){copyBtn.textContent='⎘ Copy';},1600);
@@ -1594,7 +1601,8 @@ function finalizeAiBubble(){
       if(row) row.remove();
     }
     // Store raw text so copy button can access it after rawAiText is cleared
-    currentAiBubble._rawText=displayText;
+    // L6: use WeakMap instead of expando DOM property to avoid memory leaks.
+    bubbleRawText.set(currentAiBubble, displayText);
     // Reveal action footer at bottom of bubble
     const actFooter=currentAiBubble.querySelector('.bubble-act-footer');
     if(actFooter) actFooter.style.display='flex';
@@ -1734,7 +1742,10 @@ window.termRestoreSnapshot = function(sid) {
   if (!_sessionSnaps.has(sid)) return false;
   stopThinkingTimer();
   msgs.innerHTML = _sessionSnaps.get(sid);
-  sysEl=null; sysAnsi=makeAnsiState();
+  // M2: do NOT reset sysAnsi here — resetting mid-way while DOM already has
+  // rendered content causes ANSI state/DOM mismatch and double-render bugs.
+  // sysEl is cleared so next sys output creates a fresh bubble below restored content.
+  sysEl=null;
   currentAiBubble=null; currentAiAnsi=null;
   chatState='IDLE';
   thinkBub.style.display='none';
@@ -1847,7 +1858,15 @@ function submitLine(text){
     // Fresh sys bubble so bridge output appears below this cmd bubble
     sysEl=null; sysAnsi=makeAnsiState();
     addCmdBubble(msg,false);
-    if(typeof Android!=='undefined') Android.sendInput(msg+'\r');
+    // Normalize ! command verb to lowercase before sending — Android autocorrect
+    // treats "!" as sentence-end and capitalizes the next character, breaking
+    // bridge's command matching. Only lowercase the verb, not $ shell args.
+    let toSend=msg;
+    if(msg.startsWith('!')){
+      const sp=msg.indexOf(' ');
+      toSend=(sp===-1?msg:msg.slice(0,sp)).toLowerCase()+(sp===-1?'':msg.slice(sp));
+    }
+    if(typeof Android!=='undefined') Android.sendInput(toSend+'\r');
     return;
   }
   const displayMsg = msg || '📷';
@@ -1885,10 +1904,13 @@ ghost.setAttribute('spellcheck','false');
 ghost.setAttribute('enterkeyhint','send');
 document.body.appendChild(ghost);
 
+// M16: store timer ID so we can clearTimeout before each new focus scroll.
+let ghostScrollTimer = null;
 ghost.addEventListener('focus',function(){
   toolbarOpen=true;
   updateLayout();
-  setTimeout(scrollToBottom,50);
+  clearTimeout(ghostScrollTimer);
+  ghostScrollTimer = setTimeout(scrollToBottom,50);
 });
 ghost.addEventListener('blur',function(){
   setTimeout(function(){
@@ -1910,20 +1932,42 @@ function sendRawInput(){
     if(inputHistory[inputHistory.length-1]!==text){
       inputHistory.push(text);if(inputHistory.length>50)inputHistory.shift();
     }
-    tbRaw(text+'\r');
+    // Normalize ! command verb to lowercase so keyboard-Enter path matches bridge
+    // handlers the same way the Send button path does.
+    let toSend=text;
+    if(text.startsWith('!')){
+      const sp=text.indexOf(' ');
+      toSend=(sp===-1?text:text.slice(0,sp)).toLowerCase()+(sp===-1?'':text.slice(sp));
+    }
+    tbRaw(toSend+'\r');
   } else {
     tbRaw('\r');
   }
 }
+// M10: track whether the last input was a paste so we don't strip newlines from it.
+var _ghostLastWasPaste = false;
+ghost.addEventListener('paste', function(){
+  _ghostLastWasPaste = true;
+});
 ghost.addEventListener('input',function(){
   const val=ghost.value;
   if(val.includes('\n')){
+    if(_ghostLastWasPaste){
+      // Paste: allow multi-line — keep newlines in the buffer, do not trigger send.
+      _ghostLastWasPaste=false;
+      inputBuffer=val;
+      ghost.value=val;
+      updateInputDisp();
+      return;
+    }
+    // Enter key: strip the newline and send.
     ghost.value=val.replace(/\n/g,'');
     inputBuffer=ghost.value;
     updateInputDisp();
     sendRawInput();
     return;
   }
+  _ghostLastWasPaste=false;
   inputBuffer=val;
   updateInputDisp();
 });
@@ -1993,7 +2037,8 @@ document.getElementById('btn-backspace').addEventListener('click',function(){
 });
 
 // ── Font size ─────────────────────────────────────────────────────────────────
-var termFontSize=parseInt(localStorage.getItem('termFontSize')||'14');
+// M9: parse, validate and clamp on load; NaN or out-of-range falls back to 14.
+var termFontSize=Math.max(10,Math.min(22,parseInt(localStorage.getItem('termFontSize'))||14));
 function applyFontSize(sz){
   termFontSize=Math.max(10,Math.min(22,sz));
   localStorage.setItem('termFontSize',String(termFontSize));
@@ -2016,7 +2061,10 @@ function reportTermSize(){
   document.body.removeChild(probe);
   var cols=Math.max(40,Math.floor(window.innerWidth/charW));
   var rows=Math.max(10,Math.floor(window.innerHeight/charH));
-  if(typeof Android!=='undefined'&&Android.notifyResize) Android.notifyResize(cols,rows);
+  // L20: wrap in try/catch — WebView bridge can throw if called before binding is ready.
+  if(typeof Android!=='undefined'&&Android.notifyResize){
+    try { Android.notifyResize(cols,rows); } catch(_) {}
+  }
 }
 window.addEventListener('resize',reportTermSize);
 document.getElementById('btn-font-dec').addEventListener('click',function(){applyFontSize(termFontSize-1);ghost.focus();});

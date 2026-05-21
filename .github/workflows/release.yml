@@ -125,3 +125,9 @@ jobs:
           name: NexusMind-${{ github.ref_name }}-aab
           path: app/build/outputs/bundle/release/app-release.aab
           retention-days: 90
+
+      - name: Clean up signing artifacts
+        if: always()
+        run: |
+          rm -f local.properties
+          rm -f release.jks

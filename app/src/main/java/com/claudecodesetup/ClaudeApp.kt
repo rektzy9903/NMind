@@ -73,6 +73,6 @@ class ClaudeApp : Application() {
         // True once the intro animation has played this process lifetime.
         // Resets to false when the OS kills the process (cold start → plays again).
         // Stays true while the app is backgrounded (warm return → skips).
-        var introPlayed = false
+        val introPlayed = java.util.concurrent.atomic.AtomicBoolean(false)
     }
 }

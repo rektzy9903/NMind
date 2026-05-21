@@ -58,6 +58,9 @@ object ScheduledPromptsManager {
             wm.cancelUniqueWork("scheduled_prompt_${p.id}")
             if (!p.enabled) return@forEach
 
+            val today = java.util.Calendar.getInstance().get(java.util.Calendar.DAY_OF_WEEK)
+            if (today !in p.days) return@forEach  // skip if today not in scheduled days
+
             val initialDelay = calcInitialDelay(p.hour, p.minute)
             val data = Data.Builder()
                 .putString(ScheduledPromptWorker.KEY_PROMPT, p.prompt)
@@ -95,7 +98,8 @@ data class ScheduledPrompt(
     val prompt: String,
     val hour: Int,
     val minute: Int,
-    val enabled: Boolean = true
+    val enabled: Boolean = true,
+    val days: List<Int> = listOf(1, 2, 3, 4, 5, 6, 7)  // all days by default (Calendar.DAY_OF_WEEK: 1=Sun…7=Sat)
 ) {
     val timeLabel: String get() = String.format("%02d:%02d", hour, minute)
 
@@ -105,6 +109,7 @@ data class ScheduledPrompt(
         put("hour", hour)
         put("minute", minute)
         put("enabled", enabled)
+        put("days", JSONArray().also { arr -> days.forEach { arr.put(it) } })
     }
 
     companion object {
@@ -113,7 +118,10 @@ data class ScheduledPrompt(
             prompt  = j.optString("prompt"),
             hour    = j.optInt("hour", 9),
             minute  = j.optInt("minute", 0),
-            enabled = j.optBoolean("enabled", true)
+            enabled = j.optBoolean("enabled", true),
+            days    = j.optJSONArray("days")?.let { arr ->
+                (0 until arr.length()).map { arr.getInt(it) }
+            } ?: listOf(1, 2, 3, 4, 5, 6, 7)
         )
     }
 }

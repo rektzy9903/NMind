@@ -17,8 +17,6 @@ import com.claudecodesetup.ClaudeApp
 import com.claudecodesetup.R
 import com.claudecodesetup.TerminalActivity
 import com.claudecodesetup.data.AppPreferences
-import com.claudecodesetup.data.Cap
-import com.claudecodesetup.data.Providers
 import kotlinx.coroutines.*
 import java.io.*
 import java.net.Socket
@@ -28,7 +26,6 @@ class FloatingOverlayService : Service() {
 
     companion object {
         const val ACTION_STOP             = "com.claudecodesetup.OVERLAY_STOP"
-        const val ACTION_SCREENSHOT_READY = "com.claudecodesetup.SCREENSHOT_READY"
         const val ACTION_VOICE_RESULT     = "com.claudecodesetup.VOICE_RESULT"
         const val ACTION_CLIPBOARD_READY  = "com.claudecodesetup.CLIPBOARD_READY"
         const val ACTION_CLIPBOARD_EMPTY  = "com.claudecodesetup.CLIPBOARD_EMPTY"
@@ -54,6 +51,7 @@ class FloatingOverlayService : Service() {
     private var socket: Socket? = null
     private var outputStream: OutputStream? = null
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    @Volatile private var shouldConnect = true
 
     private var btnX = 0
     private var btnY = 0
@@ -62,7 +60,6 @@ class FloatingOverlayService : Service() {
     private val btnPx get() = dpToPx(60)
     private var expanded = false
 
-    private var pendingScreenshotQuery: String? = null
     private lateinit var overlayParams: WindowManager.LayoutParams
 
     // Idle-fade: fades to IDLE_ALPHA after IDLE_DELAY_MS of no interaction
@@ -74,13 +71,6 @@ class FloatingOverlayService : Service() {
     private val resultReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             when (intent.action) {
-                ACTION_SCREENSHOT_READY -> {
-                    val path  = intent.getStringExtra("path") ?: return
-                    val query = pendingScreenshotQuery ?: "Describe what you see in this screenshot."
-                    pendingScreenshotQuery = null
-                    attachImageAndSend(path, query)
-                    wakeUp()
-                }
                 ACTION_VOICE_RESULT -> {
                     val text = intent.getStringExtra("text") ?: return
                     wakeUp()
@@ -115,7 +105,6 @@ class FloatingOverlayService : Service() {
         btnY    = screenH / 3
 
         val filter = IntentFilter().apply {
-            addAction(ACTION_SCREENSHOT_READY)
             addAction(ACTION_VOICE_RESULT)
             addAction(ACTION_CLIPBOARD_READY)
             addAction(ACTION_CLIPBOARD_EMPTY)
@@ -137,6 +126,7 @@ class FloatingOverlayService : Service() {
         super.onDestroy()
         idleHandler.removeCallbacks(idleRunnable)
         unregisterReceiver(resultReceiver)
+        shouldConnect = false
         scope.cancel()
         tts.shutdown()
         runCatching { socket?.close() }
@@ -172,7 +162,7 @@ class FloatingOverlayService : Service() {
             elevation  = dpToPx(12).toFloat()
         }
 
-        val subDefs = listOf("📋", "📸", "⚡", "🔊", "📱")
+        val subDefs = listOf("📋", "⚡", "🔊", "📱")
         subDefs.forEachIndexed { i, emoji ->
             val btn = glassSubButton(emoji)
             if (emoji == "🔊") ttsSubBtn = btn
@@ -293,9 +283,7 @@ class FloatingOverlayService : Service() {
                 setOnClickListener {
                     collapseAll()
                     wakeUp()
-                    // Capture screen first, then send screenshot + prompt together
-                    requestScreenshot(prompt)
-                    toast("Reading screen…")
+                    sendToSocket("$prompt\n")
                 }
             }
             panel.addView(tv, LinearLayout.LayoutParams(
@@ -463,10 +451,9 @@ class FloatingOverlayService : Service() {
     private fun onSubAction(index: Int) {
         when (index) {
             0 -> sendClipboard()
-            1 -> requestScreenshot(null)
-            2 -> showQuickPrompts()
-            3 -> toggleTts()
-            4 -> openApp()
+            1 -> showQuickPrompts()
+            2 -> toggleTts()
+            3 -> openApp()
         }
     }
 
@@ -475,64 +462,6 @@ class FloatingOverlayService : Service() {
         // ClipboardHelperActivity reads it and broadcasts the result back to us.
         startActivity(Intent(this, ClipboardHelperActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-    }
-
-    private fun currentModelSupportsVision(): Boolean {
-        val modelId    = prefs.getModelId()
-        val providerId = prefs.getProviderId()
-        val provider   = Providers.byId(providerId) ?: return true
-        // Check static model list first; if model isn't there (live-fetched), fall back to keywords
-        val staticMatch = provider.models.find { it.modelId == modelId }
-        if (staticMatch != null) return Cap.VISION in staticMatch.caps
-        val id = modelId.lowercase()
-        return listOf("vision", "vl", "scout", "maverick", "gemini", "claude", "gpt-4", "llava", "llama-4")
-            .any { it in id }
-    }
-
-    private fun isAgenticModeOn(): Boolean =
-        File(filesDir, "agentic_state").exists()
-
-    private fun requestScreenshot(voiceQuery: String?) {
-        if (!currentModelSupportsVision()) {
-            toast("⚠ This model doesn't support images — switch to a vision model (e.g. Gemini Flash, Llama 4 Scout)")
-            return
-        }
-        if (!isAgenticModeOn()) {
-            toast("⚠ Screenshot analysis needs Agentic mode — type !agentic in the terminal to enable it")
-            return
-        }
-        pendingScreenshotQuery = voiceQuery
-        val svc = DeviceControlService.instance
-        if (svc != null && DeviceControlService.isAvailable()) {
-            // Silent capture via AccessibilityService — no dialog
-            toast("Capturing screen…")
-            svc.takeScreenshot { path ->
-                if (path != null) {
-                    sendBroadcast(
-                        Intent(ACTION_SCREENSHOT_READY).setPackage(packageName)
-                            .putExtra("path", path)
-                    )
-                } else {
-                    toast("Screenshot failed — try again")
-                }
-            }
-        } else {
-            // Accessibility Service not enabled — guide the user to turn it on.
-            // Opening Settings directly is the only path; there's no other way to
-            // take a screenshot without either AccessibilityService or screen casting.
-            toast("Enable Accessibility Service: Settings → Accessibility → Nexus Mind")
-            try {
-                startActivity(
-                    Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                )
-            } catch (_: Exception) {
-                startActivity(
-                    Intent(android.provider.Settings.ACTION_SETTINGS)
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                )
-            }
-        }
     }
 
     private fun showQuickPrompts() {
@@ -561,21 +490,6 @@ class FloatingOverlayService : Service() {
             ttsSubBtn.alpha = if (ttsEnabled) 1f else 0.38f
     }
 
-    private fun attachImageAndSend(jpegPath: String, query: String) {
-        scope.launch(Dispatchers.IO) {
-            try {
-                val bytes = File(jpegPath).readBytes()
-                val b64   = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
-                File(filesDir, "pending_image.b64").writeText(b64)
-                File(filesDir, "pending_image.mime").writeText("image/jpeg")
-                sendToSocket("$query\n")
-            } catch (e: Exception) {
-                Log.e(TAG, "attachImageAndSend error", e)
-                withContext(Dispatchers.Main) { toast("Screenshot failed") }
-            }
-        }
-    }
-
     // ─── Voice ────────────────────────────────────────────────────────────────
 
     private fun startVoice() {
@@ -587,16 +501,7 @@ class FloatingOverlayService : Service() {
     }
 
     private fun handleVoiceResult(text: String) {
-        val lc = text.lowercase()
-        val wantsVision = lc.contains("see") || lc.contains("look") ||
-            lc.contains("screen") || (lc.contains("this") && lc.contains("check")) ||
-            lc.contains("showing") || (lc.contains("what") && lc.contains("here"))
-        if (wantsVision) {
-            toast("Taking screenshot…")
-            requestScreenshot(text)
-        } else {
-            sendToSocket("$text\n")
-        }
+        sendToSocket("$text\n")
     }
 
     // ─── Socket ───────────────────────────────────────────────────────────────
@@ -604,6 +509,7 @@ class FloatingOverlayService : Service() {
     private fun connectSocket() {
         scope.launch(Dispatchers.IO) {
             repeat(30) {
+                if (!shouldConnect) return@launch
                 try {
                     val s = Socket("127.0.0.1", BRIDGE_PORT)
                     socket       = s
@@ -648,6 +554,7 @@ class FloatingOverlayService : Service() {
 
         runCatching { s.close() }
         socket = null; outputStream = null
+        if (!shouldConnect) return
         delay(1000)
         connectSocket()
     }

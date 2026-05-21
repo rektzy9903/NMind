@@ -253,15 +253,22 @@ private fun TabbedModelTestScreen(
         orTesting = true
         orResults = models.map { ModelTestResult(it, TestStatus.TESTING) }
         scope.launch {
-            coroutineScope {
-                models.mapIndexed { i, model ->
-                    async {
-                        val (status, latency) = testModel("openrouter", Providers.OPENROUTER.baseUrl, orApiKey, model)
-                        orResults = orResults.toMutableList().also { it[i] = it[i].copy(status = status, latencyMs = latency) }
-                    }
-                }.awaitAll()
+            try {
+                coroutineScope {
+                    models.mapIndexed { i, model ->
+                        async {
+                            try {
+                                val (status, latency) = testModel("openrouter", Providers.OPENROUTER.baseUrl, orApiKey, model)
+                                orResults = orResults.toMutableList().also { it[i] = it[i].copy(status = status, latencyMs = latency) }
+                            } catch (_: Exception) {
+                                orResults = orResults.toMutableList().also { it[i] = it[i].copy(status = TestStatus.FAIL) }
+                            }
+                        }
+                    }.awaitAll()
+                }
+            } finally {
+                orTesting = false
             }
-            orTesting = false
         }
     }
 
@@ -271,15 +278,22 @@ private fun TabbedModelTestScreen(
         nvTesting = true
         nvResults = models.map { ModelTestResult(it, TestStatus.TESTING) }
         scope.launch {
-            coroutineScope {
-                models.mapIndexed { i, model ->
-                    async {
-                        val (status, latency) = testModel("nvidia_nim", Providers.NVIDIA_NIM.baseUrl, nvApiKey, model)
-                        nvResults = nvResults.toMutableList().also { it[i] = it[i].copy(status = status, latencyMs = latency) }
-                    }
-                }.awaitAll()
+            try {
+                coroutineScope {
+                    models.mapIndexed { i, model ->
+                        async {
+                            try {
+                                val (status, latency) = testModel("nvidia_nim", Providers.NVIDIA_NIM.baseUrl, nvApiKey, model)
+                                nvResults = nvResults.toMutableList().also { it[i] = it[i].copy(status = status, latencyMs = latency) }
+                            } catch (_: Exception) {
+                                nvResults = nvResults.toMutableList().also { it[i] = it[i].copy(status = TestStatus.FAIL) }
+                            }
+                        }
+                    }.awaitAll()
+                }
+            } finally {
+                nvTesting = false
             }
-            nvTesting = false
         }
     }
 
@@ -472,15 +486,22 @@ private fun SingleProviderTestScreen(
         isTesting = true
         results = models.map { ModelTestResult(it, TestStatus.TESTING) }
         scope.launch {
-            coroutineScope {
-                models.mapIndexed { i, model ->
-                    async {
-                        val (status, latency) = testModel(providerId, providerUrl, apiKey, model)
-                        results = results.toMutableList().also { it[i] = it[i].copy(status = status, latencyMs = latency) }
-                    }
-                }.awaitAll()
+            try {
+                coroutineScope {
+                    models.mapIndexed { i, model ->
+                        async {
+                            try {
+                                val (status, latency) = testModel(providerId, providerUrl, apiKey, model)
+                                results = results.toMutableList().also { it[i] = it[i].copy(status = status, latencyMs = latency) }
+                            } catch (_: Exception) {
+                                results = results.toMutableList().also { it[i] = it[i].copy(status = TestStatus.FAIL) }
+                            }
+                        }
+                    }.awaitAll()
+                }
+            } finally {
+                isTesting = false
             }
-            isTesting = false
         }
     }
 

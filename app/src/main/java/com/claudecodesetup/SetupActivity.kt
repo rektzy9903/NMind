@@ -10,9 +10,15 @@ import android.os.Looper
 import android.view.View
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.lifecycleScope
 import com.claudecodesetup.data.AppPreferences
 import com.claudecodesetup.databinding.ActivitySetupBinding
 import com.claudecodesetup.managers.NodeBridgeManager
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class SetupActivity : AppCompatActivity() {
 
@@ -34,27 +40,6 @@ class SetupActivity : AppCompatActivity() {
         Pair(140_000L, 80),
         Pair(180_000L, 90),
     )
-
-    // ── Monitor: polls every 2 s for log updates + bridge completion ──────────
-    private val monitorRunnable = object : Runnable {
-        override fun run() {
-            if (!monitoring) return
-            refreshLog()
-            Thread {
-                val ready  = bridge.isBridgeReachable()
-                val failed = bridge.isSetupFailed()
-                runOnUiThread {
-                    when {
-                        ready  -> onSetupComplete()
-                        failed -> onSetupFailed(
-                            "Installation failed. See the log above for details.\nTap Try again to retry."
-                        )
-                        else   -> handler.postDelayed(this, POLL_MS)
-                    }
-                }
-            }.start()
-        }
-    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -173,7 +158,23 @@ class SetupActivity : AppCompatActivity() {
     private fun startMonitoring() {
         if (monitoring) return
         monitoring = true
-        handler.post(monitorRunnable)
+        lifecycleScope.launch(Dispatchers.IO) {
+            while (isActive && monitoring) {
+                withContext(Dispatchers.Main) { refreshLog() }
+                val ready  = bridge.isBridgeReachable()
+                val failed = bridge.isSetupFailed()
+                withContext(Dispatchers.Main) {
+                    when {
+                        ready  -> onSetupComplete()
+                        failed -> onSetupFailed(
+                            "Installation failed. See the log above for details.\nTap Try again to retry."
+                        )
+                    }
+                }
+                if (ready || failed) break
+                delay(POLL_MS)
+            }
+        }
     }
 
     private fun stopMonitoring() {

@@ -2,6 +2,7 @@ package com.claudecodesetup.data
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.util.Log
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 
@@ -10,6 +11,8 @@ class AppPreferences(context: Context) {
     private val masterKey = MasterKey.Builder(context)
         .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
         .build()
+
+    private var _isEncrypted = true
 
     private val prefs: SharedPreferences = try {
         EncryptedSharedPreferences.create(
@@ -20,8 +23,13 @@ class AppPreferences(context: Context) {
             EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
         )
     } catch (e: Exception) {
+        Log.e("AppPreferences", "CRITICAL: EncryptedSharedPreferences unavailable — API keys will NOT be encrypted. Cause: ${e.message}")
+        _isEncrypted = false
         context.getSharedPreferences("claude_prefs", Context.MODE_PRIVATE)
     }
+
+    /** True if API keys and preferences are stored in encrypted storage. */
+    val isEncrypted: Boolean get() = _isEncrypted
 
     // ─── Node.js / bridge setup ──────────────────────────────────────────────
 

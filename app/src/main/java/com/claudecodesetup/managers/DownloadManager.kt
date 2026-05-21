@@ -69,6 +69,7 @@ class DownloadManager {
 
             DownloadResult(true)
         } catch (e: Exception) {
+            try { dest.delete() } catch (_: Exception) {}
             DownloadResult(false, e.message)
         }
     }

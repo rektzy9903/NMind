@@ -8,6 +8,7 @@ import android.provider.Settings
 import android.view.MenuItem
 import android.view.View
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import com.claudecodesetup.data.AppPreferences
 import com.claudecodesetup.data.Providers
@@ -23,6 +24,13 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var binding: ActivitySettingsBinding
     private lateinit var prefs: AppPreferences
     private lateinit var bridgeManager: NodeBridgeManager
+
+    private val changeModelLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { _ ->
+        // Called when ComposeActivity finishes (any result)
+        bridgeManager.refreshConfig(prefs)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -87,11 +95,10 @@ class SettingsActivity : AppCompatActivity() {
         }
 
         binding.btnChangeModel.setOnClickListener {
-            startActivity(
+            changeModelLauncher.launch(
                 Intent(this, com.claudecodesetup.ui.ComposeActivity::class.java)
                     .putExtra("start_at", "picker")
             )
-            finish()
         }
 
         binding.btnClearData.setOnClickListener {
