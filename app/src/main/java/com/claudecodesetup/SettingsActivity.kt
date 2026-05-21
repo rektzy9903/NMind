@@ -6,9 +6,14 @@ import android.net.Uri
 import android.os.Bundle
 import android.view.MenuItem
 import android.view.View
+import android.widget.CheckBox
+import android.widget.LinearLayout
+import android.widget.ScrollView
+import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import com.claudecodesetup.data.AppPreferences
 import com.claudecodesetup.data.Providers
 import com.claudecodesetup.databinding.ActivitySettingsBinding
@@ -134,7 +139,7 @@ class SettingsActivity : AppCompatActivity() {
             startActivity(Intent(this, com.claudecodesetup.ui.ProjectManagerActivity::class.java))
         }
 
-        binding.btnManageApprovals.setOnClickListener { showAutoApprovalsDialog() }
+        binding.btnManageApprovals.setOnClickListener { showToolPermissionsDialog() }
 
         binding.btnMcpServers.setOnClickListener {
             startActivity(Intent(this, com.claudecodesetup.ui.McpActivity::class.java))
@@ -309,54 +314,139 @@ class SettingsActivity : AppCompatActivity() {
 
     private fun dpToPx(dp: Int) = (dp * resources.displayMetrics.density + 0.5f).toInt()
 
-    private fun showAutoApprovalsDialog() {
-        val file = java.io.File(filesDir, "auto_approve.json")
-        val list: MutableList<String> = try {
+    private data class ToolEntry(val name: String, val desc: String)
+    private data class ToolSection(val title: String, val tools: List<ToolEntry>)
+
+    private val TOOL_SECTIONS = listOf(
+        ToolSection("File Operations", listOf(
+            ToolEntry("Read",      "Read file contents — safe, view only"),
+            ToolEntry("Write",     "Create or overwrite a file"),
+            ToolEntry("Edit",      "Modify part of an existing file"),
+            ToolEntry("MultiEdit", "Multiple edits to one file at once"),
+            ToolEntry("Glob",      "Find files by name pattern"),
+            ToolEntry("Grep",      "Search text inside files"),
+            ToolEntry("LS",        "List files in a directory — safe, view only"),
+        )),
+        ToolSection("Shell", listOf(
+            ToolEntry("Bash", "Run any terminal command — covers all !install tools too"),
+        )),
+        ToolSection("Web", listOf(
+            ToolEntry("WebSearch", "Search the web"),
+            ToolEntry("WebFetch",  "Open and read a URL"),
+        )),
+        ToolSection("Tasks & Agents", listOf(
+            ToolEntry("TodoWrite", "Claude writes its own task checklist"),
+            ToolEntry("TodoRead",  "Claude reads its own task checklist"),
+            ToolEntry("Agent",     "Spawn a sub-agent for complex multi-step tasks"),
+        )),
+    )
+
+    private fun showToolPermissionsDialog() {
+        val file = File(filesDir, "auto_approve.json")
+        val allowSet: MutableSet<String> = try {
             val obj = org.json.JSONObject(file.readText())
             val arr = obj.optJSONArray("allow") ?: org.json.JSONArray()
-            (0 until arr.length()).map { arr.getString(it) }.toMutableList()
-        } catch (_: Exception) { mutableListOf() }
+            (0 until arr.length()).map { arr.getString(it) }.toMutableSet()
+        } catch (_: Exception) { mutableSetOf() }
 
-        if (list.isEmpty()) {
-            AlertDialog.Builder(this)
-                .setTitle("Auto-approved tools")
-                .setMessage("No tools have been auto-approved yet.\n\nWhen Claude asks permission to use a tool and you tap \"Always allow\", it appears here.")
-                .setPositiveButton("OK", null)
-                .show()
-            return
+        val knownToolNames = TOOL_SECTIONS.flatMap { it.tools }.map { it.name }.toSet()
+
+        val scroll = ScrollView(this)
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dpToPx(20), dpToPx(4), dpToPx(20), dpToPx(8))
+        }
+        scroll.addView(layout)
+
+        val checkBoxes = mutableListOf<Pair<String, CheckBox>>()
+
+        TOOL_SECTIONS.forEach { section ->
+            layout.addView(TextView(this).apply {
+                text = section.title.uppercase()
+                setTextColor(ContextCompat.getColor(this@SettingsActivity, R.color.accent_blue))
+                textSize = 10f
+                letterSpacing = 0.12f
+                setPadding(dpToPx(2), dpToPx(14), dpToPx(2), dpToPx(4))
+            })
+
+            section.tools.forEach { tool ->
+                val row = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    setPadding(dpToPx(2), dpToPx(4), dpToPx(2), dpToPx(4))
+                    gravity = android.view.Gravity.CENTER_VERTICAL
+                    isClickable = true
+                    isFocusable = true
+                }
+                val cb = CheckBox(this).apply {
+                    isChecked = tool.name in allowSet
+                    setOnCheckedChangeListener(null)
+                }
+                val labelCol = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(dpToPx(10), 0, 0, 0)
+                }
+                labelCol.addView(TextView(this).apply {
+                    text = tool.name
+                    setTextColor(ContextCompat.getColor(this@SettingsActivity, R.color.text_primary))
+                    textSize = 14f
+                })
+                labelCol.addView(TextView(this).apply {
+                    text = tool.desc
+                    setTextColor(ContextCompat.getColor(this@SettingsActivity, R.color.text_secondary))
+                    textSize = 11f
+                })
+                row.addView(cb)
+                row.addView(labelCol)
+                row.setOnClickListener { cb.isChecked = !cb.isChecked }
+                layout.addView(row)
+                checkBoxes.add(tool.name to cb)
+            }
         }
 
-        val labels = list.toTypedArray()
+        // Show any extra entries added via in-session "Always allow" that aren't in our list
+        val extras = allowSet.filter { it !in knownToolNames }
+        if (extras.isNotEmpty()) {
+            layout.addView(TextView(this).apply {
+                text = "CUSTOM (added via session)"
+                setTextColor(ContextCompat.getColor(this@SettingsActivity, R.color.text_secondary))
+                textSize = 10f
+                letterSpacing = 0.12f
+                setPadding(dpToPx(2), dpToPx(14), dpToPx(2), dpToPx(4))
+            })
+            extras.forEach { name ->
+                val row = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    setPadding(dpToPx(2), dpToPx(4), dpToPx(2), dpToPx(4))
+                    gravity = android.view.Gravity.CENTER_VERTICAL
+                    isClickable = true
+                    isFocusable = true
+                }
+                val cb = CheckBox(this).apply { isChecked = true }
+                val label = TextView(this).apply {
+                    text = name
+                    setTextColor(ContextCompat.getColor(this@SettingsActivity, R.color.text_primary))
+                    textSize = 14f
+                    setPadding(dpToPx(10), 0, 0, 0)
+                }
+                row.addView(cb)
+                row.addView(label)
+                row.setOnClickListener { cb.isChecked = !cb.isChecked }
+                layout.addView(row)
+                checkBoxes.add(name to cb)
+            }
+        }
+
         AlertDialog.Builder(this)
-            .setTitle("Auto-approved tools (${list.size})")
-            .setItems(labels) { _, which ->
-                AlertDialog.Builder(this)
-                    .setTitle("Remove \"${list[which]}\"?")
-                    .setMessage("Claude will ask for permission again before using this tool.")
-                    .setPositiveButton("Remove") { _, _ ->
-                        list.removeAt(which)
-                        val obj = try { org.json.JSONObject(file.readText()) } catch (_: Exception) { org.json.JSONObject() }
-                        obj.put("allow", org.json.JSONArray(list))
-                        file.writeText(obj.toString(2))
-                        Toast.makeText(this, "Removed", Toast.LENGTH_SHORT).show()
-                    }
-                    .setNegativeButton("Cancel", null)
-                    .show()
+            .setTitle("Tool Permissions")
+            .setView(scroll)
+            .setPositiveButton("Save") { _, _ ->
+                val newAllow = checkBoxes.filter { it.second.isChecked }.map { it.first }
+                val obj = try { org.json.JSONObject(file.readText()) } catch (_: Exception) { org.json.JSONObject() }
+                obj.put("allow", org.json.JSONArray(newAllow))
+                file.writeText(obj.toString(2))
+                Toast.makeText(this, "Tool permissions saved", Toast.LENGTH_SHORT).show()
             }
-            .setNeutralButton("Clear all") { _, _ ->
-                AlertDialog.Builder(this)
-                    .setTitle("Clear all auto-approvals?")
-                    .setMessage("Claude will ask permission for every tool again.")
-                    .setPositiveButton("Clear all") { _, _ ->
-                        val obj = try { org.json.JSONObject(file.readText()) } catch (_: Exception) { org.json.JSONObject() }
-                        obj.put("allow", org.json.JSONArray())
-                        file.writeText(obj.toString(2))
-                        Toast.makeText(this, "All auto-approvals cleared", Toast.LENGTH_SHORT).show()
-                    }
-                    .setNegativeButton("Cancel", null)
-                    .show()
-            }
-            .setNegativeButton("Done", null)
+            .setNegativeButton("Cancel", null)
             .show()
     }
 

@@ -141,10 +141,10 @@
 
             </LinearLayout>
 
-            <!-- Auto-approvals -->
+            <!-- Tool permissions -->
             <TextView
                 style="@style/SectionHeader"
-                android:text="Auto-Approved Tools" />
+                android:text="Tool Permissions" />
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -157,7 +157,7 @@
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="Tools you tapped &#8220;Always allow&#8221; on — Claude will use these without asking."
+                    android:text="Pre-approve tools so Claude never asks for permission during a session."
                     android:textColor="@color/text_secondary"
                     android:textSize="12sp"
                     android:layout_marginBottom="12dp" />
@@ -167,7 +167,7 @@
                     style="@style/Widget.Material3.Button.OutlinedButton"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="Review auto-approvals"
+                    android:text="Tool Permissions"
                     android:textColor="@color/accent_blue" />
 
             </LinearLayout>
