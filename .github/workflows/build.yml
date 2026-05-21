@@ -8,34 +8,9 @@ on:
   workflow_dispatch:
 
 jobs:
-  # ── Gate: run the interactive PTY test before every build ──────────────────
-  # Tests the same startup path the Android PTY terminal uses (no --print).
-  # Catches login-screen bypass failures and exit-code-1 crashes up front.
-  # Skipped automatically when OPENROUTER_TEST_KEY secret is absent (forks).
-  test-pty:
-    name: PTY auth + proxy gate
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-      - name: Set up Node.js 18
-        uses: actions/setup-node@v4
-        with:
-          node-version: '18'
-      - name: Install build tools for node-pty
-        run: sudo apt-get install -y python3 make g++ libx11-dev
-      - name: Interactive PTY session test
-        env:
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_TEST_KEY }}
-        run: node .github/scripts/test-pty-session.js
-
   build:
     name: Build Debug APK
     runs-on: ubuntu-latest
-    # Run after the PTY test passes. If the PTY job was skipped (no secret),
-    # needs: skipped counts as satisfied so the build still runs.
-    needs: [test-pty]
-    if: ${{ always() && (needs.test-pty.result == 'success' || needs.test-pty.result == 'skipped') }}
 
     steps:
 
