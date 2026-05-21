@@ -65,6 +65,13 @@ build_abi() {
 
     echo "🔨 Building llama-server for $ABI..."
     rm -rf "$BUILD_DIR"
+
+    # armeabi-v7a: disable llamafile (uses ARM64-only FP16 intrinsics not available on ARMv7)
+    local EXTRA_FLAGS=""
+    if [ "$ABI" = "armeabi-v7a" ]; then
+        EXTRA_FLAGS="-DGGML_LLAMAFILE=OFF"
+    fi
+
     cmake -S "$SOURCE_DIR" -B "$BUILD_DIR" \
         -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN" \
         -DANDROID_ABI="$ABI" \
@@ -77,7 +84,8 @@ build_abi() {
         -DLLAMA_CURL=OFF \
         -DLLAMA_BUILD_TESTS=OFF \
         -DBUILD_SHARED_LIBS=OFF \
-        -DCMAKE_EXE_LINKER_FLAGS="-pie -fPIE"
+        -DCMAKE_EXE_LINKER_FLAGS="-pie -fPIE" \
+        $EXTRA_FLAGS
 
     cmake --build "$BUILD_DIR" --target llama-server -j$(nproc)
 
