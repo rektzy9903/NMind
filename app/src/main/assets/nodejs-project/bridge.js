@@ -2027,11 +2027,13 @@ function clearSessionState(sid) {
 function clearClaudeSessionFiles() {
     try {
         const dir = path.join(FILES_DIR, '.claude', 'projects');
-        if (!fs.existsSync(dir)) return;
-        for (const entry of fs.readdirSync(dir)) {
+        if (!fs.existsSync(dir)) { log('[clear] no claude projects dir to clear\n'); return; }
+        const entries = fs.readdirSync(dir);
+        for (const entry of entries) {
             try { fs.rmSync(path.join(dir, entry), { recursive: true, force: true }); } catch(_) {}
         }
-    } catch(_) {}
+        log('[clear] wiped ' + entries.length + ' claude session(s) from ' + dir + '\n');
+    } catch(e) { log('[clear] clearClaudeSessionFiles error: ' + e.message + '\n'); }
 }
 
 // Strip ANSI escape codes so captured responses store clean text in history.
@@ -2792,9 +2794,7 @@ function openPrintSession() {
             const permId = evt.id || (Date.now() + '-' + Math.random().toString(36).slice(2));
             const perm = { toolName, toolInput, id: permId, suggestions, autoApproved: true };
             state.pendingPerm = perm;
-            // Auto-approve immediately — claude-code has a 3-second stdin timeout in
-            // print mode; UI round-trip is too slow. Dialog is informational only.
-            try { proc.stdin.write('y\n'); } catch(_) {}
+            // --dangerously-skip-permissions handles tool approval; dialog is informational.
             const permB64 = Buffer.from(JSON.stringify(perm)).toString('base64');
             try { if (state.socket) state.socket.write('\x1b]9;permission:' + permB64 + '\x07'); } catch(_) {}
             return;
@@ -2826,7 +2826,6 @@ function openPrintSession() {
         const toolName  = toolMatch ? toolMatch[1] : 'tool';
         const perm = { toolName, toolInput: { prompt: line }, id: Date.now() + '-txt', autoApproved: true };
         state.pendingPerm = perm;
-        try { proc.stdin.write('y\n'); } catch(_) {}
         const permB64 = Buffer.from(JSON.stringify(perm)).toString('base64');
         try { if (state.socket) state.socket.write('\x1b]9;permission:' + permB64 + '\x07'); } catch(_) {}
     }
@@ -2851,17 +2850,19 @@ function openPrintSession() {
         }
 
         // argv for print mode — order matters for claude-code v2.1.112 arg parser:
-        //   --output-format stream-json  → structured NDJSON output (must come first)
-        //   --print                      → non-interactive, exits after response
-        //   --verbose                    → required alongside --output-format=stream-json
-        //   --continue                   → resume last session (preserves history)
-        //   <message>                    → the user's message
+        //   --output-format stream-json       → structured NDJSON output (must come first)
+        //   --print                           → non-interactive, exits after response
+        //   --verbose                         → required alongside --output-format=stream-json
+        //   --dangerously-skip-permissions    → auto-approve all tool use (no stdin wait)
+        //   --continue                        → resume last session (preserves history)
+        //   <message>                         → the user's message
         let argvCode =
             'process.argv[2]="--output-format";' +
             'process.argv[3]="stream-json";' +
             'process.argv[4]="--print";' +
-            'process.argv[5]="--verbose";';
-        let argvLen = 6;
+            'process.argv[5]="--verbose";' +
+            'process.argv[6]="--dangerously-skip-permissions";';
+        let argvLen = 7;
         if (state.hasHistory) {
             argvCode += 'process.argv[' + argvLen + ']="--continue";';
             argvLen++;
@@ -2935,10 +2936,12 @@ function openPrintSession() {
             const s = d.toString();
             stderrBuf += s;
             log('[print-stderr] ' + s);
-            // Strip bootstrap noise; write real errors to terminal so user can see them
+            // Strip bootstrap noise + cosmetic stdin warning; write real errors to terminal
             const lines = s.split('\n').filter(l => {
                 const t = l.trim();
-                return t && !/^\[(eval-ok|import-resolved|exit-event|unhandledRejection|regex-compat|intl-shim)\]/.test(t);
+                return t &&
+                    !/^\[(eval-ok|import-resolved|exit-event|unhandledRejection|regex-compat|intl-shim)\]/.test(t) &&
+                    !/^Warning: no stdin data received/.test(t);
             });
             if (lines.length) {
                 try { if (state.socket) state.socket.write(lines.join('\n')); } catch(_) {}
