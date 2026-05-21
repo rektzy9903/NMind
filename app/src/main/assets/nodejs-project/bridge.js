@@ -3016,13 +3016,18 @@ function openPrintSession() {
         state.inputBuf += raw;
         let nl;
         while ((nl = state.inputBuf.search(/[\r\n]/)) !== -1) {
-            const line = state.inputBuf.slice(0, nl)
+            let line = state.inputBuf.slice(0, nl)
                 .replace(/[\x00-\x08\x0b-\x1f\x7f]/g, '')
                 .replace(/！/g, '!')
                 .replace(/[​‌‍﻿⁠]/g, '')
                 .trim();
             state.inputBuf = state.inputBuf.slice(nl + 1);
             if (!line) continue;
+
+            // Normalize "! cmd" → "!cmd" (Android keyboard autocorrect adds space after !)
+            // Bare "$" with nothing after it is a no-op
+            if (/^! \S/.test(line)) line = '!' + line.slice(2).trimStart();
+            if (line === '$') continue;
 
             // ── Confirm responses (agentic install confirmation) ──────────────────
             if (line.startsWith('!confirm:')) {
