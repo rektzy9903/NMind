@@ -1310,6 +1310,14 @@ function startProxyServer(onReady) {
     try { proxyLocalToken = fs.readFileSync(path.join(FILES_DIR, 'local_token'), 'utf8').trim().slice(0, 200); } catch(_) {}
 
     const proxy = http.createServer((req, res) => {
+        // SDK health check — HEAD / is sent by the Anthropic SDK before each session.
+        // Return 200 without auth so it doesn't flood the log with 401 entries.
+        if (req.method === 'HEAD' && (req.url === '/' || req.url === '')) {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end();
+            return;
+        }
+
         // ── Auth gate ──────────────────────────────────────────────────────────
         // Reject any request that does not present valid credentials.
         const tokenHeader = req.headers['x-local-token'] || '';
@@ -1899,7 +1907,7 @@ function sendToProvider(baseUrl, apiKey, oaiReq, stream, res, onBadRequest, on42
                             const tcIdx = tc.index !== undefined ? tc.index : 0;
                             if (!tcBlocks[tcIdx]) {
                                 const blockIdx = nextBlockIdx++;
-                                tcBlocks[tcIdx] = { id: tc.id, name: (tc.function || {}).name || '', blockIdx };
+                                tcBlocks[tcIdx] = { id: tc.id, name: (tc.function || {}).name || '', blockIdx, argsAccum: '' };
                                 sendEvent('content_block_start', {
                                     type: 'content_block_start', index: blockIdx,
                                     content_block: {
@@ -1911,6 +1919,7 @@ function sendToProvider(baseUrl, apiKey, oaiReq, stream, res, onBadRequest, on42
                             }
                             const args = (tc.function || {}).arguments || '';
                             if (args) {
+                                tcBlocks[tcIdx].argsAccum += args;
                                 sendEvent('content_block_delta', {
                                     type: 'content_block_delta', index: tcBlocks[tcIdx].blockIdx,
                                     delta: { type: 'input_json_delta', partial_json: args }
@@ -1921,6 +1930,109 @@ function sendToProvider(baseUrl, apiKey, oaiReq, stream, res, onBadRequest, on42
 
                     if (finishCode) {
                         log('[proxy] finish_reason=' + finishCode + ' tokens=' + outTokens + '\n');
+
+                        // ── WebSearch local execution ────────────────────────────────────
+                        // When the provider returns tool_calls for WebSearch or web_search,
+                        // execute them locally via DuckDuckGo, inject the tool results, and
+                        // make a follow-up non-streaming call. claude-code never sees the
+                        // tool_use event — it receives a direct text response instead.
+                        if (finishCode === 'tool_calls') {
+                            const wsCalls = Object.values(tcBlocks).filter(b =>
+                                b.name === 'WebSearch' || b.name === 'web_search');
+                            if (wsCalls.length > 0) {
+                                log('[proxy] intercepting ' + wsCalls.length + ' WebSearch call(s) — executing locally\n');
+                                (async () => {
+                                    try {
+                                        const results = await Promise.all(wsCalls.map(async tb => {
+                                            let query = '';
+                                            try { query = (JSON.parse(tb.argsAccum || '{}') || {}).query || ''; } catch(_) {}
+                                            log('[proxy] WebSearch local: ' + JSON.stringify(query) + '\n');
+                                            if (!query) return { id: tb.id, content: 'No search query provided.' };
+                                            const r = await webSearch(query, 5, FILES_DIR);
+                                            return { id: tb.id, content: r.content };
+                                        }));
+                                        const assistantMsg = {
+                                            role: 'assistant',
+                                            content: null,
+                                            tool_calls: Object.values(tcBlocks).map(tb => ({
+                                                id: tb.id, type: 'function',
+                                                function: { name: tb.name, arguments: tb.argsAccum || '{}' }
+                                            }))
+                                        };
+                                        const toolMsgs = results.map(r => ({
+                                            role: 'tool', tool_call_id: r.id, content: r.content
+                                        }));
+                                        const followReq = Object.assign({}, oaiReq, {
+                                            messages: [...(oaiReq.messages || []), assistantMsg, ...toolMsgs],
+                                            stream: false,
+                                            tools: undefined,
+                                            tool_choice: undefined,
+                                        });
+                                        const followText = await new Promise((resolve, reject) => {
+                                            const followBody = JSON.stringify(followReq);
+                                            let tgt;
+                                            try {
+                                                const base = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+                                                tgt = new URL(base + '/chat/completions');
+                                            } catch(e) { return reject(e); }
+                                            const followHeaders = {
+                                                'Content-Type':   'application/json',
+                                                'Content-Length': Buffer.byteLength(followBody),
+                                                'Authorization':  'Bearer ' + apiKey,
+                                                'User-Agent':     'Mozilla/5.0 (Linux; Android 10) ClaudeCodeSetup/1.0',
+                                                'Accept':         'application/json',
+                                            };
+                                            if (tgt.hostname.includes('openrouter')) {
+                                                followHeaders['HTTP-Referer'] = 'https://github.com/fahmi304/Nexus-Mind';
+                                                followHeaders['X-Title']      = 'Nexus Mind';
+                                            }
+                                            const lib2 = tgt.protocol === 'https:' ? https : http;
+                                            const fr = lib2.request({
+                                                hostname: tgt.hostname,
+                                                port: tgt.port || (tgt.protocol === 'https:' ? 443 : 80),
+                                                method: 'POST',
+                                                path: tgt.pathname + (tgt.search || ''),
+                                                headers: followHeaders,
+                                            }, fRes => {
+                                                let buf = '';
+                                                fRes.setEncoding('utf8');
+                                                fRes.on('data', c => { buf += c; });
+                                                fRes.on('end', () => {
+                                                    try {
+                                                        const parsed = JSON.parse(buf);
+                                                        const text = ((parsed.choices || [])[0] || {}).message?.content || '';
+                                                        resolve(text);
+                                                    } catch(e) { resolve(''); }
+                                                });
+                                                fRes.on('error', reject);
+                                            });
+                                            fr.setTimeout(60000, () => {
+                                                fr.destroy();
+                                                reject(new Error('WebSearch follow-up timeout'));
+                                            });
+                                            fr.on('error', reject);
+                                            fr.write(followBody);
+                                            fr.end();
+                                        });
+                                        if (followText) {
+                                            outTokens++;
+                                            sendEvent('content_block_delta', {
+                                                type: 'content_block_delta', index: 0,
+                                                delta: { type: 'text_delta', text: followText },
+                                            });
+                                        }
+                                        log('[proxy] WebSearch follow-up complete\n');
+                                        finishStream('end_turn');
+                                    } catch(e) {
+                                        log('[proxy] WebSearch local execution failed: ' + e.message + '\n');
+                                        finishStream('end_turn');
+                                    }
+                                })();
+                                return; // async chain calls finishStream when done
+                            }
+                        }
+                        // ── End WebSearch interception ───────────────────────────────────
+
                         // Model finished but sent no text and no tool calls → inject visible error
                         if (outTokens === 0 && Object.keys(tcBlocks).length === 0) {
                             log('[proxy] outTokens=0 — injecting empty-response error\n');
@@ -2239,6 +2351,7 @@ async function loadMcpStdioServers() {
     } catch(e) {
         log('[mcp-stdio] loadMcpStdioServers error: ' + e.message + '\n');
     }
+    broadcastMcpReady();
 }
 
 // ── HTTP MCP client ────────────────────────────────────────────────────────────
@@ -2247,6 +2360,29 @@ async function loadMcpStdioServers() {
 
 const MCP_HTTP_CONFIG = path.join(FILES_DIR, 'mcp_http.json');
 const mcpHttpServers  = new Map(); // name → { url, sessionId, tools }
+let mcpReadyInfo = null; // cached MCP status broadcast to sessions on attach
+
+function buildMcpPayload() {
+    const servers = [];
+    for (const [name, srv] of mcpHttpServers.entries()) {
+        servers.push({ name, type: 'http', tools: srv.tools.map(t => ({ name: t._mcpTool, description: (t.description || '').split(' [MCP:')[0] })) });
+    }
+    for (const [name, srv] of mcpStdioServers.entries()) {
+        servers.push({ name, type: 'stdio', tools: srv.tools.map(t => ({ name: t._mcpTool, description: (t.description || '').split(' [MCP:')[0] })) });
+    }
+    return servers;
+}
+
+function broadcastMcpReady() {
+    const servers = buildMcpPayload();
+    mcpReadyInfo = servers;
+    if (servers.length === 0) return;
+    const b64 = Buffer.from(JSON.stringify(servers)).toString('base64');
+    const osc = '\x1b]9;mcp-ready:' + b64 + '\x07';
+    for (const state of activeSessions.values()) {
+        if (state.socket) try { state.socket.write(osc); } catch(_) {}
+    }
+}
 
 function mcpHttpPost(url, body, sessionId) {
     return new Promise((resolve, reject) => {
@@ -2372,6 +2508,7 @@ async function loadMcpHttpServers() {
     } catch(e) {
         log('[mcp-http] loadMcpHttpServers error: ' + e.message + '\n');
     }
+    broadcastMcpReady();
 }
 /**
  * Run a quick launcher self-test. Spawns LAUNCHER with a trivial JS one-liner
@@ -2805,7 +2942,7 @@ function openPrintSession() {
     }
 
     // ── Process a single stream-json event from claude stdout ────────────────
-    function handleStreamEvent(evt, state, proc, firstContent, setFirstContent) {
+    function handleStreamEvent(evt, state, proc, firstContent, setFirstContent, resultReceived, setResultReceived) {
         // On the first JSON event, close the thinking spinner
         if (!state.thinkingDone) {
             state.thinkingDone = true;
@@ -2813,6 +2950,11 @@ function openPrintSession() {
         }
 
         if (evt.type === 'system' && evt.subtype === 'init') return;
+
+        // Suppress housekeeping assistant events that arrive after the result event.
+        // claude-code makes secondary API calls (title generation, follow-up suggestions)
+        // after the main response; those responses must never appear as AI bubbles.
+        if (resultReceived && evt.type === 'assistant') return;
 
         if (evt.type === 'assistant') {
             const content = (evt.message && evt.message.content) || [];
@@ -2867,6 +3009,8 @@ function openPrintSession() {
         }
 
         if (evt.type === 'result') {
+            // Prevent subsequent housekeeping API call responses from showing as AI bubbles
+            setResultReceived(true);
             // Mark session has history so --continue is used on next message
             if (!evt.is_error) {
                 state.hasHistory = true;
@@ -2927,15 +3071,30 @@ function openPrintSession() {
         const fullSystemPrompt = customPrompt
             ? GUARDIAN_PROMPT + '\n\n' + customPrompt
             : GUARDIAN_PROMPT;
+        // Inject --mcp-config when the config file exists so MCP tools (exa, etc.)
+        // are available to claude-code in print mode, not just in interactive mode.
+        const hasMcpConf = fs.existsSync(MCP_CONFIG_FILE);
         let argvCode =
             'process.argv[2]="--output-format";' +
             'process.argv[3]="stream-json";' +
             'process.argv[4]="--print";' +
-            'process.argv[5]="--verbose";' +
-            'process.argv[6]="--dangerously-skip-permissions";' +
-            'process.argv[7]="--append-system-prompt";' +
-            'process.argv[8]=' + JSON.stringify(fullSystemPrompt) + ';';
-        let argvLen = 9;
+            'process.argv[5]="--verbose";';
+        let argvLen = 6;
+        if (hasMcpConf) {
+            argvCode += 'process.argv[' + argvLen + ']="--mcp-config";';
+            argvLen++;
+            argvCode += 'process.argv[' + argvLen + ']=' + JSON.stringify(MCP_CONFIG_FILE) + ';';
+            argvLen++;
+        }
+        argvCode +=
+            'process.argv[' + argvLen + ']="--dangerously-skip-permissions";';
+        argvLen++;
+        argvCode +=
+            'process.argv[' + argvLen + ']="--append-system-prompt";';
+        argvLen++;
+        argvCode +=
+            'process.argv[' + argvLen + ']=' + JSON.stringify(fullSystemPrompt) + ';';
+        argvLen++;
         if (state.hasHistory) {
             argvCode += 'process.argv[' + argvLen + ']="--continue";';
             argvLen++;
@@ -2959,6 +3118,10 @@ function openPrintSession() {
             '.catch(function(e){process.stderr.write("import-err:"+String(e)+"\\n");process.exit(1);});';
 
         const proc = spawn(LAUNCHER, ['-e', evalCode], { env, cwd: state.cwd });
+        // Write one newline to stdin immediately so claude-code's 3-second
+        // "no stdin data received" wait exits right away. Stdin stays open so
+        // !perm-* handlers can still write y/n to proc.stdin if needed.
+        try { proc.stdin.write('\n'); } catch(_) {}
         // Keep stdin open — needed so permission-prompt answers can be written.
         // claude-code --print exits on its own after the response; stdin EOF not required.
         state.currentProc = proc;
@@ -2972,6 +3135,7 @@ function openPrintSession() {
         let lineBuf = '';
         let stderrBuf = '';
         let firstContent = false;
+        let resultReceived = false;
 
         proc.stdout.on('data', chunk => {
             lineBuf += chunk.toString();
@@ -2993,7 +3157,7 @@ function openPrintSession() {
                         try { if (state.socket) state.socket.write(SYS_FENCE + line + '\n'); } catch(_) {}
                         continue;
                     }
-                    handleStreamEvent(evt, state, proc, firstContent, (fc) => { firstContent = fc; });
+                    handleStreamEvent(evt, state, proc, firstContent, (fc) => { firstContent = fc; }, resultReceived, (rr) => { resultReceived = rr; });
                 } else if (t.length > 0) {
                     // Plain-text permission prompt (fallback for unexpected formats)
                     // Patterns: "Allow bash?", "Do you want to run...", "[y/n/a]"
@@ -3197,6 +3361,7 @@ function openPrintSession() {
                     '  \x1b[33m!undo\x1b[0m               Restore last file written by agentic\r\n' +
                     '  \x1b[33m!undo list\x1b[0m          Show undo snapshot history\r\n' +
                     '  \x1b[33m!log [n]\x1b[0m            Show last n lines of bridge log (default 40)\r\n' +
+                    '  \x1b[33m!mcp\x1b[0m                List connected MCP servers and tools\r\n' +
                     '  \x1b[33m!test-cli\x1b[0m           Run module-loader + proxy diagnostics\r\n' +
                     '  \x1b[33m!help\x1b[0m               Show this help\r\n' +
                     '  \x1b[33m$ <cmd>\x1b[0m             Run a shell command\r\n\r\n'
@@ -3210,6 +3375,24 @@ function openPrintSession() {
                     const logData = fs.readFileSync(SETUP_LOG, 'utf8');
                     if (state.socket) state.socket.write(SYS_FENCE + '\x1b[2m' + logData.split('\n').slice(-n).join('\r\n') + '\x1b[0m\r\n');
                 } catch(_) { try { if (state.socket) state.socket.write(SYS_FENCE + '[no log]\r\n'); } catch(_) {} }
+                continue;
+            }
+
+            if (line.startsWith('!mcp')) {
+                let out = '\x1b[1m[MCP servers]\x1b[0m\r\n';
+                let total = 0;
+                for (const [name, srv] of mcpHttpServers.entries()) {
+                    out += '  \x1b[32m●\x1b[0m \x1b[33m' + name + '\x1b[0m \x1b[2m(http, ' + srv.tools.length + ' tools)\x1b[0m\r\n';
+                    for (const t of srv.tools) out += '    \x1b[2m· ' + t._mcpTool + '\x1b[0m\r\n';
+                    total += srv.tools.length;
+                }
+                for (const [name, srv] of mcpStdioServers.entries()) {
+                    out += '  \x1b[32m●\x1b[0m \x1b[33m' + name + '\x1b[0m \x1b[2m(stdio, ' + srv.tools.length + ' tools)\x1b[0m\r\n';
+                    for (const t of srv.tools) out += '    \x1b[2m· ' + t._mcpTool + '\x1b[0m\r\n';
+                    total += srv.tools.length;
+                }
+                if (total === 0) out += '  \x1b[2m(no MCP servers connected)\x1b[0m\r\n';
+                try { if (state.socket) state.socket.write(SYS_FENCE + out); } catch(_) {}
                 continue;
             }
 
@@ -3246,14 +3429,6 @@ function openPrintSession() {
                 continue;
             }
 
-            // ── busy gate — only block new AI messages while a response is in flight ──
-            // ! commands and $ shell commands always fall through regardless of busy state.
-            if (state.busy && !line.startsWith('!') && !line.startsWith('$')) {
-                try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[33m[busy — please wait]\x1b[0m\r\n'); } catch(_) {}
-                continue;
-            }
-
-            // ── ! commands ────────────────────────────────────────────────────────
             if (line.startsWith('!test-cli')) {
                 const sock2 = state.socket;
                 try { if (sock2) sock2.write(SYS_FENCE + '\r\n\x1b[33mRunning module-loader diagnostic (6 steps)…\x1b[0m\r\n'); } catch(_) {}
@@ -3309,6 +3484,14 @@ function openPrintSession() {
                 continue;
             }
 
+            // ── busy gate — only block new AI messages while a response is in flight ──
+            // ! commands and $ shell commands always fall through regardless of busy state.
+            if (state.busy && !line.startsWith('!') && !line.startsWith('$')) {
+                try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[33m[busy — please wait]\x1b[0m\r\n'); } catch(_) {}
+                continue;
+            }
+
+            // ── ! commands ────────────────────────────────────────────────────────
             if (line.startsWith('!agentic')) {
                 const arg = line.slice(8).trim();
                 const on  = arg === 'on' ? true : arg === 'off' ? false : !fs.existsSync(AGENTIC_FILE);
@@ -3570,6 +3753,9 @@ function openPrintSession() {
         try { socket.write('\x1b]9;cwd:' + state.cwd + '\x07'); } catch(_) {}
         try { socket.write('\x1b]9;tokens:' + state.sessionTokens + '\x07'); } catch(_) {}
         try { socket.write('\x1b]9;thinking-done\x07'); } catch(_) {}
+        if (mcpReadyInfo && mcpReadyInfo.length > 0) {
+            try { socket.write('\x1b]9;mcp-ready:' + Buffer.from(JSON.stringify(mcpReadyInfo)).toString('base64') + '\x07'); } catch(_) {}
+        }
         if (state.busy) try { socket.write('\x1b]9;thinking-start\x07'); } catch(_) {}
 
         // Show project mode banner once per session attach (guard via _projectBannerShown)

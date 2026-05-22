@@ -513,6 +513,44 @@ html, body {
 }
 #agentic-badge:active { background: rgba(168,85,247,0.35); }
 
+/* ── MCP status chip ──────────────────────────────────────────────────────── */
+#mcp-chip {
+  position: fixed;
+  top: 8px; left: 8px;
+  background: rgba(0,200,100,0.12);
+  border: 1px solid rgba(0,200,100,0.35);
+  border-radius: 20px;
+  color: rgba(134,239,172,0.85);
+  font-size: 9px;
+  font-family: 'Space Mono','Courier New',monospace;
+  letter-spacing: 1px;
+  padding: 3px 8px;
+  z-index: 200;
+  cursor: pointer;
+  display: none;
+  user-select: none;
+}
+#mcp-chip:active { background: rgba(0,200,100,0.28); }
+#mcp-popover {
+  position: fixed;
+  top: 28px; left: 8px;
+  min-width: 180px; max-width: 270px;
+  background: rgba(10,16,26,0.97);
+  border: 1px solid rgba(0,200,100,0.3);
+  border-radius: 12px;
+  padding: 10px 12px;
+  z-index: 300;
+  display: none;
+  font-family: 'Space Mono','Courier New',monospace;
+  font-size: 10px;
+  color: rgba(200,230,210,0.9);
+  max-height: 55vh;
+  overflow-y: auto;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+}
+.mcp-server-hd { color:rgba(134,239,172,0.9); font-weight:bold; margin-top:4px; }
+.mcp-tool-row  { color:rgba(148,197,234,0.75); padding-left:8px; font-size:9px; line-height:1.7; }
+
 /* ── Mermaid diagrams ─────────────────────────────────────────────────────── */
 .md-mermaid {
   background: rgba(0,0,0,0.3);
@@ -597,6 +635,10 @@ html, body {
 
 <!-- Agentic mode badge (top-center, tappable to toggle) -->
 <div id="agentic-badge">⚡ AGENTIC</div>
+
+<!-- MCP status chip (top-left, tappable for tool list) -->
+<div id="mcp-chip">MCP ● 0</div>
+<div id="mcp-popover"></div>
 
 <!-- Messages -->
 <div id="msgs"></div>
@@ -1122,6 +1164,17 @@ function handleOSC(content){
     var perm={toolName:'tool',toolInput:{},id:Date.now()};
     try{ perm=JSON.parse(atob(permB64)); }catch(_){}
     showPermissionDialog(perm);
+  } else if(content.startsWith('9;mcp-ready:')){
+    try{
+      var mcpServers=JSON.parse(atob(content.slice(12)));
+      var mcpTotal=mcpServers.reduce(function(s,srv){return s+(srv.tools?srv.tools.length:0);},0);
+      var mcpChip=document.getElementById('mcp-chip');
+      if(mcpChip){
+        mcpChip.textContent='MCP ● '+mcpTotal;
+        mcpChip.style.display=mcpTotal>0?'block':'none';
+        mcpChip._mcpData=mcpServers;
+      }
+    }catch(_){}
   } else if(content==='9;clear-ui'){
     // !clear: wipe all chat bubbles from the UI and reset to idle state
     resetToIdle();
@@ -2112,6 +2165,37 @@ document.getElementById('btn-cost').addEventListener('click',function(){
 // ── Agentic badge tap ─────────────────────────────────────────────────────────
 document.getElementById('agentic-badge').addEventListener('click',function(){
   if(typeof Android!=='undefined') Android.sendInput('!agentic\r');
+});
+
+// ── MCP chip tap — show/hide tool popover ─────────────────────────────────────
+document.getElementById('mcp-chip').addEventListener('click',function(){
+  var pop=document.getElementById('mcp-popover');
+  if(!pop) return;
+  if(pop.style.display==='block'){pop.style.display='none';return;}
+  var data=this._mcpData||[];
+  var html='<div style="font-size:9px;color:rgba(0,200,100,0.6);letter-spacing:1px;margin-bottom:6px;">CONNECTED MCP SERVERS</div>';
+  if(!data.length){html+='<div style="color:rgba(200,200,200,0.4);">None</div>';}
+  for(var i=0;i<data.length;i++){
+    var srv=data[i];
+    html+='<div class="mcp-server-hd">● '+srv.name
+      +' <span style="color:rgba(200,200,200,0.35);font-size:8px;">('+srv.type+')</span></div>';
+    if(srv.tools&&srv.tools.length){
+      for(var j=0;j<srv.tools.length;j++){
+        html+='<div class="mcp-tool-row">· '+srv.tools[j].name+'</div>';
+      }
+    }else{
+      html+='<div class="mcp-tool-row" style="color:rgba(200,200,200,0.35);">(no tools)</div>';
+    }
+  }
+  pop.innerHTML=html;
+  pop.style.display='block';
+});
+document.addEventListener('click',function(e){
+  var pop=document.getElementById('mcp-popover');
+  var chip=document.getElementById('mcp-chip');
+  if(pop&&pop.style.display==='block'&&!pop.contains(e.target)&&e.target!==chip){
+    pop.style.display='none';
+  }
 });
 
 document.getElementById('btn-export').addEventListener('click',function(){
