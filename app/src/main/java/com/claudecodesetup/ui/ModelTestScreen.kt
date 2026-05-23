@@ -162,20 +162,28 @@ fun ModelTestScreen(
     apiKey: String,
     orApiKey: String = "",
     nvApiKey: String = "",
+    groqApiKey: String = "",
     providerId: String,
     providerUrl: String,
     onBack: () -> Unit,
 ) {
-    val resolvedOrKey = orApiKey.ifEmpty { if (providerId == "openrouter") apiKey else "" }
-    val resolvedNvKey = nvApiKey.ifEmpty { if (providerId == "nvidia_nim") apiKey else "" }
-    val hasOrNv = resolvedOrKey.isNotEmpty() || resolvedNvKey.isNotEmpty()
+    val resolvedOrKey   = orApiKey.ifEmpty   { if (providerId == "openrouter") apiKey else "" }
+    val resolvedNvKey   = nvApiKey.ifEmpty   { if (providerId == "nvidia_nim") apiKey else "" }
+    val resolvedGroqKey = groqApiKey.ifEmpty { if (providerId == "groq")       apiKey else "" }
+    val hasMulti = resolvedOrKey.isNotEmpty() || resolvedNvKey.isNotEmpty() || resolvedGroqKey.isNotEmpty()
 
-    if (hasOrNv) {
+    if (hasMulti) {
+        val initialTab = when (providerId) {
+            "nvidia_nim" -> 1
+            "groq"       -> 2
+            else         -> 0
+        }
         TabbedModelTestScreen(
-            orApiKey = resolvedOrKey,
-            nvApiKey = resolvedNvKey,
-            initialTab = if (providerId == "nvidia_nim") 1 else 0,
-            onBack = onBack
+            orApiKey   = resolvedOrKey,
+            nvApiKey   = resolvedNvKey,
+            groqApiKey = resolvedGroqKey,
+            initialTab = initialTab,
+            onBack     = onBack
         )
     } else {
         SingleProviderTestScreen(
@@ -193,6 +201,7 @@ fun ModelTestScreen(
 private fun TabbedModelTestScreen(
     orApiKey: String,
     nvApiKey: String,
+    groqApiKey: String = "",
     initialTab: Int,
     onBack: () -> Unit,
 ) {
@@ -208,6 +217,11 @@ private fun TabbedModelTestScreen(
     var nvLoad by remember { mutableStateOf<ModelLoadState>(ModelLoadState.Loading) }
     var nvResults by remember { mutableStateOf<List<ModelTestResult>>(emptyList()) }
     var nvTesting by remember { mutableStateOf(false) }
+
+    // Groq state
+    var groqLoad by remember { mutableStateOf<ModelLoadState>(ModelLoadState.Loading) }
+    var groqResults by remember { mutableStateOf<List<ModelTestResult>>(emptyList()) }
+    var groqTesting by remember { mutableStateOf(false) }
 
     fun fetchOr() {
         orLoad = ModelLoadState.Loading
@@ -237,19 +251,26 @@ private fun TabbedModelTestScreen(
         }
     }
 
-    LaunchedEffect(orLoad) {
-        if (orLoad is ModelLoadState.Loaded)
-            orResults = (orLoad as ModelLoadState.Loaded).models.map { ModelTestResult(it) }
-    }
-    LaunchedEffect(nvLoad) {
-        if (nvLoad is ModelLoadState.Loaded)
-            nvResults = (nvLoad as ModelLoadState.Loaded).models.map { ModelTestResult(it) }
+    fun fetchGroq() {
+        groqLoad = ModelLoadState.Loading
+        scope.launch {
+            try {
+                if (groqApiKey.isEmpty()) { groqLoad = ModelLoadState.Error("No Groq key configured"); return@launch }
+                val provider = Providers.byId("groq") ?: run { groqLoad = ModelLoadState.Error("Groq not found"); return@launch }
+                val models = ProvidersRepository.fetchModels(provider, groqApiKey)
+                groqLoad = if (models.isEmpty()) ModelLoadState.Error("No models found")
+                           else ModelLoadState.Loaded(models)
+            } catch (e: Exception) {
+                groqLoad = ModelLoadState.Error(e.message ?: "Fetch failed")
+            }
+        }
     }
 
-    LaunchedEffect(Unit) {
-        fetchOr()
-        fetchNv()
-    }
+    LaunchedEffect(orLoad)   { if (orLoad   is ModelLoadState.Loaded) orResults   = (orLoad   as ModelLoadState.Loaded).models.map { ModelTestResult(it) } }
+    LaunchedEffect(nvLoad)   { if (nvLoad   is ModelLoadState.Loaded) nvResults   = (nvLoad   as ModelLoadState.Loaded).models.map { ModelTestResult(it) } }
+    LaunchedEffect(groqLoad) { if (groqLoad is ModelLoadState.Loaded) groqResults = (groqLoad as ModelLoadState.Loaded).models.map { ModelTestResult(it) } }
+
+    LaunchedEffect(Unit) { fetchOr(); fetchNv(); fetchGroq() }
 
     fun runOrTests() {
         val models = (orLoad as? ModelLoadState.Loaded)?.models ?: return
@@ -270,9 +291,7 @@ private fun TabbedModelTestScreen(
                         }
                     }.awaitAll()
                 }
-            } finally {
-                orTesting = false
-            }
+            } finally { orTesting = false }
         }
     }
 
@@ -295,17 +314,44 @@ private fun TabbedModelTestScreen(
                         }
                     }.awaitAll()
                 }
-            } finally {
-                nvTesting = false
-            }
+            } finally { nvTesting = false }
         }
     }
 
-    val activeLoad    = if (selectedTab == 0) orLoad    else nvLoad
-    val activeResults = if (selectedTab == 0) orResults else nvResults
-    val activeTesting = if (selectedTab == 0) orTesting else nvTesting
-    val onFetch       = if (selectedTab == 0) ::fetchOr  else ::fetchNv
-    val onTestAll     = if (selectedTab == 0) ::runOrTests else ::runNvTests
+    fun runGroqTests() {
+        val models = (groqLoad as? ModelLoadState.Loaded)?.models ?: return
+        if (groqTesting) return
+        groqTesting = true
+        groqResults = models.map { ModelTestResult(it, TestStatus.TESTING) }
+        scope.launch {
+            try {
+                coroutineScope {
+                    models.mapIndexed { i, model ->
+                        async {
+                            try {
+                                val (status, latency) = testModel("groq", Providers.GROQ.baseUrl, groqApiKey, model)
+                                groqResults = groqResults.toMutableList().also { it[i] = it[i].copy(status = status, latencyMs = latency) }
+                            } catch (_: Exception) {
+                                groqResults = groqResults.toMutableList().also { it[i] = it[i].copy(status = TestStatus.FAIL) }
+                            }
+                        }
+                    }.awaitAll()
+                }
+            } finally { groqTesting = false }
+        }
+    }
+
+    val tabs = buildList {
+        if (orApiKey.isNotEmpty())   add(Triple("OpenRouter", ::fetchOr,   ::runOrTests))
+        if (nvApiKey.isNotEmpty())   add(Triple("NVIDIA NIM", ::fetchNv,   ::runNvTests))
+        if (groqApiKey.isNotEmpty()) add(Triple("Groq",       ::fetchGroq, ::runGroqTests))
+    }
+    val clampedTab = selectedTab.coerceAtMost((tabs.size - 1).coerceAtLeast(0))
+    val activeLoad    = listOf(orLoad, nvLoad, groqLoad).getOrElse(clampedTab) { orLoad }
+    val activeResults = listOf(orResults, nvResults, groqResults).getOrElse(clampedTab) { orResults }
+    val activeTesting = listOf(orTesting, nvTesting, groqTesting).getOrElse(clampedTab) { false }
+    val onFetch    = tabs.getOrNull(clampedTab)?.second ?: ::fetchOr
+    val onTestAll  = tabs.getOrNull(clampedTab)?.third  ?: ::runOrTests
 
     Box(
         modifier = Modifier
@@ -329,7 +375,7 @@ private fun TabbedModelTestScreen(
                 testEnabled = activeLoad is ModelLoadState.Loaded && !activeTesting,
             )
 
-            // Provider tab bar — compact design
+            // Provider tab bar
             LazyRow(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -337,18 +383,14 @@ private fun TabbedModelTestScreen(
                     .padding(bottom = 10.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                items(listOf("OpenRouter", "NVIDIA NIM")) { label ->
-                    val idx = listOf("OpenRouter", "NVIDIA NIM").indexOf(label)
-                    val isSelected = selectedTab == idx
+                items(tabs) { (label, _, _) ->
+                    val idx = tabs.indexOfFirst { it.first == label }
+                    val isSelected = clampedTab == idx
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(7.dp))
                             .background(if (isSelected) NexusAccentDim else NexusSurface2)
-                            .border(
-                                1.dp,
-                                if (isSelected) NexusAccent else NexusBorder,
-                                RoundedCornerShape(7.dp)
-                            )
+                            .border(1.dp, if (isSelected) NexusAccent else NexusBorder, RoundedCornerShape(7.dp))
                             .clickable { selectedTab = idx }
                             .padding(horizontal = 8.dp, vertical = 6.dp),
                         contentAlignment = Alignment.Center
@@ -364,11 +406,7 @@ private fun TabbedModelTestScreen(
                 }
             }
 
-            ModelLoadContent(
-                loadState = activeLoad,
-                results = activeResults,
-                onRetry = onFetch
-            )
+            ModelLoadContent(loadState = activeLoad, results = activeResults, onRetry = onFetch)
         }
     }
 }

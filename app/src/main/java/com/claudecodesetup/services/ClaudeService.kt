@@ -186,6 +186,11 @@ class ClaudeService : LifecycleService() {
         if (sessions.containsKey(id)) activeSessionId = id
     }
 
+    fun isSessionConnected(): Boolean {
+        val session = sessions[activeSessionId] ?: return false
+        return session.alive && session.outputStream != null
+    }
+
     fun sendInput(text: String) {
         val session = sessions[activeSessionId] ?: return
         try {

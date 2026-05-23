@@ -258,6 +258,14 @@ class SettingsActivity : AppCompatActivity() {
         binding.btnScheduledPrompts.setOnClickListener { showScheduledPromptsDialog() }
 
         binding.btnCustomCommands.setOnClickListener { showCustomCommandsDialog() }
+
+        binding.btnRestartBridge.setOnClickListener {
+            startService(
+                android.content.Intent(this, com.claudecodesetup.services.ClaudeService::class.java)
+                    .setAction(com.claudecodesetup.services.ClaudeService.ACTION_RESTART_BRIDGE)
+            )
+            android.widget.Toast.makeText(this, "Bridge restarting…", android.widget.Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun showScheduledPromptsDialog() {

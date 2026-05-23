@@ -17,11 +17,14 @@ class ModelTestActivity : ComponentActivity() {
             .ifEmpty { if (currentProviderId == "openrouter") currentKey else "" }
         val nvKey = prefs.getApiKeyForProvider("nvidia_nim")
             .ifEmpty { if (currentProviderId == "nvidia_nim") currentKey else "" }
+        val groqKey = prefs.getApiKeyForProvider("groq")
+            .ifEmpty { if (currentProviderId == "groq") currentKey else "" }
         setContent {
             ModelTestScreen(
                 apiKey      = currentKey,
                 orApiKey    = orKey,
                 nvApiKey    = nvKey,
+                groqApiKey  = groqKey,
                 providerId  = currentProviderId,
                 providerUrl = prefs.getBaseUrl(),
                 onBack      = { finish() }

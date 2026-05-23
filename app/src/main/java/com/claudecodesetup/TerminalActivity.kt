@@ -933,6 +933,12 @@ class TerminalActivity : AppCompatActivity() {
                 }
                 return
             }
+            if (claudeService?.isSessionConnected() == false) {
+                runOnUiThread {
+                    showStatusError("Bridge not connected — use Restart Bridge in Settings")
+                }
+                return
+            }
             lastSentMessage[activeSessionId] = text
             sessionBusy[activeSessionId] = true
             runOnUiThread {

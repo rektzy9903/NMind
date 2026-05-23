@@ -607,6 +607,7 @@ private fun ModelCard(display: ModelDisplay, isSelected: Boolean, onSelect: () -
     Box(
         modifier = Modifier
             .graphicsLayer { scaleX = cardScale; scaleY = cardScale }
+            .fillMaxHeight()
             .background(cardBg, RoundedCornerShape(12.dp))
             .border(1.dp, cardBorderColor, RoundedCornerShape(12.dp))
             .clickable(interactionSource = interaction, indication = null) { onSelect() }
