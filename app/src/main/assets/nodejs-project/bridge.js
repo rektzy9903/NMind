@@ -3270,14 +3270,19 @@ function openPrintSession() {
                     !/^Warning: no stdin data received/.test(t);
             });
             if (lines.length) {
-                try { if (state.socket) state.socket.write(lines.join('\n')); } catch(_) {}
+                // SYS_FENCE: stderr must never land in the AI bubble even when
+                // chatState=RESPONDING (streaming). Always route to sys bubble.
+                try { if (state.socket) state.socket.write(SYS_FENCE + lines.join('\n')); } catch(_) {}
             }
         });
 
         proc.on('error', e => {
             state.currentProc = null;
             state.busy = false;
-            try { if (state.socket) state.socket.write('\x1b]9;thinking-done\x07\x1b[31m[error] ' + e.message + '\x1b[0m\r\n'); } catch(_) {}
+            // Split thinking-done from error so they can't coalesce into one chunk
+            // that termWrite() would partially append to rawAiText.
+            try { if (state.socket) state.socket.write('\x1b]9;thinking-done\x07'); } catch(_) {}
+            try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[31m[error] ' + e.message + '\x1b[0m\r\n'); } catch(_) {}
         });
 
         // 180-second hard timeout (increased from 120 s to support large/slow models)
@@ -3285,7 +3290,8 @@ function openPrintSession() {
             try { proc.kill('SIGTERM'); } catch(_) {}
             state.currentProc = null;
             state.busy = false;
-            try { if (state.socket) state.socket.write('\x1b]9;thinking-done\x07\r\n\x1b[31m✗ Timed out (180 s)\x1b[0m\r\n\x1b[2mThis model is too slow. Switch to a faster model (Groq, Gemini Flash) in Settings.\x1b[0m\r\n'); } catch(_) {}
+            try { if (state.socket) state.socket.write('\x1b]9;thinking-done\x07'); } catch(_) {}
+            try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[31m✗ Timed out (180 s)\x1b[0m\r\n\x1b[2mThis model is too slow. Switch to a faster model (Groq, Gemini Flash) in Settings.\x1b[0m\r\n'); } catch(_) {}
         }, 180000);
 
         proc.on('close', code => {
@@ -3299,7 +3305,7 @@ function openPrintSession() {
             if (code !== 0 && !firstContent) {
                 const rateLimited = (Date.now() - lastRateLimitMs) < 30000;
                 if (rateLimited) {
-                    try { if (state.socket) state.socket.write('\x1b[33m⚠ Rate limited — wait 30–60 s then retry, or switch model.\x1b[0m\r\n'); } catch(_) {}
+                    try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[33m⚠ Rate limited — wait 30–60 s then retry, or switch model.\x1b[0m\r\n'); } catch(_) {}
                 } else {
                     // M13: show first error-keyword line + last 3 lines (deduped)
                     const filteredStderr = stderrBuf.split('\n')
@@ -3320,7 +3326,7 @@ function openPrintSession() {
                         if (errLines) hint += '\x1b[2m' + errLines + '\x1b[0m\r\n';
                         hint += '\x1b[2mType !log for bridge log\x1b[0m\r\n';
                     }
-                    try { if (state.socket) state.socket.write(hint); } catch(_) {}
+                    try { if (state.socket) state.socket.write(SYS_FENCE + hint); } catch(_) {}
                 }
             }
         });
@@ -3339,7 +3345,7 @@ function openPrintSession() {
         if (raw.includes('\x03')) {
             if (state.busy && state.currentProc) {
                 try { state.currentProc.kill('SIGTERM'); } catch(_) {}
-                try { if (state.socket) state.socket.write('\r\n\x1b[33m^C — interrupted\x1b[0m\r\n'); } catch(_) {}
+                try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[33m^C — interrupted\x1b[0m\r\n'); } catch(_) {}
             }
             state.inputBuf = '';
             return;

@@ -2073,8 +2073,10 @@ function finalizeAiBubble(){
   if(currentAiBubble){
     // PTY/TUI mode: rawAiText is a full terminal screen dump containing TUI chrome.
     // Extract just the AI response text using the ✦ turn marker.
-    var displayText=rawAiText;
-    if(rawAiText.indexOf('✦')!==-1){ // ✦
+    // Strip OSC sequences — coalesced chunks can include thinking-done + error
+    // text that would otherwise appear inside the AI bubble.
+    var displayText=rawAiText.replace(/\x1b][^\x07]*\x07/g,'');
+    if(displayText.indexOf('✦')!==-1){ // ✦
       var extracted=extractResponseFromPty(rawAiText);
       if(extracted) displayText=extracted;
     }
@@ -2185,12 +2187,19 @@ const SYS_FENCE_PFX = '\x1b]9;sys-fence\x07';
 
 // ── Public API ────────────────────────────────────────────────────────────────
 window.termWrite=function(raw){
-  // Fenced sys output — always route to sys bubble, never to AI bubble.
-  if(raw.startsWith(SYS_FENCE_PFX)){
-    const content=raw.slice(SYS_FENCE_PFX.length);
-    processAnsiBytes(sysAnsi,content);
-    const hasText=sysAnsi.lines.some(function(l){return l&&l.length>0;});
-    if(hasText){getSysBubble();scheduleSysRender();}
+  // SYS_FENCE may appear anywhere in the chunk — TCP coalesces multiple socket.write()
+  // calls into one segment. Split on SYS_FENCE_PFX so fenced content always routes to
+  // the sys bubble regardless of chatState, even when interleaved with AI output.
+  var fIdx=raw.indexOf(SYS_FENCE_PFX);
+  if(fIdx>=0){
+    if(fIdx>0) window.termWrite(raw.slice(0,fIdx)); // unfenced prefix via normal path
+    var parts=raw.slice(fIdx).split(SYS_FENCE_PFX);
+    for(var i=1;i<parts.length;i++){
+      if(!parts[i]) continue;
+      processAnsiBytes(sysAnsi,parts[i]);
+      var ht=sysAnsi.lines.some(function(l){return l&&l.length>0;});
+      if(ht){getSysBubble();scheduleSysRender();}
+    }
     return;
   }
   if(chatState==='RESPONDING'){
@@ -2203,7 +2212,7 @@ window.termWrite=function(raw){
     if(!hasTuiChrome) scheduleAiRender();
   } else {
     processAnsiBytes(sysAnsi,raw);
-    const hasText=sysAnsi.lines.some(function(l){return l&&l.length>0;});
+    var hasText=sysAnsi.lines.some(function(l){return l&&l.length>0;});
     if(hasText){getSysBubble();scheduleSysRender();}
   }
 };

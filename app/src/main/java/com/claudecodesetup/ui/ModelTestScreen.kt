@@ -313,7 +313,7 @@ private fun TabbedModelTestScreen(
         Column(modifier = Modifier.fillMaxSize()) {
             ScreenHeader(
                 title = "Testing Response",
-                subtitle = "Free models · live fetch",
+                subtitle = "Quick API ping (max_tokens=8) — green ≠ fast enough for real use",
                 onBack = onBack,
                 isLoading = activeLoad is ModelLoadState.Loading,
                 isTesting = activeTesting,
