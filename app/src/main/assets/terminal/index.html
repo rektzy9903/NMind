@@ -85,7 +85,7 @@ html, body {
 }
 .user-row { flex-direction: row-reverse; }
 .ai-row   { flex-direction: row; }
-.sys-row  { justify-content: center; }
+.sys-row  { flex-direction: column; align-items: stretch; }
 
 /* ── Avatars ─────────────────────────────────────────────────────────────── */
 .avatar {
@@ -103,7 +103,7 @@ html, body {
 }
 .ai-avatar {
   background: #1E1E22;
-  border: 1px solid #2A2A30;
+  border: 1px solid #3A3A42;
   border-radius: 7px !important; /* rounded square, override base 50% */
   color: #fff;
   display: flex;
@@ -135,8 +135,8 @@ html, body {
   font-family: 'Space Mono', 'Courier New', monospace;
 }
 .user-bubble {
-  background: rgba(232,131,74,0.13);
-  border: 1px solid rgba(232,131,74,0.19);
+  background: rgba(232,131,74,0.16);
+  border: 1px solid rgba(232,131,74,0.30);
   border-radius: 14px 14px 4px 14px;
   color: #F0F0F2;
   white-space: pre-wrap;
@@ -171,6 +171,21 @@ html, body {
   background: #60606E;
   border-radius: 50%;
   flex-shrink: 0;
+}
+.sys-output {
+  background: #0A0A0C;
+  border: 1px solid #2A2A30;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-family: 'Space Mono', 'Courier New', monospace;
+  font-size: 11.5px;
+  color: #3DD68C;
+  margin-top: 4px;
+  white-space: pre;
+  overflow-x: auto;
+  overflow-wrap: normal;
+  word-break: normal;
+  display: none;
 }
 
 /* ── Markdown rendering ──────────────────────────────────────────────────── */
@@ -1098,7 +1113,8 @@ let currentAiAnsi    = null;  // ANSI parser state for it
 let aiRenderQueued   = false;
 
 // System bubble — collects non-response output (errors, init messages)
-let sysEl            = null;
+let sysEl            = null;  // label div (dot + first line)
+let sysOutEl         = null;  // output code block div (lines 1+)
 let sysAnsi          = makeAnsiState();
 let sysRenderQueued  = false;
 
@@ -1219,7 +1235,7 @@ function handleOSC(content){
     resetToIdle();
     msgs.innerHTML='';
     msgs.appendChild(thinkBub);
-    sysEl=null; sysAnsi=makeAnsiState();
+    sysEl=null; sysOutEl=null; sysAnsi=makeAnsiState();
     currentAiBubble=null; currentAiAnsi=null;
   } else if(content.startsWith('9;cwd:')){
     var cwd=content.slice(6);
@@ -2129,11 +2145,15 @@ function getSysBubble(){
   if(!sysEl){
     const row=document.createElement('div');
     row.className='msg-row sys-row';
-    const bub=document.createElement('div');
-    bub.className='sys-bubble';
-    row.appendChild(bub);
+    const label=document.createElement('div');
+    label.className='sys-bubble';
+    const out=document.createElement('div');
+    out.className='sys-output';
+    row.appendChild(label);
+    row.appendChild(out);
     msgs.appendChild(row);
-    sysEl=bub;
+    sysEl=label;
+    sysOutEl=out;
   }
   return sysEl;
 }
@@ -2144,7 +2164,17 @@ function scheduleSysRender(){
   requestAnimationFrame(function(){
     sysRenderQueued=false;
     if(sysEl&&sysAnsi){
-      sysEl.innerHTML=linesToHtml(sysAnsi.lines);
+      const lines=sysAnsi.lines;
+      if(lines.length<=1){
+        sysEl.innerHTML=linesToHtml(lines);
+        if(sysOutEl) sysOutEl.style.display='none';
+      } else {
+        sysEl.innerHTML=linesToHtml([lines[0]]);
+        if(sysOutEl){
+          sysOutEl.innerHTML=linesToHtml(lines.slice(1));
+          sysOutEl.style.display='block';
+        }
+      }
       scrollToBottom();
     }
   });
@@ -2194,7 +2224,7 @@ const _sessionSnaps = new Map();
 window.termClear=function(sid){
   stopThinkingTimer();
   msgs.innerHTML='';
-  sysEl=null;
+  sysEl=null; sysOutEl=null;
   sysAnsi=makeAnsiState();
   currentAiBubble=null;
   currentAiAnsi=null;
@@ -2217,7 +2247,7 @@ window.termRestoreSnapshot = function(sid) {
   // M2: do NOT reset sysAnsi here — resetting mid-way while DOM already has
   // rendered content causes ANSI state/DOM mismatch and double-render bugs.
   // sysEl is cleared so next sys output creates a fresh bubble below restored content.
-  sysEl=null;
+  sysEl=null; sysOutEl=null;
   currentAiBubble=null; currentAiAnsi=null;
   chatState='IDLE';
   thinkBub.style.display='none';
@@ -2339,7 +2369,7 @@ function submitLine(text){
     }
     // All ! and $ commands run immediately regardless of busy state
     // Fresh sys bubble so bridge output appears below this cmd bubble
-    sysEl=null; sysAnsi=makeAnsiState();
+    sysEl=null; sysOutEl=null; sysAnsi=makeAnsiState();
     addCmdBubble(msg,false);
     // Normalize ! command verb to lowercase before sending — Android autocorrect
     // treats "!" as sentence-end and capitalizes the next character, breaking
@@ -2359,7 +2389,7 @@ function submitLine(text){
     if(inputHistory.length>50) inputHistory.shift();
   }
   resetToIdle(); // finalize any pending AI bubble and hide thinking animation
-  sysEl=null;
+  sysEl=null; sysOutEl=null;
   sysAnsi=makeAnsiState();
   // Remove suggestions bar if present
   const sb=document.getElementById('suggestions-bar');if(sb)sb.remove();
