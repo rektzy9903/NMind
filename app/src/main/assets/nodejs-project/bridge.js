@@ -1428,6 +1428,7 @@ function startProxyServer(onReady) {
 }
 
 function proxyError(res, code, msg) {
+    log('[proxy-error] ' + code + ' — ' + msg + '\n');
     try {
         res.writeHead(code, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ type: 'error', error: { type: 'api_error', message: msg } }));
@@ -1593,6 +1594,8 @@ function handleProxyRequest(anthReq, res) {
     const pUrl  = cfg.providerUrl || '';
     const key   = cfg.apiKey || '';
     const stream = !!anthReq.stream;
+
+    log('[proxy] request: model=' + (anthReq.model||'?') + ' stream=' + stream + ' url=' + (pUrl||'MISSING') + '\n');
 
     if (!pUrl) return proxyError(res, 500, 'No provider URL in config — check app settings');
 
@@ -2173,8 +2176,12 @@ function sendToProvider(baseUrl, apiKey, oaiReq, stream, res, onBadRequest, on42
         provRes.on('error', err => log('[proxy] provider response error (non-stream): ' + err.message + '\n'));
     });
 
-    provReq.on('error', err => proxyError(res, 502, 'Provider unreachable: ' + err.message));
+    provReq.on('error', err => {
+        log('[proxy] provReq error: ' + err.message + '\n');
+        proxyError(res, 502, 'Provider unreachable: ' + err.message);
+    });
     provReq.setTimeout(120000, () => {
+        log('[proxy] provReq timeout (120s) — provider never responded\n');
         provReq.destroy();
         proxyError(res, 504, 'Provider timeout');
     });
