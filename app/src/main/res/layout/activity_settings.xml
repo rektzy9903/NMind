@@ -22,9 +22,9 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:padding="24dp">
+            android:padding="16dp">
 
-            <!-- Provider section -->
+            <!-- ── PROVIDER ─────────────────────────────────────── -->
             <TextView
                 style="@style/SectionHeader"
                 android:text="Provider" />
@@ -34,8 +34,8 @@
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
                 android:background="@drawable/bg_provider_card"
-                android:padding="16dp"
-                android:layout_marginBottom="24dp">
+                android:clipToOutline="true"
+                android:layout_marginBottom="4dp">
 
                 <!-- Provider row -->
                 <LinearLayout
@@ -43,24 +43,32 @@
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
                     android:gravity="center_vertical"
-                    android:layout_marginBottom="8dp">
+                    android:paddingHorizontal="14dp"
+                    android:paddingVertical="13dp">
                     <TextView
-                        android:layout_width="0dp"
+                        android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_weight="1"
                         android:text="Provider"
                         android:textColor="@color/text_secondary"
-                        android:textSize="12sp" />
+                        android:textSize="13sp" />
                     <TextView
                         android:id="@+id/tvCurrentProvider"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
-                        android:layout_weight="1.5"
+                        android:layout_weight="1"
                         android:textColor="@color/text_primary"
                         android:textSize="13sp"
-                        android:textStyle="bold"
-                        android:gravity="end" />
+                        android:fontFamily="monospace"
+                        android:gravity="end"
+                        android:ellipsize="end"
+                        android:maxLines="1"
+                        android:singleLine="true" />
                 </LinearLayout>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:background="@color/border" />
 
                 <!-- Model row -->
                 <LinearLayout
@@ -68,58 +76,79 @@
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
                     android:gravity="center_vertical"
-                    android:layout_marginBottom="14dp">
+                    android:paddingHorizontal="14dp"
+                    android:paddingVertical="13dp">
                     <TextView
-                        android:layout_width="0dp"
+                        android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_weight="1"
                         android:text="Model"
                         android:textColor="@color/text_secondary"
-                        android:textSize="12sp" />
+                        android:textSize="13sp" />
                     <TextView
                         android:id="@+id/tvCurrentModel"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
-                        android:layout_weight="1.5"
+                        android:layout_weight="1"
                         android:textColor="@color/text_secondary"
                         android:textSize="11sp"
+                        android:fontFamily="monospace"
                         android:gravity="end"
                         android:ellipsize="middle"
                         android:maxLines="1"
                         android:singleLine="true" />
                 </LinearLayout>
 
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:background="@color/border" />
+
                 <!-- Buttons row -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
-                    android:gravity="start">
+                    android:paddingHorizontal="14dp"
+                    android:paddingVertical="10dp"
+                    android:gravity="center_vertical"
+                    android:gap="8dp">
 
-                    <Button
+                    <com.google.android.material.button.MaterialButton
                         android:id="@+id/btnChangeProvider"
                         style="@style/Widget.Material3.Button.OutlinedButton"
                         android:layout_width="0dp"
-                        android:layout_height="wrap_content"
+                        android:layout_height="36dp"
                         android:layout_weight="1"
-                        android:layout_marginEnd="8dp"
                         android:text="Change provider"
-                        android:textColor="@color/text_primary" />
+                        android:textSize="12sp"
+                        android:textColor="@color/text_secondary"
+                        android:minWidth="0dp"
+                        android:minHeight="0dp"
+                        android:paddingHorizontal="10dp"
+                        android:paddingVertical="0dp"
+                        app:cornerRadius="7dp"
+                        app:strokeColor="@color/border2" />
 
-                    <Button
+                    <com.google.android.material.button.MaterialButton
                         android:id="@+id/btnChangeModel"
                         style="@style/Widget.Material3.Button.OutlinedButton"
                         android:layout_width="0dp"
-                        android:layout_height="wrap_content"
+                        android:layout_height="36dp"
                         android:layout_weight="1"
                         android:text="Change model"
-                        android:textColor="@color/accent_orange" />
+                        android:textSize="12sp"
+                        android:textColor="@color/accent_orange"
+                        android:minWidth="0dp"
+                        android:minHeight="0dp"
+                        android:paddingHorizontal="10dp"
+                        android:paddingVertical="0dp"
+                        app:cornerRadius="7dp"
+                        app:strokeColor="#60E8834A" />
 
                 </LinearLayout>
-
             </LinearLayout>
 
-            <!-- Preferences -->
+            <!-- ── PREFERENCES ──────────────────────────────────── -->
             <TextView
                 style="@style/SectionHeader"
                 android:text="Preferences" />
@@ -129,30 +158,28 @@
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
                 android:background="@drawable/bg_provider_card"
-                android:layout_marginBottom="24dp">
+                android:clipToOutline="true"
+                android:layout_marginBottom="4dp">
 
-                <!-- Agentic Mode toggle -->
+                <!-- Agentic Mode -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
                     android:gravity="center_vertical"
-                    android:padding="16dp">
-
+                    android:paddingHorizontal="14dp"
+                    android:paddingVertical="13dp">
                     <LinearLayout
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:orientation="vertical">
-
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="Agentic Mode"
                             android:textColor="@color/text_primary"
-                            android:textSize="13sp"
-                            android:textStyle="normal" />
-
+                            android:textSize="13sp" />
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
@@ -160,45 +187,37 @@
                             android:text="Let Claude run tools without asking each time"
                             android:textColor="@color/text_tertiary"
                             android:textSize="11sp" />
-
                     </LinearLayout>
-
                     <com.google.android.material.materialswitch.MaterialSwitch
                         android:id="@+id/switchAgenticMode"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content" />
-
                 </LinearLayout>
 
                 <View
                     android:layout_width="match_parent"
                     android:layout_height="1dp"
-                    android:background="@color/border"
-                    android:layout_marginStart="16dp"
-                    android:layout_marginEnd="16dp" />
+                    android:background="@color/border" />
 
-                <!-- Response Notifications toggle -->
+                <!-- Response Notifications -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
                     android:gravity="center_vertical"
-                    android:padding="16dp">
-
+                    android:paddingHorizontal="14dp"
+                    android:paddingVertical="13dp">
                     <LinearLayout
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:orientation="vertical">
-
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="Response Notifications"
                             android:textColor="@color/text_primary"
-                            android:textSize="13sp"
-                            android:textStyle="normal" />
-
+                            android:textSize="13sp" />
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
@@ -206,45 +225,37 @@
                             android:text="Notify when Claude finishes in background"
                             android:textColor="@color/text_tertiary"
                             android:textSize="11sp" />
-
                     </LinearLayout>
-
                     <com.google.android.material.materialswitch.MaterialSwitch
                         android:id="@+id/switchResponseNotifications"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content" />
-
                 </LinearLayout>
 
                 <View
                     android:layout_width="match_parent"
                     android:layout_height="1dp"
-                    android:background="@color/border"
-                    android:layout_marginStart="16dp"
-                    android:layout_marginEnd="16dp" />
+                    android:background="@color/border" />
 
-                <!-- Auto-start on Boot toggle -->
+                <!-- Auto-start on Boot -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
                     android:gravity="center_vertical"
-                    android:padding="16dp">
-
+                    android:paddingHorizontal="14dp"
+                    android:paddingVertical="13dp">
                     <LinearLayout
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:orientation="vertical">
-
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="Auto-start on Boot"
                             android:textColor="@color/text_primary"
-                            android:textSize="13sp"
-                            android:textStyle="normal" />
-
+                            android:textSize="13sp" />
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
@@ -252,19 +263,16 @@
                             android:text="Restore bridge after device restart"
                             android:textColor="@color/text_tertiary"
                             android:textSize="11sp" />
-
                     </LinearLayout>
-
                     <com.google.android.material.materialswitch.MaterialSwitch
                         android:id="@+id/switchAutoStartBoot"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content" />
-
                 </LinearLayout>
 
             </LinearLayout>
 
-            <!-- Projects -->
+            <!-- ── PROJECTS ──────────────────────────────────────── -->
             <TextView
                 style="@style/SectionHeader"
                 android:text="Projects" />
@@ -272,30 +280,165 @@
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="vertical"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
                 android:background="@drawable/bg_provider_card"
-                android:padding="16dp"
-                android:layout_marginBottom="24dp">
+                android:clipToOutline="true"
+                android:paddingHorizontal="14dp"
+                android:paddingVertical="13dp"
+                android:layout_marginBottom="4dp">
 
-                <TextView
-                    android:layout_width="match_parent"
+                <LinearLayout
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:text="Create and switch between saved project workspaces. Each project has its own folder, system prompt, and persistent history."
-                    android:textColor="@color/text_secondary"
-                    android:textSize="12sp"
-                    android:layout_marginBottom="12dp" />
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="My Projects"
+                        android:textColor="@color/text_primary"
+                        android:textSize="13sp" />
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:text="Per-project folders, prompts, history"
+                        android:textColor="@color/text_tertiary"
+                        android:textSize="11sp" />
+                </LinearLayout>
 
-                <Button
+                <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnManageProjects"
                     style="@style/Widget.Material3.Button.OutlinedButton"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Manage Projects"
-                    android:textColor="@color/accent_orange" />
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:text="Manage ›"
+                    android:textSize="12sp"
+                    android:textColor="@color/text_secondary"
+                    android:minWidth="0dp"
+                    android:minHeight="0dp"
+                    android:paddingHorizontal="12dp"
+                    android:paddingVertical="0dp"
+                    app:cornerRadius="7dp"
+                    app:strokeColor="@color/border2" />
 
             </LinearLayout>
 
-            <!-- About -->
+            <!-- ── PERMISSIONS ──────────────────────────────────── -->
+            <TextView
+                style="@style/SectionHeader"
+                android:text="Permissions" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:background="@drawable/bg_provider_card"
+                android:clipToOutline="true"
+                android:layout_marginBottom="4dp">
+
+                <!-- Tool Permissions row -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:paddingHorizontal="14dp"
+                    android:paddingVertical="13dp">
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Tool Permissions"
+                            android:textColor="@color/text_primary"
+                            android:textSize="13sp" />
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:text="Pre-approve tools for this session"
+                            android:textColor="@color/text_tertiary"
+                            android:textSize="11sp" />
+                    </LinearLayout>
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnManageApprovals"
+                        style="@style/Widget.Material3.Button.OutlinedButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="36dp"
+                        android:text="Edit ›"
+                        android:textSize="12sp"
+                        android:textColor="@color/text_secondary"
+                        android:minWidth="0dp"
+                        android:minHeight="0dp"
+                        android:paddingHorizontal="12dp"
+                        android:paddingVertical="0dp"
+                        app:cornerRadius="7dp"
+                        app:strokeColor="@color/border2" />
+                </LinearLayout>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:background="@color/border" />
+
+                <!-- MCP per-server toggle rows (dynamic) -->
+                <LinearLayout
+                    android:id="@+id/mcpServerRows"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical" />
+
+                <!-- MCP Servers row -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:paddingHorizontal="14dp"
+                    android:paddingVertical="13dp">
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="MCP Servers"
+                            android:textColor="@color/text_primary"
+                            android:textSize="13sp" />
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:text="Connect external tool servers"
+                            android:textColor="@color/text_tertiary"
+                            android:textSize="11sp" />
+                    </LinearLayout>
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnMcpServers"
+                        style="@style/Widget.Material3.Button.OutlinedButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="36dp"
+                        android:text="Edit ›"
+                        android:textSize="12sp"
+                        android:textColor="@color/text_secondary"
+                        android:minWidth="0dp"
+                        android:minHeight="0dp"
+                        android:paddingHorizontal="12dp"
+                        android:paddingVertical="0dp"
+                        app:cornerRadius="7dp"
+                        app:strokeColor="@color/border2" />
+                </LinearLayout>
+
+            </LinearLayout>
+
+            <!-- ── ABOUT ─────────────────────────────────────────── -->
             <TextView
                 style="@style/SectionHeader"
                 android:text="About" />
@@ -305,163 +448,231 @@
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
                 android:background="@drawable/bg_provider_card"
-                android:padding="16dp"
-                android:layout_marginBottom="24dp">
+                android:clipToOutline="true"
+                android:layout_marginBottom="4dp">
 
-                <TextView
-                    android:id="@+id/tvClaudeVersion"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:textColor="@color/text_primary"
-                    android:textSize="14sp" />
-
-                <TextView
-                    android:id="@+id/tvAppVersion"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:textColor="@color/text_secondary"
-                    android:textSize="14sp" />
-
-            </LinearLayout>
-
-            <!-- Tool permissions -->
-            <TextView
-                style="@style/SectionHeader"
-                android:text="Tool Permissions" />
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:background="@drawable/bg_provider_card"
-                android:padding="16dp"
-                android:layout_marginBottom="24dp">
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Pre-approve tools so Claude never asks for permission during a session."
-                    android:textColor="@color/text_secondary"
-                    android:textSize="12sp"
-                    android:layout_marginBottom="12dp" />
-
-                <Button
-                    android:id="@+id/btnManageApprovals"
-                    style="@style/Widget.Material3.Button.OutlinedButton"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Tool Permissions"
-                    android:textColor="@color/accent_orange" />
-
-            </LinearLayout>
-
-            <!-- MCP Servers -->
-            <TextView
-                style="@style/SectionHeader"
-                android:text="MCP Servers" />
-
-            <LinearLayout
-                android:id="@+id/mcpCard"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:background="@drawable/bg_provider_card"
-                android:padding="16dp"
-                android:layout_marginBottom="24dp">
-
-                <!-- Populated dynamically in onResume() -->
                 <LinearLayout
-                    android:id="@+id/mcpServerRows"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="vertical" />
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:paddingHorizontal="14dp"
+                    android:paddingVertical="13dp">
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="App version"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="13sp" />
+                    <TextView
+                        android:id="@+id/tvClaudeVersion"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:textColor="@color/text_primary"
+                        android:textSize="13sp"
+                        android:gravity="end"
+                        android:fontFamily="monospace" />
+                </LinearLayout>
 
-                <Button
-                    android:id="@+id/btnMcpServers"
-                    style="@style/Widget.Material3.Button.OutlinedButton"
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:background="@color/border" />
+
+                <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:text="Manage MCP Servers"
-                    android:textColor="@color/text_primary" />
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:paddingHorizontal="14dp"
+                    android:paddingVertical="13dp">
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Claude Code"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="13sp" />
+                    <TextView
+                        android:id="@+id/tvAppVersion"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:textColor="@color/text_primary"
+                        android:textSize="13sp"
+                        android:gravity="end"
+                        android:fontFamily="monospace" />
+                </LinearLayout>
 
             </LinearLayout>
 
-            <!-- Scheduled prompts -->
+            <!-- ── RESTART BRIDGE (primary CTA) ─────────────────── -->
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnRestartBridge"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:layout_marginTop="16dp"
+                android:layout_marginBottom="4dp"
+                android:text="Restart Bridge"
+                android:textSize="13sp"
+                android:textColor="#FFFFFF"
+                app:backgroundTint="@color/accent_orange"
+                app:cornerRadius="8dp"
+                app:rippleColor="#33FFFFFF" />
+
+            <!-- ── MORE ──────────────────────────────────────────── -->
             <TextView
                 style="@style/SectionHeader"
-                android:text="Scheduled Prompts" />
+                android:text="More" />
 
-            <Button
-                android:id="@+id/btnScheduledPrompts"
-                style="@style/Widget.Material3.Button.OutlinedButton"
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="8dp"
-                android:text="Manage scheduled prompts"
-                android:textColor="@color/accent_orange" />
+                android:orientation="vertical"
+                android:background="@drawable/bg_provider_card"
+                android:clipToOutline="true"
+                android:layout_marginBottom="4dp">
 
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="24dp"
-                android:text="Send prompts to Claude automatically at set times each day (e.g. daily standup, morning briefing)."
-                android:textColor="@color/text_secondary"
-                android:textSize="12sp" />
-
-            <!-- Custom slash commands -->
-            <TextView
-                style="@style/SectionHeader"
-                android:text="Custom Commands" />
-
-            <Button
-                android:id="@+id/btnCustomCommands"
-                style="@style/Widget.Material3.Button.OutlinedButton"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="8dp"
-                android:text="Manage custom slash commands"
-                android:textColor="@color/accent_orange" />
-
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="24dp"
-                android:text="Commands appear as /command-name in claude. Each command is a markdown file in ~/.claude/commands/."
-                android:textColor="@color/text_secondary"
-                android:textSize="12sp" />
-
-            <!-- Live provider updates -->
-            <TextView
-                style="@style/SectionHeader"
-                android:text="Live Provider Updates" />
-
-            <com.google.android.material.textfield.TextInputLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="8dp"
-                android:hint="Provider update URL (leave empty to use bundled list)"
-                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox">
-
-                <com.google.android.material.textfield.TextInputEditText
-                    android:id="@+id/etProviderRemoteUrl"
+                <LinearLayout
+                    android:id="@+id/btnScheduledPrompts"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:inputType="textUri"
-                    android:textColor="@color/text_primary" />
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:paddingHorizontal="14dp"
+                    android:paddingVertical="13dp"
+                    android:background="?attr/selectableItemBackground"
+                    android:clickable="true"
+                    android:focusable="true">
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Scheduled Prompts"
+                        android:textColor="@color/text_primary"
+                        android:textSize="13sp" />
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="›"
+                        android:textColor="@color/text_tertiary"
+                        android:textSize="16sp" />
+                </LinearLayout>
 
-            </com.google.android.material.textfield.TextInputLayout>
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:background="@color/border" />
 
+                <LinearLayout
+                    android:id="@+id/btnCustomCommands"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:paddingHorizontal="14dp"
+                    android:paddingVertical="13dp"
+                    android:background="?attr/selectableItemBackground"
+                    android:clickable="true"
+                    android:focusable="true">
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Custom Slash Commands"
+                        android:textColor="@color/text_primary"
+                        android:textSize="13sp" />
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="›"
+                        android:textColor="@color/text_tertiary"
+                        android:textSize="16sp" />
+                </LinearLayout>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:background="@color/border" />
+
+                <LinearLayout
+                    android:id="@+id/btnReport"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:paddingHorizontal="14dp"
+                    android:paddingVertical="13dp"
+                    android:background="?attr/selectableItemBackground"
+                    android:clickable="true"
+                    android:focusable="true">
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Report a Problem"
+                        android:textColor="@color/text_primary"
+                        android:textSize="13sp" />
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="›"
+                        android:textColor="@color/text_tertiary"
+                        android:textSize="16sp" />
+                </LinearLayout>
+
+            </LinearLayout>
+
+            <!-- ── ADVANCED ──────────────────────────────────────── -->
             <TextView
+                style="@style/SectionHeader"
+                android:text="Advanced" />
+
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="24dp"
-                android:text="Point to a JSON file matching the providers.json format to push new providers/models without an app update."
-                android:textColor="@color/text_secondary"
-                android:textSize="12sp" />
+                android:orientation="vertical"
+                android:background="@drawable/bg_provider_card"
+                android:clipToOutline="true"
+                android:layout_marginBottom="4dp">
 
-            <!-- Data management -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:paddingHorizontal="14dp"
+                    android:paddingTop="12dp"
+                    android:paddingBottom="12dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Provider update URL"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="11sp"
+                        android:layout_marginBottom="6dp" />
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:hint="Leave empty to use bundled list"
+                        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/etProviderRemoteUrl"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:inputType="textUri"
+                            android:textColor="@color/text_primary"
+                            android:textSize="12sp" />
+
+                    </com.google.android.material.textfield.TextInputLayout>
+
+                </LinearLayout>
+
+            </LinearLayout>
+
+            <!-- ── DATA ──────────────────────────────────────────── -->
             <TextView
                 style="@style/SectionHeader"
                 android:text="Data" />
@@ -471,52 +682,39 @@
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
                 android:background="@drawable/bg_provider_card"
-                android:padding="16dp"
-                android:layout_marginBottom="24dp">
+                android:clipToOutline="true"
+                android:layout_marginBottom="32dp">
 
-                <Button
+                <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnClearData"
-                    style="@style/Widget.Material3.Button.OutlinedButton"
+                    style="@style/Widget.Material3.Button.TextButton"
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginBottom="8dp"
+                    android:layout_height="48dp"
+                    android:gravity="start|center_vertical"
+                    android:paddingHorizontal="14dp"
                     android:text="Clear saved API key &amp; settings"
-                    android:textColor="@color/text_primary" />
+                    android:textColor="@color/text_secondary"
+                    android:textSize="13sp" />
 
-                <Button
-                    android:id="@+id/btnReset"
+                <View
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
+                    android:layout_height="1dp"
+                    android:background="@color/border" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnReset"
+                    style="@style/Widget.Material3.Button.TextButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:gravity="start|center_vertical"
+                    android:paddingHorizontal="14dp"
                     android:text="Reset and reinstall everything"
-                    android:backgroundTint="@color/error_red" />
+                    android:textColor="@color/error_red"
+                    android:textSize="13sp" />
 
             </LinearLayout>
 
-            <!-- Support -->
-            <TextView
-                style="@style/SectionHeader"
-                android:text="Support" />
-
-            <Button
-                android:id="@+id/btnReport"
-                style="@style/Widget.Material3.Button.TextButton"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="Report a problem (GitHub Issues)"
-                android:textColor="@color/accent_orange" />
-
-            <!-- Restart Bridge CTA -->
-            <Button
-                android:id="@+id/btnRestartBridge"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
-                android:layout_marginBottom="8dp"
-                android:text="Restart Bridge"
-                android:backgroundTint="@color/accent_orange" />
-
         </LinearLayout>
-
     </ScrollView>
 
 </LinearLayout>
