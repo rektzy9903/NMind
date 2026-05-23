@@ -28,7 +28,7 @@ Nexus Mind is an Android app that lets you use [Claude Code](https://claude.ai/c
 | RAM | 2 GB recommended |
 | Internet | Required for setup (~500 MB) |
 
-**Supported CPU architectures:** arm64, arm, x86, x86_64
+**Supported CPU architectures:** arm64-v8a (all modern Android phones), armeabi-v7a (older 32-bit phones)
 
 ---
 
@@ -78,19 +78,23 @@ When setup finishes, the app asks how you want to use Claude Code.
 ### Option A — Claude Subscription
 If you have a Claude.ai account (paid or free trial), tap **"Yes — use my account"**. The app opens your browser to log in, then brings you straight to the terminal.
 
-### Option B — Free providers (no subscription)
+### Option B — API key (all providers supported)
 
-All free providers below work with Claude Code via a compatibility layer.
+The app includes a protocol proxy that lets Claude Code work with any OpenAI-compatible provider. All providers below are supported out of the box.
 
-| Provider | Free limit | Malaysia | Sign up |
-|---|---|---|---|
-| **Google Gemini** ⭐ | 1500 req/day | Works great | [aistudio.google.com](https://aistudio.google.com) |
-| OpenRouter | 50 req/day | Works | [openrouter.ai](https://openrouter.ai) |
-| NVIDIA NIM | 40 req/min | SMS fails | [build.nvidia.com](https://build.nvidia.com/models) |
-| Meta Llama API | Limited | May work | [llama.developer.meta.com](https://llama.developer.meta.com) |
-| Ollama | Unlimited | No internet | [ollama.com](https://ollama.com) (PC required) |
+| Provider | Free tier | Speed | Malaysia | Sign up |
+|---|---|---|---|---|
+| **Google Gemini** ⭐ | 1,500 req/day | Fast | Works great | [aistudio.google.com](https://aistudio.google.com) |
+| **Groq** | 14,400 req/day | Very fast | Works great | [console.groq.com](https://console.groq.com) |
+| OpenRouter | 50 req/day | Fast | Works | [openrouter.ai](https://openrouter.ai) |
+| DeepSeek | Pay per token | Fast | Works | [platform.deepseek.com](https://platform.deepseek.com) |
+| Kimi (Moonshot) | Limited | Fast | Works | [platform.moonshot.cn](https://platform.moonshot.cn) |
+| NVIDIA NIM | 40 req/min | Fast | SMS required | [build.nvidia.com](https://build.nvidia.com/models) |
+| Meta Llama API | Limited | Fast | May work | [llama.developer.meta.com](https://llama.developer.meta.com) |
+| **Anthropic API** | Pay per token | Fast | Works | [console.anthropic.com](https://console.anthropic.com/settings/api-keys) |
+| Ollama (local) | Unlimited | On-device | No internet needed | [ollama.com](https://ollama.com) (PC required) |
 
-**For Malaysian users:** We strongly recommend **Google Gemini** — 1500 free requests per day, works with just a Google account, no SMS verification.
+**For Malaysian users:** We strongly recommend **Google Gemini** (1,500 free requests/day, Google account only, no SMS) or **Groq** (14,400 free requests/day, fastest inference).
 
 ---
 
@@ -181,37 +185,33 @@ echo "sdk.dir=$HOME/Android/Sdk" > local.properties
 
 ## Architecture
 
+The app ships an embedded Node.js runtime (`libnode.so` via Android JNI — no proot, no Linux container, no Termux). Everything runs natively inside the app's sandbox.
+
 ```
-┌─────────────────────────────────────┐
-│           Android App               │
-│  SplashActivity → SetupActivity     │
-│  LoginFlowActivity → TerminalActivity│
-├─────────────────────────────────────┤
-│           ClaudeService             │
-│    (Foreground Service + WakeLock)  │
-├──────────────┬──────────────────────┤
-│  ProxyManager│  EnvironmentManager  │
-│  (uvicorn)   │  (proot + Ubuntu)    │
-├──────────────┴──────────────────────┤
-│   WebView Terminal (ANSI emulator)  │
-│   JavaScript ↔ Kotlin bridge        │
-└─────────────────────────────────────┘
+┌──────────────────────────────────────────────┐
+│                 Android App                  │
+│   SplashActivity → SetupActivity             │
+│   ComposeActivity (login flow)               │
+│   HomeActivity → TerminalActivity            │
+├──────────────────────────────────────────────┤
+│             ClaudeService (foreground)       │
+│   TCP socket sessions  ·  WakeLock           │
+├────────────────────┬─────────────────────────┤
+│  Node.js (JNI)     │  Protocol Proxy         │
+│  bridge.js         │  Anthropic → OpenAI     │
+│  port 8083         │  port 8082              │
+├────────────────────┴─────────────────────────┤
+│   WebView Terminal (hand-rolled ANSI emul.)  │
+│   JavaScript ↔ Kotlin @JavascriptInterface   │
+└──────────────────────────────────────────────┘
 ```
 
-**Inside the app's private data directory:**
-```
-/data/data/com.claudecodesetup/files/
-├── usr/                  ← Termux bootstrap (isolated)
-│   ├── bin/bash
-│   ├── bin/proot
-│   └── bin/proot-distro
-├── home/
-│   ├── node-v20.11.0-linux-arm64/
-│   ├── free-claude-code-main/   ← proxy
-│   └── .bashrc
-└── var/lib/proot-distro/
-    └── installed-rootfs/ubuntu/ ← Ubuntu rootfs
-```
+**How it works:**
+1. On first launch, `bridge.js` downloads `claude-code` from npm (~500 MB, once only)
+2. Each message spawns `claude --print --output-format stream-json` — no persistent process
+3. For non-Anthropic providers, a protocol proxy converts Anthropic API format → OpenAI format on the fly
+4. For Anthropic API keys, requests are forwarded directly (no conversion needed)
+5. For Claude subscription users, OAuth 2.0 + PKCE handles authentication
 
 ---
 
@@ -299,17 +299,21 @@ Apabila persediaan selesai, aplikasi akan tanya bagaimana anda mahu menggunakan 
 ### Pilihan A — Langganan Claude
 Jika anda ada akaun Claude.ai (berbayar atau percubaan percuma), ketik **"Ya — guna akaun saya"**.
 
-### Pilihan B — Penyedia percuma
+### Pilihan B — Kunci API (semua penyedia disokong)
 
-| Penyedia | Had percuma | Malaysia | Daftar |
-|---|---|---|---|
-| **Google Gemini** ⭐ | 1500 req/hari | Sangat sesuai | [aistudio.google.com](https://aistudio.google.com) |
-| OpenRouter | 50 req/hari | Boleh guna | [openrouter.ai](https://openrouter.ai) |
-| NVIDIA NIM | 40 req/min | Pengesahan SMS gagal | [build.nvidia.com](https://build.nvidia.com/models) |
-| Meta Llama API | Terhad | Mungkin boleh | [llama.developer.meta.com](https://llama.developer.meta.com) |
-| Ollama | Tanpa had | Tiada internet | [ollama.com](https://ollama.com) (PC diperlukan) |
+| Penyedia | Pelan percuma | Kelajuan | Malaysia | Daftar |
+|---|---|---|---|---|
+| **Google Gemini** ⭐ | 1,500 req/hari | Pantas | Sangat sesuai | [aistudio.google.com](https://aistudio.google.com) |
+| **Groq** | 14,400 req/hari | Sangat pantas | Sangat sesuai | [console.groq.com](https://console.groq.com) |
+| OpenRouter | 50 req/hari | Pantas | Boleh guna | [openrouter.ai](https://openrouter.ai) |
+| DeepSeek | Bayar per token | Pantas | Boleh guna | [platform.deepseek.com](https://platform.deepseek.com) |
+| Kimi (Moonshot) | Terhad | Pantas | Boleh guna | [platform.moonshot.cn](https://platform.moonshot.cn) |
+| NVIDIA NIM | 40 req/min | Pantas | Pengesahan SMS | [build.nvidia.com](https://build.nvidia.com/models) |
+| Meta Llama API | Terhad | Pantas | Mungkin boleh | [llama.developer.meta.com](https://llama.developer.meta.com) |
+| **Anthropic API** | Bayar per token | Pantas | Boleh guna | [console.anthropic.com](https://console.anthropic.com/settings/api-keys) |
+| Ollama (lokal) | Tanpa had | Dalam peranti | Tiada internet | [ollama.com](https://ollama.com) (PC diperlukan) |
 
-**Untuk pengguna Malaysia:** Kami sangat mengesyorkan **Google Gemini** — 1500 permintaan percuma sehari, menggunakan akaun Google sahaja, tanpa pengesahan SMS.
+**Untuk pengguna Malaysia:** Kami sangat mengesyorkan **Google Gemini** (1,500 permintaan percuma sehari, akaun Google sahaja, tanpa SMS) atau **Groq** (14,400 permintaan percuma sehari, inferens terpantas).
 
 ---
 
