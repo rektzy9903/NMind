@@ -21,9 +21,14 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -43,25 +48,8 @@ fun HomeScreen(
     onSettings: () -> Unit,
     onProjects: () -> Unit = {},
 ) {
-    // Separate transitions so the fast pulse (900 ms) doesn't force slow orbs to recompose
-    val orbTransition   = rememberInfiniteTransition(label = "orbs")
     val pulseTransition = rememberInfiniteTransition(label = "pulse")
 
-    val orb1Y by orbTransition.animateFloat(
-        initialValue = 0f, targetValue = 40f,
-        animationSpec = infiniteRepeatable(tween(4200, easing = EaseInOut), RepeatMode.Reverse),
-        label = "orb1"
-    )
-    val orb2X by orbTransition.animateFloat(
-        initialValue = 0f, targetValue = -30f,
-        animationSpec = infiniteRepeatable(tween(5800, easing = EaseInOut), RepeatMode.Reverse),
-        label = "orb2"
-    )
-    val orb3Y by orbTransition.animateFloat(
-        initialValue = 0f, targetValue = 25f,
-        animationSpec = infiniteRepeatable(tween(7000, easing = EaseInOut), RepeatMode.Reverse),
-        label = "orb3"
-    )
     val pulseAlpha by pulseTransition.animateFloat(
         initialValue = 0.45f, targetValue = 1f,
         animationSpec = infiniteRepeatable(tween(900, easing = EaseInOut), RepeatMode.Reverse),
@@ -79,55 +67,7 @@ fun HomeScreen(
         delay(130L); card4Visible = true
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
-
-        // ── Background ─────────────────────────────────────────────────────────
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        0f   to Color(0xFF08041A),
-                        0.45f to Color(0xFF0C0828),
-                        1f   to Color(0xFF060210)
-                    )
-                )
-        )
-
-        // Purple orb — top-left, animated
-        Box(
-            modifier = Modifier
-                .offset((-60).dp, orb1Y.dp)
-                .size(320.dp)
-                .background(
-                    Brush.radialGradient(listOf(Color(0x357C3AED), Color.Transparent)),
-                    CircleShape
-                )
-        )
-        // Navy orb — bottom-right, animated
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .offset(orb2X.dp, 0.dp)
-                .size(260.dp)
-                .background(
-                    Brush.radialGradient(listOf(Color(0x221E40AF), Color.Transparent)),
-                    CircleShape
-                )
-        )
-        // Cyan orb — center-right, animated
-        Box(
-            modifier = Modifier
-                .align(Alignment.CenterEnd)
-                .offset(80.dp, orb3Y.dp)
-                .size(180.dp)
-                .background(
-                    Brush.radialGradient(listOf(Color(0x160E7490), Color.Transparent)),
-                    CircleShape
-                )
-        )
-
-        // ── Content ────────────────────────────────────────────────────────────
+    AppBackground {
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -153,7 +93,7 @@ fun HomeScreen(
             Box(
                 modifier = Modifier
                     .size(76.dp)
-                    .glowShadow(Color(0x267C3AED), 20.dp, 20.dp)
+                    .glowShadow(Color(0x408B5CF6), 24.dp, 20.dp)
                     .background(Color(0x14FFFFFF), RoundedCornerShape(20.dp))
                     .border(1.dp, Color(0x20FFFFFF), RoundedCornerShape(20.dp)),
                 contentAlignment = Alignment.Center
@@ -171,10 +111,10 @@ fun HomeScreen(
 
             Text(
                 text = appName,
-                fontSize = 24.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.White,
-                fontFamily = DmSansFamily,
+                fontSize = 26.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = Color(0xFFF0EEFF),
+                fontFamily = SyneFamily,
             )
 
             Spacer(Modifier.height(8.dp))
@@ -204,15 +144,29 @@ fun HomeScreen(
 
             Spacer(Modifier.height(44.dp))
 
-            // Menu label
-            Row(modifier = Modifier.fillMaxWidth()) {
+            // Section label — JetBrains Mono style with gradient line
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Text(
                     "MENU",
                     fontSize = 10.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = Color(0xFF475569),
-                    fontFamily = SpaceMonoFamily,
-                    letterSpacing = 3.sp,
+                    fontWeight = FontWeight.Normal,
+                    color = Color(0xFF7C6FAA),
+                    fontFamily = JetBrainsMonoFamily,
+                    letterSpacing = 2.5.sp,
+                )
+                Spacer(Modifier.width(10.dp))
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(1.dp)
+                        .background(
+                            Brush.horizontalGradient(
+                                listOf(Color(0x407C6FAA), Color.Transparent)
+                            )
+                        )
                 )
             }
 
@@ -224,11 +178,11 @@ fun HomeScreen(
                 enter = fadeIn(tween(400)) + slideInVertically(tween(400, easing = EaseOutCubic)) { it / 3 }
             ) {
                 MenuCard(
-                    iconRes = R.drawable.ic_chat,
                     title = "Chat Box",
                     subtitle = "Start a conversation with AI",
                     accentColor = Color(0xFF8B5CF6),
                     onClick = onChatBox,
+                    iconContent = { ChatBoxIcon() }
                 )
             }
 
@@ -240,27 +194,27 @@ fun HomeScreen(
                 enter = fadeIn(tween(400)) + slideInVertically(tween(400, easing = EaseOutCubic)) { it / 3 }
             ) {
                 MenuCard(
-                    iconRes = R.drawable.ic_bolt,
                     title = "Testing Response",
                     subtitle = "Check if the free AI model is responding",
-                    accentColor = Color(0xFF06B6D4),
+                    accentColor = Color(0xFF22D3EE),
                     onClick = onTesting,
+                    iconContent = { TestingIcon() }
                 )
             }
 
             Spacer(Modifier.height(12.dp))
 
-            // Card 3 — Setting
+            // Card 3 — Settings
             AnimatedVisibility(
                 visible = card3Visible,
                 enter = fadeIn(tween(400)) + slideInVertically(tween(400, easing = EaseOutCubic)) { it / 3 }
             ) {
                 MenuCard(
-                    iconRes = R.drawable.ic_settings,
                     title = "Setting",
                     subtitle = "Manage your preferences & app options",
-                    accentColor = Color(0xFF6D28D9),
+                    accentColor = Color(0xFF8B5CF6),
                     onClick = onSettings,
+                    iconContent = { SettingsIcon() }
                 )
             }
 
@@ -272,11 +226,11 @@ fun HomeScreen(
                 enter = fadeIn(tween(400)) + slideInVertically(tween(400, easing = EaseOutCubic)) { it / 3 }
             ) {
                 MenuCard(
-                    iconRes = R.drawable.ic_settings,
                     title = "Projects",
                     subtitle = "Switch between saved project workspaces",
-                    accentColor = Color(0xFF10B981),
+                    accentColor = Color(0xFF22C55E),
                     onClick = onProjects,
+                    iconContent = { ProjectsIcon() }
                 )
             }
 
@@ -285,23 +239,215 @@ fun HomeScreen(
     }
 }
 
+// ── Icon tile composables ──────────────────────────────────────────────────────
+
+@Composable
+private fun BoxScope.ChatBoxIcon() {
+    Box(
+        modifier = Modifier
+            .size(56.dp)
+            .drawBehind {
+                // Gradient background
+                drawRoundRect(
+                    brush = Brush.linearGradient(
+                        listOf(Color(0xFF8B5CF6), Color(0xFF6D28D9))
+                    ),
+                    cornerRadius = CornerRadius(16.dp.toPx())
+                )
+                // Top shine overlay
+                drawRoundRect(
+                    color = Color(0x12FFFFFF),
+                    topLeft = Offset.Zero,
+                    size = Size(size.width, size.height * 0.42f),
+                    cornerRadius = CornerRadius(16.dp.toPx())
+                )
+                // Chat bubble body
+                drawRoundRect(
+                    color = Color.White.copy(alpha = 0.93f),
+                    topLeft = Offset(11.dp.toPx(), 9.dp.toPx()),
+                    size = Size(34.dp.toPx(), 22.dp.toPx()),
+                    cornerRadius = CornerRadius(5.dp.toPx())
+                )
+                // Bubble tail
+                val path = Path().apply {
+                    moveTo(14.dp.toPx(), 31.dp.toPx())
+                    lineTo(11.dp.toPx(), 38.dp.toPx())
+                    lineTo(22.dp.toPx(), 31.dp.toPx())
+                    close()
+                }
+                drawPath(path, Color.White.copy(alpha = 0.93f))
+                // 3 dots inside bubble
+                drawCircle(Color(0xFF8B5CF6), 2.5.dp.toPx(), center = Offset(20.dp.toPx(), 20.dp.toPx()))
+                drawCircle(Color(0xFF8B5CF6), 2.5.dp.toPx(), center = Offset(28.dp.toPx(), 20.dp.toPx()))
+                drawCircle(Color(0xFF8B5CF6), 2.5.dp.toPx(), center = Offset(36.dp.toPx(), 20.dp.toPx()))
+            }
+    )
+}
+
+@Composable
+private fun BoxScope.TestingIcon() {
+    Box(
+        modifier = Modifier
+            .size(56.dp)
+            .drawBehind {
+                // Gradient background
+                drawRoundRect(
+                    brush = Brush.linearGradient(
+                        listOf(Color(0xFF06B6D4), Color(0xFF0891B2))
+                    ),
+                    cornerRadius = CornerRadius(16.dp.toPx())
+                )
+                // Top shine overlay
+                drawRoundRect(
+                    color = Color(0x12FFFFFF),
+                    topLeft = Offset.Zero,
+                    size = Size(size.width, size.height * 0.42f),
+                    cornerRadius = CornerRadius(16.dp.toPx())
+                )
+                // ECG pulse wave
+                val midY = size.height * 0.52f
+                val path = Path().apply {
+                    moveTo(6.dp.toPx(), midY)
+                    lineTo(14.dp.toPx(), midY)
+                    lineTo(18.dp.toPx(), midY - 10.dp.toPx())
+                    lineTo(22.dp.toPx(), midY + 12.dp.toPx())
+                    lineTo(26.dp.toPx(), midY - 16.dp.toPx())
+                    lineTo(30.dp.toPx(), midY + 8.dp.toPx())
+                    lineTo(34.dp.toPx(), midY)
+                    lineTo(50.dp.toPx(), midY)
+                }
+                drawPath(
+                    path = path,
+                    color = Color.White.copy(alpha = 0.92f),
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(
+                        width = 2.dp.toPx(),
+                        cap = androidx.compose.ui.graphics.StrokeCap.Round,
+                        join = androidx.compose.ui.graphics.StrokeJoin.Round
+                    )
+                )
+                // End dot with glow circle
+                drawCircle(
+                    color = Color.White.copy(alpha = 0.25f),
+                    radius = 5.dp.toPx(),
+                    center = Offset(50.dp.toPx(), midY)
+                )
+                drawCircle(
+                    color = Color.White.copy(alpha = 0.9f),
+                    radius = 2.5.dp.toPx(),
+                    center = Offset(50.dp.toPx(), midY)
+                )
+            }
+    )
+}
+
+@Composable
+private fun BoxScope.SettingsIcon() {
+    Box(
+        modifier = Modifier
+            .size(56.dp)
+            .drawBehind {
+                // Gradient background
+                drawRoundRect(
+                    brush = Brush.linearGradient(
+                        listOf(Color(0xFF7C3AED), Color(0xFF4C1D95))
+                    ),
+                    cornerRadius = CornerRadius(16.dp.toPx())
+                )
+                // Top shine overlay
+                drawRoundRect(
+                    color = Color(0x12FFFFFF),
+                    topLeft = Offset.Zero,
+                    size = Size(size.width, size.height * 0.42f),
+                    cornerRadius = CornerRadius(16.dp.toPx())
+                )
+                val trackColor = Color.White.copy(alpha = 0.35f)
+                val thumbColor = Color.White.copy(alpha = 0.95f)
+                val trackH = 2.dp.toPx()
+                val thumbR = 4.dp.toPx()
+                val left = 10.dp.toPx()
+                val right = 46.dp.toPx()
+                // Track 1 (y=16)
+                val y1 = 16.dp.toPx()
+                drawRoundRect(trackColor, topLeft = Offset(left, y1 - trackH / 2), size = Size(right - left, trackH), cornerRadius = CornerRadius(2.dp.toPx()))
+                drawCircle(thumbColor, thumbR, center = Offset(24.dp.toPx(), y1))
+                // Track 2 (y=28)
+                val y2 = 28.dp.toPx()
+                drawRoundRect(trackColor, topLeft = Offset(left, y2 - trackH / 2), size = Size(right - left, trackH), cornerRadius = CornerRadius(2.dp.toPx()))
+                drawCircle(thumbColor, thumbR, center = Offset(36.dp.toPx(), y2))
+                // Track 3 (y=40)
+                val y3 = 40.dp.toPx()
+                drawRoundRect(trackColor, topLeft = Offset(left, y3 - trackH / 2), size = Size(right - left, trackH), cornerRadius = CornerRadius(2.dp.toPx()))
+                drawCircle(thumbColor, thumbR, center = Offset(20.dp.toPx(), y3))
+            }
+    )
+}
+
+@Composable
+private fun BoxScope.ProjectsIcon() {
+    Box(
+        modifier = Modifier
+            .size(56.dp)
+            .drawBehind {
+                // Gradient background
+                drawRoundRect(
+                    brush = Brush.linearGradient(
+                        listOf(Color(0xFF10B981), Color(0xFF059669))
+                    ),
+                    cornerRadius = CornerRadius(16.dp.toPx())
+                )
+                // Top shine overlay
+                drawRoundRect(
+                    color = Color(0x12FFFFFF),
+                    topLeft = Offset.Zero,
+                    size = Size(size.width, size.height * 0.42f),
+                    cornerRadius = CornerRadius(16.dp.toPx())
+                )
+                val bodyColor = Color.White.copy(alpha = 0.92f)
+                val lineColor = Color(0xFF059669)
+                // Folder tab
+                drawRoundRect(
+                    color = bodyColor,
+                    topLeft = Offset(10.dp.toPx(), 14.dp.toPx()),
+                    size = Size(14.dp.toPx(), 5.dp.toPx()),
+                    cornerRadius = CornerRadius(2.dp.toPx())
+                )
+                // Folder body
+                drawRoundRect(
+                    color = bodyColor,
+                    topLeft = Offset(10.dp.toPx(), 18.dp.toPx()),
+                    size = Size(36.dp.toPx(), 24.dp.toPx()),
+                    cornerRadius = CornerRadius(4.dp.toPx())
+                )
+                // File lines inside
+                val lineH = 2.dp.toPx()
+                val lineLeft = 16.dp.toPx()
+                val lineRight = 40.dp.toPx()
+                drawRoundRect(lineColor, topLeft = Offset(lineLeft, 25.dp.toPx()), size = Size(lineRight - lineLeft, lineH), cornerRadius = CornerRadius(1.dp.toPx()))
+                drawRoundRect(lineColor, topLeft = Offset(lineLeft, 30.dp.toPx()), size = Size(lineRight - lineLeft, lineH), cornerRadius = CornerRadius(1.dp.toPx()))
+                drawRoundRect(lineColor, topLeft = Offset(lineLeft, 35.dp.toPx()), size = Size((lineRight - lineLeft) * 0.7f, lineH), cornerRadius = CornerRadius(1.dp.toPx()))
+            }
+    )
+}
+
+// ── MenuCard ───────────────────────────────────────────────────────────────────
+
 @Composable
 private fun MenuCard(
-    iconRes: Int,
     title: String,
     subtitle: String,
     accentColor: Color,
     onClick: () -> Unit,
+    iconContent: @Composable BoxScope.() -> Unit,
 ) {
     var pressed by remember { mutableStateOf(false) }
 
     val bgColor by animateColorAsState(
-        targetValue = if (pressed) accentColor.copy(alpha = 0.14f) else Color(0x0CFFFFFF),
+        targetValue = if (pressed) accentColor.copy(alpha = 0.12f) else Color(0x09FFFFFF),
         animationSpec = tween(150),
         label = "bg"
     )
     val borderColor by animateColorAsState(
-        targetValue = if (pressed) accentColor.copy(alpha = 0.5f) else Color(0x14FFFFFF),
+        targetValue = if (pressed) accentColor.copy(alpha = 0.45f) else Color(0x12FFFFFF),
         animationSpec = tween(150),
         label = "border"
     )
@@ -322,27 +468,37 @@ private fun MenuCard(
                     onTap = { onClick() }
                 )
             }
-            .padding(16.dp)
     ) {
+        // Top-edge shine strip
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(1.dp)
+                .background(
+                    Brush.horizontalGradient(
+                        listOf(
+                            Color.Transparent,
+                            Color(0x18FFFFFF),
+                            Color(0x18FFFFFF),
+                            Color.Transparent
+                        )
+                    )
+                )
+                .align(Alignment.TopCenter)
+        )
+
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
         ) {
-            // Icon pill
+            // Icon tile
             Box(
-                modifier = Modifier
-                    .size(46.dp)
-                    .background(accentColor.copy(alpha = 0.13f), RoundedCornerShape(13.dp))
-                    .border(1.dp, accentColor.copy(alpha = 0.22f), RoundedCornerShape(13.dp)),
-                contentAlignment = Alignment.Center
-            ) {
-                Image(
-                    painter = painterResource(iconRes),
-                    contentDescription = title,
-                    colorFilter = ColorFilter.tint(accentColor),
-                    modifier = Modifier.size(22.dp)
-                )
-            }
+                modifier = Modifier.size(56.dp),
+                contentAlignment = Alignment.Center,
+                content = iconContent
+            )
 
             Spacer(Modifier.width(14.dp))
 
@@ -350,15 +506,15 @@ private fun MenuCard(
                 Text(
                     title,
                     fontSize = 15.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = Color.White,
-                    fontFamily = DmSansFamily,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFFF0EEFF),
+                    fontFamily = SyneFamily,
                 )
-                Spacer(Modifier.height(2.dp))
+                Spacer(Modifier.height(3.dp))
                 Text(
                     subtitle,
                     fontSize = 12.sp,
-                    color = Color(0xFF64748B),
+                    color = Color(0xFF5B5880),
                     fontFamily = DmSansFamily,
                     lineHeight = 17.sp,
                 )
@@ -369,7 +525,7 @@ private fun MenuCard(
             Image(
                 painter = painterResource(R.drawable.ic_chevron_right),
                 contentDescription = null,
-                colorFilter = ColorFilter.tint(Color(0xFF374151)),
+                colorFilter = ColorFilter.tint(Color(0xFF3D3A5C)),
                 modifier = Modifier.size(16.dp)
             )
         }

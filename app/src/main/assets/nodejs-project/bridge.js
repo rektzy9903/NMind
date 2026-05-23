@@ -1828,6 +1828,20 @@ function sendToProvider(baseUrl, apiKey, oaiReq, stream, res, onBadRequest, on42
             let tcBlocks    = {};
             let nextBlockIdx = 1; // 0 = text block; tool blocks start at 1
 
+            // Idle timer: if OpenRouter sends 200 OK but then stalls sending SSE events,
+            // abort after 30 s rather than letting the claude --print 120 s timeout fire.
+            let streamIdleTimer = setTimeout(() => {
+                log('[proxy] stream idle timeout (30 s) — aborting stalled OpenRouter response\n');
+                try { provRes.destroy(); } catch(_) {}
+            }, 30000);
+            function resetStreamIdle() {
+                clearTimeout(streamIdleTimer);
+                streamIdleTimer = setTimeout(() => {
+                    log('[proxy] stream idle timeout (30 s) — aborting stalled OpenRouter response\n');
+                    try { provRes.destroy(); } catch(_) {}
+                }, 30000);
+            }
+
             function sendEvent(event, data) {
                 try { res.write('event: ' + event + '\ndata: ' + JSON.stringify(data) + '\n\n'); }
                 catch (_) {}
@@ -1869,6 +1883,7 @@ function sendToProvider(baseUrl, apiKey, oaiReq, stream, res, onBadRequest, on42
 
             provRes.setEncoding('utf8');
             provRes.on('data', chunk => {
+                resetStreamIdle();
                 buffer += chunk;
                 const lines = buffer.split('\n');
                 buffer = lines.pop();
@@ -2051,6 +2066,7 @@ function sendToProvider(baseUrl, apiKey, oaiReq, stream, res, onBadRequest, on42
             });
 
             provRes.on('end', () => {
+                clearTimeout(streamIdleTimer);
                 if (!finished) {
                     // Stream ended without a finish_reason — or provider sent nothing at all.
                     // If no text was produced, inject a visible error so the user gets feedback
@@ -2069,6 +2085,7 @@ function sendToProvider(baseUrl, apiKey, oaiReq, stream, res, onBadRequest, on42
                     finishStream('end_turn');
                 }
             });
+            provRes.on('error', () => clearTimeout(streamIdleTimer));
         }
 
         provRes.on('error', err => log('Provider response error: ' + err.message + '\n'));
@@ -3431,7 +3448,7 @@ function openPrintSession() {
 
             if (line.startsWith('!test-cli')) {
                 const sock2 = state.socket;
-                try { if (sock2) sock2.write(SYS_FENCE + '\r\n\x1b[33mRunning module-loader diagnostic (6 steps)…\x1b[0m\r\n'); } catch(_) {}
+                try { if (sock2) sock2.write(SYS_FENCE + '\r\n\x1b[33mRunning module-loader diagnostic (4 steps)…\x1b[0m\r\n'); } catch(_) {}
                 const env2 = buildEnv();
                 const cliUrl2 = 'file://' + CLAUDE_CLI;
                 const exitLog2 = JSON.stringify(SETUP_LOG);

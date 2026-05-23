@@ -43,6 +43,20 @@ val SpaceMonoFamily = FontFamily(
     Font(googleFont = GoogleFont("Space Mono"), fontProvider = GoogleFontProvider, weight = FontWeight.Bold),
 )
 
+val SyneFamily = FontFamily(
+    Font(googleFont = GoogleFont("Syne"), fontProvider = GoogleFontProvider, weight = FontWeight.Normal),
+    Font(googleFont = GoogleFont("Syne"), fontProvider = GoogleFontProvider, weight = FontWeight.Medium),
+    Font(googleFont = GoogleFont("Syne"), fontProvider = GoogleFontProvider, weight = FontWeight.SemiBold),
+    Font(googleFont = GoogleFont("Syne"), fontProvider = GoogleFontProvider, weight = FontWeight.Bold),
+    Font(googleFont = GoogleFont("Syne"), fontProvider = GoogleFontProvider, weight = FontWeight.ExtraBold),
+)
+
+val JetBrainsMonoFamily = FontFamily(
+    Font(googleFont = GoogleFont("JetBrains Mono"), fontProvider = GoogleFontProvider, weight = FontWeight.Light),
+    Font(googleFont = GoogleFont("JetBrains Mono"), fontProvider = GoogleFontProvider, weight = FontWeight.Normal),
+    Font(googleFont = GoogleFont("JetBrains Mono"), fontProvider = GoogleFontProvider, weight = FontWeight.Medium),
+)
+
 /** Draws a blurred glow shadow behind the composable using BlurMaskFilter. */
 fun Modifier.glowShadow(color: Color, blurRadius: Dp, cornerRadius: Dp): Modifier =
     this.drawBehind {
@@ -67,52 +81,52 @@ fun Modifier.glowShadow(color: Color, blurRadius: Dp, cornerRadius: Dp): Modifie
 @Composable
 fun AppBackground(content: @Composable () -> Unit) {
     Box(modifier = Modifier.fillMaxSize()) {
-        // Deep radial gradient — top-left origin
+        // Base dark violet gradient
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
-                    Brush.radialGradient(
-                        0.0f to Color(0xFF0D1F3C),
-                        0.45f to Color(0xFF050D1A),
-                        1.0f to Color(0xFF030810),
-                        center = Offset(0f, 0f),
-                        radius = 2400f
+                    Brush.verticalGradient(
+                        listOf(
+                            Color(0xFF07061A),
+                            Color(0xFF0E0C28),
+                            Color(0xFF07061A),
+                        )
                     )
                 )
         )
-        // Blue blob — top-left
+        // Violet orb — top-left
         Box(
             modifier = Modifier
                 .offset((-80).dp, (-60).dp)
                 .size(320.dp)
                 .background(
                     Brush.radialGradient(
-                        listOf(Color(0x201E40AF), Color.Transparent)
+                        listOf(Color(0x2E6D28D9), Color.Transparent)
                     ),
                     CircleShape
                 )
         )
-        // Teal blob — bottom-right
+        // Cyan orb — bottom-right
         Box(
             modifier = Modifier
-                .offset(200.dp, 580.dp)
-                .size(280.dp)
+                .offset(180.dp, 560.dp)
+                .size(260.dp)
                 .background(
                     Brush.radialGradient(
-                        listOf(Color(0x1E0E7490), Color.Transparent)
+                        listOf(Color(0x1A06B6D4), Color.Transparent)
                     ),
                     CircleShape
                 )
         )
-        // Purple blob — mid-right
+        // Violet orb — center
         Box(
             modifier = Modifier
-                .offset(160.dp, 260.dp)
-                .size(240.dp)
+                .offset(60.dp, 280.dp)
+                .size(200.dp)
                 .background(
                     Brush.radialGradient(
-                        listOf(Color(0x1A7C3AED), Color.Transparent)
+                        listOf(Color(0x147C3AED), Color.Transparent)
                     ),
                     CircleShape
                 )

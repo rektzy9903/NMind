@@ -9,6 +9,7 @@ import android.view.View
 import android.widget.CheckBox
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -21,6 +22,8 @@ import com.claudecodesetup.managers.NodeBridgeManager
 import com.claudecodesetup.managers.ScheduledPrompt
 import com.claudecodesetup.managers.ScheduledPromptsManager
 import java.io.File
+import org.json.JSONArray
+import org.json.JSONObject
 
 class SettingsActivity : AppCompatActivity() {
 
@@ -51,12 +54,87 @@ class SettingsActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        val mcpCount = try {
-            org.json.JSONArray(prefs.getMcpServersJson()).length() +
-            org.json.JSONArray(prefs.getMcpStdioServersJson()).length()
-        } catch (_: Exception) { 0 }
+        refreshMcpRows()
+    }
+
+    private fun refreshMcpRows() {
+        val container = binding.mcpServerRows
+        container.removeAllViews()
+
+        val httpArr  = try { JSONArray(prefs.getMcpServersJson()) } catch (_: Exception) { JSONArray() }
+        val stdioArr = try { JSONArray(prefs.getMcpStdioServersJson()) } catch (_: Exception) { JSONArray() }
+        val total = httpArr.length() + stdioArr.length()
+
         binding.btnMcpServers.text =
-            if (mcpCount > 0) "Manage MCP Servers ($mcpCount)" else "Manage MCP Servers"
+            if (total > 0) "Manage MCP Servers ($total)" else "Manage MCP Servers"
+
+        if (total == 0) return
+
+        // Build rows for HTTP servers
+        for (i in 0 until httpArr.length()) {
+            val obj = httpArr.getJSONObject(i)
+            val name = obj.optString("name", "Unnamed")
+            val url  = obj.optString("url", "")
+            val enabled = obj.optBoolean("enabled", true)
+            container.addView(buildMcpRow(name, url, enabled) { isOn ->
+                obj.put("enabled", isOn)
+                prefs.saveMcpServersJson(httpArr.toString())
+                bridgeManager.writeMcpConfig(prefs)
+            })
+        }
+
+        // Build rows for stdio servers
+        for (i in 0 until stdioArr.length()) {
+            val obj = stdioArr.getJSONObject(i)
+            val name    = obj.optString("name", "Unnamed")
+            val command = obj.optString("command", "")
+            val enabled = obj.optBoolean("enabled", true)
+            container.addView(buildMcpRow(name, command, enabled) { isOn ->
+                obj.put("enabled", isOn)
+                prefs.saveMcpStdioServersJson(stdioArr.toString())
+                bridgeManager.writeMcpConfig(prefs)
+            })
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun buildMcpRow(
+        name: String,
+        subtitle: String,
+        enabled: Boolean,
+        onToggle: (Boolean) -> Unit
+    ): View {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            setPadding(0, dpToPx(6), 0, dpToPx(6))
+        }
+        val textCol = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        textCol.addView(TextView(this).apply {
+            text = name
+            setTextColor(ContextCompat.getColor(this@SettingsActivity, R.color.text_primary))
+            textSize = 14f
+        })
+        if (subtitle.isNotEmpty()) {
+            textCol.addView(TextView(this).apply {
+                text = subtitle
+                setTextColor(ContextCompat.getColor(this@SettingsActivity, R.color.text_secondary))
+                textSize = 11f
+                maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
+            })
+        }
+        val toggle = Switch(this).apply {
+            isChecked = enabled
+            setOnCheckedChangeListener(null)
+        }
+        toggle.setOnCheckedChangeListener { _, isOn -> onToggle(isOn) }
+        row.addView(textCol)
+        row.addView(toggle)
+        return row
     }
 
     private fun populateFields() {

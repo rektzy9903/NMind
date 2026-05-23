@@ -178,6 +178,7 @@
                 android:text="MCP Servers" />
 
             <LinearLayout
+                android:id="@+id/mcpCard"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
@@ -185,11 +186,19 @@
                 android:padding="16dp"
                 android:layout_marginBottom="24dp">
 
+                <!-- Populated dynamically in onResume() -->
+                <LinearLayout
+                    android:id="@+id/mcpServerRows"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical" />
+
                 <Button
                     android:id="@+id/btnMcpServers"
                     style="@style/Widget.Material3.Button.OutlinedButton"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
                     android:text="Manage MCP Servers"
                     android:textColor="@color/text_primary" />
 

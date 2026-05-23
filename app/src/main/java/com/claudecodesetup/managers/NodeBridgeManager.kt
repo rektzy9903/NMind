@@ -116,6 +116,7 @@ class NodeBridgeManager(private val context: Context) {
                 val server = httpArr.getJSONObject(i)
                 val name = server.optString("name")
                 val url  = server.optString("url")
+                if (!server.optBoolean("enabled", true)) continue
                 if (name.isNotEmpty() && url.isNotEmpty()) {
                     mcpServers.put(name, org.json.JSONObject().apply {
                         put("type", server.optString("transport", "sse"))
@@ -136,6 +137,7 @@ class NodeBridgeManager(private val context: Context) {
                 val name    = server.optString("name")
                 val command = server.optString("command")
                 val argsStr = server.optString("args")
+                if (!server.optBoolean("enabled", true)) continue
                 if (name.isNotEmpty() && command.isNotEmpty()) {
                     val argsArr = org.json.JSONArray()
                     shellSplit(argsStr).forEach { argsArr.put(it) }

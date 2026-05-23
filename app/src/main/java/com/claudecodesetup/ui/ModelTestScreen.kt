@@ -1,5 +1,6 @@
 package com.claudecodesetup.ui
 
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -14,6 +15,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -297,93 +299,194 @@ private fun TabbedModelTestScreen(
         }
     }
 
-    val activeLoad   = if (selectedTab == 0) orLoad   else nvLoad
+    val activeLoad    = if (selectedTab == 0) orLoad    else nvLoad
     val activeResults = if (selectedTab == 0) orResults else nvResults
     val activeTesting = if (selectedTab == 0) orTesting else nvTesting
-    val onFetch      = if (selectedTab == 0) ::fetchOr   else ::fetchNv
-    val onTestAll    = if (selectedTab == 0) ::runOrTests else ::runNvTests
+    val onFetch       = if (selectedTab == 0) ::fetchOr  else ::fetchNv
+    val onTestAll     = if (selectedTab == 0) ::runOrTests else ::runNvTests
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Brush.verticalGradient(0f to Color(0xFF08041A), 1f to Color(0xFF060210)))
-        )
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Brush.verticalGradient(listOf(Color(0xFF07061A), Color(0xFF0E0C28))))
+    ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // Header
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    modifier = Modifier.size(36.dp).clip(CircleShape)
-                        .background(Color(0x1AFFFFFF), CircleShape).clickable(onClick = onBack),
-                    contentAlignment = Alignment.Center
-                ) { Text("‹", fontSize = 22.sp, color = Color.White, fontFamily = DmSansFamily) }
-                Spacer(Modifier.width(12.dp))
-                Column {
-                    Text("Testing Response", fontSize = 18.sp, fontWeight = FontWeight.Bold,
-                        color = Color.White, fontFamily = DmSansFamily)
-                    Text("Free models · live fetch", fontSize = 12.sp,
-                        color = Color(0xFF64748B), fontFamily = DmSansFamily)
-                }
-                Spacer(Modifier.weight(1f))
-                TestButton(
-                    label = "↻",
-                    enabled = activeLoad !is ModelLoadState.Loading && !activeTesting,
-                    color = Color(0xFF818CF8),
-                    onClick = onFetch
-                )
-                Spacer(Modifier.width(8.dp))
-                TestButton(
-                    label = if (activeTesting) "Testing…" else "Test All",
-                    enabled = activeLoad is ModelLoadState.Loaded && !activeTesting,
-                    color = Color(0xFF06B6D4),
-                    onClick = onTestAll
-                )
-            }
+            ScreenHeader(
+                title = "Testing Response",
+                subtitle = "Free models · live fetch",
+                onBack = onBack,
+                isLoading = activeLoad is ModelLoadState.Loading,
+                isTesting = activeTesting,
+                onRefresh = onFetch,
+                onTestAll = onTestAll,
+                showRefresh = true,
+                testingLabel = if (activeTesting) "Testing…" else "Test All",
+                testEnabled = activeLoad is ModelLoadState.Loaded && !activeTesting,
+            )
 
             // Tab bar
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp)
-                    .padding(bottom = 10.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    .padding(bottom = 10.dp)
+                    .background(Color(0x07FFFFFF), RoundedCornerShape(14.dp))
+                    .border(1.dp, Color(0x12FFFFFF), RoundedCornerShape(14.dp))
+                    .padding(5.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 listOf("OpenRouter", "NVIDIA NIM").forEachIndexed { idx, label ->
                     val isSelected = selectedTab == idx
-                    val tabColor = if (idx == 0) Color(0xFF818CF8) else Color(0xFF22C55E)
                     Box(
                         modifier = Modifier
                             .weight(1f)
+                            .height(36.dp)
                             .clip(RoundedCornerShape(10.dp))
-                            .background(if (isSelected) tabColor.copy(alpha = 0.18f) else Color(0x08FFFFFF))
-                            .border(1.dp,
-                                if (isSelected) tabColor.copy(alpha = 0.6f) else Color(0x15FFFFFF),
-                                RoundedCornerShape(10.dp))
-                            .clickable { selectedTab = idx }
-                            .padding(vertical = 9.dp),
+                            .then(
+                                if (isSelected) Modifier.background(
+                                    Brush.linearGradient(listOf(Color(0xFF7C3AED), Color(0xFF6D28D9)))
+                                ) else Modifier.background(Color.Transparent)
+                            )
+                            .clickable { selectedTab = idx },
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
                             label,
                             fontSize = 13.sp,
                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                            color = if (isSelected) tabColor else Color(0xFF64748B),
+                            color = if (isSelected) Color(0xFFF0EEFF) else Color(0xFF5B5880),
                             fontFamily = DmSansFamily
                         )
                     }
                 }
             }
 
-            // Tab content
             ModelLoadContent(
                 loadState = activeLoad,
                 results = activeResults,
                 onRetry = onFetch
             )
         }
+    }
+}
+
+// ── Shared screen header ───────────────────────────────────────────────────────
+
+@Composable
+private fun ScreenHeader(
+    title: String,
+    subtitle: String,
+    onBack: () -> Unit,
+    isLoading: Boolean,
+    isTesting: Boolean,
+    onRefresh: () -> Unit,
+    onTestAll: () -> Unit,
+    showRefresh: Boolean,
+    testingLabel: String,
+    testEnabled: Boolean,
+) {
+    val pulseTransition = rememberInfiniteTransition(label = "livePulse")
+    val pulseAlpha by pulseTransition.animateFloat(
+        initialValue = 0.4f, targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(900, easing = EaseInOut), RepeatMode.Reverse),
+        label = "lp"
+    )
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .padding(top = 14.dp, bottom = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // Back button
+        Box(
+            modifier = Modifier
+                .size(34.dp)
+                .background(Color(0x09FFFFFF), RoundedCornerShape(17.dp))
+                .border(1.dp, Color(0x12FFFFFF), RoundedCornerShape(17.dp))
+                .clickable(onClick = onBack),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                "←",
+                fontSize = 16.sp,
+                color = Color(0xFF8B5CF6),
+                fontFamily = DmSansFamily
+            )
+        }
+
+        Spacer(Modifier.width(12.dp))
+
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                title,
+                fontSize = 19.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFFF0EEFF),
+                fontFamily = SyneFamily
+            )
+            Text(
+                subtitle.uppercase(),
+                fontSize = 10.sp,
+                color = Color(0xFF5B5880),
+                fontFamily = JetBrainsMonoFamily,
+                letterSpacing = 1.sp,
+            )
+        }
+
+        // Refresh icon-btn
+        if (showRefresh) {
+            Box(
+                modifier = Modifier
+                    .size(34.dp)
+                    .background(Color(0x09FFFFFF), RoundedCornerShape(10.dp))
+                    .border(1.dp, Color(0x12FFFFFF), RoundedCornerShape(10.dp))
+                    .run { if (!isLoading && !isTesting) clickable(onClick = onRefresh) else this },
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    "↻",
+                    fontSize = 16.sp,
+                    color = if (!isLoading && !isTesting) Color(0xFF8B5CF6) else Color(0xFF3D3A5C),
+                    fontFamily = DmSansFamily
+                )
+            }
+            Spacer(Modifier.width(6.dp))
+        }
+
+        // Live status pill
+        Row(
+            modifier = Modifier
+                .background(Color(0x0C8B5CF6), RoundedCornerShape(20.dp))
+                .border(1.dp, Color(0x258B5CF6), RoundedCornerShape(20.dp))
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(5.dp)
+                    .background(Color(0xFF8B5CF6).copy(alpha = pulseAlpha), CircleShape)
+            )
+            Spacer(Modifier.width(4.dp))
+            Text(
+                "Live",
+                fontSize = 10.sp,
+                color = Color(0xFF8B5CF6),
+                fontFamily = JetBrainsMonoFamily,
+                fontWeight = FontWeight.Medium,
+            )
+        }
+
+        Spacer(Modifier.width(8.dp))
+
+        // Test All button
+        TestButton(
+            label = testingLabel,
+            enabled = testEnabled,
+            color = Color(0xFF22D3EE),
+            onClick = onTestAll
+        )
     }
 }
 
@@ -397,33 +500,53 @@ private fun ModelLoadContent(
         is ModelLoadState.Loading -> {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    CircularProgressIndicator(color = Color(0xFF06B6D4), strokeWidth = 2.dp)
+                    CircularProgressIndicator(color = Color(0xFF8B5CF6), strokeWidth = 2.dp)
                     Spacer(Modifier.height(12.dp))
-                    Text("Fetching models…", fontSize = 13.sp, color = Color(0xFF64748B), fontFamily = DmSansFamily)
+                    Text(
+                        "Fetching models…",
+                        fontSize = 13.sp,
+                        color = Color(0xFF5B5880),
+                        fontFamily = JetBrainsMonoFamily
+                    )
                 }
             }
         }
         is ModelLoadState.Error -> {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("Failed to load models", fontSize = 14.sp, color = Color(0xFFEF4444), fontFamily = DmSansFamily)
+                    Text(
+                        "Failed to load models",
+                        fontSize = 14.sp,
+                        color = Color(0xFFEF4444),
+                        fontFamily = SyneFamily,
+                        fontWeight = FontWeight.Bold
+                    )
                     Spacer(Modifier.height(6.dp))
-                    Text(state.message, fontSize = 11.sp, color = Color(0xFF475569), fontFamily = SpaceMonoFamily)
+                    Text(
+                        state.message,
+                        fontSize = 11.sp,
+                        color = Color(0xFF5B5880),
+                        fontFamily = JetBrainsMonoFamily
+                    )
                     Spacer(Modifier.height(16.dp))
-                    TestButton(label = "↻ Retry", enabled = true, color = Color(0xFF06B6D4), onClick = onRetry)
+                    TestButton(label = "↻ Retry", enabled = true, color = Color(0xFF22D3EE), onClick = onRetry)
                 }
             }
         }
         is ModelLoadState.Loaded -> {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                LegendDot(Color(0xFF22C55E), "Pass")
-                LegendDot(Color(0xFFF59E0B), "Empty / Rate limit")
-                LegendDot(Color(0xFFEF4444), "Fail")
+            // Stats strip — only show once at least one result is resolved
+            val hasAnyResult = results.any {
+                it.status != TestStatus.PENDING && it.status != TestStatus.TESTING
             }
-            Spacer(Modifier.height(8.dp))
+            if (hasAnyResult) {
+                StatsStrip(results)
+            }
+
+            // Legend row
+            LegendRow(totalCount = results.size)
+
+            Spacer(Modifier.height(6.dp))
+
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
@@ -433,6 +556,108 @@ private fun ModelLoadContent(
                 item { Spacer(Modifier.height(24.dp)) }
             }
         }
+    }
+}
+
+// ── Stats strip ────────────────────────────────────────────────────────────────
+
+@Composable
+private fun StatsStrip(results: List<ModelTestResult>) {
+    val passCount = results.count { it.status == TestStatus.PASS }
+    val rateLimitCount = results.count { it.status == TestStatus.RATE_LIMITED || it.status == TestStatus.TIMEOUT }
+    val failCount = results.count { it.status == TestStatus.FAIL }
+    val completedWithLatency = results.filter {
+        it.status !in listOf(TestStatus.PENDING, TestStatus.TESTING) && it.latencyMs > 0
+    }
+    val avgLatency = if (completedWithLatency.isEmpty()) 0L
+                     else completedWithLatency.sumOf { it.latencyMs } / completedWithLatency.size
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .padding(bottom = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        StatCard(
+            value = passCount.toString(),
+            label = "Passing",
+            valueColor = Color(0xFF22C55E),
+            modifier = Modifier.weight(1f)
+        )
+        StatCard(
+            value = rateLimitCount.toString(),
+            label = "Rate Ltd",
+            valueColor = Color(0xFFF59E0B),
+            modifier = Modifier.weight(1f)
+        )
+        StatCard(
+            value = failCount.toString(),
+            label = "Failed",
+            valueColor = Color(0xFFEF4444),
+            modifier = Modifier.weight(1f)
+        )
+        StatCard(
+            value = if (avgLatency > 0) "${avgLatency}ms" else "—",
+            label = "Avg. Time",
+            valueColor = Color(0xFFA78BFA),
+            modifier = Modifier.weight(1f)
+        )
+    }
+}
+
+@Composable
+private fun StatCard(value: String, label: String, valueColor: Color, modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .background(Color(0x09FFFFFF), RoundedCornerShape(12.dp))
+            .border(1.dp, Color(0x12FFFFFF), RoundedCornerShape(12.dp))
+            .padding(vertical = 8.dp, horizontal = 4.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                value,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+                color = valueColor,
+                fontFamily = SyneFamily,
+            )
+            Text(
+                label,
+                fontSize = 9.sp,
+                color = Color(0xFF7C6FAA),
+                fontFamily = JetBrainsMonoFamily,
+            )
+        }
+    }
+}
+
+// ── Legend row ─────────────────────────────────────────────────────────────────
+
+@Composable
+private fun LegendRow(totalCount: Int) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .padding(bottom = 4.dp)
+            .background(Color(0x07FFFFFF), RoundedCornerShape(12.dp))
+            .border(1.dp, Color(0x12FFFFFF), RoundedCornerShape(12.dp))
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        LegendDot(Color(0xFF22C55E), "Pass")
+        LegendDot(Color(0xFFF59E0B), "Rate limited")
+        LegendDot(Color(0xFFEF4444), "Fail")
+        Spacer(Modifier.weight(1f))
+        Text(
+            "$totalCount models",
+            fontSize = 10.sp,
+            color = Color(0xFF5B5880),
+            fontFamily = JetBrainsMonoFamily,
+        )
     }
 }
 
@@ -505,146 +730,167 @@ private fun SingleProviderTestScreen(
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        Box(
-            modifier = Modifier.fillMaxSize().background(
-                Brush.verticalGradient(0f to Color(0xFF08041A), 1f to Color(0xFF060210))
-            )
-        )
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Brush.verticalGradient(listOf(Color(0xFF07061A), Color(0xFF0E0C28))))
+    ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    modifier = Modifier.size(36.dp).clip(CircleShape)
-                        .background(Color(0x1AFFFFFF), CircleShape).clickable(onClick = onBack),
-                    contentAlignment = Alignment.Center
-                ) { Text("‹", fontSize = 22.sp, color = Color.White, fontFamily = DmSansFamily) }
-                Spacer(Modifier.width(12.dp))
-                Column {
-                    Text("Testing Response", fontSize = 18.sp, fontWeight = FontWeight.Bold,
-                        color = Color.White, fontFamily = DmSansFamily)
-                    Text("Provider: ${provider?.name ?: providerId}",
-                        fontSize = 12.sp, color = Color(0xFF64748B), fontFamily = DmSansFamily)
-                }
-                Spacer(Modifier.weight(1f))
-                if (isLive) {
-                    TestButton(
-                        label = "↻",
-                        enabled = loadState !is ModelLoadState.Loading && !isTesting,
-                        color = Color(0xFF818CF8),
-                        onClick = ::fetchModels
-                    )
-                    Spacer(Modifier.width(8.dp))
-                }
-                TestButton(
-                    label = if (isTesting) "Testing…" else "Test All",
-                    enabled = loadState is ModelLoadState.Loaded && !isTesting,
-                    color = Color(0xFF06B6D4),
-                    onClick = ::runAllTests
-                )
-            }
+            ScreenHeader(
+                title = "Testing Response",
+                subtitle = "Provider: ${provider?.name ?: providerId}",
+                onBack = onBack,
+                isLoading = loadState is ModelLoadState.Loading,
+                isTesting = isTesting,
+                onRefresh = ::fetchModels,
+                onTestAll = ::runAllTests,
+                showRefresh = isLive,
+                testingLabel = if (isTesting) "Testing…" else "Test All",
+                testEnabled = loadState is ModelLoadState.Loaded && !isTesting,
+            )
             ModelLoadContent(loadState = loadState, results = results, onRetry = ::fetchModels)
         }
     }
 }
 
+// ── ModelResultRow ─────────────────────────────────────────────────────────────
+
 @Composable
 private fun ModelResultRow(result: ModelTestResult) {
     val (bgColor, borderColor, label, labelColor) = when (result.status) {
-        TestStatus.PENDING      -> Quad(Color(0x08FFFFFF), Color(0x15FFFFFF), "—",          Color(0xFF64748B))
-        TestStatus.TESTING      -> Quad(Color(0x0F06B6D4), Color(0x3006B6D4), "Testing…",  Color(0xFF06B6D4))
-        TestStatus.PASS         -> Quad(Color(0x0F22C55E), Color(0x2522C55E), "✓ Responds", Color(0xFF22C55E))
-        TestStatus.EMPTY        -> Quad(Color(0x0FF59E0B), Color(0x25F59E0B), "∅ Empty",   Color(0xFFF59E0B))
-        TestStatus.RATE_LIMITED -> Quad(Color(0x0FF59E0B), Color(0x25F59E0B), "⚡ Rate limit", Color(0xFFF59E0B))
-        TestStatus.FAIL         -> Quad(Color(0x0FEF4444), Color(0x25EF4444), "✗ Failed",  Color(0xFFEF4444))
-        TestStatus.TIMEOUT      -> Quad(Color(0x0FF59E0B), Color(0x25F59E0B), "⏱ Timeout", Color(0xFFF59E0B))
+        TestStatus.PENDING      -> Quad(Color(0x08FFFFFF), Color(0x12FFFFFF), "—",             Color(0xFF5B5880))
+        TestStatus.TESTING      -> Quad(Color(0x0F22D3EE), Color(0x3022D3EE), "Testing…",     Color(0xFF22D3EE))
+        TestStatus.PASS         -> Quad(Color(0x0F22C55E), Color(0x2522C55E), "Responds",      Color(0xFF22C55E))
+        TestStatus.EMPTY        -> Quad(Color(0x0FF59E0B), Color(0x25F59E0B), "Empty",         Color(0xFFF59E0B))
+        TestStatus.RATE_LIMITED -> Quad(Color(0x0FF59E0B), Color(0x25F59E0B), "Rate limit",    Color(0xFFF59E0B))
+        TestStatus.FAIL         -> Quad(Color(0x0FEF4444), Color(0x25EF4444), "Failed",        Color(0xFFEF4444))
+        TestStatus.TIMEOUT      -> Quad(Color(0x0FF59E0B), Color(0x25F59E0B), "Timeout",       Color(0xFFF59E0B))
     }
 
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(bgColor)
-            .border(1.dp, borderColor, RoundedCornerShape(12.dp))
-            .padding(horizontal = 14.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        // Status indicator
-        if (result.status == TestStatus.TESTING) {
-            CircularProgressIndicator(
-                modifier = Modifier.size(16.dp),
-                color = Color(0xFF06B6D4),
-                strokeWidth = 2.dp
-            )
-        } else {
-            Box(
-                modifier = Modifier
-                    .size(8.dp)
-                    .background(
-                        when (result.status) {
-                            TestStatus.PASS -> Color(0xFF22C55E)
-                            TestStatus.FAIL -> Color(0xFFEF4444)
-                            TestStatus.PENDING -> Color(0xFF334155)
-                            else -> Color(0xFFF59E0B)
-                        },
-                        CircleShape
-                    )
-            )
-        }
+    val glowBarColor = when (result.status) {
+        TestStatus.PASS         -> Color(0xFF22C55E)
+        TestStatus.FAIL         -> Color(0xFFEF4444)
+        TestStatus.RATE_LIMITED,
+        TestStatus.TIMEOUT,
+        TestStatus.EMPTY        -> Color(0xFFF59E0B)
+        TestStatus.TESTING      -> Color(0xFF22D3EE)
+        TestStatus.PENDING      -> Color(0xFF3D3A5C)
+    }
 
-        Spacer(Modifier.width(12.dp))
+    val cappedLatency = result.latencyMs.coerceAtMost(10_000L)
+    val latencyFraction = if (cappedLatency > 0) cappedLatency / 10_000f else 0f
 
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                result.model.name,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium,
-                color = Color.White,
-                fontFamily = DmSansFamily,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                result.model.modelId,
-                fontSize = 11.sp,
-                color = Color(0xFF475569),
-                fontFamily = SpaceMonoFamily,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
+    Box(modifier = Modifier.fillMaxWidth()) {
+        // Left glow bar
+        Box(
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .fillMaxHeight()
+                .width(3.dp)
+                .clip(RoundedCornerShape(topEnd = 3.dp, bottomEnd = 3.dp))
+                .background(glowBarColor.copy(alpha = if (result.status == TestStatus.PENDING) 0.2f else 0.6f))
+        )
 
-        Spacer(Modifier.width(8.dp))
-
-        Column(horizontalAlignment = Alignment.End) {
-            Text(
-                label,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = labelColor,
-                fontFamily = DmSansFamily,
-            )
-            if (result.status !in listOf(TestStatus.PENDING, TestStatus.TESTING) && result.latencyMs > 0) {
-                Text(
-                    "${result.latencyMs}ms",
-                    fontSize = 10.sp,
-                    color = Color(0xFF475569),
-                    fontFamily = SpaceMonoFamily,
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(14.dp))
+                .background(bgColor)
+                .border(1.dp, borderColor, RoundedCornerShape(14.dp))
+                .padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Status indicator
+            if (result.status == TestStatus.TESTING) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(16.dp),
+                    color = Color(0xFF22D3EE),
+                    strokeWidth = 2.dp
                 )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .drawBehind {
+                            // glow
+                            if (result.status != TestStatus.PENDING) {
+                                drawCircle(glowBarColor.copy(alpha = 0.3f), radius = size.minDimension)
+                            }
+                            drawCircle(glowBarColor)
+                        }
+                )
+            }
+
+            Spacer(Modifier.width(12.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    result.model.name,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = Color(0xFFF0EEFF),
+                    fontFamily = DmSansFamily,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    result.model.modelId,
+                    fontSize = 9.5.sp,
+                    color = Color(0xFF5B5880),
+                    fontFamily = JetBrainsMonoFamily,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+
+            Spacer(Modifier.width(8.dp))
+
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    label,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = labelColor,
+                    fontFamily = SyneFamily,
+                )
+                if (result.status !in listOf(TestStatus.PENDING, TestStatus.TESTING) && result.latencyMs > 0) {
+                    Spacer(Modifier.height(3.dp))
+                    Text(
+                        "${result.latencyMs}ms",
+                        fontSize = 10.sp,
+                        color = Color(0xFF5B5880),
+                        fontFamily = JetBrainsMonoFamily,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    // Mini latency bar
+                    Box(
+                        modifier = Modifier
+                            .width(60.dp)
+                            .height(2.dp)
+                            .background(Color(0x12FFFFFF), RoundedCornerShape(1.dp))
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .fillMaxWidth(fraction = latencyFraction.coerceIn(0f, 1f))
+                                .background(labelColor.copy(alpha = 0.7f), RoundedCornerShape(1.dp))
+                        )
+                    }
+                }
             }
         }
     }
 }
+
+// ── TestButton ─────────────────────────────────────────────────────────────────
 
 @Composable
 private fun TestButton(label: String, enabled: Boolean, color: Color, onClick: () -> Unit) {
     Box(
         modifier = Modifier
             .clip(RoundedCornerShape(10.dp))
-            .background(if (enabled) color.copy(alpha = 0.2f) else Color(0x0FFFFFFF))
-            .border(1.dp, if (enabled) color.copy(alpha = 0.5f) else Color(0x15FFFFFF), RoundedCornerShape(10.dp))
+            .background(if (enabled) color.copy(alpha = 0.15f) else Color(0x09FFFFFF))
+            .border(1.dp, if (enabled) color.copy(alpha = 0.45f) else Color(0x12FFFFFF), RoundedCornerShape(10.dp))
             .run { if (enabled) clickable(onClick = onClick) else this }
             .padding(horizontal = 16.dp, vertical = 8.dp)
     ) {
@@ -652,18 +898,20 @@ private fun TestButton(label: String, enabled: Boolean, color: Color, onClick: (
             label,
             fontSize = 13.sp,
             fontWeight = FontWeight.SemiBold,
-            color = if (enabled) color else Color(0xFF475569),
+            color = if (enabled) color else Color(0xFF3D3A5C),
             fontFamily = DmSansFamily,
         )
     }
 }
+
+// ── LegendDot ──────────────────────────────────────────────────────────────────
 
 @Composable
 private fun LegendDot(color: Color, label: String) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(7.dp).background(color, CircleShape))
         Spacer(Modifier.width(4.dp))
-        Text(label, fontSize = 11.sp, color = Color(0xFF64748B), fontFamily = DmSansFamily)
+        Text(label, fontSize = 11.sp, color = Color(0xFF5B5880), fontFamily = DmSansFamily)
     }
 }
 
