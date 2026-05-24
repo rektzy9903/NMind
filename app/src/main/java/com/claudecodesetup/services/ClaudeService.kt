@@ -77,6 +77,8 @@ class ClaudeService : LifecycleService() {
             val stripped = text
                 .replace("]9;thinking-start", "")
                 .replace("]9;thinking-done", "")
+                // Transient gate message — strip so replayed history never shows stale busy state
+                .replace("[busy — please wait]", "")
             buffer.append(stripped)
             if (buffer.length > MAX_BUFFER_CHARS) {
                 buffer.delete(0, buffer.length - MAX_BUFFER_CHARS)
