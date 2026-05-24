@@ -3397,7 +3397,10 @@ function openPrintSession() {
             let line = state.inputBuf.slice(0, nl)
                 .replace(/[\x00-\x08\x0b-\x1f\x7f]/g, '')
                 .replace(/！/g, '!')
-                .replace(/[​‌‍﻿⁠]/g, '')
+                // Strip invisible/format Unicode that Android IME may prepend, causing
+                // line.startsWith('!') to return false and commands to hit the busy gate.
+                // Covers the same ranges as JS submitLine() + sendRawInput() normalisation.
+                .replace(/[\u00ad\u200b-\u200f\u2028-\u202f\u2060-\u206f\ufeff]/g, '')
                 .trim();
             state.inputBuf = state.inputBuf.slice(nl + 1);
             if (!line) continue;
