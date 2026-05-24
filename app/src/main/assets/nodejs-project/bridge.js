@@ -3158,7 +3158,7 @@ function openPrintSession() {
         patchSettings(cfg);
         const env = buildEnv();
         const cliUrl  = 'file://' + CLAUDE_CLI;
-        const exitLog = JSON.stringify(path.join(FILES_DIR, 'session_exit.log'));
+        const exitLog = JSON.stringify(SETUP_LOG);
 
         // If model/provider changed since last session, clear history so the new
         // model doesn't receive context it never produced.
@@ -3265,8 +3265,9 @@ function openPrintSession() {
                 if (t.startsWith('{')) {
                     let evt;
                     try { evt = JSON.parse(t); } catch(_) {
-                        // Non-JSON line — forward raw wrapped in SYS_FENCE so it routes
+                        // Non-JSON line — log it and forward via SYS_FENCE so it routes
                         // to a sys bubble and never pollutes the AI bubble.
+                        log('[stdout] ' + t.slice(0, 200) + '\n');
                         try { if (state.socket) state.socket.write(SYS_FENCE + line + '\n'); } catch(_) {}
                         continue;
                     }
@@ -3277,7 +3278,8 @@ function openPrintSession() {
                     if (/allow|permission|approve|proceed/i.test(t) && /\?|y\/n|\[y/i.test(t)) {
                         handlePermissionText(t, state, proc);
                     } else {
-                        // Non-JSON plain output — SYS_FENCE so it always lands in a sys bubble
+                        // Non-JSON plain output — log it and SYS_FENCE so it lands in a sys bubble
+                        log('[stdout-plain] ' + t.slice(0, 200) + '\n');
                         try { if (state.socket) state.socket.write(SYS_FENCE + line + '\n'); } catch(_) {}
                     }
                 }
