@@ -68,6 +68,8 @@ private fun capColor(cap: String): Color = when (cap) {
     "fast"   -> Color(0xFF3DD68C)
     "ctx"    -> Color(0xFFF87171)
     "code"   -> Color(0xFFE8834A)
+    "free"   -> Color(0xFF3DD68C)
+    "paid"   -> Color(0xFFFBBF24)
     else     -> Color(0xFF9090A0)
 }
 
@@ -636,35 +638,49 @@ private fun ModelCard(display: ModelDisplay, isSelected: Boolean, onSelect: () -
                 color = NexusText2, maxLines = 2, overflow = TextOverflow.Ellipsis,
                 lineHeight = 15.sp
             )
-            // Capability chips
-            if (display.effectiveCaps.isNotEmpty()) {
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(3.dp),
-                    verticalArrangement = Arrangement.spacedBy(3.dp),
-                    modifier = Modifier.padding(top = 2.dp)
-                ) {
-                    CAP_PILL_ORDER.forEach { (cap, label) ->
-                        if (cap in display.effectiveCaps) {
-                            val cc = capColor(label)
-                            Box(
-                                modifier = Modifier
-                                    .background(cc.copy(alpha = 0.10f), RoundedCornerShape(3.dp))
-                                    .border(1.dp, cc.copy(alpha = 0.15f), RoundedCornerShape(3.dp))
-                                    .padding(horizontal = 5.dp, vertical = 1.dp)
-                            ) {
-                                Text(
-                                    label.uppercase(), fontFamily = SpaceMonoFamily,
-                                    fontSize = 8.sp, fontWeight = FontWeight.SemiBold,
-                                    color = cc, letterSpacing = 0.3.sp
-                                )
-                            }
+            // Capability chips (including free/paid)
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(3.dp),
+                verticalArrangement = Arrangement.spacedBy(3.dp),
+                modifier = Modifier.padding(top = 2.dp)
+            ) {
+                CAP_PILL_ORDER.forEach { (cap, label) ->
+                    if (cap in display.effectiveCaps) {
+                        val cc = capColor(label)
+                        Box(
+                            modifier = Modifier
+                                .background(cc.copy(alpha = 0.10f), RoundedCornerShape(3.dp))
+                                .border(1.dp, cc.copy(alpha = 0.15f), RoundedCornerShape(3.dp))
+                                .padding(horizontal = 5.dp, vertical = 1.dp)
+                        ) {
+                            Text(
+                                label.uppercase(), fontFamily = SpaceMonoFamily,
+                                fontSize = 8.sp, fontWeight = FontWeight.SemiBold,
+                                color = cc, letterSpacing = 0.3.sp
+                            )
                         }
+                    }
+                }
+                // Paid chip for non-free models (free chip already in CAP_PILL_ORDER)
+                if (!isFree) {
+                    val cc = capColor("paid")
+                    Box(
+                        modifier = Modifier
+                            .background(cc.copy(alpha = 0.10f), RoundedCornerShape(3.dp))
+                            .border(1.dp, cc.copy(alpha = 0.15f), RoundedCornerShape(3.dp))
+                            .padding(horizontal = 5.dp, vertical = 1.dp)
+                    ) {
+                        Text(
+                            "PAID", fontFamily = SpaceMonoFamily,
+                            fontSize = 8.sp, fontWeight = FontWeight.SemiBold,
+                            color = cc, letterSpacing = 0.3.sp
+                        )
                     }
                 }
             }
         }
 
-        // Top-right: selected tick OR FREE/PAID badge
+        // Top-right: selected tick only
         if (isSelected) {
             Box(
                 modifier = Modifier
@@ -674,24 +690,6 @@ private fun ModelCard(display: ModelDisplay, isSelected: Boolean, onSelect: () -
                 contentAlignment = Alignment.Center
             ) {
                 Text("✓", fontSize = 8.sp, fontWeight = FontWeight.Bold, color = Color.White)
-            }
-        } else {
-            // Show FREE or PAID badge
-            val badgeColor = if (isFree) NexusGreen else NexusAmber
-            val badgeBg = if (isFree) NexusGreenDim else Color(0x15FBBF24)
-            val badgeBorder = if (isFree) Color(0x303DD68C) else Color(0x30FBBF24)
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .background(badgeBg, RoundedCornerShape(3.dp))
-                    .border(1.dp, badgeBorder, RoundedCornerShape(3.dp))
-                    .padding(horizontal = 5.dp, vertical = 1.dp)
-            ) {
-                Text(
-                    if (isFree) "free" else "paid",
-                    fontFamily = SpaceMonoFamily, fontSize = 9.sp,
-                    fontWeight = FontWeight.SemiBold, color = badgeColor
-                )
             }
         }
     }
