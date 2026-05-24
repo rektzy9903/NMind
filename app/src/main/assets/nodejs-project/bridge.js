@@ -3121,7 +3121,7 @@ function openPrintSession() {
             const permId = evt.id || (Date.now() + '-' + Math.random().toString(36).slice(2));
             const perm = { toolName, toolInput, id: permId, suggestions, autoApproved: true };
             state.pendingPerm = perm;
-            // --dangerously-skip-permissions handles tool approval; dialog is informational.
+            // dangerouslySkipPermissions in settings.json handles tool approval; dialog is informational.
             const permB64 = Buffer.from(JSON.stringify(perm)).toString('base64');
             try { if (state.socket) state.socket.write('\x1b]9;permission:' + permB64 + '\x07'); } catch(_) {}
             return;
@@ -3182,7 +3182,6 @@ function openPrintSession() {
         //   --output-format stream-json       → structured NDJSON output (must come first)
         //   --print                           → non-interactive, exits after response
         //   --verbose                         → required alongside --output-format=stream-json
-        //   --dangerously-skip-permissions    → auto-approve all tool use (no stdin wait)
         //   --continue                        → resume last session (preserves history)
         //   <message>                         → the user's message
         // NOTE: --append-system-prompt is intentionally omitted. It causes claude-code
@@ -3229,15 +3228,23 @@ function openPrintSession() {
             '.then(function(){try{require("fs").appendFileSync(' + exitLog + ',"[import-resolved]\\n");}catch(_){}})' +
             '.catch(function(e){process.stderr.write("import-err:"+String(e)+"\\n");process.exit(1);});';
 
+        // Verify cwd exists — spawn throws synchronously (ENOENT) if cwd is missing.
+        const spawnCwd = (state.cwd && fs.existsSync(state.cwd)) ? state.cwd : FILES_DIR;
         log('[runMessage] spawn claude-code, model=' + (cfg.modelId || '?') + ' provider=' + (cfg.providerId || '?') + ' mode=' + (cfg.mode || '?') + ' baseUrl=' + (cfg.baseUrl || '?') + '\n');
-        const proc = spawn(LAUNCHER, ['-e', evalCode], { env, cwd: state.cwd });
-        // Write 'y\n' to stdin immediately to auto-approve any API key approval prompt
-        // (customApiKeyResponses.approved in settings.json should make this unnecessary,
-        // but this acts as a fallback). Also satisfies claude-code's 3-second no-stdin wait.
-        // Stdin stays open so !perm-* handlers can still write y/n if needed.
-        try { proc.stdin.write('y\n'); } catch(_) {}
-        // Keep stdin open — needed so permission-prompt answers can be written.
-        // claude-code --print exits on its own after the response; stdin EOF not required.
+        let proc;
+        try {
+            proc = spawn(LAUNCHER, ['-e', evalCode], { env, cwd: spawnCwd });
+        } catch(e) {
+            log('[runMessage] spawn failed: ' + e.message + '\n');
+            try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[31m[spawn error] ' + e.message + '\x1b[0m\r\n'); } catch(_) {}
+            return;
+        }
+        // Write 'y\n' several times — satisfies the API key approval prompt and pre-approves
+        // up to 4 tool permission reads in case dangerouslySkipPermissions in settings.json
+        // is not honoured by this claude-code build.
+        try { proc.stdin.write('y\ny\ny\ny\ny\n'); } catch(_) {}
+        // Keep stdin open — needed so !perm-* handlers can still write y/n on demand.
+        // claude-code --print exits after the response; stdin EOF not required.
         state.currentProc = proc;
         state.busy = true;
         state.thinkingDone = false;
