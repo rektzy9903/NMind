@@ -2043,7 +2043,7 @@ function sendToProvider(baseUrl, apiKey, oaiReq, stream, res, onBadRequest, on42
                         }
                     }
 
-                    if (finishCode) {
+                    if (finishCode && !finished) {
                         log('[proxy] finish_reason=' + finishCode + ' tokens=' + outTokens + '\n');
 
                         // ── WebSearch local execution ────────────────────────────────────

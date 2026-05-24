@@ -293,6 +293,7 @@ class NodeBridgeManager(private val context: Context) {
             put("modelId",            effectiveModelId)
             put("baseUrl",            effectiveBaseUrl)
             put("providerUrl",        providerUrl)
+            put("providerId",         providerId)
             put("modelList",          modelList)
             put("projectPath",        projectPath)
             put("customSystemPrompt", customSystemPrompt)
