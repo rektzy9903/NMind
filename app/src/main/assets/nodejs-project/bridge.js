@@ -1984,8 +1984,21 @@ function sendToProvider(baseUrl, apiKey, oaiReq, stream, res, onBadRequest, on42
                     let event;
                     try { event = JSON.parse(raw); } catch (_) { continue; }
                     if (event.error) {
-                        log('[proxy] stream error from provider: ' + JSON.stringify(event.error).slice(0, 200) + '\n');
-                        continue;
+                        const errMsg = event.error.message || JSON.stringify(event.error).slice(0, 200);
+                        log('[proxy] stream error from provider: ' + errMsg + '\n');
+                        clearTimeout(streamIdleTimer);
+                        // Provider sent an error inside the SSE stream — close the stream
+                        // immediately with a visible error message. Without this, the proxy
+                        // just continues waiting for events that never come, causing a 30 s
+                        // idle timeout even for fast providers like Gemini.
+                        if (headersSent) {
+                            sendEvent('content_block_delta', { type: 'content_block_delta', index: 0,
+                                delta: { type: 'text_delta', text: '\n\n⚠ ' + errMsg } });
+                            finishStream('end_turn');
+                        } else {
+                            proxyError(res, 502, errMsg);
+                        }
+                        return;
                     }
 
                     ensureOpened();
