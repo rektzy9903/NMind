@@ -3229,6 +3229,7 @@ function openPrintSession() {
         // Verify cwd exists — spawn throws synchronously (ENOENT) if cwd is missing.
         const spawnCwd = (state.cwd && fs.existsSync(state.cwd)) ? state.cwd : FILES_DIR;
         log('[runMessage] spawn claude-code, model=' + (cfg.modelId || '?') + ' provider=' + (cfg.providerId || '?') + ' mode=' + (cfg.mode || '?') + ' baseUrl=' + (cfg.baseUrl || '?') + '\n');
+        log('[runMessage] argv: --output-format stream-json --print --verbose' + (state.hasHistory ? ' --continue' : '') + ' <msg>' + '\n');
         let proc;
         try {
             proc = spawn(LAUNCHER, ['-e', evalCode], { env, cwd: spawnCwd });
@@ -3507,6 +3508,8 @@ function openPrintSession() {
                     '  \x1b[33m!log [n|all]\x1b[0m         Show last n lines of bridge log (default 100); !log all = full log\r\n' +
                     '  \x1b[33m!mcp\x1b[0m                List connected MCP servers and tools\r\n' +
                     '  \x1b[33m!test-cli\x1b[0m           Run module-loader + proxy diagnostics\r\n' +
+                    '  \x1b[33m!test-msg [text]\x1b[0m    Run exact runMessage path (patchSettings+stdin) — use to diagnose hangs\r\n' +
+                    '  \x1b[33m!debug\x1b[0m              Dump model/provider/settings/mcp state for remote debugging\r\n' +
                     '  \x1b[33m!help\x1b[0m               Show this help\r\n' +
                     '  \x1b[33m$ <cmd>\x1b[0m             Run a shell command\r\n\r\n'
                 ); } catch(_) {}
@@ -3527,6 +3530,106 @@ function openPrintSession() {
                         .join('\r\n');
                     if (state.socket) state.socket.write(SYS_FENCE + out + '\r\n');
                 } catch(_) { try { if (state.socket) state.socket.write(SYS_FENCE + '[no log]\r\n'); } catch(_) {} }
+                continue;
+            }
+
+            // ── !debug — one-shot state dump for remote debugging ────────────────
+            if (line.startsWith('!debug')) {
+                try {
+                    const dcfg = readConfig();
+                    const sp   = path.join(FILES_DIR, '.claude', 'settings.json');
+                    let settingsSnippet = '(none)';
+                    try {
+                        const s = JSON.parse(fs.readFileSync(sp, 'utf8'));
+                        settingsSnippet = JSON.stringify({
+                            dangerouslySkipPermissions: s.dangerouslySkipPermissions,
+                            permissions: s.permissions,
+                            customApiKeyResponses: { approved: (s.customApiKeyResponses || {}).approved }
+                        });
+                    } catch(_) {}
+                    const mcpExists  = fs.existsSync(MCP_CONFIG_FILE);
+                    let mcpSnippet = '(none)';
+                    if (mcpExists) try { mcpSnippet = fs.readFileSync(MCP_CONFIG_FILE, 'utf8').slice(0, 200); } catch(_) {}
+                    // Build the argv that would be used for the next message
+                    const nextArgv = [
+                        '--output-format', 'stream-json', '--print', '--verbose',
+                        ...(state.hasHistory ? ['--continue'] : []),
+                        '<your message>'
+                    ].join(' ');
+                    const out =
+                        '\x1b[1m[debug dump]\x1b[0m\r\n' +
+                        '  model    : ' + (dcfg.modelId || '?') + '\r\n' +
+                        '  provider : ' + (dcfg.providerId || '?') + '\r\n' +
+                        '  mode     : ' + (dcfg.mode || '?') + '\r\n' +
+                        '  baseUrl  : ' + (dcfg.baseUrl || '?') + '\r\n' +
+                        '  hasHistory: ' + state.hasHistory + '  busy: ' + state.busy + '\r\n' +
+                        '  mcp_config: ' + (mcpExists ? '\x1b[33mEXISTS\x1b[0m' : '\x1b[2mnone\x1b[0m') + '\r\n' +
+                        (mcpExists ? '    ' + mcpSnippet.slice(0, 120) + '\r\n' : '') +
+                        '  settings.json: ' + settingsSnippet + '\r\n' +
+                        '  next argv: ' + nextArgv + '\r\n';
+                    try { if (state.socket) state.socket.write(SYS_FENCE + out); } catch(_) {}
+                } catch(e) {
+                    try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[31m[debug error] ' + e.message + '\x1b[0m\r\n'); } catch(_) {}
+                }
+                continue;
+            }
+
+            // ── !test-msg — run exact runMessage code path with a test message ───
+            // Unlike !test-cli step [3], this calls patchSettings + writes y\n to
+            // stdin — exactly what a real message does. If this hangs but step [3]
+            // works, the issue is in patchSettings or the stdin writes.
+            if (line.startsWith('!test-msg')) {
+                const testText = line.slice(9).trim() || 'hello';
+                try {
+                    const tcfg = readConfig();
+                    patchSettings(tcfg);
+                    const tEnv  = buildEnv();
+                    const tCliUrl = 'file://' + CLAUDE_CLI;
+                    const tArgv =
+                        'process.argv[2]="--output-format";process.argv[3]="stream-json";' +
+                        'process.argv[4]="--print";process.argv[5]="--verbose";' +
+                        'process.argv[6]=' + JSON.stringify(testText) + ';process.argv.length=7;';
+                    const tEval =
+                        'process.stderr.write("[eval-ok]\\n");' +
+                        regexpShim + intlShim +
+                        'process.argv[1]=' + JSON.stringify(CLAUDE_CLI) + ';' +
+                        tArgv +
+                        'import(' + JSON.stringify(tCliUrl) + ')' +
+                        '.catch(function(e){process.stderr.write("ERR:"+String(e)+"\\n");process.exit(1);});';
+                    try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[33m!test-msg: spawning with patchSettings+stdin (30s timeout)…\x1b[0m\r\n'); } catch(_) {}
+                    const tch = spawn(LAUNCHER, ['-e', tEval], { env: tEnv, cwd: FILES_DIR });
+                    try { tch.stdin.write('y\ny\ny\ny\ny\n'); } catch(_) {}
+                    let tOut = '', tErr = '', tDone = false;
+                    tch.stdout.on('data', d => { tOut += d.toString(); });
+                    tch.stderr.on('data', d => { tErr += d.toString(); });
+                    const tTid = setTimeout(() => {
+                        if (tDone) return;
+                        tDone = true;
+                        try { tch.kill(); } catch(_) {}
+                        try { if (state.socket) state.socket.write(SYS_FENCE +
+                            '\x1b[31m!test-msg: TIMEOUT 30s — POST never reached\x1b[0m\r\n' +
+                            '\x1b[2mstdout: ' + tOut.slice(0, 300) + '\x1b[0m\r\n' +
+                            '\x1b[2mstderr: ' + tErr.slice(0, 300) + '\x1b[0m\r\n'); } catch(_) {}
+                    }, 30000);
+                    tch.on('close', code => {
+                        if (tDone) return;
+                        tDone = true;
+                        clearTimeout(tTid);
+                        const gotResponse = tOut.includes('"type":"result"') || tOut.includes('"type":"assistant"');
+                        const mark = gotResponse ? '\x1b[32m✓' : '\x1b[31m✗';
+                        const first = tOut.split('\n').find(l => l.trim().startsWith('{')) || '';
+                        try { if (state.socket) state.socket.write(SYS_FENCE +
+                            mark + ' !test-msg exit=' + code + '\x1b[0m\r\n' +
+                            (gotResponse
+                                ? '\x1b[32mPOST reached — claude responded!\x1b[0m\r\n' + first.slice(0, 150) + '\r\n'
+                                : '\x1b[31mNo response from claude\x1b[0m\r\n' +
+                                  '\x1b[2mstdout: ' + tOut.slice(0, 300) + '\x1b[0m\r\n' +
+                                  '\x1b[2mstderr: ' + tErr.slice(0, 300) + '\x1b[0m\r\n'
+                            )); } catch(_) {}
+                    });
+                } catch(e) {
+                    try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[31m[!test-msg error] ' + e.message + '\x1b[0m\r\n'); } catch(_) {}
+                }
                 continue;
             }
 
