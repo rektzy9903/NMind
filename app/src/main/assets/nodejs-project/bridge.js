@@ -3057,6 +3057,7 @@ function openPrintSession() {
         // On the first JSON event, close the thinking spinner
         if (!state.thinkingDone) {
             state.thinkingDone = true;
+            log('[stream] first event type=' + evt.type + (evt.subtype ? '/' + evt.subtype : '') + '\n');
             try { if (state.socket) state.socket.write('\x1b]9;thinking-done\x07'); } catch(_) {}
         }
 
@@ -3228,6 +3229,7 @@ function openPrintSession() {
             '.then(function(){try{require("fs").appendFileSync(' + exitLog + ',"[import-resolved]\\n");}catch(_){}})' +
             '.catch(function(e){process.stderr.write("import-err:"+String(e)+"\\n");process.exit(1);});';
 
+        log('[runMessage] spawn claude-code, model=' + (cfg.modelId || '?') + ' provider=' + (cfg.providerId || '?') + ' mode=' + (cfg.mode || '?') + ' baseUrl=' + (cfg.baseUrl || '?') + '\n');
         const proc = spawn(LAUNCHER, ['-e', evalCode], { env, cwd: state.cwd });
         // Write one newline to stdin immediately so claude-code's 3-second
         // "no stdin data received" wait exits right away. Stdin stays open so
@@ -3324,6 +3326,7 @@ function openPrintSession() {
             // Ctrl+C clears state.currentProc immediately so a new message can start
             // without waiting for this close event — guard against clobbering the new proc.
             const isActiveProc = state.currentProc === proc;
+            log('[runMessage] close code=' + code + ' isActive=' + isActiveProc + ' firstContent=' + firstContent + ' ctrlC=' + !!proc._ctrlCKill + '\n');
             if (isActiveProc) {
                 state.currentProc = null;
                 state.busy = false;
@@ -3625,8 +3628,13 @@ function openPrintSession() {
             // ── busy gate — only block new AI messages while a response is in flight ──
             // ! commands and $ shell commands always fall through regardless of busy state.
             if (state.busy && !line.startsWith('!') && !line.startsWith('$')) {
+                log('[input] BLOCKED (busy) msg=' + line.slice(0, 80) + '\n');
                 try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[33m[busy — please wait]\x1b[0m\r\n'); } catch(_) {}
                 continue;
+            }
+            // Log every non-command line that reaches this point (passed gate)
+            if (!line.startsWith('!') && !line.startsWith('$')) {
+                log('[input] msg=' + line.slice(0, 80) + ' busy=' + state.busy + ' hasHistory=' + state.hasHistory + '\n');
             }
 
             // ── ! commands ────────────────────────────────────────────────────────
