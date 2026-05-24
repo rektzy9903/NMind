@@ -3195,13 +3195,15 @@ function openPrintSession() {
         //   --print                           → non-interactive, exits after response
         //   --verbose                         → required alongside --output-format=stream-json
         //   --dangerously-skip-permissions    → auto-approve all tool use (no stdin wait)
-        //   --append-system-prompt            → guardian + custom system prompt
         //   --continue                        → resume last session (preserves history)
         //   <message>                         → the user's message
+        // NOTE: --append-system-prompt is intentionally omitted. It causes claude-code
+        // v2.1.112 to hang indefinitely after the HEAD / health-check, never reaching the
+        // POST /v1/messages call. Custom instructions are prepended to the message instead.
         const customPrompt = (cfg.customSystemPrompt || '').trim();
-        const fullSystemPrompt = customPrompt
-            ? GUARDIAN_PROMPT + '\n\n' + customPrompt
-            : GUARDIAN_PROMPT;
+        // Prepend custom instructions to the message (no --append-system-prompt — that flag
+        // causes claude-code v2.1.112 to hang indefinitely on Android after HEAD / health-check).
+        const finalMsg = customPrompt ? '[Custom Instructions]\n' + customPrompt + '\n\n' + msg : msg;
         // Inject --mcp-config when the config file exists so MCP tools (exa, etc.)
         // are available to claude-code in print mode, not just in interactive mode.
         const hasMcpConf = fs.existsSync(MCP_CONFIG_FILE);
@@ -3220,17 +3222,11 @@ function openPrintSession() {
         argvCode +=
             'process.argv[' + argvLen + ']="--dangerously-skip-permissions";';
         argvLen++;
-        argvCode +=
-            'process.argv[' + argvLen + ']="--append-system-prompt";';
-        argvLen++;
-        argvCode +=
-            'process.argv[' + argvLen + ']=' + JSON.stringify(fullSystemPrompt) + ';';
-        argvLen++;
         if (state.hasHistory) {
             argvCode += 'process.argv[' + argvLen + ']="--continue";';
             argvLen++;
         }
-        argvCode += 'process.argv[' + argvLen + ']=' + JSON.stringify(msg) + ';';
+        argvCode += 'process.argv[' + argvLen + ']=' + JSON.stringify(finalMsg) + ';';
         argvLen++;
         argvCode += 'process.argv.length=' + argvLen + ';';
 
