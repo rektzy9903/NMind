@@ -3040,10 +3040,11 @@ function openPrintSession() {
                 s.customApiKeyResponses.rejected.filter(k => k !== 'sk-ant-proxy000');
             s.theme = 'dark'; s.hasCompletedOnboarding = true;
             s.hasShownWelcome = true; s.skipWelcome = true;
-            s.dangerouslySkipPermissions = true;
-            // Always pre-approve all tools via permissions.allow so MCP and built-in
-            // tools never show a prompt regardless of whether dangerouslySkipPermissions
-            // is honored by this claude-code build.
+            // NOTE: dangerouslySkipPermissions is intentionally NOT set here.
+            // On Android Bionic / claude-code v2.1.112, setting it (via settings.json
+            // or CLI flag) causes the process to hang after the HEAD health-check and
+            // never reach POST /v1/messages. Tool approval is handled entirely by
+            // permissions.allow: ['*'] below, which works without the hang.
             if (!s.permissions) s.permissions = { allow: [], deny: [] };
             if (!Array.isArray(s.permissions.allow)) s.permissions.allow = [];
             if (!Array.isArray(s.permissions.deny)) s.permissions.deny = [];
@@ -3120,7 +3121,7 @@ function openPrintSession() {
             const permId = evt.id || (Date.now() + '-' + Math.random().toString(36).slice(2));
             const perm = { toolName, toolInput, id: permId, suggestions, autoApproved: true };
             state.pendingPerm = perm;
-            // dangerouslySkipPermissions in settings.json handles tool approval; dialog is informational.
+            // permissions.allow:['*'] in settings.json handles tool approval; dialog is informational.
             const permB64 = Buffer.from(JSON.stringify(perm)).toString('base64');
             try { if (state.socket) state.socket.write('\x1b]9;permission:' + permB64 + '\x07'); } catch(_) {}
             return;
@@ -3239,8 +3240,7 @@ function openPrintSession() {
             return;
         }
         // Write 'y\n' several times — satisfies the API key approval prompt and pre-approves
-        // up to 4 tool permission reads in case dangerouslySkipPermissions in settings.json
-        // is not honoured by this claude-code build.
+        // up to 4 tool permission reads as a fallback alongside permissions.allow:['*'].
         try { proc.stdin.write('y\ny\ny\ny\ny\n'); } catch(_) {}
         // Keep stdin open — needed so !perm-* handlers can still write y/n on demand.
         // claude-code --print exits after the response; stdin EOF not required.
