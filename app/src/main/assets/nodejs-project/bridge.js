@@ -3192,19 +3192,18 @@ function openPrintSession() {
         const finalMsg = customPrompt ? '[Custom Instructions]\n' + customPrompt + '\n\n' + msg : msg;
         // Inject --mcp-config when the config file exists so MCP tools (exa, etc.)
         // are available to claude-code in print mode, not just in interactive mode.
+        // --mcp-config is intentionally omitted in print mode. Each message spawns a
+        // fresh process; re-connecting to external HTTP/SSE MCP servers on every spawn
+        // hangs claude-code after the HEAD / health-check if any server is unreachable.
+        // MCP tools are available in agentic mode (persistent process, one-time connect).
         const hasMcpConf = fs.existsSync(MCP_CONFIG_FILE);
+        log('[runMessage] mcp_config exists=' + hasMcpConf + '\n');
         let argvCode =
             'process.argv[2]="--output-format";' +
             'process.argv[3]="stream-json";' +
             'process.argv[4]="--print";' +
             'process.argv[5]="--verbose";';
         let argvLen = 6;
-        if (hasMcpConf) {
-            argvCode += 'process.argv[' + argvLen + ']="--mcp-config";';
-            argvLen++;
-            argvCode += 'process.argv[' + argvLen + ']=' + JSON.stringify(MCP_CONFIG_FILE) + ';';
-            argvLen++;
-        }
         if (state.hasHistory) {
             argvCode += 'process.argv[' + argvLen + ']="--continue";';
             argvLen++;
