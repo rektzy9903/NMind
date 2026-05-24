@@ -1315,6 +1315,12 @@ function startProxyServer(onReady) {
     try { proxyLocalToken = fs.readFileSync(path.join(FILES_DIR, 'local_token'), 'utf8').trim().slice(0, 200); } catch(_) {}
 
     const proxy = http.createServer((req, res) => {
+        // Log EVERY request that reaches the proxy so we can diagnose hangs.
+        const apiKeyHeader = req.headers['x-api-key'] || '';
+        const authHeader   = req.headers['authorization'] || '';
+        log('[proxy-in] ' + req.method + ' ' + req.url +
+            ' key=' + (apiKeyHeader || authHeader || '(none)').slice(0, 20) + '\n');
+
         // SDK health check — HEAD / is sent by the Anthropic SDK before each session.
         // Return 200 without auth so it doesn't flood the log with 401 entries.
         if (req.method === 'HEAD' && (req.url === '/' || req.url === '')) {
@@ -1326,8 +1332,6 @@ function startProxyServer(onReady) {
         // ── Auth gate ──────────────────────────────────────────────────────────
         // Reject any request that does not present valid credentials.
         const tokenHeader = req.headers['x-local-token'] || '';
-        const authHeader  = req.headers['authorization'] || '';
-        const apiKeyHeader = req.headers['x-api-key'] || '';
         const hasValidToken = proxyLocalToken && tokenHeader === proxyLocalToken;
         // claude-code (Anthropic SDK) sends x-api-key, not Authorization: Bearer
         const hasProxyKey   = authHeader === 'Bearer sk-ant-proxy000'
@@ -3049,7 +3053,8 @@ function openPrintSession() {
                 }
             }
             fs.writeFileSync(sp, JSON.stringify(s, null, 2));
-        } catch(_) {}
+            log('[patchSettings] ok — approved=' + JSON.stringify(s.customApiKeyResponses.approved) + '\n');
+        } catch(e) { log('[patchSettings] ERROR: ' + e.message + '\n'); }
     }
 
     // ── Process a single stream-json event from claude stdout ────────────────
@@ -3231,10 +3236,11 @@ function openPrintSession() {
 
         log('[runMessage] spawn claude-code, model=' + (cfg.modelId || '?') + ' provider=' + (cfg.providerId || '?') + ' mode=' + (cfg.mode || '?') + ' baseUrl=' + (cfg.baseUrl || '?') + '\n');
         const proc = spawn(LAUNCHER, ['-e', evalCode], { env, cwd: state.cwd });
-        // Write one newline to stdin immediately so claude-code's 3-second
-        // "no stdin data received" wait exits right away. Stdin stays open so
-        // !perm-* handlers can still write y/n to proc.stdin if needed.
-        try { proc.stdin.write('\n'); } catch(_) {}
+        // Write 'y\n' to stdin immediately to auto-approve any API key approval prompt
+        // (customApiKeyResponses.approved in settings.json should make this unnecessary,
+        // but this acts as a fallback). Also satisfies claude-code's 3-second no-stdin wait.
+        // Stdin stays open so !perm-* handlers can still write y/n if needed.
+        try { proc.stdin.write('y\n'); } catch(_) {}
         // Keep stdin open — needed so permission-prompt answers can be written.
         // claude-code --print exits on its own after the response; stdin EOF not required.
         state.currentProc = proc;
@@ -3402,7 +3408,7 @@ function openPrintSession() {
                 // Strip invisible/format Unicode that Android IME may prepend, causing
                 // line.startsWith('!') to return false and commands to hit the busy gate.
                 // Covers the same ranges as JS submitLine() + sendRawInput() normalisation.
-                .replace(/[\u00ad\u200b-\u200f\u2028-\u202f\u2060-\u206f\ufeff]/g, '')
+                .replace(/[\u0080-\u009f\u00ad\u200b-\u200f\u2028-\u202f\u2060-\u206f\ufeff]/g, '')
                 .trim();
             state.inputBuf = state.inputBuf.slice(nl + 1);
             if (!line) continue;
