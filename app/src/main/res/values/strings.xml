@@ -5,8 +5,8 @@
 
     <!-- Setup -->
     <string name="setup_title">Setting up Nexus Mind for you…</string>
-    <string name="setup_subtitle">This only happens once ☕\nUsually takes 2–3 minutes</string>
-    <string name="setup_success">✅ All done! Nexus Mind is ready! 🎉</string>
+    <string name="setup_subtitle">This only happens once.\nUsually takes 2–3 minutes</string>
+    <string name="setup_success">All done! Nexus Mind is ready.</string>
     <string name="setup_continue">Get started →</string>
     <string name="setup_retry">Try again</string>
     <string name="setup_show_details">Show details</string>
@@ -33,7 +33,7 @@
     <string name="login_malaysia_yes">Yes</string>
     <string name="login_other_country">No, other country</string>
     <string name="login_gemini_title">We recommend Google Gemini</string>
-    <string name="login_gemini_subtitle">Works perfectly in Malaysia with 1500 free requests per day! ⭐</string>
+    <string name="login_gemini_subtitle">Works perfectly in Malaysia with 1500 free requests per day</string>
     <string name="login_use_gemini">Use Google Gemini</string>
     <string name="login_let_me_choose">Let me choose</string>
 

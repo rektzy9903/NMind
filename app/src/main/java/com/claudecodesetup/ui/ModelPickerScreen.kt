@@ -21,12 +21,16 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.SubcomposeAsyncImage
 import com.claudecodesetup.data.AiModel
 import com.claudecodesetup.data.Cap
 import com.claudecodesetup.data.Provider
@@ -76,7 +80,7 @@ private fun capColor(cap: String): Color = when (cap) {
 private data class ModelDisplay(
     val model: AiModel,
     val effectiveCaps: Set<String>,
-    val emoji: String,
+    val iconUrl: String,
     val color: Color,
     val speed: Int,
     val badge: String,
@@ -84,29 +88,34 @@ private data class ModelDisplay(
     val description: String
 )
 
+private fun modelIconUrl(modelId: String): String {
+    val id = modelId.lowercase()
+    val org = id.substringBefore("/").replace("-", "").replace("_", "")
+    return when {
+        "anthropic" in org || "claude" in id            -> "https://logo.clearbit.com/anthropic.com"
+        "google" in org || "gemini" in id               -> "https://logo.clearbit.com/google.com"
+        "metall" in org || "meta" == org || "llama" in id -> "https://logo.clearbit.com/meta.com"
+        "openai" in org || "gpt" in id                  -> "https://logo.clearbit.com/openai.com"
+        "deepseek" in id || "deepseek" in org           -> "https://logo.clearbit.com/deepseek.com"
+        "moonshotai" in org || "moonshot" in id || "kimi" in id -> "https://logo.clearbit.com/moonshot.ai"
+        "mistralai" in org || "mistral" in id || "mixtral" in id -> "https://logo.clearbit.com/mistral.ai"
+        "qwen" in id || "qwen" in org || "alibaba" in org -> "https://logo.clearbit.com/alibaba.com"
+        "nvidia" in org || "nvidia" in id || "nemotron" in id -> "https://logo.clearbit.com/nvidia.com"
+        "cohere" in org || ("command" in id && "r" in id) -> "https://logo.clearbit.com/cohere.com"
+        "microsoft" in org || "phi" in id               -> "https://logo.clearbit.com/microsoft.com"
+        "xai" in org || "grok" in id                    -> "https://logo.clearbit.com/x.ai"
+        "perplexity" in org                             -> "https://logo.clearbit.com/perplexity.ai"
+        "minimax" in org || "minimax" in id             -> "https://logo.clearbit.com/minimax.io"
+        "databricks" in org || "dbrx" in id             -> "https://logo.clearbit.com/databricks.com"
+        "01ai" in org || id.substringAfterLast("/").startsWith("yi-") -> "https://logo.clearbit.com/01.ai"
+        else -> ""
+    }
+}
+
 private fun toDisplay(model: AiModel): ModelDisplay {
     val id = model.modelId.lowercase()
     val caps = model.caps.ifEmpty { Providers.deriveCaps(model.modelId) }
-    val emoji = when {
-        Cap.REASONING in caps && Cap.FAST !in caps -> "🧠"
-        Cap.CODING    in caps                      -> "💻"
-        Cap.VISION    in caps && Cap.TOOLS in caps -> "👁"
-        Cap.FAST      in caps                      -> "⚡"
-        "llama"   in id -> "🦙"
-        "gemini"  in id -> "✨"
-        "gpt"     in id -> "🧬"
-        "kimi"    in id || "moonshot" in id -> "🌙"
-        "deepseek" in id -> "🔍"
-        "qwen"    in id -> "🌟"
-        "mistral" in id || "mixtral" in id -> "🌀"
-        "claude"  in id -> "🎭"
-        "nemotron" in id || "nvidia" in id -> "⚡"
-        "minimax" in id -> "🔮"
-        "baidu"   in id || "cobuddy" in id -> "🔵"
-        "poolside" in id || "laguna"  in id -> "🏊"
-        "liquid"  in id || "lfm"     in id -> "💧"
-        else -> "🤖"
-    }
+    val iconUrl = modelIconUrl(model.modelId)
     val color = when {
         "gemini"  in id -> NexusGreen
         "claude"  in id -> NexusAccent
@@ -144,7 +153,7 @@ private fun toDisplay(model: AiModel): ModelDisplay {
         else -> "128K"
     }
     val description = model.description.ifEmpty { Providers.deriveDescription(model.modelId, caps) }
-    return ModelDisplay(model, caps, emoji, color, speed, badge, tokens, description)
+    return ModelDisplay(model, caps, iconUrl, color, speed, badge, tokens, description)
 }
 
 private const val PAGE_SIZE = 9
@@ -622,15 +631,22 @@ private fun ModelCard(display: ModelDisplay, isSelected: Boolean, onSelect: () -
             modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            // Model name (with right padding for the badge/tick)
-            Text(
-                display.model.name,
-                fontFamily = DmSansFamily, fontSize = 12.sp,
-                fontWeight = FontWeight.Bold, color = NexusText,
-                maxLines = 2, overflow = TextOverflow.Ellipsis,
-                lineHeight = 16.sp,
+            // Model logo + name row (right padding for the selected-tick)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth().padding(end = 20.dp)
-            )
+            ) {
+                ModelLogoAvatar(display)
+                Spacer(Modifier.width(5.dp))
+                Text(
+                    display.model.name,
+                    fontFamily = DmSansFamily, fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold, color = NexusText,
+                    maxLines = 2, overflow = TextOverflow.Ellipsis,
+                    lineHeight = 16.sp,
+                    modifier = Modifier.weight(1f)
+                )
+            }
             // Description
             Text(
                 display.description,
@@ -692,6 +708,38 @@ private fun ModelCard(display: ModelDisplay, isSelected: Boolean, onSelect: () -
                 Text("✓", fontSize = 8.sp, fontWeight = FontWeight.Bold, color = Color.White)
             }
         }
+    }
+}
+
+@Composable
+private fun ModelLogoAvatar(display: ModelDisplay) {
+    val shape = RoundedCornerShape(4.dp)
+    if (display.iconUrl.isNotEmpty()) {
+        SubcomposeAsyncImage(
+            model = display.iconUrl,
+            contentDescription = null,
+            modifier = Modifier.size(20.dp).clip(shape),
+            contentScale = ContentScale.Fit,
+            loading = { ModelInitialAvatar(display, shape) },
+            error   = { ModelInitialAvatar(display, shape) },
+        )
+    } else {
+        ModelInitialAvatar(display, shape)
+    }
+}
+
+@Composable
+private fun ModelInitialAvatar(display: ModelDisplay, shape: androidx.compose.ui.graphics.Shape) {
+    Box(
+        modifier = Modifier
+            .size(20.dp)
+            .background(display.color.copy(alpha = 0.18f), shape),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            display.model.name.firstOrNull()?.uppercaseChar()?.toString() ?: "?",
+            fontSize = 9.sp, fontWeight = FontWeight.Bold, color = display.color
+        )
     }
 }
 

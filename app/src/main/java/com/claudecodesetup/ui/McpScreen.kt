@@ -10,6 +10,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.res.painterResource
+import com.claudecodesetup.R
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -140,7 +142,12 @@ fun McpScreen(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text("🔌", fontSize = 40.sp)
+                        Icon(
+                            painter = painterResource(R.drawable.ic_mcp_plug),
+                            contentDescription = null,
+                            modifier = Modifier.size(48.dp),
+                            tint = NexusText3,
+                        )
                         Text(
                             "No MCP servers yet", fontFamily = DmSansFamily,
                             fontSize = 16.sp, color = NexusText3
@@ -423,11 +430,14 @@ private fun McpServerCard(
                 fontSize = 10.sp, color = NexusText3
             )
         }
-        Text(
-            "🗑", fontSize = 18.sp,
+        Icon(
+            painter = painterResource(R.drawable.ic_delete),
+            contentDescription = "Delete",
             modifier = Modifier
+                .size(20.dp)
                 .clickable(onClick = onDelete)
-                .padding(8.dp)
+                .padding(2.dp),
+            tint = NexusText3,
         )
     }
 }

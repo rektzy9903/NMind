@@ -857,7 +857,7 @@ class TerminalActivity : AppCompatActivity() {
         AlertDialog.Builder(this)
             .setTitle(file.name)
             .setView(scrollView)
-            .setPositiveButton("🔗 Attach to Claude") { _, _ ->
+            .setPositiveButton("Attach to Claude") { _, _ ->
                 // !attach sends file content as next-message context via bridge.js
                 claudeService?.sendInput("!attach ${file.absolutePath}\r")
                 android.widget.Toast.makeText(this, "Attached: ${file.name}", android.widget.Toast.LENGTH_SHORT).show()

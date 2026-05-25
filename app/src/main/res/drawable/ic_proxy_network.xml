@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+    <!-- Spokes from center to cardinal satellite nodes -->
+    <path android:pathData="M12,12 L12,4.5"  android:strokeColor="#9090A0" android:strokeWidth="1.4" android:strokeLineCap="round" android:fillColor="#00000000"/>
+    <path android:pathData="M12,12 L19.5,12" android:strokeColor="#9090A0" android:strokeWidth="1.4" android:strokeLineCap="round" android:fillColor="#00000000"/>
+    <path android:pathData="M12,12 L12,19.5" android:strokeColor="#9090A0" android:strokeWidth="1.4" android:strokeLineCap="round" android:fillColor="#00000000"/>
+    <path android:pathData="M12,12 L4.5,12"  android:strokeColor="#9090A0" android:strokeWidth="1.4" android:strokeLineCap="round" android:fillColor="#00000000"/>
+
+    <!-- Diagonal spokes (dimmer) -->
+    <path android:pathData="M12,12 L17.2,6.8" android:strokeColor="#60606E" android:strokeWidth="1.1" android:strokeLineCap="round" android:fillColor="#00000000"/>
+    <path android:pathData="M12,12 L6.8,17.2" android:strokeColor="#60606E" android:strokeWidth="1.1" android:strokeLineCap="round" android:fillColor="#00000000"/>
+
+    <!-- Cardinal satellite nodes -->
+    <path android:pathData="M12,4.5 m-1.6,0 a1.6,1.6 0 1,0 3.2,0 a1.6,1.6 0 1,0 -3.2,0" android:fillColor="#9090A0"/>
+    <path android:pathData="M19.5,12 m-1.6,0 a1.6,1.6 0 1,0 3.2,0 a1.6,1.6 0 1,0 -3.2,0" android:fillColor="#9090A0"/>
+    <path android:pathData="M12,19.5 m-1.6,0 a1.6,1.6 0 1,0 3.2,0 a1.6,1.6 0 1,0 -3.2,0" android:fillColor="#9090A0"/>
+    <path android:pathData="M4.5,12 m-1.6,0 a1.6,1.6 0 1,0 3.2,0 a1.6,1.6 0 1,0 -3.2,0" android:fillColor="#9090A0"/>
+
+    <!-- Diagonal satellite nodes (dimmer) -->
+    <path android:pathData="M17.2,6.8 m-1.2,0 a1.2,1.2 0 1,0 2.4,0 a1.2,1.2 0 1,0 -2.4,0" android:fillColor="#60606E"/>
+    <path android:pathData="M6.8,17.2 m-1.2,0 a1.2,1.2 0 1,0 2.4,0 a1.2,1.2 0 1,0 -2.4,0" android:fillColor="#60606E"/>
+
+    <!-- Center glow -->
+    <path android:pathData="M12,12 m-3.5,0 a3.5,3.5 0 1,0 7,0 a3.5,3.5 0 1,0 -7,0" android:fillColor="#22E8834A"/>
+    <!-- Center node (amber) -->
+    <path android:pathData="M12,12 m-2.2,0 a2.2,2.2 0 1,0 4.4,0 a2.2,2.2 0 1,0 -4.4,0" android:fillColor="#E8834A"/>
+
+</vector>

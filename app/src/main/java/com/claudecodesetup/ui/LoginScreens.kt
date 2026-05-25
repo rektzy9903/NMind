@@ -20,9 +20,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.annotation.DrawableRes
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import com.claudecodesetup.R
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -95,7 +100,7 @@ fun SubscriptionScreen(onYes: () -> Unit, onNo: () -> Unit) {
 
                 // Claude Subscription card
                 LoginModeCard(
-                    icon = "🧬",
+                    iconRes = R.drawable.ic_logo_small,
                     title = "Claude Subscription",
                     description = "Login with your Claude.ai account or use an Anthropic API key for direct access",
                     accentColor = NexusAccent,
@@ -104,7 +109,7 @@ fun SubscriptionScreen(onYes: () -> Unit, onNo: () -> Unit) {
 
                 // Proxy / Free Providers card
                 LoginModeCard(
-                    icon = "🔌",
+                    iconRes = R.drawable.ic_proxy_network,
                     title = "Proxy / Free Providers",
                     description = "Use OpenRouter, Gemini, Groq, DeepSeek and more — no Claude account needed",
                     accentColor = NexusBlue,
@@ -117,7 +122,7 @@ fun SubscriptionScreen(onYes: () -> Unit, onNo: () -> Unit) {
 
 @Composable
 private fun LoginModeCard(
-    icon: String,
+    @DrawableRes iconRes: Int,
     title: String,
     description: String,
     accentColor: Color,
@@ -154,7 +159,12 @@ private fun LoginModeCard(
                     .border(1.dp, accentColor.copy(alpha = 0.35f), RoundedCornerShape(14.dp)),
                 contentAlignment = Alignment.Center
             ) {
-                Text(icon, fontSize = 22.sp)
+                Icon(
+                    painter = painterResource(iconRes),
+                    contentDescription = null,
+                    modifier = Modifier.size(28.dp),
+                    tint = accentColor,
+                )
             }
 
             // Text
@@ -360,16 +370,23 @@ private fun ProviderCard(provider: Provider, onSelect: () -> Unit) {
                 .border(1.dp, accentColor.copy(alpha = 0.28f), RoundedCornerShape(12.dp)),
             contentAlignment = Alignment.Center
         ) {
+            val providerInitial: @Composable () -> Unit = {
+                Text(
+                    provider.name.firstOrNull()?.uppercaseChar()?.toString() ?: "?",
+                    fontSize = 15.sp, fontWeight = FontWeight.Bold, color = accentColor
+                )
+            }
             if (provider.iconUrl.isNotEmpty()) {
                 SubcomposeAsyncImage(
                     model = provider.iconUrl,
                     contentDescription = provider.name,
-                    modifier = Modifier.size(26.dp).clip(CircleShape),
-                    error = { Text(emoji, fontSize = 20.sp) },
-                    loading = { Text(emoji, fontSize = 20.sp) }
+                    modifier = Modifier.size(28.dp).clip(RoundedCornerShape(6.dp)),
+                    contentScale = ContentScale.Fit,
+                    loading = { providerInitial() },
+                    error   = { providerInitial() },
                 )
             } else {
-                Text(emoji, fontSize = 20.sp)
+                providerInitial()
             }
         }
 

@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+
+    <!-- Left prong -->
+    <path
+        android:pathData="M18,22 L18,13"
+        android:strokeColor="#60606E"
+        android:strokeWidth="2.2"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000"/>
+
+    <!-- Right prong -->
+    <path
+        android:pathData="M30,22 L30,13"
+        android:strokeColor="#60606E"
+        android:strokeWidth="2.2"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000"/>
+
+    <!-- Plug body -->
+    <path
+        android:pathData="M14,22 L14,34 Q14,36 16,36 L32,36 Q34,36 34,34 L34,22 Z"
+        android:strokeColor="#9090A0"
+        android:strokeWidth="2.0"
+        android:strokeLineJoin="round"
+        android:fillColor="#00000000"/>
+
+    <!-- Power symbol arc (top half only) -->
+    <path
+        android:pathData="M20,28 Q20,24 24,24 Q28,24 28,28"
+        android:strokeColor="#9090A0"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000"/>
+
+    <!-- Power dot -->
+    <path
+        android:pathData="M24,30 m-1.4,0 a1.4,1.4 0 1,0 2.8,0 a1.4,1.4 0 1,0 -2.8,0"
+        android:fillColor="#60606E"/>
+
+    <!-- Cord below -->
+    <path
+        android:pathData="M24,36 L24,43"
+        android:strokeColor="#60606E"
+        android:strokeWidth="2.0"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000"/>
+
+</vector>
