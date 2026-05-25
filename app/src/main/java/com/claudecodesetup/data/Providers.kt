@@ -44,7 +44,7 @@ object Providers {
     val NVIDIA_NIM = Provider(
         id = "nvidia_nim",
         name = "NVIDIA NIM",
-        iconUrl = "https://logo.clearbit.com/nvidia.com",
+        iconUrl = "https://www.google.com/s2/favicons?domain=nvidia.com&sz=128",
         supportsLiveFetch = true,
         signupUrl = "https://build.nvidia.com/models",
         rateLimit = "40 req/min · Free forever",
@@ -67,7 +67,7 @@ object Providers {
     val OPENROUTER = Provider(
         id = "openrouter",
         name = "OpenRouter",
-        iconUrl = "https://logo.clearbit.com/openrouter.ai",
+        iconUrl = "https://www.google.com/s2/favicons?domain=openrouter.ai&sz=128",
         supportsLiveFetch = true,
         signupUrl = "https://openrouter.ai",
         rateLimit = "20 req/min · 50 req/day free",
@@ -104,7 +104,7 @@ object Providers {
     val GEMINI = Provider(
         id = "gemini",
         name = "Google Gemini",
-        iconUrl = "https://logo.clearbit.com/google.com",
+        iconUrl = "https://www.google.com/s2/favicons?domain=gemini.google.com&sz=128",
         supportsLiveFetch = true,
         signupUrl = "https://aistudio.google.com",
         rateLimit = "15 req/min · 1500 req/day free",
@@ -128,7 +128,7 @@ object Providers {
     val META_LLAMA = Provider(
         id = "meta_llama",
         name = "Meta Llama API",
-        iconUrl = "https://logo.clearbit.com/meta.com",
+        iconUrl = "https://www.google.com/s2/favicons?domain=meta.com&sz=128",
         supportsLiveFetch = true,
         signupUrl = "https://llama.developer.meta.com",
         rateLimit = "Limited free preview",
@@ -146,7 +146,7 @@ object Providers {
     val DEEPSEEK = Provider(
         id = "deepseek",
         name = "DeepSeek",
-        iconUrl = "https://logo.clearbit.com/deepseek.com",
+        iconUrl = "https://www.google.com/s2/favicons?domain=deepseek.com&sz=128",
         supportsLiveFetch = true,
         signupUrl = "https://platform.deepseek.com/api_keys",
         rateLimit = "Very cheap · Free tier available",
@@ -163,7 +163,7 @@ object Providers {
     val KIMI = Provider(
         id = "kimi",
         name = "Kimi (Moonshot AI)",
-        iconUrl = "https://logo.clearbit.com/moonshot.ai",
+        iconUrl = "https://www.google.com/s2/favicons?domain=moonshot.ai&sz=128",
         supportsLiveFetch = true,
         signupUrl = "https://platform.moonshot.ai",
         rateLimit = "Paid credits required",
@@ -182,7 +182,7 @@ object Providers {
     val OLLAMA = Provider(
         id = "ollama",
         name = "Personal AI",
-        iconUrl = "https://logo.clearbit.com/ollama.com",
+        iconUrl = "https://www.google.com/s2/favicons?domain=ollama.com&sz=128",
         isUrlConfigurable = true,
         supportsLiveFetch = true,
         signupUrl = "https://ollama.com/library",
@@ -208,7 +208,7 @@ object Providers {
     val GROQ = Provider(
         id = "groq",
         name = "Groq",
-        iconUrl = "https://logo.clearbit.com/groq.com",
+        iconUrl = "https://www.google.com/s2/favicons?domain=groq.com&sz=128",
         supportsLiveFetch = true,
         signupUrl = "https://console.groq.com/keys",
         rateLimit = "Free · 14,400 req/day · Ultra-fast",
@@ -231,7 +231,7 @@ object Providers {
     val ANTHROPIC = Provider(
         id = "anthropic",
         name = "Anthropic (Claude.ai)",
-        iconUrl = "https://logo.clearbit.com/anthropic.com",
+        iconUrl = "https://www.google.com/s2/favicons?domain=anthropic.com&sz=128",
         supportsLiveFetch = false,
         signupUrl = "https://claude.ai",
         rateLimit = "Subscription billing",
@@ -251,7 +251,7 @@ object Providers {
     val ANTHROPIC_API = Provider(
         id = "anthropic_api",
         name = "Anthropic API",
-        iconUrl = "https://logo.clearbit.com/anthropic.com",
+        iconUrl = "https://www.google.com/s2/favicons?domain=anthropic.com&sz=128",
         supportsLiveFetch = true,
         signupUrl = "https://console.anthropic.com/settings/api-keys",
         rateLimit = "Pay per token · no rate limit",

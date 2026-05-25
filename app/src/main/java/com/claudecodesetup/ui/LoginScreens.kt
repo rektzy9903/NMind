@@ -380,7 +380,7 @@ private fun ProviderCard(provider: Provider, onSelect: () -> Unit) {
                 SubcomposeAsyncImage(
                     model = provider.iconUrl,
                     contentDescription = provider.name,
-                    modifier = Modifier.size(28.dp).clip(RoundedCornerShape(6.dp)),
+                    modifier = Modifier.size(32.dp),
                     contentScale = ContentScale.Fit,
                     loading = { providerInitial() },
                     error   = { providerInitial() },

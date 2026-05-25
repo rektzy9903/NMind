@@ -88,26 +88,29 @@ private data class ModelDisplay(
     val description: String
 )
 
+private fun faviconUrl(domain: String) =
+    "https://www.google.com/s2/favicons?domain=$domain&sz=128"
+
 private fun modelIconUrl(modelId: String): String {
     val id = modelId.lowercase()
     val org = id.substringBefore("/").replace("-", "").replace("_", "")
     return when {
-        "anthropic" in org || "claude" in id            -> "https://logo.clearbit.com/anthropic.com"
-        "google" in org || "gemini" in id               -> "https://logo.clearbit.com/google.com"
-        "metall" in org || "meta" == org || "llama" in id -> "https://logo.clearbit.com/meta.com"
-        "openai" in org || "gpt" in id                  -> "https://logo.clearbit.com/openai.com"
-        "deepseek" in id || "deepseek" in org           -> "https://logo.clearbit.com/deepseek.com"
-        "moonshotai" in org || "moonshot" in id || "kimi" in id -> "https://logo.clearbit.com/moonshot.ai"
-        "mistralai" in org || "mistral" in id || "mixtral" in id -> "https://logo.clearbit.com/mistral.ai"
-        "qwen" in id || "qwen" in org || "alibaba" in org -> "https://logo.clearbit.com/alibaba.com"
-        "nvidia" in org || "nvidia" in id || "nemotron" in id -> "https://logo.clearbit.com/nvidia.com"
-        "cohere" in org || ("command" in id && "r" in id) -> "https://logo.clearbit.com/cohere.com"
-        "microsoft" in org || "phi" in id               -> "https://logo.clearbit.com/microsoft.com"
-        "xai" in org || "grok" in id                    -> "https://logo.clearbit.com/x.ai"
-        "perplexity" in org                             -> "https://logo.clearbit.com/perplexity.ai"
-        "minimax" in org || "minimax" in id             -> "https://logo.clearbit.com/minimax.io"
-        "databricks" in org || "dbrx" in id             -> "https://logo.clearbit.com/databricks.com"
-        "01ai" in org || id.substringAfterLast("/").startsWith("yi-") -> "https://logo.clearbit.com/01.ai"
+        "anthropic" in org || "claude" in id              -> faviconUrl("anthropic.com")
+        "google" in org || "gemini" in id                 -> faviconUrl("gemini.google.com")
+        "metall" in org || "meta" == org || "llama" in id -> faviconUrl("meta.com")
+        "openai" in org || "gpt" in id                    -> faviconUrl("openai.com")
+        "deepseek" in id || "deepseek" in org             -> faviconUrl("deepseek.com")
+        "moonshotai" in org || "moonshot" in id || "kimi" in id -> faviconUrl("moonshot.ai")
+        "mistralai" in org || "mistral" in id || "mixtral" in id -> faviconUrl("mistral.ai")
+        "qwen" in id || "qwen" in org || "alibaba" in org -> faviconUrl("qwen.ai")
+        "nvidia" in org || "nvidia" in id || "nemotron" in id -> faviconUrl("nvidia.com")
+        "cohere" in org || ("command" in id && "r" in id) -> faviconUrl("cohere.com")
+        "microsoft" in org || "phi" in id                 -> faviconUrl("microsoft.com")
+        "xai" in org || "grok" in id                      -> faviconUrl("x.ai")
+        "perplexity" in org                               -> faviconUrl("perplexity.ai")
+        "minimax" in org || "minimax" in id               -> faviconUrl("minimax.io")
+        "databricks" in org || "dbrx" in id               -> faviconUrl("databricks.com")
+        "01ai" in org || id.substringAfterLast("/").startsWith("yi-") -> faviconUrl("01.ai")
         else -> ""
     }
 }
