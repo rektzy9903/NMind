@@ -3127,7 +3127,10 @@ function openPrintSession() {
             const permId = evt.id || (Date.now() + '-' + Math.random().toString(36).slice(2));
             const perm = { toolName, toolInput, id: permId, suggestions, autoApproved: true };
             state.pendingPerm = perm;
-            // permissions.allow:['*'] in settings.json handles tool approval; dialog is informational.
+            // Write y\n to stdin immediately to beat claude-code's 3-second approval
+            // timeout. The dialog is shown as informational only — buttons configure
+            // future spawns via auto_approve.json, not the current call.
+            try { if (proc && proc.stdin && !proc.stdin.destroyed) proc.stdin.write('y\n'); } catch(_) {}
             const permB64 = Buffer.from(JSON.stringify(perm)).toString('base64');
             try { if (state.socket) state.socket.write('\x1b]9;permission:' + permB64 + '\x07'); } catch(_) {}
             return;
@@ -3161,6 +3164,7 @@ function openPrintSession() {
         const toolName  = toolMatch ? toolMatch[1] : 'tool';
         const perm = { toolName, toolInput: { prompt: line }, id: Date.now() + '-txt', autoApproved: true };
         state.pendingPerm = perm;
+        try { if (proc && proc.stdin && !proc.stdin.destroyed) proc.stdin.write('y\n'); } catch(_) {}
         const permB64 = Buffer.from(JSON.stringify(perm)).toString('base64');
         try { if (state.socket) state.socket.write('\x1b]9;permission:' + permB64 + '\x07'); } catch(_) {}
     }
