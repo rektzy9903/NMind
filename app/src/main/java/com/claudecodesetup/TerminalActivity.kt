@@ -578,11 +578,11 @@ class TerminalActivity : AppCompatActivity() {
         }
         // TTS toggle button
         binding.btnTts.apply {
-            text = if (prefs.getTtsEnabled()) "🔊" else "🔇"
+            setImageResource(if (prefs.getTtsEnabled()) R.drawable.ic_volume_on else R.drawable.ic_volume_off)
             setOnClickListener {
                 val newState = !prefs.getTtsEnabled()
                 prefs.setTtsEnabled(newState)
-                text = if (newState) "🔊" else "🔇"
+                setImageResource(if (newState) R.drawable.ic_volume_on else R.drawable.ic_volume_off)
                 if (!newState) tts?.stop()
             }
         }

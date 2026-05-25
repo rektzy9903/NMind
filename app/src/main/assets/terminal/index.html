@@ -89,7 +89,7 @@ html, body {
 
 /* ── Avatars ─────────────────────────────────────────────────────────────── */
 .avatar {
-  width: 28px; height: 28px;
+  width: 26px; height: 26px;
   border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
   flex-shrink: 0;
@@ -126,7 +126,7 @@ html, body {
 .bubble {
   /* min-width:0 lets the flex item shrink below content size so word-wrap works */
   min-width: 0;
-  max-width: calc(100% - 44px); /* 28px avatar + 8px gap + 8px safety */
+  max-width: calc(100% - 42px); /* 26px avatar + 8px gap + 8px safety */
   padding: 10px 13px;
   font-size: 13px;
   line-height: 1.7;
@@ -148,6 +148,7 @@ html, body {
   color: #F0F0F2;
   white-space: pre-wrap;
   min-width: 60px;
+  line-height: 1.55;
 }
 .sys-bubble {
   background: none;
