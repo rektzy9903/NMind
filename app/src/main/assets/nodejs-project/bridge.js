@@ -3048,7 +3048,13 @@ function openPrintSession() {
             if (!s.permissions) s.permissions = { allow: [], deny: [] };
             if (!Array.isArray(s.permissions.allow)) s.permissions.allow = [];
             if (!Array.isArray(s.permissions.deny)) s.permissions.deny = [];
-            if (!s.permissions.allow.includes('*')) s.permissions.allow.push('*');
+            // '*' alone doesn't reliably match all tool types in v2.1.112
+            // (WebSearch, WebFetch, MCP tools slip through and trigger permission dialogs).
+            // Add explicit patterns so claude-code auto-approves before emitting 9;confirm:.
+            const TOOL_ALLOW = ['*', 'WebSearch(*)', 'WebFetch(*)', 'mcp__*'];
+            for (const p of TOOL_ALLOW) {
+                if (!s.permissions.allow.includes(p)) s.permissions.allow.push(p);
+            }
             // Inject per-tool always-deny overrides saved by the user
             const approveList = loadApproveList();
             for (const t of (approveList.deny || [])) {
@@ -3413,6 +3419,15 @@ function openPrintSession() {
                 .trim();
             state.inputBuf = state.inputBuf.slice(nl + 1);
             if (!line) continue;
+
+            // Secondary guard: if non-printable chars precede a '!' or '$', strip them.
+            // Catches any bytes the regex above misses (e.g. U+3002) so !perm-* and
+            // !confirm: always reach their handlers instead of hitting the busy gate.
+            {
+                const fi = line.indexOf('!'), fd = line.indexOf('$');
+                const fc = fi === -1 ? fd : (fd === -1 ? fi : Math.min(fi, fd));
+                if (fc > 0 && /[^\x20-\x7e]/.test(line.slice(0, fc))) line = line.slice(fc);
+            }
 
             // Normalize "! cmd" / "!  cmd" → "!cmd" (autocorrect adds space(s) after !)
             if (/^!\s+/.test(line)) line = '!' + line.slice(1).trimStart();
