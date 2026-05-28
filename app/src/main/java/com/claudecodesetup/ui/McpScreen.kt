@@ -58,6 +58,72 @@ suspend fun pingMcpServer(url: String): PingStatus = withContext(Dispatchers.IO)
     }
 }
 
+// MCP-8: one-tap presets for the add-server dialog. Each template prefills
+// the form. Stdio templates that use `npx` require the user to have run
+// `!install node` (or similar) in the terminal at least once. HTTP templates
+// usually require an API key embedded in the URL or sent via the headers
+// field — the description should make that clear.
+data class McpTemplate(
+    val label: String,
+    val description: String,
+    val isStdio: Boolean,
+    val nameSuggestion: String,
+    val url: String = "",
+    val command: String = "",
+    val args: String = "",
+    val headers: String = ""
+)
+
+val MCP_TEMPLATES = listOf(
+    McpTemplate(
+        label = "Filesystem (stdio)",
+        description = "Read/write files under a directory. Edit the path in args.",
+        isStdio = true,
+        nameSuggestion = "filesystem",
+        command = "npx",
+        args = "-y @modelcontextprotocol/server-filesystem /sdcard/Download"
+    ),
+    McpTemplate(
+        label = "Fetch (stdio)",
+        description = "Fetch arbitrary URLs as a tool. No API key required.",
+        isStdio = true,
+        nameSuggestion = "fetch",
+        command = "npx",
+        args = "-y @modelcontextprotocol/server-fetch"
+    ),
+    McpTemplate(
+        label = "GitHub (stdio)",
+        description = "GitHub API access. Needs GITHUB_PERSONAL_ACCESS_TOKEN in the process env.",
+        isStdio = true,
+        nameSuggestion = "github",
+        command = "npx",
+        args = "-y @modelcontextprotocol/server-github"
+    ),
+    McpTemplate(
+        label = "Brave Search (stdio)",
+        description = "Web search via Brave. Needs BRAVE_API_KEY in the process env.",
+        isStdio = true,
+        nameSuggestion = "brave",
+        command = "npx",
+        args = "-y @modelcontextprotocol/server-brave-search"
+    ),
+    McpTemplate(
+        label = "Memory (stdio)",
+        description = "Persistent key-value memory store across conversations.",
+        isStdio = true,
+        nameSuggestion = "memory",
+        command = "npx",
+        args = "-y @modelcontextprotocol/server-memory"
+    ),
+    McpTemplate(
+        label = "Exa (HTTP)",
+        description = "AI-native search. Replace YOUR_KEY with your Exa API key.",
+        isStdio = false,
+        nameSuggestion = "exa",
+        url = "https://mcp.exa.ai/mcp?exaApiKey=YOUR_KEY"
+    ),
+)
+
 // MCP-3 result of a "Test connection" attempt against an HTTP MCP server.
 sealed class McpTestResult {
     object Idle : McpTestResult()
@@ -299,6 +365,8 @@ fun McpScreen(
             // MCP-3: in-dialog connection test state (HTTP only)
             var testResult by remember { mutableStateOf<McpTestResult>(McpTestResult.Idle) }
             val testScope = rememberCoroutineScope()
+            // MCP-8: collapsed templates section starts closed; user expands when needed.
+            var showTemplates by remember { mutableStateOf(false) }
             AlertDialog(
                 onDismissRequest = { showAddDialog = false },
                 title = {
@@ -306,6 +374,70 @@ fun McpScreen(
                 },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        // MCP-8: templates section — collapsed header, expands to a list.
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { showTemplates = !showTemplates }
+                                .padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                "Templates", fontFamily = DmSansFamily, fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = NexusAccent
+                            )
+                            Text(
+                                if (showTemplates) "▾ hide" else "▸ show ${MCP_TEMPLATES.size}",
+                                fontFamily = SpaceMonoFamily, fontSize = 10.sp,
+                                color = NexusText3
+                            )
+                        }
+                        if (showTemplates) {
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                MCP_TEMPLATES.forEach { tpl ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .background(NexusSurface2, RoundedCornerShape(8.dp))
+                                            .border(1.dp, NexusBorder, RoundedCornerShape(8.dp))
+                                            .clickable {
+                                                isStdio = tpl.isStdio
+                                                if (newName.isBlank()) newName = tpl.nameSuggestion
+                                                if (tpl.isStdio) {
+                                                    newCommand = tpl.command
+                                                    newArgs = tpl.args
+                                                } else {
+                                                    newUrl = tpl.url
+                                                    newHeaders = tpl.headers
+                                                }
+                                                testResult = McpTestResult.Idle
+                                                showTemplates = false
+                                            }
+                                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                tpl.label, fontFamily = DmSansFamily,
+                                                fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+                                                color = Color.White
+                                            )
+                                            Text(
+                                                tpl.description, fontFamily = DmSansFamily,
+                                                fontSize = 10.sp, color = NexusText3
+                                            )
+                                        }
+                                        Text(
+                                            "→", fontFamily = SpaceMonoFamily,
+                                            fontSize = 14.sp, color = NexusAccent,
+                                            modifier = Modifier.padding(start = 6.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
                         // Type toggle
                         Row(
                             modifier = Modifier.fillMaxWidth(),
