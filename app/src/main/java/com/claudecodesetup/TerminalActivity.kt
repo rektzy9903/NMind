@@ -7,7 +7,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
 import android.content.res.ColorStateList
-import android.graphics.Bitmap
 import android.graphics.Color
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
@@ -15,11 +14,9 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
-import android.provider.MediaStore
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
-import android.util.Base64
 import android.view.View
 import android.webkit.JavascriptInterface
 import android.webkit.WebSettings
@@ -38,7 +35,6 @@ import com.claudecodesetup.ui.ComposeActivity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.Locale
 import java.util.concurrent.CountDownLatch
@@ -56,7 +52,6 @@ class TerminalActivity : AppCompatActivity() {
     private val tabButtons = LinkedHashMap<Int, Button>()
 
     companion object {
-        private const val REQUEST_IMAGE = 1002
         const val EXTRA_SCHEDULED_PROMPT = "scheduled_prompt"
         const val EXTRA_PROJECT_PATH = "project_path"
     }
@@ -679,24 +674,17 @@ class TerminalActivity : AppCompatActivity() {
         return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
     }
 
-    // ─── Image picker ─────────────────────────────────────────────────────────
-
+    // ─── Image picker (F1: disabled — see f1.md) ─────────────────────────────
+    // Image attach used to route through bridge.js runAgentic to build a
+    // multimodal content block. With runAgentic deleted, there's no consumer
+    // for pending_image.* files yet. The picker now just toasts a heads-up
+    // until image-via-claude-code lands as a follow-up.
     private fun pickImage() {
-        // Check if current model supports vision
-        val modelId = prefs.getModelId().lowercase()
-        val hasVision = listOf("vision", "vl", "scout", "maverick", "gemini", "claude", "gpt-4", "llava", "llama-4")
-            .any { it in modelId }
-        if (!hasVision) {
-            android.widget.Toast.makeText(
-                this,
-                "This model doesn't support images. Switch to a vision model (e.g. Gemini Flash, Llama 4 Scout).",
-                android.widget.Toast.LENGTH_LONG
-            ).show()
-            return
-        }
-        val intent = Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI)
-        intent.type = "image/*"
-        startActivityForResult(intent, REQUEST_IMAGE)
+        android.widget.Toast.makeText(
+            this,
+            "Image attach is temporarily unavailable (re-routing through claude-code is on the roadmap).",
+            android.widget.Toast.LENGTH_LONG
+        ).show()
     }
 
     // ─── Voice input (background SpeechRecognizer — no Google popup) ─────────
@@ -737,47 +725,7 @@ class TerminalActivity : AppCompatActivity() {
         speechRecognizer?.startListening(intent)
     }
 
-    @Deprecated("Deprecated in Java")
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == REQUEST_IMAGE && resultCode == Activity.RESULT_OK && data?.data != null) {
-            try {
-                val uri = data.data!!
-                @Suppress("DEPRECATION")
-                val bitmap = MediaStore.Images.Media.getBitmap(contentResolver, uri)
-                val scaled = Bitmap.createScaledBitmap(
-                    bitmap,
-                    minOf(bitmap.width, 1024),
-                    minOf(bitmap.height, 1024),
-                    true
-                )
-                val baos = ByteArrayOutputStream()
-                scaled.compress(Bitmap.CompressFormat.JPEG, 80, baos)
-                val b64 = Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP)
-                // Write full-res image to file for the bridge to read
-                File(filesDir, "pending_image.b64").writeText(b64)
-                File(filesDir, "pending_image.mime").writeText("image/jpeg")
-                // Create a small thumbnail (150px max) to show in the chat bubble
-                val thumbSize = 150
-                val thumb = Bitmap.createScaledBitmap(
-                    scaled,
-                    if (scaled.width >= scaled.height) thumbSize else (thumbSize * scaled.width / scaled.height),
-                    if (scaled.height >= scaled.width) thumbSize else (thumbSize * scaled.height / scaled.width),
-                    true
-                )
-                val tbaos = ByteArrayOutputStream()
-                thumb.compress(Bitmap.CompressFormat.JPEG, 70, tbaos)
-                val thumbB64 = Base64.encodeToString(tbaos.toByteArray(), Base64.NO_WRAP)
-                val dataUrl = "data:image/jpeg;base64,$thumbB64"
-                runOnUiThread {
-                    val escaped = dataUrl.replace("'", "\\'")
-                    binding.webViewTerminal.evaluateJavascript("window.termSetImageReady('$escaped')", null)
-                }
-            } catch (e: Exception) {
-                android.widget.Toast.makeText(this, "Image error: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
+    // onActivityResult image-handling removed in F1 — see pickImage above.
 
     // ─── Quick-action prompts ─────────────────────────────────────────────────
 
@@ -1080,37 +1028,9 @@ class TerminalActivity : AppCompatActivity() {
             runOnUiThread { this@TerminalActivity.pickImage() }
         }
 
-        @JavascriptInterface
-        fun submitMessageWithImage(text: String) {
-            if (!isOnline()) {
-                runOnUiThread {
-                    showStatusError("No internet connection — check your network and try again")
-                }
-                return
-            }
-            // Image files (pending_image.b64 / .mime) already written by onActivityResult
-            val msg = text.ifEmpty { "What do you see in this image?" }
-            lastSentMessage[activeSessionId] = msg
-            sessionBusy[activeSessionId] = true
-            runOnUiThread {
-                showStatusThinking()
-                startThinkingTimeout()
-            }
-            claudeService?.sendInput(msg + "\r")
-        }
-
-        @JavascriptInterface
-        fun sendConfirm(id: String, choice: String) {
-            claudeService?.sendInput("!confirm:$id:$choice\r")
-        }
-
-        @JavascriptInterface
-        fun cancelPendingImage() {
-            try {
-                File(filesDir, "pending_image.b64").delete()
-                File(filesDir, "pending_image.mime").delete()
-            } catch (_: Exception) {}
-        }
+        // F1: submitMessageWithImage / sendConfirm / cancelPendingImage
+        // removed — image attach and the !confirm: round-trip were both
+        // agentic-only mechanisms. The JS side no longer calls them.
 
         @JavascriptInterface
         fun runAndFeedback(code: String, lang: String) {

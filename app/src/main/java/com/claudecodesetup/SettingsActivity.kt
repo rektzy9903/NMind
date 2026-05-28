@@ -58,11 +58,6 @@ class SettingsActivity : AppCompatActivity() {
 
     @Suppress("DEPRECATION")
     private fun refreshPreferenceToggles() {
-        // Agentic mode: source of truth is the agentic_state file (bridge.js owns it)
-        val agenticFile = File(filesDir, "agentic_state")
-        val agenticOn = agenticFile.exists()
-        prefs.setAgenticMode(agenticOn)
-        binding.switchAgenticMode.isChecked = agenticOn
         binding.switchResponseNotifications.isChecked = prefs.isResponseNotificationsEnabled()
         binding.switchAutoStartBoot.isChecked = prefs.isAutoStartOnBoot()
     }
@@ -181,15 +176,6 @@ class SettingsActivity : AppCompatActivity() {
 
     @Suppress("DEPRECATION")
     private fun setupActions() {
-        binding.switchAgenticMode.setOnCheckedChangeListener { _, isChecked ->
-            prefs.setAgenticMode(isChecked)
-            // bridge.js checks agentic_state file existence to determine agentic mode
-            val agenticFile = File(filesDir, "agentic_state")
-            try {
-                if (isChecked) agenticFile.writeText("1")
-                else agenticFile.delete()
-            } catch (_: Exception) {}
-        }
         binding.switchResponseNotifications.setOnCheckedChangeListener { _, isChecked ->
             prefs.setResponseNotificationsEnabled(isChecked)
         }
