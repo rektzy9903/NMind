@@ -2438,7 +2438,9 @@ function mcpHandleData(srv, chunk) {
 
 async function startMcpStdioServer(entry) {
     if (mcpStdioServers.has(entry.name)) return; // already running
-    const srv = { proc: null, tools: [], pendingCbs: new Map(), msgId: 0, buf: '' };
+    // MCP-5: keep last N stderr lines per server, line-split so multi-line
+    // stack traces stay grouped. Surfaced via !mcp-log.
+    const srv = { proc: null, tools: [], pendingCbs: new Map(), msgId: 0, buf: '', stderrLines: [], stderrBuf: '' };
     try {
         const args = entry.args || [];
         const cmd = entry.command;
@@ -2450,7 +2452,19 @@ async function startMcpStdioServer(entry) {
             stdio: ['pipe', 'pipe', 'pipe']
         });
         srv.proc.stdout.on('data', d => mcpHandleData(srv, d));
-        srv.proc.stderr.on('data', d => log('[mcp-stdio:' + entry.name + '] stderr: ' + d.toString().slice(0,200) + '\n'));
+        // MCP-5: buffer until newline, then push to in-memory ring + setup.log
+        srv.proc.stderr.on('data', d => {
+            srv.stderrBuf += d.toString();
+            let nl;
+            while ((nl = srv.stderrBuf.indexOf('\n')) >= 0) {
+                const ln = srv.stderrBuf.slice(0, nl).replace(/\r$/, '');
+                srv.stderrBuf = srv.stderrBuf.slice(nl + 1);
+                if (ln.length === 0) continue;
+                srv.stderrLines.push(ln);
+                if (srv.stderrLines.length > 200) srv.stderrLines.shift();
+                log('[mcp-stdio:' + entry.name + '] stderr: ' + ln + '\n');
+            }
+        });
         srv.proc.on('exit', code => {
             log('[mcp-stdio:' + entry.name + '] exited code=' + code + '\n');
             mcpStdioServers.delete(entry.name);
@@ -3709,7 +3723,8 @@ function openPrintSession() {
                     '  \x1b[33m!undo\x1b[0m               Restore last file written by agentic\r\n' +
                     '  \x1b[33m!undo list\x1b[0m          Show undo snapshot history\r\n' +
                     '  \x1b[33m!log [n|all]\x1b[0m         Show last n lines of bridge log (default 100); !log all = full log\r\n' +
-                    '  \x1b[33m!mcp\x1b[0m                List connected MCP servers and tools\r\n' +
+                    '  \x1b[33m!mcp\x1b[0m                List connected (and failed) MCP servers and tools\r\n' +
+                    '  \x1b[33m!mcp-log [name|all]\x1b[0m Show captured stderr from stdio MCP servers (default 50 lines)\r\n' +
                     '  \x1b[33m!test-cli\x1b[0m           Run module-loader + proxy diagnostics\r\n' +
                     '  \x1b[33m!test-msg [text]\x1b[0m    Run exact runMessage path (patchSettings+stdin) — use to diagnose hangs\r\n' +
                     '  \x1b[33m!debug\x1b[0m              Dump model/provider/settings/mcp state for remote debugging\r\n' +
@@ -3836,6 +3851,35 @@ function openPrintSession() {
                 continue;
             }
 
+            // MCP-5: !mcp-log [name] — show buffered stderr lines from stdio MCP
+            // servers. With no name → all servers; with name → that server only.
+            // Last 50 lines per server unless `all` is passed.
+            if (line.startsWith('!mcp-log')) {
+                const arg = line.slice('!mcp-log'.length).trim();
+                const showAll = arg === 'all';
+                const wantName = (arg && !showAll) ? arg : null;
+                let out = '\x1b[1m[MCP stderr]\x1b[0m\r\n';
+                let any = false;
+                for (const [name, srv] of mcpStdioServers.entries()) {
+                    if (wantName && name !== wantName) continue;
+                    const lines = showAll ? srv.stderrLines : srv.stderrLines.slice(-50);
+                    if (lines.length === 0) continue;
+                    any = true;
+                    out += '  \x1b[33m' + name + '\x1b[0m \x1b[2m(' + lines.length + ' lines)\x1b[0m\r\n';
+                    for (const ln of lines) out += '    \x1b[2m' + stripAnsi(ln) + '\x1b[0m\r\n';
+                }
+                // Also show failed servers' last error (no stderr to buffer if it never started).
+                for (const [name, info] of mcpFailed.entries()) {
+                    if (wantName && name !== wantName) continue;
+                    any = true;
+                    out += '  \x1b[31m✗ ' + name + '\x1b[0m \x1b[2m(' + info.type + ', failed)\x1b[0m\r\n';
+                    out += '    \x1b[31m' + (info.error || '').slice(0, 400) + '\x1b[0m\r\n';
+                }
+                if (!any) out += '  \x1b[2m(no stderr captured)\x1b[0m\r\n';
+                try { if (state.socket) state.socket.write(SYS_FENCE + out); } catch(_) {}
+                continue;
+            }
+
             if (line.startsWith('!mcp')) {
                 let out = '\x1b[1m[MCP servers]\x1b[0m\r\n';
                 let total = 0;
@@ -3849,7 +3893,13 @@ function openPrintSession() {
                     for (const t of srv.tools) out += '    \x1b[2m· ' + t._mcpTool + '\x1b[0m\r\n';
                     total += srv.tools.length;
                 }
-                if (total === 0) out += '  \x1b[2m(no MCP servers connected)\x1b[0m\r\n';
+                // MCP-5: include failed servers so users see what's misconfigured.
+                for (const [name, info] of mcpFailed.entries()) {
+                    out += '  \x1b[31m✗\x1b[0m \x1b[33m' + name + '\x1b[0m \x1b[2m(' + info.type + ', failed)\x1b[0m\r\n';
+                    out += '    \x1b[31m' + (info.error || '').slice(0, 200) + '\x1b[0m\r\n';
+                }
+                if (total === 0 && mcpFailed.size === 0) out += '  \x1b[2m(no MCP servers connected)\x1b[0m\r\n';
+                if (mcpFailed.size > 0) out += '\r\n  \x1b[2muse !mcp-log to see captured stderr\x1b[0m\r\n';
                 try { if (state.socket) state.socket.write(SYS_FENCE + out); } catch(_) {}
                 continue;
             }
