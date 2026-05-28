@@ -2597,16 +2597,25 @@ function submitLine(text){
   }
 }
 
-// ── Ghost textarea ────────────────────────────────────────────────────────────
+// ── Input textarea (F6) ───────────────────────────────────────────────────────
+// Was the offscreen "ghost" textarea — now a real visible textarea inside
+// #input-wrap. The fake #input-display span + #cursor stay in the DOM (hidden)
+// so existing code paths that call updateInputDisp() remain harmless no-ops.
+// The variable name `ghost` is kept for backward-compat with all call sites.
 const ghost=document.createElement('textarea');
+ghost.id='input-textarea';
 ghost.rows=1;
-ghost.style.cssText='position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;opacity:0;resize:none;border:none;outline:none;font-size:16px;';
+ghost.style.cssText='display:block;width:100%;min-height:22px;max-height:160px;background:transparent;color:#f1f5f9;font-family:Space Mono,Courier New,monospace;font-size:13px;line-height:1.5;padding:0;margin:0;border:none;outline:none;resize:none;caret-color:#E8834A;word-break:break-all;overflow-wrap:anywhere;overflow-y:auto;';
 ghost.setAttribute('autocomplete','off');
 ghost.setAttribute('autocorrect','off');
 ghost.setAttribute('autocapitalize','none');
 ghost.setAttribute('spellcheck','false');
 ghost.setAttribute('enterkeyhint','send');
-document.body.appendChild(ghost);
+inputWrap.appendChild(ghost);
+// Hide the legacy span+cursor — textarea now renders its own text natively.
+if(inputDisp) inputDisp.style.display='none';
+var _legacyCursor=document.getElementById('cursor');
+if(_legacyCursor) _legacyCursor.style.display='none';
 
 // M16: store timer ID so we can clearTimeout before each new focus scroll.
 let ghostScrollTimer = null;
@@ -2691,13 +2700,16 @@ ghost.addEventListener('keydown',function(e){
   if(e.key==='Enter'){e.preventDefault();sendRawInput();}
   else if(e.key==='ArrowUp'){e.preventDefault();if(inputBuffer.length===0){tbRaw('\x1b[A');}else{historyUp();}}
   else if(e.key==='ArrowDown'){e.preventDefault();if(historyIdx===-1){tbRaw('\x1b[B');}else{historyDown();}}
-  else if(e.key==='ArrowLeft'){e.preventDefault();tbRaw('\x1b[D');}
-  else if(e.key==='ArrowRight'){e.preventDefault();tbRaw('\x1b[C');}
+  // F6: when textarea has text, let arrow keys move the native caret for editing.
+  // Only forward cursor escapes to the bridge when the buffer is empty (terminal nav).
+  else if(e.key==='ArrowLeft'){if(inputBuffer.length===0){e.preventDefault();tbRaw('\x1b[D');}}
+  else if(e.key==='ArrowRight'){if(inputBuffer.length===0){e.preventDefault();tbRaw('\x1b[C');}}
   else if(e.key==='Tab'){e.preventDefault();tbRaw('\t');}
   else if(e.key==='Escape'){e.preventDefault();tbRaw('\x1b');}
+  // F6: let the textarea handle Backspace natively when there's text — the input
+  // event will sync inputBuffer. Only forward raw DEL when buffer is empty.
   else if(e.key==='Backspace'){
-    if(inputBuffer.length>0){e.preventDefault();inputBuffer=inputBuffer.slice(0,-1);ghost.value=inputBuffer;updateInputDisp();}
-    else{e.preventDefault();tbRaw('\x7f');}
+    if(inputBuffer.length===0){e.preventDefault();tbRaw('\x7f');}
   }
 });
 
