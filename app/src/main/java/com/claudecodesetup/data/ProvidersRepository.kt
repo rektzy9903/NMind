@@ -75,8 +75,9 @@ object ProvidersRepository {
             val m = modelsArr.getJSONObject(i)
             AiModel(m.getString("name"), m.getString("modelId"))
         }
+        val id = obj.getString("id")
         return Provider(
-            id              = obj.getString("id"),
+            id              = id,
             name            = obj.getString("name"),
             signupUrl       = obj.getString("signupUrl"),
             rateLimit       = obj.getString("rateLimit"),
@@ -86,8 +87,27 @@ object ProvidersRepository {
             baseUrl         = obj.getString("baseUrl"),
             requiresProxy   = obj.getBoolean("requiresProxy"),
             requiresApiKey  = obj.optBoolean("requiresApiKey", true),
-            models          = models
+            models          = models,
+            // JSON can't carry an Android @DrawableRes Int, so map the provider id
+            // back to the bundled brand drawable here. Without this, every provider
+            // loaded from assets/providers.json falls through to the letter fallback.
+            iconResId       = brandResIdForProvider(id),
         )
+    }
+
+    /** Provider id → bundled brand drawable resource id. Mirror of the
+     *  iconResId assignments in Providers.kt for the static constants —
+     *  needed because JSON deserialization can't carry resource ids. */
+    private fun brandResIdForProvider(id: String): Int = when (id) {
+        "nvidia_nim"    -> com.claudecodesetup.R.drawable.ic_brand_nvidia
+        "openrouter"    -> com.claudecodesetup.R.drawable.ic_brand_openrouter
+        "gemini"        -> com.claudecodesetup.R.drawable.ic_brand_gemini
+        "meta_llama"    -> com.claudecodesetup.R.drawable.ic_brand_meta
+        "deepseek"      -> com.claudecodesetup.R.drawable.ic_brand_deepseek
+        "ollama"        -> com.claudecodesetup.R.drawable.ic_brand_ollama
+        "anthropic"     -> com.claudecodesetup.R.drawable.ic_brand_claude
+        "anthropic_api" -> com.claudecodesetup.R.drawable.ic_brand_claude
+        else            -> 0   // groq, kimi, etc. — no CC0 mark bundled
     }
 
     private fun parseMalaysiaStatus(s: String) = when (s) {
