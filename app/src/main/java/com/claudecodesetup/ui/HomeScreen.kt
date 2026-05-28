@@ -79,15 +79,21 @@ fun HomeScreen(
         ) {
             Spacer(Modifier.height(64.dp))
 
-            // App icon — loaded as Bitmap to support adaptive icons (API 26+)
+            // App icon — loaded as Bitmap to support adaptive icons (API 26+).
+            // The adaptive foreground (108×108 viewBox) reserves a ~9dp safe-zone
+            // margin on every side for the launcher mask. When rendered flat in-app
+            // that margin becomes empty padding, making the logo look undersized in
+            // its tile. Over-extend the drawable bounds by 9/90 of bitmap size so
+            // the inner content (cardinals from y=9..99) fills edge-to-edge.
             val context = LocalContext.current
             val appIconBitmap = remember {
                 try {
                     val drawable = ContextCompat.getDrawable(context, R.mipmap.ic_launcher)
                     val px = 192
+                    val pad = (px * 9 / 90)  // crop the 9-unit safe-zone border
                     val bmp = Bitmap.createBitmap(px, px, Bitmap.Config.ARGB_8888)
                     val canvas = AndroidCanvas(bmp)
-                    drawable?.setBounds(0, 0, px, px)
+                    drawable?.setBounds(-pad, -pad, px + pad, px + pad)
                     drawable?.draw(canvas)
                     bmp
                 } catch (_: Exception) { null }
@@ -104,7 +110,7 @@ fun HomeScreen(
                     Image(
                         bitmap = appIconBitmap.asImageBitmap(),
                         contentDescription = "App icon",
-                        modifier = Modifier.size(54.dp)
+                        modifier = Modifier.size(64.dp)
                     )
                 }
             }
