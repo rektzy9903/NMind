@@ -1135,6 +1135,8 @@ function resetToIdle(){
   chatState='IDLE';
   // Complete any active agent panel — all sub-agents finished
   completeAgentPanel();
+  // Finalize any running Bash cards — turn done, stop their timers
+  finalizeBashCards();
   // Show Yes/No toolbar buttons after AI responds in case it asked a question
   document.getElementById('btn-yes').style.display='';
   document.getElementById('btn-no').style.display='';
@@ -1220,6 +1222,8 @@ function handleOSC(content){
     // Agent/Task tool: show animated sub-agent panel instead of permission card
     if(perm.toolName==='Agent'||perm.toolName==='Task'){
       showAgentPanel(perm);
+    } else if(perm.toolName==='Bash'){
+      showBashCard(perm);
     } else {
       showPermissionDialog(perm);
     }
@@ -1396,6 +1400,143 @@ function showConfirmDialog(id, desc){
   wrap.appendChild(row);
   msgs.appendChild(wrap);
   scrollToBottom();
+}
+
+// ── Bash tool card (T1) ───────────────────────────────────────────────────────
+// Dedicated card for Bash tool calls. Replaces the generic showPermissionDialog
+// for toolName==='Bash'. Shows: command (code block), cwd, running timer.
+// Lifecycle: created on permission OSC → timer ticks → finalized in resetToIdle().
+// Tool already auto-runs (perm.autoApproved); buttons are informational
+// (configure future) and use the same !perm-* protocol as showPermissionDialog.
+var activeBashCards = []; // [{wrap, statusEl, startedAt, intervalId}]
+
+function fmtElapsed(ms){
+  var s = Math.floor(ms/1000);
+  if(s < 60) return s + 's';
+  var m = Math.floor(s/60), r = s%60;
+  return m + 'm ' + (r<10?'0':'') + r + 's';
+}
+
+function finalizeBashCards(){
+  for(var i=0;i<activeBashCards.length;i++){
+    var c = activeBashCards[i];
+    if(c.intervalId) clearInterval(c.intervalId);
+    c.intervalId = null;
+    if(c.statusEl){
+      var el = Date.now() - c.startedAt;
+      c.statusEl.textContent = '✓ Completed in ' + fmtElapsed(el);
+      c.statusEl.style.color = '#3DD68C';
+    }
+  }
+  activeBashCards = [];
+}
+
+function showBashCard(perm){
+  // Remove any stale card for the same id
+  var oldId = 'bash-card-' + perm.id;
+  var oldEl = document.getElementById(oldId);
+  if(oldEl) oldEl.remove();
+
+  var inp = perm.toolInput || {};
+  var cmd = (inp.command || '').toString();
+  var cwd = (inp.cwd || '').toString();
+  var desc = (inp.description || '').toString();
+
+  var wrap = document.createElement('div');
+  wrap.id = oldId;
+  wrap.style.cssText = 'margin:8px 4px;border-radius:14px;overflow:hidden;background:#151518;border:1px solid #2A2A30;box-shadow:0 4px 24px rgba(232,131,74,0.08);';
+
+  // Header bar — amber accent for Bash
+  var hdr = document.createElement('div');
+  hdr.style.cssText = 'background:rgba(232,131,74,0.10);padding:9px 14px 8px;display:flex;align-items:center;gap:8px;border-bottom:1px solid rgba(232,131,74,0.18);';
+  var dot = document.createElement('span');
+  dot.style.cssText = 'width:7px;height:7px;border-radius:50%;background:#E8834A;box-shadow:0 0 8px rgba(232,131,74,0.6);flex-shrink:0;';
+  var title = document.createElement('span');
+  title.style.cssText = 'color:#E8834A;font-size:11px;font-family:Space Mono,monospace;font-weight:600;letter-spacing:0.05em;flex:1;';
+  title.textContent = 'BASH';
+  var sub = document.createElement('span');
+  sub.style.cssText = 'color:#60606E;font-size:9px;font-family:Space Mono,monospace;';
+  sub.textContent = 'configure future';
+  hdr.appendChild(dot);
+  hdr.appendChild(title);
+  hdr.appendChild(sub);
+  wrap.appendChild(hdr);
+
+  // Optional description line (Claude often supplies a short summary)
+  if(desc){
+    var descEl = document.createElement('div');
+    descEl.style.cssText = 'padding:6px 14px 0;font-size:11px;font-family:Inter,sans-serif;color:#9090A0;';
+    descEl.textContent = desc;
+    wrap.appendChild(descEl);
+  }
+
+  // Command code block
+  var pre = document.createElement('div');
+  pre.style.cssText = 'margin:8px 12px;padding:9px 11px;background:#0A0A0C;border:1px solid #2A2A30;border-radius:8px;font-family:Space Mono,monospace;font-size:12px;color:#F0F0F2;white-space:pre-wrap;word-break:break-all;max-height:140px;overflow:auto;line-height:1.45;';
+  // Prefix with $ marker for clarity, monospace
+  var prompt = document.createElement('span');
+  prompt.textContent = '$ ';
+  prompt.style.color = '#E8834A';
+  pre.appendChild(prompt);
+  var cmdSpan = document.createElement('span');
+  cmdSpan.textContent = cmd || '(no command)';
+  pre.appendChild(cmdSpan);
+  wrap.appendChild(pre);
+
+  // Meta row: cwd + running status
+  var meta = document.createElement('div');
+  meta.style.cssText = 'display:flex;align-items:center;gap:14px;padding:0 14px 8px;font-size:10px;font-family:Space Mono,monospace;color:#60606E;flex-wrap:wrap;';
+
+  if(cwd){
+    var cwdEl = document.createElement('span');
+    var cwdDisplay = cwd;
+    // Abbreviate long paths: keep last 2 segments
+    var parts = cwd.replace(/\/+$/,'').split('/').filter(Boolean);
+    if(parts.length > 3) cwdDisplay = '…/' + parts.slice(-2).join('/');
+    cwdEl.textContent = 'cwd: ' + cwdDisplay;
+    cwdEl.title = cwd;
+    meta.appendChild(cwdEl);
+  }
+
+  var statusEl = document.createElement('span');
+  statusEl.style.cssText = 'color:#60A5FA;margin-left:auto;';
+  statusEl.textContent = '⏵ Running 0s';
+  meta.appendChild(statusEl);
+  wrap.appendChild(meta);
+
+  // Buttons row — same protocol as showPermissionDialog
+  var btnRow = document.createElement('div');
+  btnRow.style.cssText = 'display:flex;gap:0;border-top:1px solid #2A2A30;';
+  var buttons = [
+    {label:'Block future', cmd:'!perm-deny',   color:'#F87171', bg:'rgba(248,113,113,0.08)'},
+    {label:'Dismiss',      cmd:'!perm-allow',  color:'#9090A0', bg:'transparent'},
+    {label:'Always allow', cmd:'!perm-always', color:'#3DD68C', bg:'rgba(61,214,140,0.08)'},
+  ];
+  buttons.forEach(function(b, i){
+    var btn = document.createElement('button');
+    btn.textContent = b.label;
+    var borderLeft = i > 0 ? 'border-left:1px solid #2A2A30;' : '';
+    btn.style.cssText = 'flex:1;background:'+b.bg+';border:none;'+borderLeft+'color:'+b.color+';font-size:12px;font-family:Space Mono,monospace;padding:10px 4px;cursor:pointer;letter-spacing:0.03em;';
+    btn.addEventListener('click', function(){
+      wrap.style.opacity = '0.65';
+      // Don't disable pointer events — let user still see card if they tap dismiss
+      btnRow.style.pointerEvents = 'none';
+      if(typeof Android !== 'undefined') Android.sendInput('\r'+b.cmd+'\r');
+    });
+    btnRow.appendChild(btn);
+  });
+  wrap.appendChild(btnRow);
+
+  msgs.appendChild(wrap);
+  scrollToBottom();
+
+  // Start the running timer — finalized by resetToIdle() at turn end
+  var card = { wrap: wrap, statusEl: statusEl, startedAt: Date.now(), intervalId: null };
+  card.intervalId = setInterval(function(){
+    var el = Date.now() - card.startedAt;
+    statusEl.textContent = '⏵ Running ' + fmtElapsed(el);
+  }, 1000);
+  activeBashCards.push(card);
 }
 
 // ── Permission dialog ─────────────────────────────────────────────────────────
