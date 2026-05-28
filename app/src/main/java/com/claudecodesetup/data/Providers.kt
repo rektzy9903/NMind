@@ -1,5 +1,8 @@
 package com.claudecodesetup.data
 
+import androidx.annotation.DrawableRes
+import com.claudecodesetup.R
+
 object Cap {
     const val TOOLS     = "tools"     // supports function/tool calling (agentic mode)
     const val VISION    = "vision"    // understands image input
@@ -29,8 +32,11 @@ data class Provider(
     val requiresProxy: Boolean,
     val requiresApiKey: Boolean = true,
     val models: List<AiModel>,
-    /** Clearbit / brand logo URL shown in provider and model cards. */
+    /** Clearbit / brand logo URL — legacy fallback when iconResId is not set. */
     val iconUrl: String = "",
+    /** Bundled VectorDrawable for the provider's brand mark. 0 = none, falls back
+     *  to iconUrl then to the first-letter initial tile. */
+    @DrawableRes val iconResId: Int = 0,
     /** Show a server URL input field in the API-key screen (Ollama / private servers). */
     val isUrlConfigurable: Boolean = false,
     /** Supports live model list fetch (shows ↻ Refresh in model picker). */
@@ -44,7 +50,7 @@ object Providers {
     val NVIDIA_NIM = Provider(
         id = "nvidia_nim",
         name = "NVIDIA NIM",
-        iconUrl = "https://www.google.com/s2/favicons?domain=nvidia.com&sz=128",
+        iconResId = R.drawable.ic_brand_nvidia,
         supportsLiveFetch = true,
         signupUrl = "https://build.nvidia.com/models",
         rateLimit = "40 req/min · Free forever",
@@ -67,7 +73,7 @@ object Providers {
     val OPENROUTER = Provider(
         id = "openrouter",
         name = "OpenRouter",
-        iconUrl = "https://www.google.com/s2/favicons?domain=openrouter.ai&sz=128",
+        iconResId = R.drawable.ic_brand_openrouter,
         supportsLiveFetch = true,
         signupUrl = "https://openrouter.ai",
         rateLimit = "20 req/min · 50 req/day free",
@@ -104,7 +110,7 @@ object Providers {
     val GEMINI = Provider(
         id = "gemini",
         name = "Google Gemini",
-        iconUrl = "https://www.google.com/s2/favicons?domain=gemini.google.com&sz=128",
+        iconResId = R.drawable.ic_brand_gemini,
         supportsLiveFetch = true,
         signupUrl = "https://aistudio.google.com",
         rateLimit = "15 req/min · 1500 req/day free",
@@ -128,7 +134,7 @@ object Providers {
     val META_LLAMA = Provider(
         id = "meta_llama",
         name = "Meta Llama API",
-        iconUrl = "https://www.google.com/s2/favicons?domain=meta.com&sz=128",
+        iconResId = R.drawable.ic_brand_meta,
         supportsLiveFetch = true,
         signupUrl = "https://llama.developer.meta.com",
         rateLimit = "Limited free preview",
@@ -146,7 +152,7 @@ object Providers {
     val DEEPSEEK = Provider(
         id = "deepseek",
         name = "DeepSeek",
-        iconUrl = "https://www.google.com/s2/favicons?domain=deepseek.com&sz=128",
+        iconResId = R.drawable.ic_brand_deepseek,
         supportsLiveFetch = true,
         signupUrl = "https://platform.deepseek.com/api_keys",
         rateLimit = "Very cheap · Free tier available",
@@ -163,7 +169,8 @@ object Providers {
     val KIMI = Provider(
         id = "kimi",
         name = "Kimi (Moonshot AI)",
-        iconUrl = "https://www.google.com/s2/favicons?domain=moonshot.ai&sz=128",
+        // No CC0 brand mark available — falls back to stylized tile.
+        // Run scripts/add-brand-icon.sh with Moonshot's official SVG URL to populate.
         supportsLiveFetch = true,
         signupUrl = "https://platform.moonshot.ai",
         rateLimit = "Paid credits required",
@@ -182,7 +189,7 @@ object Providers {
     val OLLAMA = Provider(
         id = "ollama",
         name = "Personal AI",
-        iconUrl = "https://www.google.com/s2/favicons?domain=ollama.com&sz=128",
+        iconResId = R.drawable.ic_brand_ollama,
         isUrlConfigurable = true,
         supportsLiveFetch = true,
         signupUrl = "https://ollama.com/library",
@@ -208,7 +215,8 @@ object Providers {
     val GROQ = Provider(
         id = "groq",
         name = "Groq",
-        iconUrl = "https://www.google.com/s2/favicons?domain=groq.com&sz=128",
+        // No CC0 brand mark available — falls back to stylized tile.
+        // Run scripts/add-brand-icon.sh with Groq's official SVG URL to populate.
         supportsLiveFetch = true,
         signupUrl = "https://console.groq.com/keys",
         rateLimit = "Free · 14,400 req/day · Ultra-fast",
@@ -231,7 +239,7 @@ object Providers {
     val ANTHROPIC = Provider(
         id = "anthropic",
         name = "Anthropic (Claude.ai)",
-        iconUrl = "https://www.google.com/s2/favicons?domain=anthropic.com&sz=128",
+        iconResId = R.drawable.ic_brand_claude,
         supportsLiveFetch = false,
         signupUrl = "https://claude.ai",
         rateLimit = "Subscription billing",
@@ -251,7 +259,7 @@ object Providers {
     val ANTHROPIC_API = Provider(
         id = "anthropic_api",
         name = "Anthropic API",
-        iconUrl = "https://www.google.com/s2/favicons?domain=anthropic.com&sz=128",
+        iconResId = R.drawable.ic_brand_claude,
         supportsLiveFetch = true,
         signupUrl = "https://console.anthropic.com/settings/api-keys",
         rateLimit = "Pay per token · no rate limit",

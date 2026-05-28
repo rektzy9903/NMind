@@ -346,7 +346,7 @@ fun ProviderListScreen(onSelect: (Provider) -> Unit, onBack: () -> Unit) {
 
 @Composable
 private fun ProviderCard(provider: Provider, onSelect: () -> Unit) {
-    val (emoji, accentColor, badge) = providerDisplayInfo(provider.id)
+    val (accentColor, badge) = providerDisplayInfo(provider.id)
 
     val interaction = remember { MutableInteractionSource() }
     val isPressed by interaction.collectIsPressedAsState()
@@ -376,17 +376,28 @@ private fun ProviderCard(provider: Provider, onSelect: () -> Unit) {
                     fontSize = 15.sp, fontWeight = FontWeight.Bold, color = accentColor
                 )
             }
-            if (provider.iconUrl.isNotEmpty()) {
-                SubcomposeAsyncImage(
-                    model = provider.iconUrl,
-                    contentDescription = provider.name,
-                    modifier = Modifier.size(32.dp),
-                    contentScale = ContentScale.Fit,
-                    loading = { providerInitial() },
-                    error   = { providerInitial() },
-                )
-            } else {
-                providerInitial()
+            when {
+                provider.iconResId != 0 -> {
+                    // Bundled brand drawable — tint to brand accent color so the
+                    // monochrome mark matches the tile's accent treatment.
+                    Icon(
+                        painter = painterResource(provider.iconResId),
+                        contentDescription = provider.name,
+                        tint = accentColor,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+                provider.iconUrl.isNotEmpty() -> {
+                    SubcomposeAsyncImage(
+                        model = provider.iconUrl,
+                        contentDescription = provider.name,
+                        modifier = Modifier.size(32.dp),
+                        contentScale = ContentScale.Fit,
+                        loading = { providerInitial() },
+                        error   = { providerInitial() },
+                    )
+                }
+                else -> providerInitial()
             }
         }
 
@@ -424,17 +435,20 @@ private fun ProviderCard(provider: Provider, onSelect: () -> Unit) {
     }
 }
 
-internal fun providerDisplayInfo(id: String): Triple<String, Color, String> = when (id) {
-    "gemini"     -> Triple("✨", NexusGreen, "Best Free")
-    "openrouter" -> Triple("🔀", NexusAccent, "Aggregator")
-    "deepseek"   -> Triple("🧠", NexusBlue, "Reasoning")
-    "kimi"       -> Triple("🌙", Color(0xFFF59E0B), "Long CTX")
-    "nvidia_nim" -> Triple("⚡", Color(0xFF76B900), "40 req/min")
-    "meta_llama" -> Triple("🦙", Color(0xFF0467DF), "Open Source")
-    "ollama"     -> Triple("💻", Color(0xFFEF4444), "Personal AI")
-    "anthropic"  -> Triple("🧬", NexusAccent, "Subscription")
-    "groq"       -> Triple("⚡", Color(0xFFF97316), "14,400/day")
-    else         -> Triple("🤖", NexusAccent, "AI Provider")
+/** (accentColor, badge label) for a provider — used to tint the brand drawable
+ *  and to render the small chip badge next to the provider name. */
+internal fun providerDisplayInfo(id: String): Pair<Color, String> = when (id) {
+    "gemini"        -> NexusGreen           to "Best Free"
+    "openrouter"    -> NexusAccent          to "Aggregator"
+    "deepseek"      -> NexusBlue            to "Reasoning"
+    "kimi"          -> Color(0xFFF59E0B)    to "Long CTX"
+    "nvidia_nim"    -> Color(0xFF76B900)    to "40 req/min"
+    "meta_llama"    -> Color(0xFF0467DF)    to "Open Source"
+    "ollama"        -> Color(0xFFEF4444)    to "Personal AI"
+    "anthropic"     -> NexusAccent          to "Subscription"
+    "anthropic_api" -> NexusAccent          to "API Key"
+    "groq"          -> Color(0xFFF97316)    to "14,400/day"
+    else            -> NexusAccent          to "AI Provider"
 }
 
 // ── Shared button components ──────────────────────────────────────────────────

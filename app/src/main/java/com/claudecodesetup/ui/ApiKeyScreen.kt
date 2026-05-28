@@ -151,7 +151,7 @@ fun ApiKeyScreen(provider: Provider, onSuccess: (String) -> Unit, onBack: () -> 
     var errorMessage by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
 
-    val (_, accentColor, _) = providerDisplayInfo(provider.id)
+    val (accentColor, _) = providerDisplayInfo(provider.id)
 
     var entered by remember { mutableStateOf(false) }
     val entryAlpha by animateFloatAsState(if (entered) 1f else 0f,

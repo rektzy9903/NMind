@@ -2603,7 +2603,9 @@ function submitLine(text){
     if(typeof Android!=='undefined') Android.sendInput(toSend+'\r');
     return;
   }
-  const displayMsg = msg || '📷';
+  // Image-only send: empty text — addUserBubble below handles the no-text +
+  // thumbnail case (the thumb already conveys "image attached").
+  const displayMsg = msg;
   // Push to input history (skip empty image-only sends + duplicates)
   if(msg.length>0 && inputHistory[inputHistory.length-1]!==msg){
     inputHistory.push(msg);

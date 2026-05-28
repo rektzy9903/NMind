@@ -15,6 +15,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material3.Icon
+import androidx.compose.ui.res.painterResource
+import com.claudecodesetup.R
 import androidx.compose.material3.Text
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.ui.text.TextStyle
@@ -81,6 +84,7 @@ private data class ModelDisplay(
     val model: AiModel,
     val effectiveCaps: Set<String>,
     val iconUrl: String,
+    val iconResId: Int,
     val color: Color,
     val speed: Int,
     val badge: String,
@@ -90,6 +94,29 @@ private data class ModelDisplay(
 
 private fun faviconUrl(domain: String) =
     "https://www.google.com/s2/favicons?domain=$domain&sz=128"
+
+/** Bundled brand drawable for a model org. Returns 0 when no brand mark is
+ *  bundled — caller should fall back to faviconUrl or the initial tile. */
+private fun brandIconForModel(modelId: String): Int {
+    val id = modelId.lowercase()
+    val org = id.substringBefore("/").replace("-", "").replace("_", "")
+    return when {
+        "anthropic" in org || "claude" in id              -> R.drawable.ic_brand_claude
+        "google" in org || "gemini" in id || "gemma" in id -> R.drawable.ic_brand_gemini
+        "metall" in org || "meta" == org || "llama" in id -> R.drawable.ic_brand_meta
+        "openai" in org || "gpt" in id                    -> R.drawable.ic_brand_openai
+        "deepseek" in id || "deepseek" in org             -> R.drawable.ic_brand_deepseek
+        "mistralai" in org || "mistral" in id || "mixtral" in id -> R.drawable.ic_brand_mistral
+        "qwen" in id || "qwen" in org                     -> R.drawable.ic_brand_qwen
+        "nvidia" in org || "nvidia" in id || "nemotron" in id -> R.drawable.ic_brand_nvidia
+        "microsoft" in org || "phi" in id                 -> R.drawable.ic_brand_microsoft
+        "xai" in org || "grok" in id                      -> R.drawable.ic_brand_xai
+        "perplexity" in org                               -> R.drawable.ic_brand_perplexity
+        "databricks" in org || "dbrx" in id               -> R.drawable.ic_brand_databricks
+        "openrouter" in org                               -> R.drawable.ic_brand_openrouter
+        else -> 0
+    }
+}
 
 private fun modelIconUrl(modelId: String): String {
     val id = modelId.lowercase()
@@ -156,7 +183,8 @@ private fun toDisplay(model: AiModel): ModelDisplay {
         else -> "128K"
     }
     val description = model.description.ifEmpty { Providers.deriveDescription(model.modelId, caps) }
-    return ModelDisplay(model, caps, iconUrl, color, speed, badge, tokens, description)
+    val iconResId = brandIconForModel(model.modelId)
+    return ModelDisplay(model, caps, iconUrl, iconResId, color, speed, badge, tokens, description)
 }
 
 private const val PAGE_SIZE = 9
@@ -717,17 +745,35 @@ private fun ModelCard(display: ModelDisplay, isSelected: Boolean, onSelect: () -
 @Composable
 private fun ModelLogoAvatar(display: ModelDisplay) {
     val shape = RoundedCornerShape(4.dp)
-    if (display.iconUrl.isNotEmpty()) {
-        SubcomposeAsyncImage(
-            model = display.iconUrl,
-            contentDescription = null,
-            modifier = Modifier.size(20.dp).clip(shape),
-            contentScale = ContentScale.Fit,
-            loading = { ModelInitialAvatar(display, shape) },
-            error   = { ModelInitialAvatar(display, shape) },
-        )
-    } else {
-        ModelInitialAvatar(display, shape)
+    when {
+        display.iconResId != 0 -> {
+            // Bundled CC0 brand mark — tint to brand accent color so the
+            // monochrome path inherits the model's color treatment.
+            Box(
+                modifier = Modifier
+                    .size(20.dp)
+                    .background(display.color.copy(alpha = 0.18f), shape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    painter = painterResource(display.iconResId),
+                    contentDescription = null,
+                    tint = display.color,
+                    modifier = Modifier.size(14.dp)
+                )
+            }
+        }
+        display.iconUrl.isNotEmpty() -> {
+            SubcomposeAsyncImage(
+                model = display.iconUrl,
+                contentDescription = null,
+                modifier = Modifier.size(20.dp).clip(shape),
+                contentScale = ContentScale.Fit,
+                loading = { ModelInitialAvatar(display, shape) },
+                error   = { ModelInitialAvatar(display, shape) },
+            )
+        }
+        else -> ModelInitialAvatar(display, shape)
     }
 }
 
