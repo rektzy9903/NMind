@@ -91,6 +91,10 @@ class AppPreferences(context: Context) {
     fun getMcpStdioServersJson(): String = prefs.getString(KEY_MCP_STDIO_SERVERS, "[]") ?: "[]"
     fun saveMcpStdioServersJson(json: String) = prefs.edit().putString(KEY_MCP_STDIO_SERVERS, json).apply()
 
+    // ─── Discussion (last config remembered, option 3B) ──────────────────────
+    fun getDiscussionLastConfigJson(): String = prefs.getString("discussion_last_config", "") ?: ""
+    fun saveDiscussionLastConfigJson(json: String) = prefs.edit().putString("discussion_last_config", json).apply()
+
     // ─── TTS ─────────────────────────────────────────────────────────────────
 
     fun getTtsEnabled(): Boolean = prefs.getBoolean(KEY_TTS_ENABLED, false)
