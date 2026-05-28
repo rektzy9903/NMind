@@ -32,6 +32,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.claudecodesetup.data.AppPreferences
 import com.claudecodesetup.databinding.ActivityTerminalBinding
+import com.claudecodesetup.managers.NodeBridgeManager
 import com.claudecodesetup.services.ClaudeService
 import com.claudecodesetup.ui.ComposeActivity
 import kotlinx.coroutines.Dispatchers
@@ -157,8 +158,11 @@ class TerminalActivity : AppCompatActivity() {
         // Refresh model name + avatar in case user changed provider in Settings
         val currentModelId = prefs.getModelId()
         if (lastKnownModelId.isNotEmpty() && lastKnownModelId != currentModelId) {
-            // Model changed while in Settings — kill any pending bridge process, clear
-            // the terminal display and replay buffer so old provider errors don't carry over.
+            // Model changed — update bridge_config.json immediately so the next message
+            // uses the new model/provider without waiting for the next startBridge().
+            NodeBridgeManager(this).refreshConfig(prefs)
+            // Kill any pending bridge process, clear the terminal display and replay
+            // buffer so old provider errors don't carry over.
             claudeService?.sendInput("!clear\r")
             claudeService?.getSession(activeSessionId)?.clearOutput()
             clearTerminal()

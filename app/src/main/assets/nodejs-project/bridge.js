@@ -1664,12 +1664,13 @@ function handleProxyRequest(anthReq, res) {
             }
         }
 
-        // HF Space cold-start: on 500/503, notify user and retry once after 15s.
-        // Only fires for .hf.space URLs and only retries once (hfRetried < 1).
-        const on5xx = (isHfSpace && hfRetried < 1) ? function() {
-            log('[hf-space] 500/503 — Space may be sleeping, retrying in 15s\n');
+        // HF Space cold-start: on 500/503, notify user and retry up to 4x (60s total).
+        // Free-tier Spaces can take 30–90s to wake from sleep.
+        const on5xx = (isHfSpace && hfRetried < 4) ? function() {
+            const attempt_n = hfRetried + 1;
+            log('[hf-space] 500/503 — Space may be sleeping, retry ' + attempt_n + '/4 in 15s\n');
             for (const s of activeSessions.values()) {
-                try { if (s.socket) s.socket.write(SYS_FENCE + '\x1b[33m[HuggingFace Space waking up — retrying in 15s…]\x1b[0m\r\n'); } catch(_) {}
+                try { if (s.socket) s.socket.write(SYS_FENCE + '\x1b[33m[HuggingFace Space waking up — retry ' + attempt_n + '/4 in 15s…]\x1b[0m\r\n'); } catch(_) {}
             }
             setTimeout(() => attempt(modelId, retriesLeft, delayMs, hfRetried + 1), 15000);
         } : null;
@@ -3513,6 +3514,18 @@ function openPrintSession() {
                 const fi = line.indexOf('!'), fd = line.indexOf('$');
                 const fc = fi === -1 ? fd : (fd === -1 ? fi : Math.min(fi, fd));
                 if (fc > 0 && !/\w/.test(line.slice(0, fc))) line = line.slice(fc);
+            }
+
+            // Tertiary guard: strip leading visible-punctuation prefix before the first
+            // word char when the prefix is mixed (≥2 distinct chars, ≤8 chars, no spaces).
+            // Android gesture keyboards leak composing artefacts like ".-.,..hello".
+            // Safe: single-char repeats like "..." or "--" are left intact.
+            {
+                const fw = line.search(/\w/);
+                if (fw > 0 && fw <= 8) {
+                    const prefix = line.slice(0, fw);
+                    if (!/\s/.test(prefix) && new Set(prefix).size >= 2) line = line.slice(fw);
+                }
             }
 
             // Normalize "! cmd" / "!  cmd" → "!cmd" (autocorrect adds space(s) after !)

@@ -50,7 +50,13 @@ class ComposeActivity : ComponentActivity() {
                 else provider.baseUrl
                 prefs.setBaseUrl(effectiveBaseUrl)
                 prefs.setProviderConfigured(true)
-                startActivity(Intent(this, TerminalActivity::class.java))
+                // When launched from the terminal header pill (start_at=picker), just
+                // save prefs and return — the existing TerminalActivity resumes via back
+                // stack and its onResume() detects the model change. Launching a new
+                // TerminalActivity here would destroy the existing session.
+                if (startAt != "picker") {
+                    startActivity(Intent(this, TerminalActivity::class.java))
+                }
                 finish()
             }
         }
