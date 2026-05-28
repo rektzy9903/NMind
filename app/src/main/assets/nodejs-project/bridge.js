@@ -3009,8 +3009,12 @@ function openPrintSession() {
             try { if (proc && proc.stdin && !proc.stdin.destroyed) proc.stdin.write('y\n'); } catch(_) {}
             // Skip the dialog entirely if the user has already said Always Allow for this tool
             // (or a matching Bash pattern, e.g. saved 'Bash(git *)' covers a new 'git push').
+            // EXCEPTION: Agent/Task tool always emits the OSC so the sub-agent panel
+            // can render. permissions.allow:['*'] matches Task → without this carve-out
+            // the panel would never appear because we'd return before sending the OSC.
             const savedApprove = loadApproveList();
-            if (isToolAlreadyAllowed(toolName, toolInput, savedApprove.allow)) return;
+            const isAgentTool = (toolName === 'Agent' || toolName === 'Task');
+            if (!isAgentTool && isToolAlreadyAllowed(toolName, toolInput, savedApprove.allow)) return;
             const perm = { toolName, toolInput, id: permId, suggestions, autoApproved: true };
             state.pendingPerm = perm;
             const permB64 = Buffer.from(JSON.stringify(perm)).toString('base64');
@@ -3045,9 +3049,12 @@ function openPrintSession() {
         const toolMatch = line.match(/\b(?:run|execute|use|allow)\s+(\w[\w-]*)/i);
         const toolName  = toolMatch ? toolMatch[1] : 'tool';
         try { if (proc && proc.stdin && !proc.stdin.destroyed) proc.stdin.write('y\n'); } catch(_) {}
-        // Skip dialog if user already said Always Allow for this tool (incl. Bash patterns)
+        // Skip dialog if user already said Always Allow for this tool (incl. Bash patterns).
+        // Same Agent/Task carve-out as the structured path — the sub-agent panel needs
+        // the OSC even when permissions.allow:['*'] would otherwise suppress it.
         const savedApprove = loadApproveList();
-        if (isToolAlreadyAllowed(toolName, { prompt: line }, savedApprove.allow)) return;
+        const isAgentTool = (toolName === 'Agent' || toolName === 'Task');
+        if (!isAgentTool && isToolAlreadyAllowed(toolName, { prompt: line }, savedApprove.allow)) return;
         const perm = { toolName, toolInput: { prompt: line }, id: Date.now() + '-txt', autoApproved: true };
         state.pendingPerm = perm;
         const permB64 = Buffer.from(JSON.stringify(perm)).toString('base64');
