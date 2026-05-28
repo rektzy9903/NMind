@@ -3,6 +3,8 @@ package com.claudecodesetup.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -250,6 +252,6 @@ private fun ModeCard(mode: DiscussionMode, selected: Boolean, onClick: () -> Uni
 
 @Composable
 private fun Modifier.verticalScrollable(): Modifier {
-    val scroll = androidx.compose.foundation.rememberScrollState()
-    return this.then(androidx.compose.foundation.verticalScroll(scroll))
+    val scroll = rememberScrollState()
+    return this.verticalScroll(scroll)
 }
