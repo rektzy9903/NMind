@@ -95,6 +95,10 @@ class AppPreferences(context: Context) {
     fun getDiscussionLastConfigJson(): String = prefs.getString("discussion_last_config", "") ?: ""
     fun saveDiscussionLastConfigJson(json: String) = prefs.edit().putString("discussion_last_config", json).apply()
 
+    // ─── Quick Ask (last speaker only — no transcript persistence) ───────────
+    fun getQuickAskLastSpeaker(): String = prefs.getString("quickask_last_speaker", "") ?: ""
+    fun saveQuickAskLastSpeaker(s: String) = prefs.edit().putString("quickask_last_speaker", s).apply()
+
     // ─── TTS ─────────────────────────────────────────────────────────────────
 
     fun getTtsEnabled(): Boolean = prefs.getBoolean(KEY_TTS_ENABLED, false)

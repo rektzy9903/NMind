@@ -44,6 +44,7 @@ fun HomeScreen(
     onSettings: () -> Unit,
     onProjects: () -> Unit = {},
     onDiscussion: () -> Unit = {},
+    onQuickAsk: () -> Unit = {},
 ) {
     val pulseTransition = rememberInfiniteTransition(label = "pulse")
 
@@ -54,16 +55,18 @@ fun HomeScreen(
     )
 
     var card1Visible by remember { mutableStateOf(false) }
+    var cardQuickAskVisible by remember { mutableStateOf(false) }
     var cardDiscussionVisible by remember { mutableStateOf(false) }
     var card2Visible by remember { mutableStateOf(false) }
     var card3Visible by remember { mutableStateOf(false) }
     var card4Visible by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         delay(250L); card1Visible = true
-        delay(130L); cardDiscussionVisible = true
-        delay(130L); card2Visible = true
-        delay(130L); card3Visible = true
-        delay(130L); card4Visible = true
+        delay(110L); cardQuickAskVisible = true
+        delay(110L); cardDiscussionVisible = true
+        delay(110L); card2Visible = true
+        delay(110L); card3Visible = true
+        delay(110L); card4Visible = true
     }
 
     AppBackground {
@@ -185,6 +188,22 @@ fun HomeScreen(
                     accentColor = NexusAccent,
                     onClick = onChatBox,
                     iconContent = { ChatBoxIcon() }
+                )
+            }
+
+            Spacer(Modifier.height(12.dp))
+
+            // Card — Quick Ask (native multi-provider chat)
+            AnimatedVisibility(
+                visible = cardQuickAskVisible,
+                enter = fadeIn(tween(400)) + slideInVertically(tween(400, easing = EaseOutCubic)) { it / 3 }
+            ) {
+                MenuCard(
+                    title = "Quick Ask",
+                    subtitle = "Chat directly with any model — no tools",
+                    accentColor = NexusBlue,
+                    onClick = onQuickAsk,
+                    iconContent = { QuickAskIcon() }
                 )
             }
 
@@ -514,6 +533,50 @@ private fun MenuCard(
                 colorFilter = ColorFilter.tint(NexusText3),
                 modifier = Modifier.size(16.dp)
             )
+        }
+    }
+}
+
+// Lightning-bolt-in-bubble — represents fast single-shot chat.
+@Composable
+private fun BoxScope.QuickAskIcon() {
+    IconBox {
+        androidx.compose.foundation.Canvas(modifier = Modifier.size(22.dp)) {
+            val s = size
+            val sc = s.width / 20f
+            val stroke = androidx.compose.ui.graphics.drawscope.Stroke(
+                width = 1.6f * sc,
+                cap = androidx.compose.ui.graphics.StrokeCap.Round,
+                join = androidx.compose.ui.graphics.StrokeJoin.Round,
+            )
+            // Bubble — rounded rect with bottom-left tail
+            val bubble = Path().apply {
+                moveTo(3f * sc, 3f * sc)
+                lineTo(17f * sc, 3f * sc)
+                quadraticTo(18.5f * sc, 3f * sc, 18.5f * sc, 4.5f * sc)
+                lineTo(18.5f * sc, 13.5f * sc)
+                quadraticTo(18.5f * sc, 15f * sc, 17f * sc, 15f * sc)
+                lineTo(7f * sc, 15f * sc)
+                lineTo(4f * sc, 17.5f * sc)
+                lineTo(4f * sc, 15f * sc)
+                lineTo(3f * sc, 15f * sc)
+                quadraticTo(1.5f * sc, 15f * sc, 1.5f * sc, 13.5f * sc)
+                lineTo(1.5f * sc, 4.5f * sc)
+                quadraticTo(1.5f * sc, 3f * sc, 3f * sc, 3f * sc)
+                close()
+            }
+            drawPath(bubble, NexusBlue, style = stroke)
+            // Lightning bolt — filled amber
+            val bolt = Path().apply {
+                moveTo(11f * sc, 5f * sc)
+                lineTo(7.5f * sc, 10f * sc)
+                lineTo(10f * sc, 10f * sc)
+                lineTo(8.5f * sc, 13.5f * sc)
+                lineTo(12f * sc, 8f * sc)
+                lineTo(9.5f * sc, 8f * sc)
+                close()
+            }
+            drawPath(bolt, NexusAccent)
         }
     }
 }
