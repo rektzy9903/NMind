@@ -43,6 +43,7 @@ fun HomeScreen(
     onTesting: () -> Unit,
     onSettings: () -> Unit,
     onProjects: () -> Unit = {},
+    onDiscussion: () -> Unit = {},
 ) {
     val pulseTransition = rememberInfiniteTransition(label = "pulse")
 
@@ -53,11 +54,13 @@ fun HomeScreen(
     )
 
     var card1Visible by remember { mutableStateOf(false) }
+    var cardDiscussionVisible by remember { mutableStateOf(false) }
     var card2Visible by remember { mutableStateOf(false) }
     var card3Visible by remember { mutableStateOf(false) }
     var card4Visible by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         delay(250L); card1Visible = true
+        delay(130L); cardDiscussionVisible = true
         delay(130L); card2Visible = true
         delay(130L); card3Visible = true
         delay(130L); card4Visible = true
@@ -182,6 +185,22 @@ fun HomeScreen(
                     accentColor = NexusAccent,
                     onClick = onChatBox,
                     iconContent = { ChatBoxIcon() }
+                )
+            }
+
+            Spacer(Modifier.height(12.dp))
+
+            // Card — Discussion (multi-model debate)
+            AnimatedVisibility(
+                visible = cardDiscussionVisible,
+                enter = fadeIn(tween(400)) + slideInVertically(tween(400, easing = EaseOutCubic)) { it / 3 }
+            ) {
+                MenuCard(
+                    title = "Discussion",
+                    subtitle = "Have 2–4 models debate a topic",
+                    accentColor = NexusAmber,
+                    onClick = onDiscussion,
+                    iconContent = { DiscussionIcon() }
                 )
             }
 
@@ -495,6 +514,56 @@ private fun MenuCard(
                 colorFilter = ColorFilter.tint(NexusText3),
                 modifier = Modifier.size(16.dp)
             )
+        }
+    }
+}
+
+// Two overlapping speech bubbles — represents multi-speaker debate.
+@Composable
+private fun BoxScope.DiscussionIcon() {
+    IconBox {
+        androidx.compose.foundation.Canvas(modifier = Modifier.size(22.dp)) {
+            val s = size
+            val sc = s.width / 20f
+            val strokeBack = androidx.compose.ui.graphics.drawscope.Stroke(
+                width = 1.5f * sc,
+                cap = androidx.compose.ui.graphics.StrokeCap.Round,
+                join = androidx.compose.ui.graphics.StrokeJoin.Round,
+            )
+            // Back bubble — blue, top-right
+            val back = Path().apply {
+                moveTo(8f * sc, 2.5f * sc)
+                lineTo(16.5f * sc, 2.5f * sc)
+                quadraticTo(18f * sc, 2.5f * sc, 18f * sc, 4f * sc)
+                lineTo(18f * sc, 9f * sc)
+                quadraticTo(18f * sc, 10.5f * sc, 16.5f * sc, 10.5f * sc)
+                lineTo(13f * sc, 10.5f * sc)
+                lineTo(11.5f * sc, 12f * sc)
+                lineTo(11.5f * sc, 10.5f * sc)
+                lineTo(8f * sc, 10.5f * sc)
+                quadraticTo(6.5f * sc, 10.5f * sc, 6.5f * sc, 9f * sc)
+                lineTo(6.5f * sc, 4f * sc)
+                quadraticTo(6.5f * sc, 2.5f * sc, 8f * sc, 2.5f * sc)
+                close()
+            }
+            drawPath(back, NexusBlue, style = strokeBack)
+            // Front bubble — amber, bottom-left, overlaps
+            val front = Path().apply {
+                moveTo(3.5f * sc, 8f * sc)
+                lineTo(12f * sc, 8f * sc)
+                quadraticTo(13.5f * sc, 8f * sc, 13.5f * sc, 9.5f * sc)
+                lineTo(13.5f * sc, 14.5f * sc)
+                quadraticTo(13.5f * sc, 16f * sc, 12f * sc, 16f * sc)
+                lineTo(7f * sc, 16f * sc)
+                lineTo(5f * sc, 17.5f * sc)
+                lineTo(5f * sc, 16f * sc)
+                lineTo(3.5f * sc, 16f * sc)
+                quadraticTo(2f * sc, 16f * sc, 2f * sc, 14.5f * sc)
+                lineTo(2f * sc, 9.5f * sc)
+                quadraticTo(2f * sc, 8f * sc, 3.5f * sc, 8f * sc)
+                close()
+            }
+            drawPath(front, NexusAccent, style = strokeBack)
         }
     }
 }

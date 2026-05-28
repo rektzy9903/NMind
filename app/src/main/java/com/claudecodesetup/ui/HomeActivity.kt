@@ -26,6 +26,7 @@ class HomeActivity : ComponentActivity() {
                 },
                 onSettings = { startActivity(Intent(this, SettingsActivity::class.java)) },
                 onProjects = { startActivity(Intent(this, ProjectManagerActivity::class.java)) },
+                onDiscussion = { startActivity(Intent(this, DiscussionActivity::class.java)) },
             )
         }
     }
