@@ -19,8 +19,12 @@ import com.claudecodesetup.data.AiModel
 import com.claudecodesetup.data.Cap
 import com.claudecodesetup.data.Provider
 import com.claudecodesetup.data.Providers
+import com.claudecodesetup.data.ProvidersRepository
 import com.claudecodesetup.data.AppPreferences
 import com.claudecodesetup.discussion.Speaker
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 data class SpeakerCandidate(val provider: Provider, val model: AiModel)
 
@@ -41,15 +45,58 @@ fun DiscussionModelPickerSheet(
     onConfirm: (List<Speaker>) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val candidates = remember {
-        val out = mutableListOf<SpeakerCandidate>()
-        for (p in Providers.ALL) {
+    // Configured providers — provider object + (apiKey, customBaseUrl) snapshot.
+    // Stable for the lifetime of the sheet.
+    data class Configured(val provider: Provider, val apiKey: String, val baseUrl: String)
+    val configured = remember {
+        Providers.ALL.mapNotNull { p ->
             val key = prefs.getApiKeyForProvider(p.id)
-            if (key.isEmpty()) continue
-            for (m in p.models) out.add(SpeakerCandidate(p, m))
+            if (key.isEmpty()) return@mapNotNull null
+            val custom = prefs.getCustomBaseUrlForProvider(p.id)
+            val baseUrl = if (custom.isNotEmpty()) custom else p.baseUrl
+            Configured(p, key, baseUrl)
+        }
+    }
+
+    // Per-provider live model state. Null = not fetched yet / no live fetch.
+    // On successful live fetch, the entry is replaced with the fetched list,
+    // overriding the provider's static model list (same semantics as ModelPickerScreen).
+    val liveModels = remember { mutableStateMapOf<String, List<AiModel>>() }
+    val loadingProviders = remember { mutableStateListOf<String>() }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+
+    LaunchedEffect(Unit) {
+        configured.filter { it.provider.supportsLiveFetch }.forEach { cfg ->
+            loadingProviders.add(cfg.provider.id)
+            scope.launch {
+                try {
+                    // Pass a provider copy with the user's custom baseUrl so e.g.
+                    // ollama remote/HF Space URLs are honored (same as ModelPickerScreen).
+                    val effective = cfg.provider.copy(baseUrl = cfg.baseUrl)
+                    val fetched = withContext(Dispatchers.IO) {
+                        ProvidersRepository.fetchModels(effective, cfg.apiKey)
+                    }
+                    if (fetched.isNotEmpty()) liveModels[cfg.provider.id] = fetched
+                } catch (_: Exception) {
+                    // Keep static fallback — don't blank out the provider on fetch error.
+                } finally {
+                    loadingProviders.remove(cfg.provider.id)
+                }
+            }
+        }
+    }
+
+    // Candidate list — recomputed whenever liveModels changes.
+    val candidates: List<SpeakerCandidate> = run {
+        val out = mutableListOf<SpeakerCandidate>()
+        for (cfg in configured) {
+            val models = liveModels[cfg.provider.id] ?: cfg.provider.models
+            for (m in models) out.add(SpeakerCandidate(cfg.provider, m))
         }
         out
     }
+    val isFetching = loadingProviders.isNotEmpty()
+
     val selected = remember {
         mutableStateListOf<String>().apply { addAll(initiallySelected) }
     }
@@ -67,12 +114,30 @@ fun DiscussionModelPickerSheet(
                 fontFamily = DmSansFamily, fontSize = 17.sp,
                 fontWeight = FontWeight.Bold, color = Color.White,
             )
-            Text(
-                if (biasCoding) "Code Review mode — models with a code chip are recommended."
-                else "Tap to toggle. Order is preserved for Debate / Critique modes.",
-                fontFamily = DmSansFamily, fontSize = 12.sp, color = NexusText3,
+            Row(
                 modifier = Modifier.padding(top = 4.dp, bottom = 8.dp),
-            )
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    if (biasCoding) "Code Review mode — models with a code chip are recommended."
+                    else "Tap to toggle. Order is preserved for Debate / Critique modes.",
+                    fontFamily = DmSansFamily, fontSize = 12.sp, color = NexusText3,
+                    modifier = Modifier.weight(1f),
+                )
+                if (isFetching) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(12.dp),
+                        strokeWidth = 1.5.dp,
+                        color = NexusAccent,
+                    )
+                    Text(
+                        "fetching live models…",
+                        fontFamily = SpaceMonoFamily, fontSize = 10.sp,
+                        color = NexusAccent,
+                    )
+                }
+            }
             if (candidates.isEmpty()) {
                 Text(
                     "No providers with API keys configured. Go to Login → pick a provider first.",
@@ -167,10 +232,10 @@ fun DiscussionModelPickerSheet(
                             val cand = candidates.firstOrNull {
                                 "${it.provider.id}:${it.model.modelId}" == id
                             } ?: return@mapNotNull null
-                            val apiKey = prefs.getApiKeyForProvider(cand.provider.id)
-                            val custom = prefs.getCustomBaseUrlForProvider(cand.provider.id)
-                            val baseUrl = if (custom.isNotEmpty()) custom else cand.provider.baseUrl
-                            Speaker(cand.provider, cand.model, apiKey, baseUrl)
+                            // Reuse the configured snapshot (already has apiKey + resolved baseUrl).
+                            val cfg = configured.firstOrNull { it.provider.id == cand.provider.id }
+                                ?: return@mapNotNull null
+                            Speaker(cand.provider, cand.model, cfg.apiKey, cfg.baseUrl)
                         }
                         if (chosen.size in minPick..maxPick) onConfirm(chosen)
                     },
