@@ -856,6 +856,10 @@ function startProxyServer(onReady) {
                         return;
                     }
 
+                    // Pending image attach (one-shot). Real user request only —
+                    // tryOptimize already short-circuited the housekeeping calls.
+                    maybeInjectPendingImage(anthReq);
+
                     handleProxyRequest(anthReq, res);
                 } catch (e) { proxyError(res, 400, e.message); }
             });
@@ -901,6 +905,59 @@ function proxyError(res, code, msg) {
         res.writeHead(httpCode, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ type: 'error', error: { type: 'api_error', message: msg } }));
     } catch (_) {}
+}
+
+// ─── Pending-image injection ──────────────────────────────────────────────────
+// When the user attaches an image in the terminal, TerminalActivity writes
+// pending_image.b64 + pending_image.mime to filesDir. claude-code itself has
+// no idea — it just sends the user's text message to our proxy. Here we
+// intercept the outgoing /v1/messages request, find the last user message,
+// and rewrite its content to a multimodal Anthropic block. Same shape the
+// deleted runAgentic used to build (see f1.md Section 4).
+//
+// One-shot: files are deleted as soon as they're read, so call 1 of a turn
+// gets the image and any tool-use round-trips on the same turn (calls 2/3/4)
+// send plain text. The model still has the image in --continue history.
+//
+// Proxy-mode only: subscription mode bypasses 127.0.0.1:8082 and talks
+// directly to api.anthropic.com, so this hook never fires. Picker is gated
+// in TerminalActivity.pickImage() to refuse subscription mode.
+function maybeInjectPendingImage(anthReq) {
+    const b64Path  = path.join(FILES_DIR, 'pending_image.b64');
+    const mimePath = path.join(FILES_DIR, 'pending_image.mime');
+    if (!fs.existsSync(b64Path) || !fs.existsSync(mimePath)) return;
+    let b64, mime;
+    try {
+        b64  = fs.readFileSync(b64Path, 'utf8').trim();
+        mime = fs.readFileSync(mimePath, 'utf8').trim() || 'image/jpeg';
+    } catch (e) {
+        log('[img-inject] read failed: ' + e.message + '\n');
+        try { fs.unlinkSync(b64Path); }  catch(_) {}
+        try { fs.unlinkSync(mimePath); } catch(_) {}
+        return;
+    }
+    // Always delete first — one-shot. Even if injection below fails, we
+    // don't want a stuck file re-attaching to every future request.
+    try { fs.unlinkSync(b64Path); }  catch(_) {}
+    try { fs.unlinkSync(mimePath); } catch(_) {}
+
+    if (!b64 || !Array.isArray(anthReq.messages) || anthReq.messages.length === 0) return;
+    // Find the last user message and rewrite its content.
+    let idx = -1;
+    for (let i = anthReq.messages.length - 1; i >= 0; i--) {
+        if (anthReq.messages[i].role === 'user') { idx = i; break; }
+    }
+    if (idx === -1) return;
+    const msg = anthReq.messages[idx];
+    const imageBlock = { type: 'image', source: { type: 'base64', media_type: mime, data: b64 } };
+    if (typeof msg.content === 'string') {
+        msg.content = [imageBlock, { type: 'text', text: msg.content || 'What do you see in this image?' }];
+    } else if (Array.isArray(msg.content)) {
+        msg.content = [imageBlock, ...msg.content];
+    } else {
+        return;
+    }
+    log('[img-inject] attached ' + mime + ' (' + b64.length + ' b64 chars) to user msg #' + idx + '\n');
 }
 
 // ─── Optimization helpers ─────────────────────────────────────────────────────
@@ -3753,14 +3810,13 @@ function openPrintSession() {
             }
 
             // ── Forward everything else to claude-code (print mode) ──────────────
-            // F1: the standalone agentic loop and its image-attach detour are
-            // gone. Image attach is a follow-up — see f1.md. For now, any
-            // pending_image.* files are deleted so they don't pile up.
+            // Image attach (post-F1): if pending_image.b64/.mime exist, the
+            // proxy's maybeInjectPendingImage() rewrites the outgoing
+            // /v1/messages body to include a multimodal content block. Files
+            // are deleted there (one-shot), so no cleanup needed here.
             let msg = line;
             if (state.contextBlock)  { msg = state.contextBlock  + '\n\n' + msg; state.contextBlock  = ''; }
             if (state.pendingAttach) { msg = state.pendingAttach + '\n\n' + msg; state.pendingAttach = null; }
-            try { fs.unlinkSync(path.join(FILES_DIR, 'pending_image.b64')); }  catch(_) {}
-            try { fs.unlinkSync(path.join(FILES_DIR, 'pending_image.mime')); } catch(_) {}
             runMessage(msg, state);
         }
     }
