@@ -262,6 +262,18 @@ class NodeBridgeManager(private val context: Context) {
             context.assets.open("nodejs-project/bridge.js").use { src ->
                 dest.outputStream().use { src.copyTo(it) }
             }
+            // MCP-1: also copy the HTTP MCP stdio-proxy shim. bridge.js patchSettings
+            // looks for it at filesDir/mcp_http_proxy.js and injects mcpServers entries
+            // for each upstream HTTP MCP server. Missing file → HTTP MCP stays
+            // agentic-only (current invariant 52 behavior).
+            try {
+                val proxyDest = File(context.filesDir, "mcp_http_proxy.js")
+                context.assets.open("nodejs-project/mcp_http_proxy.js").use { src ->
+                    proxyDest.outputStream().use { src.copyTo(it) }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to copy mcp_http_proxy.js (HTTP MCP in terminal disabled)", e)
+            }
             dest
         } catch (e: Exception) {
             Log.e(TAG, "Failed to copy bridge.js from assets", e)

@@ -3161,6 +3161,47 @@ function openPrintSession() {
                     delete s.mcpServers;
                 }
             } catch(e2) { log('[patchSettings] mcpServers inject error: ' + e2.message + '\n'); }
+
+            // MCP-1: HTTP MCP via stdio-proxy shim. One shim process per upstream HTTP
+            // MCP server in mcp_http.json — gives claude-code print mode access to
+            // HTTP MCP tools (previously agentic-only). Lazy upstream init inside the
+            // shim means spawn-time health-check stays clean (invariant 51 preserved).
+            try {
+                if (fs.existsSync(MCP_HTTP_CONFIG)) {
+                    const httpCfg = JSON.parse(fs.readFileSync(MCP_HTTP_CONFIG, 'utf8'));
+                    if (Array.isArray(httpCfg) && httpCfg.length > 0) {
+                        const shimPath = path.join(FILES_DIR, 'mcp_http_proxy.js');
+                        if (fs.existsSync(shimPath)) {
+                            s.mcpServers = s.mcpServers || {};
+                            let injected = 0;
+                            for (const up of httpCfg) {
+                                if (!up || !up.name || !up.url) continue;
+                                const safeName = String(up.name).replace(/[^a-zA-Z0-9_-]/g, '_');
+                                s.mcpServers[safeName] = {
+                                    type: 'stdio',
+                                    command: LAUNCHER,
+                                    args: ['-e',
+                                        "import('file://" + shimPath + "').catch(function(e){" +
+                                        "process.stderr.write('[mcp-http-proxy] import failed: '+e.message+'\\n');" +
+                                        "process.exit(1);" +
+                                        "});"
+                                    ],
+                                    env: {
+                                        MCP_HTTP_NAME: String(up.name),
+                                        MCP_HTTP_URL: String(up.url),
+                                        MCP_HTTP_HEADERS: JSON.stringify(up.headers || {}),
+                                    },
+                                };
+                                injected++;
+                            }
+                            if (injected > 0) log('[patchSettings] injected ' + injected + ' HTTP MCP proxy shim(s)\n');
+                        } else {
+                            log('[patchSettings] mcp_http_proxy.js missing at ' + shimPath + ' — HTTP MCP in terminal disabled\n');
+                        }
+                    }
+                }
+            } catch(e3) { log('[patchSettings] HTTP MCP shim inject error: ' + e3.message + '\n'); }
+
             fs.writeFileSync(sp, JSON.stringify(s, null, 2));
             log('[patchSettings] ok — approved=' + JSON.stringify(s.customApiKeyResponses.approved) + '\n');
         } catch(e) { log('[patchSettings] ERROR: ' + e.message + '\n'); }
