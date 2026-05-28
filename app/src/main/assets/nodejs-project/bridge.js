@@ -2540,8 +2540,11 @@ async function startMcpStdioServer(entry) {
 
 function getMcpStdioTools() {
     const tools = [];
-    for (const srv of mcpStdioServers.values()) {
-        tools.push(...srv.tools);
+    for (const [name, srv] of mcpStdioServers.entries()) {
+        // MCP-9: drop tools the user disabled for this server.
+        for (const t of srv.tools) {
+            if (!isToolDisabled(name, t._mcpTool)) tools.push(t);
+        }
     }
     return tools;
 }
@@ -2601,6 +2604,7 @@ function buildMcpPayload() {
 function broadcastMcpReady() {
     const servers = buildMcpPayload();
     mcpReadyInfo = servers;
+    writeMcpToolCache(); // MCP-9
     if (servers.length === 0) return;
     const b64 = Buffer.from(JSON.stringify(servers)).toString('base64');
     const osc = '\x1b]9;mcp-ready:' + b64 + '\x07';
@@ -2709,7 +2713,12 @@ async function startMcpHttpServer(entry) {
 
 function getMcpHttpTools() {
     const tools = [];
-    for (const srv of mcpHttpServers.values()) tools.push(...srv.tools);
+    for (const [name, srv] of mcpHttpServers.entries()) {
+        // MCP-9: drop tools the user disabled for this server.
+        for (const t of srv.tools) {
+            if (!isToolDisabled(name, t._mcpTool)) tools.push(t);
+        }
+    }
     return tools;
 }
 
@@ -2802,6 +2811,47 @@ async function reloadMcpServers() {
     }
     broadcastMcpReady();
     return summary;
+}
+
+// MCP-9: per-server tool whitelist. The UI writes
+//   filesDir/mcp_disabled_tools.json → { "<serverName>": ["tool1","tool2", …] }
+// listing tools the user has switched OFF. We filter these out of the
+// agentic tool list (getMcpStdioTools / getMcpHttpTools) and also push
+// them into settings.json's permissions.deny so claude-code rejects
+// calls in print mode. Note: claude-code still SEES the tools (they're
+// listed by the upstream server) but the deny list short-circuits any
+// tool_use before it runs.
+const MCP_DISABLED_TOOLS_FILE = path.join(FILES_DIR, 'mcp_disabled_tools.json');
+function loadDisabledTools() {
+    try {
+        if (!fs.existsSync(MCP_DISABLED_TOOLS_FILE)) return {};
+        const obj = JSON.parse(fs.readFileSync(MCP_DISABLED_TOOLS_FILE, 'utf8'));
+        return (obj && typeof obj === 'object') ? obj : {};
+    } catch (_) { return {}; }
+}
+function isToolDisabled(serverName, toolName) {
+    const map = loadDisabledTools();
+    const list = map[serverName];
+    return Array.isArray(list) && list.includes(toolName);
+}
+
+// MCP-9: write a snapshot of every tool we've discovered so the Android UI
+// can render a checklist without having to re-do MCP handshakes. Schema:
+//   { servers: [ { name, type, tools: [name, …] }, … ] }
+const MCP_TOOL_CACHE_FILE = path.join(FILES_DIR, 'mcp_tool_cache.json');
+function writeMcpToolCache() {
+    try {
+        const servers = [];
+        for (const [name, srv] of mcpHttpServers.entries()) {
+            servers.push({ name, type: 'http', tools: srv.tools.map(t => t._mcpTool) });
+        }
+        for (const [name, srv] of mcpStdioServers.entries()) {
+            servers.push({ name, type: 'stdio', tools: srv.tools.map(t => t._mcpTool) });
+        }
+        const tmp = MCP_TOOL_CACHE_FILE + '.tmp';
+        fs.writeFileSync(tmp, JSON.stringify({ servers }, null, 2));
+        fs.renameSync(tmp, MCP_TOOL_CACHE_FILE);
+    } catch (e) { log('[mcp] tool cache write failed: ' + e.message + '\n'); }
 }
 
 // MCP-6: watch for a marker file written by Kotlin (SettingsActivity) when
@@ -3285,6 +3335,19 @@ function openPrintSession() {
             for (const t of (approveList.deny || [])) {
                 if (!s.permissions.deny.includes(t)) s.permissions.deny.push(t);
             }
+            // MCP-9: tools the user disabled per-server become explicit deny entries.
+            // claude-code still sees them in tools/list (no way to hide upstream),
+            // but rejects calls before they execute.
+            try {
+                const disabled = loadDisabledTools();
+                for (const [srvName, list] of Object.entries(disabled)) {
+                    if (!Array.isArray(list)) continue;
+                    for (const toolName of list) {
+                        const denyPat = 'mcp__' + srvName + '__' + toolName;
+                        if (!s.permissions.deny.includes(denyPat)) s.permissions.deny.push(denyPat);
+                    }
+                }
+            } catch (_) {}
             // Inject stdio MCP servers into settings.json so claude-code can use them in
             // print mode. HTTP/SSE servers are excluded — connecting to remote endpoints
             // during spawn causes the same hang as --mcp-config (see CLAUDE.md item 5a).

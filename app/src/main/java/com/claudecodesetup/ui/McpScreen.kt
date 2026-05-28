@@ -34,6 +34,69 @@ import java.net.URL
 data class McpServer(val name: String, val url: String, val headers: String = "{}")
 data class McpStdioServer(val name: String, val command: String, val args: String)
 
+// MCP-9: per-server disabled-tools persistence. Stored as a JSON object
+// keyed by server name → JSON array of disabled tool names. Lives in a
+// separate file (mcp_disabled_tools.json) that bridge.js reads on every
+// tool dispatch + on every patchSettings() call, so toggles take effect
+// without a bridge restart.
+object McpDisabledTools {
+    private const val FILE = "mcp_disabled_tools.json"
+    fun load(filesDir: java.io.File): Map<String, Set<String>> {
+        val f = java.io.File(filesDir, FILE)
+        if (!f.exists()) return emptyMap()
+        return try {
+            val obj = JSONObject(f.readText())
+            val out = mutableMapOf<String, Set<String>>()
+            obj.keys().forEach { k ->
+                val arr = obj.optJSONArray(k) ?: return@forEach
+                val set = mutableSetOf<String>()
+                for (i in 0 until arr.length()) set.add(arr.optString(i))
+                out[k] = set
+            }
+            out
+        } catch (_: Exception) { emptyMap() }
+    }
+    fun save(filesDir: java.io.File, map: Map<String, Set<String>>) {
+        val obj = JSONObject()
+        for ((server, tools) in map) {
+            if (tools.isEmpty()) continue
+            val arr = JSONArray()
+            tools.forEach { arr.put(it) }
+            obj.put(server, arr)
+        }
+        val f = java.io.File(filesDir, FILE)
+        val tmp = java.io.File(filesDir, "$FILE.tmp")
+        tmp.writeText(obj.toString())
+        tmp.renameTo(f)
+        // Trigger soft-reload so live sessions pick up the change immediately.
+        try { java.io.File(filesDir, "mcp_reload_requested").createNewFile() } catch (_: Exception) {}
+    }
+}
+
+// MCP-9: convenience to load the disabled-tools map as a mutable copy that
+// the dialog can edit per-server without disturbing other servers' entries.
+fun loadMcpDisabledMapMutable(filesDir: java.io.File): MutableMap<String, Set<String>> {
+    return McpDisabledTools.load(filesDir).toMutableMap()
+}
+
+// MCP-9: per-server tool inventory written by bridge.js (mcp_tool_cache.json).
+// We read it to render the toggle list without re-doing handshakes.
+data class McpToolEntry(val server: String, val type: String, val tools: List<String>)
+fun loadMcpToolCache(filesDir: java.io.File): List<McpToolEntry> {
+    val f = java.io.File(filesDir, "mcp_tool_cache.json")
+    if (!f.exists()) return emptyList()
+    return try {
+        val arr = JSONObject(f.readText()).optJSONArray("servers") ?: return emptyList()
+        (0 until arr.length()).map {
+            val o = arr.getJSONObject(it)
+            val tools = mutableListOf<String>()
+            val ta = o.optJSONArray("tools")
+            if (ta != null) for (i in 0 until ta.length()) tools.add(ta.optString(i))
+            McpToolEntry(o.optString("name"), o.optString("type"), tools)
+        }
+    } catch (_: Exception) { emptyList() }
+}
+
 enum class PingStatus { CHECKING, OK, ERROR }
 
 /** Pings an HTTP MCP server by sending a minimal JSON-RPC initialize request.
@@ -205,11 +268,14 @@ fun McpScreen(
     prefs: AppPreferences,
     onBack: () -> Unit
 ) {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
     var servers by remember { mutableStateOf(loadMcpServers(prefs)) }
     var stdioServers by remember { mutableStateOf(loadMcpStdioServers(prefs)) }
     var showAddDialog by remember { mutableStateOf(false) }
     var confirmDeleteIndex by remember { mutableStateOf(-1) }
     var confirmDeleteStdioIndex by remember { mutableStateOf(-1) }
+    // MCP-9: which server's tool list is open in the manager dialog (null = closed).
+    var manageToolsFor by remember { mutableStateOf<String?>(null) }
 
     // Ping status for each HTTP server, keyed by server name
     var pingStatus by remember { mutableStateOf<Map<String, PingStatus>>(emptyMap()) }
@@ -328,6 +394,7 @@ fun McpScreen(
                                 onPingResult = { result ->
                                     pingStatus = pingStatus + (s.name to result)
                                 },
+                                onManageTools = { manageToolsFor = s.name },
                                 onDelete = { confirmDeleteIndex = i }
                             )
                         }
@@ -345,6 +412,7 @@ fun McpScreen(
                             McpServerCard(
                                 name = s.name,
                                 subtitle = s.command + if (s.args.isNotBlank()) " ${s.args}" else "",
+                                onManageTools = { manageToolsFor = s.name },
                                 onDelete = { confirmDeleteStdioIndex = i }
                             )
                         }
@@ -637,6 +705,93 @@ fun McpScreen(
             )
         }
 
+        // MCP-9: manage-tools dialog — toggle each tool for the selected server.
+        if (manageToolsFor != null) {
+            val serverName = manageToolsFor!!
+            val cache = remember(serverName) { loadMcpToolCache(ctx.filesDir) }
+            val entry = cache.firstOrNull { it.server == serverName }
+            val disabledMap = remember(serverName) { loadMcpDisabledMapMutable(ctx.filesDir) }
+            // Local mutable set for this server, snapshot-state-backed.
+            val disabled = remember(serverName) {
+                androidx.compose.runtime.mutableStateMapOf<String, Boolean>().apply {
+                    (disabledMap[serverName] ?: emptySet()).forEach { put(it, true) }
+                }
+            }
+            AlertDialog(
+                onDismissRequest = { manageToolsFor = null },
+                title = {
+                    Text("Tools — $serverName", fontFamily = DmSansFamily, fontWeight = FontWeight.Bold)
+                },
+                text = {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.heightIn(max = 420.dp)
+                    ) {
+                        if (entry == null || entry.tools.isEmpty()) {
+                            Text(
+                                "No tools discovered yet. Open the terminal once so the bridge can connect to this server, then come back here.",
+                                fontFamily = DmSansFamily, fontSize = 12.sp, color = NexusText3
+                            )
+                        } else {
+                            Text(
+                                "${entry.tools.size} tools • untoggled = enabled",
+                                fontFamily = SpaceMonoFamily, fontSize = 10.sp, color = NexusText3
+                            )
+                            androidx.compose.foundation.lazy.LazyColumn(
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                items(entry.tools) { tool ->
+                                    val off = disabled[tool] == true
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .background(
+                                                if (off) NexusSurface2.copy(alpha = 0.5f) else NexusSurface2,
+                                                RoundedCornerShape(6.dp)
+                                            )
+                                            .clickable {
+                                                if (off) disabled.remove(tool) else disabled[tool] = true
+                                            }
+                                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Text(
+                                            if (off) "○" else "●",
+                                            fontFamily = SpaceMonoFamily, fontSize = 12.sp,
+                                            color = if (off) NexusText3 else NexusGreen,
+                                            modifier = Modifier.padding(end = 8.dp)
+                                        )
+                                        Text(
+                                            tool, fontFamily = SpaceMonoFamily,
+                                            fontSize = 11.sp,
+                                            color = if (off) NexusText3 else Color.White,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        Text(
+                                            if (off) "off" else "on",
+                                            fontFamily = SpaceMonoFamily, fontSize = 9.sp,
+                                            color = if (off) Color(0xFFEF4444) else NexusGreen,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        val finalDisabled = disabled.keys.toSet()
+                        disabledMap[serverName] = finalDisabled
+                        McpDisabledTools.save(ctx.filesDir, disabledMap)
+                        manageToolsFor = null
+                    }) { Text("Save") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { manageToolsFor = null }) { Text("Cancel") }
+                }
+            )
+        }
+
         // Confirm delete stdio server
         if (confirmDeleteStdioIndex >= 0) {
             AlertDialog(
@@ -671,6 +826,7 @@ private fun McpServerCard(
     pingStatus: PingStatus? = null,       // null = stdio (no live check)
     onPing: (() -> Unit)? = null,
     onPingResult: ((PingStatus) -> Unit)? = null,
+    onManageTools: (() -> Unit)? = null,  // MCP-9
     onDelete: () -> Unit
 ) {
     val coroutineScope = rememberCoroutineScope()
@@ -731,6 +887,19 @@ private fun McpServerCard(
                 subtitle, fontFamily = SpaceMonoFamily,
                 fontSize = 10.sp, color = NexusText3
             )
+        }
+        // MCP-9: tools manager affordance — small chip-style button before delete.
+        if (onManageTools != null) {
+            Text(
+                "tools", fontFamily = SpaceMonoFamily, fontSize = 10.sp,
+                color = NexusAccent,
+                modifier = Modifier
+                    .background(NexusAccent.copy(alpha = 0.12f), RoundedCornerShape(6.dp))
+                    .border(1.dp, NexusAccent.copy(alpha = 0.35f), RoundedCornerShape(6.dp))
+                    .clickable(onClick = onManageTools)
+                    .padding(horizontal = 8.dp, vertical = 4.dp)
+            )
+            Spacer(Modifier.size(8.dp))
         }
         Icon(
             painter = painterResource(R.drawable.ic_delete),
