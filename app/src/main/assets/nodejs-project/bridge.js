@@ -2699,6 +2699,81 @@ async function loadMcpHttpServers() {
     }
     broadcastMcpReady();
 }
+
+// MCP-6: soft-reload MCP servers without resetting the terminal session.
+// Reads current mcp_stdio.json / mcp_http.json, stops servers no longer
+// configured (or now disabled), starts newly-enabled ones, broadcasts the
+// updated mcp-ready payload. Returns a short status string for !mcp-reload
+// and the marker-file watcher.
+async function reloadMcpServers() {
+    const summary = { stoppedStdio: 0, startedStdio: 0, stoppedHttp: 0, startedHttp: 0 };
+    // Load fresh entries from disk
+    let stdioEntries = [];
+    try { if (fs.existsSync(MCP_STDIO_CONFIG)) stdioEntries = JSON.parse(fs.readFileSync(MCP_STDIO_CONFIG, 'utf8')) || []; } catch (_) {}
+    let httpEntries = [];
+    try { if (fs.existsSync(MCP_HTTP_CONFIG)) httpEntries = JSON.parse(fs.readFileSync(MCP_HTTP_CONFIG, 'utf8')) || []; } catch (_) {}
+    if (!Array.isArray(stdioEntries)) stdioEntries = [];
+    if (!Array.isArray(httpEntries))  httpEntries  = [];
+
+    const wantStdio = new Set(stdioEntries.map(e => e.name).filter(Boolean));
+    const wantHttp  = new Set(httpEntries.map(e => e.name).filter(Boolean));
+
+    // Stop stdio servers no longer wanted
+    for (const [name, srv] of [...mcpStdioServers.entries()]) {
+        if (!wantStdio.has(name)) {
+            try { srv.proc && srv.proc.kill('SIGTERM'); } catch (_) {}
+            mcpStdioServers.delete(name);
+            mcpFailed.delete(name);
+            summary.stoppedStdio++;
+            log('[mcp-reload] stopped stdio:' + name + '\n');
+        }
+    }
+    // Stop http servers no longer wanted (just drop from map — no proc to kill)
+    for (const name of [...mcpHttpServers.keys()]) {
+        if (!wantHttp.has(name)) {
+            mcpHttpServers.delete(name);
+            mcpFailed.delete(name);
+            summary.stoppedHttp++;
+            log('[mcp-reload] stopped http:' + name + '\n');
+        }
+    }
+    // Also drop failed entries no longer wanted at all (so the chip count drops)
+    for (const name of [...mcpFailed.keys()]) {
+        if (!wantStdio.has(name) && !wantHttp.has(name)) mcpFailed.delete(name);
+    }
+    // Start newly-wanted stdio servers
+    for (const entry of stdioEntries) {
+        if (!entry.name || !entry.command) continue;
+        if (mcpStdioServers.has(entry.name)) continue;
+        await startMcpStdioServer(entry).catch(e => log('[mcp-reload] stdio:' + entry.name + ' ' + e.message + '\n'));
+        summary.startedStdio++;
+    }
+    // Start newly-wanted http servers
+    for (const entry of httpEntries) {
+        if (!entry.name || !entry.url) continue;
+        if (mcpHttpServers.has(entry.name)) continue;
+        await startMcpHttpServer(entry).catch(e => log('[mcp-reload] http:' + entry.name + ' ' + e.message + '\n'));
+        summary.startedHttp++;
+    }
+    broadcastMcpReady();
+    return summary;
+}
+
+// MCP-6: watch for a marker file written by Kotlin (SettingsActivity) when
+// the user toggles a server. fs.watch is cheap and supported by nodejs-mobile.
+const MCP_RELOAD_MARKER = path.join(FILES_DIR, 'mcp_reload_requested');
+try {
+    fs.watch(FILES_DIR, (ev, fname) => {
+        if (fname !== 'mcp_reload_requested') return;
+        if (!fs.existsSync(MCP_RELOAD_MARKER)) return;
+        try { fs.unlinkSync(MCP_RELOAD_MARKER); } catch (_) {}
+        reloadMcpServers()
+            .then(s => log('[mcp-reload] done: ' + JSON.stringify(s) + '\n'))
+            .catch(e => log('[mcp-reload] error: ' + e.message + '\n'));
+    });
+} catch (e) {
+    log('[mcp-reload] fs.watch failed: ' + e.message + '\n');
+}
 /**
  * Run a quick launcher self-test. Spawns LAUNCHER with a trivial JS one-liner
  * and returns a promise that resolves to true (ok) or false (broken).
@@ -3725,6 +3800,7 @@ function openPrintSession() {
                     '  \x1b[33m!log [n|all]\x1b[0m         Show last n lines of bridge log (default 100); !log all = full log\r\n' +
                     '  \x1b[33m!mcp\x1b[0m                List connected (and failed) MCP servers and tools\r\n' +
                     '  \x1b[33m!mcp-log [name|all]\x1b[0m Show captured stderr from stdio MCP servers (default 50 lines)\r\n' +
+                    '  \x1b[33m!mcp-reload\x1b[0m         Apply Settings toggles without restarting the session\r\n' +
                     '  \x1b[33m!test-cli\x1b[0m           Run module-loader + proxy diagnostics\r\n' +
                     '  \x1b[33m!test-msg [text]\x1b[0m    Run exact runMessage path (patchSettings+stdin) — use to diagnose hangs\r\n' +
                     '  \x1b[33m!debug\x1b[0m              Dump model/provider/settings/mcp state for remote debugging\r\n' +
@@ -3848,6 +3924,19 @@ function openPrintSession() {
                 } catch(e) {
                     try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[31m[!test-msg error] ' + e.message + '\x1b[0m\r\n'); } catch(_) {}
                 }
+                continue;
+            }
+
+            // MCP-6: !mcp-reload — re-read config + start/stop servers without
+            // resetting the session. Same path the Kotlin marker-file watcher takes.
+            if (line.startsWith('!mcp-reload')) {
+                try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[2m[mcp-reload] reloading…\x1b[0m\r\n'); } catch(_) {}
+                reloadMcpServers().then(s => {
+                    const msg = '[mcp-reload] started ' + s.startedStdio + ' stdio + ' + s.startedHttp + ' http, stopped ' + s.stoppedStdio + ' stdio + ' + s.stoppedHttp + ' http\r\n';
+                    try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[32m' + msg + '\x1b[0m'); } catch(_) {}
+                }).catch(e => {
+                    try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[31m[mcp-reload] error: ' + e.message + '\x1b[0m\r\n'); } catch(_) {}
+                });
                 continue;
             }
 

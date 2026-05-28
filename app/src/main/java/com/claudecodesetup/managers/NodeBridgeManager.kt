@@ -181,6 +181,9 @@ class NodeBridgeManager(private val context: Context) {
                 mcpStdioTmpFile.writeText(stdioEntries.toString())
                 mcpStdioTmpFile.renameTo(mcpStdioFile)
             } else mcpStdioFile.delete()
+            // MCP-6: drop a marker the bridge.js fs.watch picks up so live
+            // sessions soft-reload server set without needing !clear.
+            try { File(context.filesDir, "mcp_reload_requested").createNewFile() } catch (_: Exception) {}
         } catch (e: Exception) {
             Log.e(TAG, "Could not write MCP config", e)
         }
