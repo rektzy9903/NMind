@@ -371,10 +371,20 @@ private fun ProviderCard(provider: Provider, onSelect: () -> Unit) {
             contentAlignment = Alignment.Center
         ) {
             val providerInitial: @Composable () -> Unit = {
-                Text(
-                    provider.name.firstOrNull()?.uppercaseChar()?.toString() ?: "?",
-                    fontSize = 15.sp, fontWeight = FontWeight.Bold, color = accentColor
-                )
+                // Stylized brand chip for providers without a bundled CC0 mark
+                // (Groq, Kimi, etc.). Inner box covers the outer faded bg with
+                // saturated brand color so the tile reads as a designed chip.
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .background(accentColor, RoundedCornerShape(12.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        provider.name.firstOrNull()?.uppercaseChar()?.toString() ?: "?",
+                        fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White
+                    )
+                }
             }
             when {
                 provider.iconResId != 0 -> {

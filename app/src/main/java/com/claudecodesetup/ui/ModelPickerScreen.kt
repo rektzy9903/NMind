@@ -114,6 +114,10 @@ private fun brandIconForModel(modelId: String): Int {
         "perplexity" in org                               -> R.drawable.ic_brand_perplexity
         "databricks" in org || "dbrx" in id               -> R.drawable.ic_brand_databricks
         "openrouter" in org                               -> R.drawable.ic_brand_openrouter
+        "baidu" in org || "ernie" in id                   -> R.drawable.ic_brand_baidu
+        "minimax" in org || "minimax" in id               -> R.drawable.ic_brand_minimax
+        "huggingface" in org || "hf" == org               -> R.drawable.ic_brand_huggingface
+        "alibaba" in org || "alibabacloud" in org         -> R.drawable.ic_brand_alibaba
         else -> 0
     }
 }
@@ -779,15 +783,19 @@ private fun ModelLogoAvatar(display: ModelDisplay) {
 
 @Composable
 private fun ModelInitialAvatar(display: ModelDisplay, shape: androidx.compose.ui.graphics.Shape) {
+    // Stylized brand chip for orgs without a bundled CC0 mark (Groq, Kimi,
+    // Cohere, GLM, etc.). Saturated brand-color background + bold white letter
+    // so it visually matches the bundled SVG chips instead of reading as
+    // "icon failed to load".
     Box(
         modifier = Modifier
             .size(20.dp)
-            .background(display.color.copy(alpha = 0.18f), shape),
+            .background(display.color, shape),
         contentAlignment = Alignment.Center
     ) {
         Text(
             display.model.name.firstOrNull()?.uppercaseChar()?.toString() ?: "?",
-            fontSize = 9.sp, fontWeight = FontWeight.Bold, color = display.color
+            fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White
         )
     }
 }
