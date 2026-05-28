@@ -58,6 +58,82 @@ suspend fun pingMcpServer(url: String): PingStatus = withContext(Dispatchers.IO)
     }
 }
 
+// MCP-3 result of a "Test connection" attempt against an HTTP MCP server.
+sealed class McpTestResult {
+    object Idle : McpTestResult()
+    object Testing : McpTestResult()
+    data class Success(val tools: List<String>) : McpTestResult()
+    data class Failure(val message: String) : McpTestResult()
+}
+
+/** MCP-3: full initialize + tools/list against an HTTP MCP endpoint, mirroring
+ *  bridge.js `startMcpHttpServer`. Returns the discovered tool names or an
+ *  error message. Honors `mcp-session-id` round-trip and SSE event-stream
+ *  responses (`text/event-stream`). Header map is applied to every request. */
+suspend fun testMcpHttpServer(
+    url: String,
+    headers: Map<String, String>
+): McpTestResult = withContext(Dispatchers.IO) {
+    suspend fun post(body: String, sessionId: String?): Pair<String, String?> {
+        val conn = URL(url).openConnection() as HttpURLConnection
+        conn.requestMethod = "POST"
+        conn.setRequestProperty("Content-Type", "application/json")
+        conn.setRequestProperty("Accept", "application/json, text/event-stream")
+        if (sessionId != null) conn.setRequestProperty("mcp-session-id", sessionId)
+        for ((k, v) in headers) conn.setRequestProperty(k, v)
+        conn.connectTimeout = 8_000
+        conn.readTimeout   = 12_000
+        conn.doOutput = true
+        conn.outputStream.use { it.write(body.toByteArray()) }
+        val code = conn.responseCode
+        val sid = conn.getHeaderField("mcp-session-id")
+        val ct  = (conn.contentType ?: "").lowercase()
+        val stream = if (code in 200..299) conn.inputStream else conn.errorStream
+        val raw = stream?.bufferedReader()?.use { it.readText() } ?: ""
+        conn.disconnect()
+        if (code !in 200..299 && code != 202) {
+            throw java.io.IOException("HTTP $code: ${raw.take(160)}")
+        }
+        // SSE: extract first data line that parses as JSON-RPC.
+        if (ct.contains("text/event-stream")) {
+            val rpc = raw.lineSequence()
+                .map { it.trim() }
+                .filter { it.startsWith("data:") }
+                .map { it.removePrefix("data:").trim() }
+                .firstOrNull { it.isNotEmpty() && it != "[DONE]" }
+                ?: "{}"
+            return Pair(rpc, sid)
+        }
+        return Pair(raw, sid)
+    }
+    try {
+        val initBody = """{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{"tools":{}},"clientInfo":{"name":"ClaudeCodeSetup","version":"1.0"}}}"""
+        val (initRaw, sid) = post(initBody, null)
+        val initJson = JSONObject(initRaw)
+        if (initJson.has("error")) {
+            val err = initJson.optJSONObject("error")
+            return@withContext McpTestResult.Failure(err?.optString("message") ?: "initialize failed")
+        }
+        // fire-and-forget initialized notification — best effort
+        try { post("""{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}""", sid) } catch (_: Exception) {}
+        val (toolsRaw, _) = post("""{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}""", sid)
+        val toolsJson = JSONObject(toolsRaw)
+        if (toolsJson.has("error")) {
+            val err = toolsJson.optJSONObject("error")
+            return@withContext McpTestResult.Failure(err?.optString("message") ?: "tools/list failed")
+        }
+        val arr = toolsJson.optJSONObject("result")?.optJSONArray("tools")
+            ?: toolsJson.optJSONArray("tools")
+        val names = mutableListOf<String>()
+        if (arr != null) for (i in 0 until arr.length()) {
+            names.add(arr.getJSONObject(i).optString("name"))
+        }
+        McpTestResult.Success(names)
+    } catch (e: Exception) {
+        McpTestResult.Failure(e.message ?: e.javaClass.simpleName)
+    }
+}
+
 @Composable
 fun McpScreen(
     prefs: AppPreferences,
@@ -220,6 +296,9 @@ fun McpScreen(
             var newHeaders by remember { mutableStateOf("") }  // MCP-2: HTTP auth/headers
             var newCommand by remember { mutableStateOf("node") }
             var newArgs by remember { mutableStateOf("") }
+            // MCP-3: in-dialog connection test state (HTTP only)
+            var testResult by remember { mutableStateOf<McpTestResult>(McpTestResult.Idle) }
+            val testScope = rememberCoroutineScope()
             AlertDialog(
                 onDismissRequest = { showAddDialog = false },
                 title = {
@@ -268,14 +347,16 @@ fun McpScreen(
                         )
                         if (!isStdio) {
                             OutlinedTextField(
-                                value = newUrl, onValueChange = { newUrl = it },
+                                value = newUrl,
+                                onValueChange = { newUrl = it; testResult = McpTestResult.Idle },
                                 label = { Text("URL (e.g. https://mcp.exa.ai/mcp?exaApiKey=…)") },
                                 singleLine = true,
                                 modifier = Modifier.fillMaxWidth()
                             )
                             // MCP-2: optional headers — one "Key: Value" per line.
                             OutlinedTextField(
-                                value = newHeaders, onValueChange = { newHeaders = it },
+                                value = newHeaders,
+                                onValueChange = { newHeaders = it; testResult = McpTestResult.Idle },
                                 label = { Text("Headers (optional, one per line)") },
                                 placeholder = { Text("Authorization: Bearer xxx\nX-Custom: value") },
                                 singleLine = false, minLines = 2, maxLines = 4,
@@ -285,6 +366,77 @@ fun McpScreen(
                                 "For bearer tokens, API keys, or custom headers. Parsed as 'Key: Value' lines.",
                                 fontFamily = DmSansFamily, fontSize = 11.sp, color = NexusText3
                             )
+                            // MCP-3: Test Connection button + result row
+                            val canTest = newUrl.isNotBlank() && testResult !is McpTestResult.Testing
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .background(
+                                            if (canTest) NexusSurface2 else NexusSurface2.copy(alpha = 0.4f),
+                                            RoundedCornerShape(8.dp)
+                                        )
+                                        .border(1.dp, NexusBorder, RoundedCornerShape(8.dp))
+                                        .clickable(enabled = canTest) {
+                                            testResult = McpTestResult.Testing
+                                            val url = newUrl.trim()
+                                            val hdrs = mutableMapOf<String, String>()
+                                            val parsed = parseHeadersInput(newHeaders)
+                                            parsed.keys().forEach { k -> hdrs[k] = parsed.optString(k, "") }
+                                            testScope.launch {
+                                                testResult = testMcpHttpServer(url, hdrs)
+                                            }
+                                        }
+                                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                                ) {
+                                    Text(
+                                        "Test Connection", fontFamily = DmSansFamily,
+                                        fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+                                        color = if (canTest) Color.White else NexusText3
+                                    )
+                                }
+                                when (val r = testResult) {
+                                    McpTestResult.Idle -> {}
+                                    McpTestResult.Testing -> Text(
+                                        "Testing…", fontFamily = SpaceMonoFamily,
+                                        fontSize = 11.sp, color = NexusText3
+                                    )
+                                    is McpTestResult.Success -> Text(
+                                        "✓ ${r.tools.size} tool" + if (r.tools.size == 1) "" else "s",
+                                        fontFamily = SpaceMonoFamily, fontSize = 11.sp,
+                                        color = NexusGreen
+                                    )
+                                    is McpTestResult.Failure -> Text(
+                                        "✗ failed", fontFamily = SpaceMonoFamily,
+                                        fontSize = 11.sp, color = Color(0xFFEF4444)
+                                    )
+                                }
+                            }
+                            // Detail row under the button — tool list or error
+                            when (val r = testResult) {
+                                is McpTestResult.Success -> {
+                                    if (r.tools.isNotEmpty()) Text(
+                                        r.tools.joinToString(", "),
+                                        fontFamily = SpaceMonoFamily, fontSize = 10.sp,
+                                        color = NexusText2,
+                                        maxLines = 4
+                                    ) else Text(
+                                        "Connected but server reports no tools.",
+                                        fontFamily = DmSansFamily, fontSize = 11.sp,
+                                        color = NexusText3
+                                    )
+                                }
+                                is McpTestResult.Failure -> Text(
+                                    r.message.take(240),
+                                    fontFamily = SpaceMonoFamily, fontSize = 10.sp,
+                                    color = Color(0xFFEF4444),
+                                    maxLines = 4
+                                )
+                                else -> {}
+                            }
                         } else {
                             OutlinedTextField(
                                 value = newCommand, onValueChange = { newCommand = it },
