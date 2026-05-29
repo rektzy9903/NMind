@@ -120,6 +120,28 @@ object PromptBuilder {
         return sb.toString()
     }
 
+    /**
+     * Builds the message list for one speaker's concluding vote. The model must
+     * commit to FOR / AGAINST / UNDECIDED on the central question in the topic,
+     * based on the whole discussion. The first line is the vote token so it
+     * parses reliably; the rest is one sentence of reasoning.
+     */
+    fun buildVoteMessages(topic: String, turns: List<Turn>, speaker: Speaker): List<ChatMessage> {
+        val sys = "The discussion is concluding and the panel is now voting. " +
+            "Cast your FINAL vote on the central question or proposal stated in the topic. " +
+            "Your FIRST line must be EXACTLY one word — FOR, AGAINST, or UNDECIDED. " +
+            "Then add ONE sentence of reasoning. Decide based on the whole discussion, " +
+            "not just your earlier position — you may change your mind. You are: ${speaker.label}."
+        val sb = StringBuilder()
+        sb.append("## Topic\n").append(topic.trim()).append("\n\n## Discussion\n\n")
+        for (t in turns) {
+            if (t.status != TurnStatus.DONE) continue
+            sb.append("### ").append(t.speakerLabel).append("\n").append(t.text.trim()).append("\n\n")
+        }
+        sb.append("---\nYour vote (FOR / AGAINST / UNDECIDED) + one sentence:")
+        return listOf(ChatMessage("system", sys), ChatMessage("user", sb.toString()))
+    }
+
     /** Builds the message list for the judge summary at the end. */
     fun buildJudgeMessages(topic: String, turns: List<Turn>): List<ChatMessage> {
         val sys = "You are a neutral judge summarizing a panel discussion between AI models. " +

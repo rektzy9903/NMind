@@ -37,6 +37,27 @@ enum class TurnStatus { PENDING, STREAMING, DONE, FAILED, SKIPPED, STOPPED }
  */
 enum class HumanRole { NONE, SEAT, INTERJECT }
 
+/**
+ * Pacing for INTERJECT mode — how the loop gives the human room to jump in.
+ *   OPEN_FLOOR — after each model turn the loop pauses (floorOpen) until the
+ *                human sends a comment or taps Pass. The human is never rushed.
+ *   DELAY      — a fixed gap (reactionDelaySec) after each model turn during
+ *                which the human can interject; auto-continues if they stay quiet.
+ */
+enum class Pacing { OPEN_FLOOR, DELAY }
+
+/** How a participant voted in the concluding vote. */
+enum class VoteChoice { FOR, AGAINST, UNDECIDED }
+
+/** One participant's final vote that resolves the discussion. */
+data class Vote(
+    val speakerId: String,
+    val speakerLabel: String,
+    val choice: VoteChoice,
+    val reason: String,
+    val isHuman: Boolean = false,
+)
+
 /** One speaker's contribution to the transcript. */
 data class Turn(
     val speakerId: String,
@@ -66,7 +87,23 @@ data class DiscussionState(
     val humanLabel: String = "You",
     /** True when a SEAT-mode discussion is paused waiting for the human to type. */
     val awaitingHuman: Boolean = false,
+    // ── Pacing (INTERJECT) ──
+    val pacing: Pacing = Pacing.DELAY,
+    val reactionDelaySec: Int = 5,
+    /** OPEN_FLOOR: true while the loop is paused after a model turn, waiting for
+     *  the human to interject or Pass. */
+    val floorOpen: Boolean = false,
+    // ── Concluding vote ──
+    val enableVoting: Boolean = false,
+    /** True while model votes are being collected. */
+    val votingPhase: Boolean = false,
+    /** True when the panel has voted and we're waiting for the human's vote. */
+    val awaitingHumanVote: Boolean = false,
+    val votes: List<Vote> = emptyList(),
 ) {
+    val votesFor: Int get() = votes.count { it.choice == VoteChoice.FOR }
+    val votesAgainst: Int get() = votes.count { it.choice == VoteChoice.AGAINST }
+    val votesUndecided: Int get() = votes.count { it.choice == VoteChoice.UNDECIDED }
     val totalPromptTokens: Int get() = turns.sumOf { it.promptTokens }
     val totalCompletionTokens: Int get() = turns.sumOf { it.completionTokens }
     val turnsTaken: Int get() = turns.count { it.status == TurnStatus.DONE || it.status == TurnStatus.FAILED || it.status == TurnStatus.SKIPPED }
@@ -82,4 +119,7 @@ data class DiscussionConfig(
     val judgeSpeaker: Speaker? = null,
     val humanRole: HumanRole = HumanRole.NONE,
     val humanLabel: String = "You",
+    val pacing: Pacing = Pacing.DELAY,
+    val reactionDelaySec: Int = 5,
+    val enableVoting: Boolean = false,
 )
