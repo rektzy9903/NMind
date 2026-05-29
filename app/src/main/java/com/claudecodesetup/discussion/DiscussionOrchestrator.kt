@@ -81,6 +81,7 @@ class DiscussionOrchestrator(
         loopJob = null
         _state.value = _state.value.copy(
             isRunning = false,
+            awaitingHuman = false,   // hide the human input bar when stopped mid-turn
             stoppedReason = _state.value.stoppedReason ?: "stopped by user",
             turns = _state.value.turns.map {
                 if (it.status == TurnStatus.STREAMING || it.status == TurnStatus.PENDING)
