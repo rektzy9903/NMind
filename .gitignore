@@ -19,5 +19,8 @@ node_modules/
 package.json
 package-lock.json
 
-# Local dev notes — not for the repo
-CLAUDE.md
+# Local dev notes — not for the repo. Public README.md and
+# .github/ISSUE_TEMPLATE/*.md are kept tracked via the !-rules below.
+*.md
+!README.md
+!.github/ISSUE_TEMPLATE/*.md
