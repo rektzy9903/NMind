@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.sp
 import com.claudecodesetup.data.Providers
 import com.claudecodesetup.discussion.DiscussionMode
 import com.claudecodesetup.discussion.DiscussionState
+import com.claudecodesetup.discussion.HumanRole
 import com.claudecodesetup.discussion.Turn
 import com.claudecodesetup.discussion.TurnStatus
 
@@ -38,6 +39,7 @@ fun DiscussionLiveScreen(
     onContinue: () -> Unit,
     onNewDiscussion: () -> Unit,
     onBack: () -> Unit,
+    onSubmitHuman: (String) -> Unit = {},
 ) {
     val listState = rememberLazyListState()
     val clipboard = LocalClipboardManager.current
@@ -114,13 +116,27 @@ fun DiscussionLiveScreen(
             ) {
                 item("topic") { TopicBubble(state.topic) }
                 items(state.turns) { turn ->
-                    val visuals = remember(turn.speakerId) { speakerVisuals(turn.speakerId) }
-                    TurnBubble(
-                        turn = turn,
-                        visuals = visuals,
-                        onCopy = { clipboard.setText(AnnotatedString(turn.text)) },
-                    )
+                    if (turn.isHuman) {
+                        HumanBubble(turn.speakerLabel, turn.text)
+                    } else {
+                        val visuals = remember(turn.speakerId) { speakerVisuals(turn.speakerId) }
+                        TurnBubble(
+                            turn = turn,
+                            visuals = visuals,
+                            onCopy = { clipboard.setText(AnnotatedString(turn.text)) },
+                        )
+                    }
                 }
+            }
+
+            // ── Human input bar ───────────────────────────────────────────────
+            // SEAT: shown only when the loop has paused for the human's turn.
+            // INTERJECT: shown whenever the discussion is running so the human
+            // can drop in a comment that the next model reacts to.
+            val showInput = (state.humanRole == HumanRole.SEAT && state.awaitingHuman) ||
+                            (state.humanRole == HumanRole.INTERJECT && state.isRunning)
+            if (showInput) {
+                HumanInputBar(awaiting = state.awaitingHuman, onSend = onSubmitHuman)
             }
 
             // ── Footer ────────────────────────────────────────────────────────
@@ -175,6 +191,79 @@ private fun TopicBubble(topic: String) {
                 fontFamily = SpaceMonoFamily, fontSize = 13.sp,
                 color = Color(0xFFF0F0F2), lineHeight = 20.sp,
             )
+        }
+    }
+}
+
+// ── A human turn — amber "user bubble" like the topic, with a "You" label ───
+@Composable
+private fun HumanBubble(label: String, text: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.End,
+    ) {
+        Column(
+            modifier = Modifier
+                .widthIn(max = 320.dp)
+                .background(
+                    Color(0x29E8834A),
+                    RoundedCornerShape(topStart = 14.dp, topEnd = 14.dp, bottomEnd = 4.dp, bottomStart = 14.dp),
+                )
+                .border(
+                    1.dp, Color(0x4DE8834A),
+                    RoundedCornerShape(topStart = 14.dp, topEnd = 14.dp, bottomEnd = 4.dp, bottomStart = 14.dp),
+                )
+                .padding(horizontal = 13.dp, vertical = 10.dp),
+        ) {
+            Text(
+                label, fontFamily = SpaceMonoFamily, fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold, color = NexusAccent,
+            )
+            Spacer(Modifier.size(5.dp))
+            Text(
+                text, fontFamily = SpaceMonoFamily, fontSize = 13.sp,
+                color = Color(0xFFF0F0F2), lineHeight = 20.sp,
+            )
+        }
+    }
+}
+
+// ── Human input bar — type your contribution and send it into the debate ────
+@Composable
+private fun HumanInputBar(awaiting: Boolean, onSend: (String) -> Unit) {
+    var text by remember { mutableStateOf("") }
+    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 6.dp)) {
+        if (awaiting) {
+            Text(
+                "Your turn — the panel is waiting",
+                fontFamily = SpaceMonoFamily, fontSize = 10.sp, color = NexusAccent,
+                modifier = Modifier.padding(bottom = 4.dp),
+            )
+        }
+        Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(
+                value = text,
+                onValueChange = { text = it },
+                placeholder = { Text("Add your point…", fontFamily = DmSansFamily, fontSize = 13.sp) },
+                modifier = Modifier.weight(1f),
+                minLines = 1, maxLines = 4,
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = NexusAccent,
+                    unfocusedBorderColor = NexusBorder2,
+                    cursorColor = NexusAccent,
+                ),
+            )
+            Button(
+                onClick = {
+                    val t = text.trim()
+                    if (t.isNotEmpty()) { onSend(t); text = "" }
+                },
+                enabled = text.isNotBlank(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = NexusAccent, contentColor = Color.White,
+                    disabledContainerColor = NexusBorder2,
+                ),
+            ) { Text("Send", fontFamily = DmSansFamily, fontSize = 13.sp) }
         }
     }
 }

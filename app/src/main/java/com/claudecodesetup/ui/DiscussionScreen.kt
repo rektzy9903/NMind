@@ -38,6 +38,7 @@ fun DiscussionScreen(
             state = state,
             onStop = { orchestrator.stop() },
             onContinue = { orchestrator.continueAfterCap() },
+            onSubmitHuman = { text -> orchestrator.submitHumanTurn(text) },
             onNewDiscussion = {
                 orchestrator.stop()
                 screen = "setup"

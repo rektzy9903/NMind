@@ -5,6 +5,7 @@ import com.claudecodesetup.data.AppPreferences
 import com.claudecodesetup.data.Providers
 import com.claudecodesetup.discussion.DiscussionConfig
 import com.claudecodesetup.discussion.DiscussionMode
+import com.claudecodesetup.discussion.HumanRole
 import com.claudecodesetup.discussion.Speaker
 import org.json.JSONArray
 import org.json.JSONObject
@@ -26,6 +27,7 @@ object DiscussionPersistence {
                 put("mode", cfg.mode.name)
                 put("maxTurns", cfg.maxTurns)
                 put("enableJudge", cfg.enableJudge)
+                put("humanRole", cfg.humanRole.name)
                 put("speakers", JSONArray().apply {
                     for (s in cfg.speakers) put(JSONObject().apply {
                         put("providerId", s.provider.id)
@@ -68,6 +70,8 @@ object DiscussionPersistence {
                 maxTurns = obj.optInt("maxTurns", 6),
                 enableJudge = obj.optBoolean("enableJudge", false),
                 judgeSpeaker = if (obj.optBoolean("enableJudge") && speakers.isNotEmpty()) speakers.first() else null,
+                humanRole = try { HumanRole.valueOf(obj.optString("humanRole", "NONE")) }
+                            catch (_: Exception) { HumanRole.NONE },
             )
         } catch (_: Exception) { null }
     }

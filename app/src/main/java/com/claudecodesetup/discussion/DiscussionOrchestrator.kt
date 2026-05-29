@@ -47,8 +47,33 @@ class DiscussionOrchestrator(
             judgeSpeaker= if (config.enableJudge) config.judgeSpeaker else null,
             turns       = emptyList(),
             isRunning   = true,
+            humanRole   = config.humanRole,
+            humanLabel  = config.humanLabel,
         )
         loopJob = scope.launch { runLoop() }
+    }
+
+    /**
+     * Records a turn typed by the human participant and (for SEAT mode) resumes
+     * the loop that paused waiting for it. Safe to call any time in INTERJECT
+     * mode — the next model turn will see the comment in the transcript.
+     */
+    fun submitHumanTurn(text: String) {
+        val s = _state.value
+        if (s.humanRole == HumanRole.NONE || text.isBlank()) return
+        val turn = Turn(
+            speakerId    = "human",
+            speakerLabel = s.humanLabel,
+            role         = "",
+            text         = text.trim(),
+            status       = TurnStatus.DONE,
+            isHuman      = true,
+        )
+        _state.value = s.copy(turns = s.turns + turn, awaitingHuman = false)
+        // SEAT mode pauses the loop on the human's slot — relaunch to continue.
+        if (s.humanRole == HumanRole.SEAT && loopJob?.isActive != true && s.isRunning) {
+            loopJob = scope.launch { runLoop() }
+        }
     }
 
     fun stop() {
@@ -82,12 +107,25 @@ class DiscussionOrchestrator(
                     finishLoop(reason = "max turns reached")
                     break
                 }
-                if (ConvergenceDetector.isConverged(s.turns)) {
+                // Convergence is judged on the models' turns only — a short human
+                // interjection like "ok, agreed" must not end the discussion.
+                if (ConvergenceDetector.isConverged(s.turns.filter { !it.isHuman })) {
                     _state.value = s.copy(converged = true)
                     finishLoop(reason = "converged")
                     break
                 }
-                val nextSpeaker = s.speakers[completed % s.speakers.size]
+                // SEAT mode: the human occupies the last slot of each round. When
+                // that slot comes up, pause and wait for submitHumanTurn() — which
+                // relaunches this loop once the human has typed.
+                if (s.humanRole == HumanRole.SEAT) {
+                    val rotationSize = s.speakers.size + 1
+                    if (completed % rotationSize == s.speakers.size) {
+                        _state.value = s.copy(awaitingHuman = true)
+                        return
+                    }
+                }
+                val rotation = if (s.humanRole == HumanRole.SEAT) s.speakers.size + 1 else s.speakers.size
+                val nextSpeaker = s.speakers[completed % rotation]
                 val outcome = runOneTurn(nextSpeaker)
                 if (outcome == TurnOutcome.OUT_OF_CREDITS) {
                     finishLoop(reason = "out of credits"); break
@@ -108,6 +146,7 @@ class DiscussionOrchestrator(
         val messages = PromptBuilder.buildMessages(
             topic = s0.topic, mode = s0.mode, speaker = speaker,
             speakers = s0.speakers, priorTurns = priorDone,
+            humanLabel = if (s0.humanRole != HumanRole.NONE) s0.humanLabel else null,
         )
         // Add a placeholder STREAMING turn
         val turnIndex = s0.turns.size

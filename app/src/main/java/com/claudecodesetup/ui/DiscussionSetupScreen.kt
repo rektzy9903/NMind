@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.sp
 import com.claudecodesetup.data.AppPreferences
 import com.claudecodesetup.discussion.DiscussionConfig
 import com.claudecodesetup.discussion.DiscussionMode
+import com.claudecodesetup.discussion.HumanRole
 import com.claudecodesetup.discussion.Speaker
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -34,6 +35,7 @@ fun DiscussionSetupScreen(
     var speakers by remember { mutableStateOf<List<Speaker>>(initialConfig?.speakers ?: emptyList()) }
     var maxTurns by remember { mutableStateOf(initialConfig?.maxTurns ?: 6) }
     var enableJudge by remember { mutableStateOf(initialConfig?.enableJudge ?: false) }
+    var humanRole by remember { mutableStateOf(initialConfig?.humanRole ?: HumanRole.NONE) }
     var showPicker by remember { mutableStateOf(false) }
 
     val canStart = topic.isNotBlank() && speakers.size in 2..4
@@ -169,6 +171,17 @@ fun DiscussionSetupScreen(
                     )
                 }
 
+                // Your role
+                SectionLabel("YOUR ROLE")
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    RoleCard("Just set the topic", "Pick the models, then watch them debate.",
+                        humanRole == HumanRole.NONE) { humanRole = HumanRole.NONE }
+                    RoleCard("Take a seat in rotation", "You're a speaker too. Each round pauses for you to type.",
+                        humanRole == HumanRole.SEAT) { humanRole = HumanRole.SEAT }
+                    RoleCard("Interject freely", "Models auto-debate; drop in a comment any time and they react.",
+                        humanRole == HumanRole.INTERJECT) { humanRole = HumanRole.INTERJECT }
+                }
+
                 Spacer(Modifier.height(10.dp))
                 Button(
                     onClick = {
@@ -179,6 +192,7 @@ fun DiscussionSetupScreen(
                             maxTurns = maxTurns,
                             enableJudge = enableJudge,
                             judgeSpeaker = if (enableJudge && speakers.isNotEmpty()) speakers.first() else null,
+                            humanRole = humanRole,
                         )
                         onStart(cfg)
                     },
@@ -245,6 +259,39 @@ private fun ModeCard(mode: DiscussionMode, selected: Boolean, onClick: () -> Uni
             Text(mode.label, fontFamily = DmSansFamily,
                 fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
             Text(mode.tagline, fontFamily = DmSansFamily,
+                fontSize = 11.sp, color = NexusText3)
+        }
+    }
+}
+
+@Composable
+private fun RoleCard(title: String, subtitle: String, selected: Boolean, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                if (selected) NexusAccent.copy(alpha = 0.18f) else NexusSurface,
+                RoundedCornerShape(10.dp)
+            )
+            .border(
+                1.dp,
+                if (selected) NexusAccent else NexusBorder,
+                RoundedCornerShape(10.dp)
+            )
+            .clickable(onClick = onClick)
+            .padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            if (selected) "●" else "○",
+            color = if (selected) NexusAccent else NexusText3,
+            fontFamily = SpaceMonoFamily, fontSize = 14.sp,
+            modifier = Modifier.padding(end = 10.dp),
+        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, fontFamily = DmSansFamily,
+                fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+            Text(subtitle, fontFamily = DmSansFamily,
                 fontSize = 11.sp, color = NexusText3)
         }
     }

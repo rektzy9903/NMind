@@ -25,12 +25,15 @@ object PromptBuilder {
         "Keep replies focused: 2–6 sentences unless the topic genuinely needs depth."
     )
 
-    fun systemPromptFor(mode: DiscussionMode, speaker: Speaker, speakers: List<Speaker>, isFirst: Boolean): String {
+    fun systemPromptFor(mode: DiscussionMode, speaker: Speaker, speakers: List<Speaker>, isFirst: Boolean, humanLabel: String? = null): String {
         val others = speakers.filter { it.id != speaker.id }
             .joinToString(", ") { it.label }
+        val humanLine = if (humanLabel != null)
+            "\nA human participant (labeled \"$humanLabel\") is also at the table — read and respond to their points like any other speaker's."
+        else ""
         val rosterLine = if (others.isNotEmpty())
-            "\nThe other speakers in this discussion: $others.\nYou are: ${speaker.label}.\n"
-        else "\nYou are: ${speaker.label}.\n"
+            "\nThe other speakers in this discussion: $others.\nYou are: ${speaker.label}.$humanLine\n"
+        else "\nYou are: ${speaker.label}.$humanLine\n"
 
         val modePart = when (mode) {
             DiscussionMode.ROUNDTABLE -> BASE_RULES
@@ -65,8 +68,9 @@ object PromptBuilder {
         speaker: Speaker,
         speakers: List<Speaker>,
         priorTurns: List<Turn>,
+        humanLabel: String? = null,
     ): List<ChatMessage> {
-        val sys = systemPromptFor(mode, speaker, speakers, isFirst = priorTurns.isEmpty())
+        val sys = systemPromptFor(mode, speaker, speakers, isFirst = priorTurns.isEmpty(), humanLabel = humanLabel)
         val transcript = renderTranscript(topic, priorTurns, speaker)
         return listOf(
             ChatMessage("system", sys),
