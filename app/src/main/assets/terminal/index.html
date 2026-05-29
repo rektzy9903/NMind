@@ -1131,9 +1131,6 @@ function resetToIdle(){
   completeAgentPanel();
   // Finalize any running Bash cards — turn done, stop their timers
   finalizeBashCards();
-  // Show Yes/No toolbar buttons after AI responds in case it asked a question
-  document.getElementById('btn-yes').style.display='';
-  document.getElementById('btn-no').style.display='';
 }
 
 function handleOSC(content){
