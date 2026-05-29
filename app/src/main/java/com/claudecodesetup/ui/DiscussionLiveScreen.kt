@@ -21,7 +21,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -60,18 +59,12 @@ fun DiscussionLiveScreen(
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("←", fontSize = 20.sp, color = NexusBlue,
-                        modifier = Modifier.clickable(onClick = onBack).padding(end = 10.dp))
-                    Column(modifier = Modifier.weight(1f, fill = false)) {
-                        Text(
-                            modeBadge(state.mode), fontFamily = SpaceMonoFamily, fontSize = 8.sp,
-                            letterSpacing = 3.sp, color = NexusBlue.copy(alpha = 0.7f),
-                        )
-                        Text(
-                            state.topic.take(60) + if (state.topic.length > 60) "…" else "",
-                            fontFamily = DmSansFamily, fontSize = 15.sp,
-                            fontWeight = FontWeight.Bold, color = Color.White, maxLines = 2,
-                        )
-                    }
+                        modifier = Modifier.clickable(onClick = onBack).padding(end = 12.dp))
+                    Text(
+                        modeBadge(state.mode), fontFamily = SpaceMonoFamily, fontSize = 10.sp,
+                        letterSpacing = 3.sp, fontWeight = FontWeight.SemiBold,
+                        color = NexusBlue,
+                    )
                 }
                 if (state.isRunning) {
                     Button(
@@ -108,16 +101,21 @@ fun DiscussionLiveScreen(
                 }
             }
 
-            // ── Group chat transcript ─────────────────────────────────────────
+            // ── Terminal-style transcript ─────────────────────────────────────
+            // Topic shows as an amber "user bubble" (sharp bottom-right tail),
+            // each AI turn as a dark "ai bubble" (sharp top-left tail) with the
+            // speaker name in brand color as a header line inside the bubble.
+            // Mirrors the terminal's .user-bubble / .ai-bubble aesthetic.
             LazyColumn(
                 state = listState,
                 modifier = Modifier.weight(1f),
-                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
+                item("topic") { TopicBubble(state.topic) }
                 items(state.turns) { turn ->
                     val visuals = remember(turn.speakerId) { speakerVisuals(turn.speakerId) }
-                    ChatRow(
+                    TurnBubble(
                         turn = turn,
                         visuals = visuals,
                         onCopy = { clipboard.setText(AnnotatedString(turn.text)) },
@@ -151,59 +149,67 @@ fun DiscussionLiveScreen(
     }
 }
 
-// ── One row in the group chat: avatar + bubble ──────────────────────────────
+// ── Topic at the top — amber "user bubble" mirroring terminal's .user-bubble ─
 @Composable
-private fun ChatRow(turn: Turn, visuals: SpeakerVisuals, onCopy: () -> Unit) {
+private fun TopicBubble(topic: String) {
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.Top,
+        horizontalArrangement = Arrangement.End,
     ) {
-        // Avatar
         Box(
             modifier = Modifier
-                .size(34.dp)
-                .background(visuals.accent.copy(alpha = 0.14f), CircleShape)
-                .border(1.dp, visuals.accent.copy(alpha = 0.35f), CircleShape),
-            contentAlignment = Alignment.Center,
+                .widthIn(max = 320.dp)
+                .background(
+                    Color(0x29E8834A),  // rgba(232,131,74,0.16) — matches .user-bubble
+                    RoundedCornerShape(topStart = 14.dp, topEnd = 14.dp, bottomEnd = 4.dp, bottomStart = 14.dp),
+                )
+                .border(
+                    1.dp,
+                    Color(0x4DE8834A),  // 0.30 alpha
+                    RoundedCornerShape(topStart = 14.dp, topEnd = 14.dp, bottomEnd = 4.dp, bottomStart = 14.dp),
+                )
+                .padding(horizontal = 13.dp, vertical = 10.dp),
         ) {
-            if (visuals.iconResId != 0) {
-                Icon(
-                    painter = painterResource(visuals.iconResId),
-                    contentDescription = null,
-                    tint = visuals.accent,
-                    modifier = Modifier.size(18.dp),
-                )
-            } else {
-                Text(
-                    visuals.initial,
-                    fontFamily = DmSansFamily, fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold, color = visuals.accent,
-                )
-            }
+            Text(
+                topic,
+                fontFamily = SpaceMonoFamily, fontSize = 13.sp,
+                color = Color(0xFFF0F0F2), lineHeight = 20.sp,
+            )
         }
+    }
+}
 
-        // Bubble
+// ── One AI turn — dark "ai bubble" mirroring terminal's .ai-bubble ──────────
+// No avatar circle. Speaker name as a brand-colored label inside the bubble
+// header so multiple speakers are still distinguishable at a glance.
+@Composable
+private fun TurnBubble(turn: Turn, visuals: SpeakerVisuals, onCopy: () -> Unit) {
+    Row(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier
-                .weight(1f)
+                .fillMaxWidth()
                 .background(
-                    visuals.accent.copy(alpha = 0.08f),
-                    // Sharp top-left tail (avatar side), rounded elsewhere
+                    Color(0xFF1E1E22),  // matches .ai-bubble bg
                     RoundedCornerShape(topStart = 4.dp, topEnd = 14.dp, bottomEnd = 14.dp, bottomStart = 14.dp),
                 )
                 .border(
                     1.dp,
-                    visuals.accent.copy(alpha = 0.22f),
+                    Color(0xFF2A2A30),  // matches .ai-bubble border
                     RoundedCornerShape(topStart = 4.dp, topEnd = 14.dp, bottomEnd = 14.dp, bottomStart = 14.dp),
                 )
-                .padding(horizontal = 11.dp, vertical = 9.dp),
+                .padding(horizontal = 13.dp, vertical = 10.dp),
         ) {
-            // Header: name + role + (token count, copy when done)
+            // Header row — small brand-color dot + speaker label + status/tokens/copy
             Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(7.dp)
+                        .background(visuals.accent, CircleShape),
+                )
+                Spacer(Modifier.size(7.dp))
                 Text(
                     turn.speakerLabel,
-                    fontFamily = DmSansFamily, fontSize = 12.sp,
+                    fontFamily = SpaceMonoFamily, fontSize = 11.sp,
                     fontWeight = FontWeight.SemiBold, color = visuals.accent,
                     modifier = Modifier.weight(1f),
                 )
@@ -235,15 +241,15 @@ private fun ChatRow(turn: Turn, visuals: SpeakerVisuals, onCopy: () -> Unit) {
                 }
             }
 
-            // Body: streaming text, typing dots, or error
+            // Body — streaming text, typing dots, or error
             if (turn.text.isNotEmpty()) {
-                Spacer(Modifier.size(5.dp))
+                Spacer(Modifier.size(6.dp))
                 Text(
-                    turn.text, fontFamily = DmSansFamily, fontSize = 14.sp,
-                    color = NexusText, lineHeight = 20.sp,
+                    turn.text, fontFamily = SpaceMonoFamily, fontSize = 13.sp,
+                    color = Color(0xFFF0F0F2), lineHeight = 20.sp,
                 )
             } else if (turn.status == TurnStatus.STREAMING) {
-                Spacer(Modifier.size(6.dp))
+                Spacer(Modifier.size(7.dp))
                 TypingDots(visuals.accent)
             }
 
