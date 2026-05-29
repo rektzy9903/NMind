@@ -57,7 +57,6 @@ class TerminalActivity : AppCompatActivity() {
 
     companion object {
         private const val REQUEST_IMAGE = 1002
-        const val EXTRA_SCHEDULED_PROMPT = "scheduled_prompt"
         const val EXTRA_PROJECT_PATH = "project_path"
     }
 
@@ -150,11 +149,6 @@ class TerminalActivity : AppCompatActivity() {
         super.onResume()
         claudeService?.isActivityVisible = true
         claudeService?.cancelResponseNotification()
-        // Send scheduled prompt if launched from notification
-        intent.getStringExtra(EXTRA_SCHEDULED_PROMPT)?.let { prompt ->
-            intent.removeExtra(EXTRA_SCHEDULED_PROMPT)
-            claudeService?.sendInput(prompt + "\n")
-        }
         // Refresh model name + avatar in case user changed provider in Settings
         val currentModelId = prefs.getModelId()
         if (lastKnownModelId.isNotEmpty() && lastKnownModelId != currentModelId) {

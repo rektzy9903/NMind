@@ -19,8 +19,6 @@ import com.claudecodesetup.data.AppPreferences
 import com.claudecodesetup.data.Providers
 import com.claudecodesetup.databinding.ActivitySettingsBinding
 import com.claudecodesetup.managers.NodeBridgeManager
-import com.claudecodesetup.managers.ScheduledPrompt
-import com.claudecodesetup.managers.ScheduledPromptsManager
 import java.io.File
 import org.json.JSONArray
 import org.json.JSONObject
@@ -250,8 +248,6 @@ class SettingsActivity : AppCompatActivity() {
             startActivity(Intent(this, com.claudecodesetup.ui.McpActivity::class.java))
         }
 
-        binding.btnScheduledPrompts.setOnClickListener { showScheduledPromptsDialog() }
-
         binding.btnCustomCommands.setOnClickListener { showCustomCommandsDialog() }
 
         binding.btnManageTools.setOnClickListener { showToolControlDialog() }
@@ -351,103 +347,6 @@ class SettingsActivity : AppCompatActivity() {
                     if (off.length() == 0) "All tools enabled"
                     else "${off.length()} tool(s) turned off — applies on next message",
                     Toast.LENGTH_SHORT).show()
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
-    }
-
-    private fun showScheduledPromptsDialog() {
-        val prompts = ScheduledPromptsManager.getAll(prefs).toMutableList()
-        val labels = (prompts.map { p ->
-            val base = "${p.timeLabel} — ${p.prompt.take(40)}"
-            if (p.enabled) base else "$base (disabled)"
-        } + listOf("+ Add new")).toTypedArray()
-        AlertDialog.Builder(this)
-            .setTitle("Scheduled prompts")
-            .setItems(labels) { _, which ->
-                if (which == labels.size - 1) showAddScheduledPromptDialog()
-                else showEditScheduledPromptDialog(prompts[which])
-            }
-            .setNegativeButton("Done", null)
-            .show()
-    }
-
-    private fun showAddScheduledPromptDialog() {
-        showScheduledPromptEditor(null)
-    }
-
-    private fun showEditScheduledPromptDialog(prompt: ScheduledPrompt) {
-        val items = arrayOf("Edit", "Delete", if (prompt.enabled) "Disable" else "Enable")
-        AlertDialog.Builder(this)
-            .setTitle("${prompt.timeLabel} — ${prompt.prompt.take(40)}")
-            .setItems(items) { _, which ->
-                when (which) {
-                    0 -> showScheduledPromptEditor(prompt)
-                    1 -> {
-                        ScheduledPromptsManager.remove(this, prefs, prompt.id)
-                        Toast.makeText(this, "Prompt deleted", Toast.LENGTH_SHORT).show()
-                    }
-                    2 -> {
-                        val updated = prompt.copy(enabled = !prompt.enabled)
-                        val all = ScheduledPromptsManager.getAll(prefs).map {
-                            if (it.id == updated.id) updated else it
-                        }
-                        ScheduledPromptsManager.save(this, prefs, all)
-                        Toast.makeText(this,
-                            if (updated.enabled) "Prompt enabled" else "Prompt disabled",
-                            Toast.LENGTH_SHORT).show()
-                    }
-                }
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
-    }
-
-    private fun showScheduledPromptEditor(existing: ScheduledPrompt?) {
-        val hourField = android.widget.EditText(this).apply {
-            hint = "Hour (0–23)"
-            inputType = android.text.InputType.TYPE_CLASS_NUMBER
-            setText(existing?.hour?.toString() ?: "9")
-            setPadding(dpToPx(16), dpToPx(8), dpToPx(16), dpToPx(4))
-        }
-        val minuteField = android.widget.EditText(this).apply {
-            hint = "Minute (0–59)"
-            inputType = android.text.InputType.TYPE_CLASS_NUMBER
-            setText(existing?.minute?.toString() ?: "0")
-            setPadding(dpToPx(16), dpToPx(4), dpToPx(16), dpToPx(4))
-        }
-        val promptField = android.widget.EditText(this).apply {
-            hint = "Prompt text (sent to Claude)"
-            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
-            setText(existing?.prompt ?: "")
-            minLines = 3
-            gravity = android.view.Gravity.TOP
-            setPadding(dpToPx(16), dpToPx(4), dpToPx(16), dpToPx(8))
-        }
-        val layout = android.widget.LinearLayout(this).apply {
-            orientation = android.widget.LinearLayout.VERTICAL
-            setPadding(dpToPx(8), 0, dpToPx(8), 0)
-            addView(hourField)
-            addView(minuteField)
-            addView(promptField)
-        }
-        AlertDialog.Builder(this)
-            .setTitle(if (existing == null) "Add scheduled prompt" else "Edit prompt")
-            .setView(layout)
-            .setPositiveButton("Save") { _, _ ->
-                val hour = hourField.text.toString().toIntOrNull()?.coerceIn(0, 23) ?: 9
-                val minute = minuteField.text.toString().toIntOrNull()?.coerceIn(0, 59) ?: 0
-                val text = promptField.text.toString().trim()
-                if (text.isEmpty()) { Toast.makeText(this, "Prompt text required", Toast.LENGTH_SHORT).show(); return@setPositiveButton }
-                val prompt = existing?.copy(prompt = text, hour = hour, minute = minute)
-                    ?: ScheduledPrompt(prompt = text, hour = hour, minute = minute)
-                if (existing == null) {
-                    ScheduledPromptsManager.add(this, prefs, prompt)
-                } else {
-                    val all = ScheduledPromptsManager.getAll(prefs).map { if (it.id == prompt.id) prompt else it }
-                    ScheduledPromptsManager.save(this, prefs, all)
-                }
-                Toast.makeText(this, "Prompt scheduled for ${prompt.timeLabel} daily", Toast.LENGTH_SHORT).show()
             }
             .setNegativeButton("Cancel", null)
             .show()

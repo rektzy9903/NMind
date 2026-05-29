@@ -151,11 +151,6 @@ class AppPreferences(context: Context) {
     fun setSkipKeyPromptEnabled(enabled: Boolean) =
         prefs.edit().putBoolean("skip_key_prompt_configured", enabled).apply()
 
-    // ─── Scheduled prompts ───────────────────────────────────────────────────
-
-    fun getScheduledPromptsJson(): String = prefs.getString(KEY_SCHEDULED_PROMPTS, "[]") ?: "[]"
-    fun saveScheduledPromptsJson(json: String) = prefs.edit().putString(KEY_SCHEDULED_PROMPTS, json).apply()
-
     // ─── Clear ───────────────────────────────────────────────────────────────
 
     fun clearAll() = prefs.edit().clear().apply()
@@ -192,7 +187,6 @@ class AppPreferences(context: Context) {
         private const val KEY_MCP_STDIO_SERVERS    = "mcp_stdio_servers_json"
         private const val KEY_TTS_ENABLED          = "tts_enabled"
         private const val KEY_PROVIDER_REMOTE_URL  = "provider_remote_url"
-        private const val KEY_SCHEDULED_PROMPTS    = "scheduled_prompts_json"
         private const val KEY_RESPONSE_NOTIFICATIONS = "response_notifications"
         private const val KEY_AUTO_START_BOOT       = "auto_start_boot"
 
