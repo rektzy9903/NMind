@@ -137,6 +137,13 @@ class AppPreferences(context: Context) {
     fun isAutoStartOnBoot(): Boolean = prefs.getBoolean(KEY_AUTO_START_BOOT, false)
     fun setAutoStartOnBoot(enabled: Boolean) = prefs.edit().putBoolean(KEY_AUTO_START_BOOT, enabled).apply()
 
+    /** When ON (default), switching to a provider that already has a saved API
+     *  key skips the ApiKeyScreen and goes straight to the model picker. Turn
+     *  OFF to force re-validation on every provider switch. */
+    fun isSkipKeyPromptEnabled(): Boolean = prefs.getBoolean("skip_key_prompt_configured", true)
+    fun setSkipKeyPromptEnabled(enabled: Boolean) =
+        prefs.edit().putBoolean("skip_key_prompt_configured", enabled).apply()
+
     // ─── Scheduled prompts ───────────────────────────────────────────────────
 
     fun getScheduledPromptsJson(): String = prefs.getString(KEY_SCHEDULED_PROMPTS, "[]") ?: "[]"

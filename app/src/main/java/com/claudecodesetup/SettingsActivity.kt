@@ -60,6 +60,7 @@ class SettingsActivity : AppCompatActivity() {
     private fun refreshPreferenceToggles() {
         binding.switchResponseNotifications.isChecked = prefs.isResponseNotificationsEnabled()
         binding.switchAutoStartBoot.isChecked = prefs.isAutoStartOnBoot()
+        binding.switchSkipKeyPrompt.isChecked = prefs.isSkipKeyPromptEnabled()
     }
 
     private fun refreshMcpRows() {
@@ -181,6 +182,9 @@ class SettingsActivity : AppCompatActivity() {
         }
         binding.switchAutoStartBoot.setOnCheckedChangeListener { _, isChecked ->
             prefs.setAutoStartOnBoot(isChecked)
+        }
+        binding.switchSkipKeyPrompt.setOnCheckedChangeListener { _, isChecked ->
+            prefs.setSkipKeyPromptEnabled(isChecked)
         }
 
         binding.btnChangeProvider.setOnClickListener {

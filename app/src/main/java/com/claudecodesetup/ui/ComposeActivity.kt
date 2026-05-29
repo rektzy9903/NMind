@@ -79,6 +79,11 @@ private fun AppRoot(
     var screen by remember { mutableStateOf(startAt) }
     var selectedProvider by remember { mutableStateOf<Provider?>(initProvider) }
     var storedKey by remember { mutableStateOf(initKey) }
+    // Tracks whether the most recent transition into "picker" auto-skipped
+    // the ApiKeyScreen (saved key + Skip-Key-Prompt toggle on). Used so the
+    // picker's back button returns to the provider list instead of landing
+    // on a key screen the user never saw.
+    var skippedKeyScreen by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
     val loginLauncher = rememberLauncherForActivityResult(
@@ -109,7 +114,17 @@ private fun AppRoot(
         "providers" -> ProviderListScreen(
             onSelect = { provider ->
                 selectedProvider = Providers.byId(provider.id) ?: provider
-                screen = if (provider.id == "ollama") "local_models" else "key"
+                val savedKey = prefs.getApiKeyForProvider(provider.id)
+                val canSkip = prefs.isSkipKeyPromptEnabled() && savedKey.isNotEmpty()
+                screen = when {
+                    provider.id == "ollama" -> "local_models"
+                    canSkip -> {
+                        storedKey = savedKey
+                        skippedKeyScreen = true
+                        "picker"
+                    }
+                    else -> { skippedKeyScreen = false; "key" }
+                }
             },
             onBack = { screen = "subscription" }
         )
@@ -167,6 +182,7 @@ private fun AppRoot(
                     else screen = when {
                         startAt == "providers" -> "providers"
                         selectedProvider?.id == "ollama" -> "local_models"
+                        skippedKeyScreen -> { skippedKeyScreen = false; "providers" }
                         else -> "key"
                     }
                 }
