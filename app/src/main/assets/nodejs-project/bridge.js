@@ -1121,11 +1121,36 @@ function sendToAnthropicDirect(providerUrl, apiKey, anthReq, stream, res) {
     provReq.end();
 }
 
+// Tools claude-code ships in every request that are dead weight on Android —
+// the model would never sensibly call them on a phone, but their JSON schemas
+// still ride along on every request and inflate the input-token count (a plain
+// "hello" costs ~29K input tokens, ~72KB of which is the 23 tool schemas).
+// Stripping them is safe: the model can't call a tool it was never told about,
+// and claude-code only acts on tool_use events the model actually returns.
+//   Cron*        — job scheduling; Android has no cron
+//   *Worktree    — git worktrees (parallel branch checkouts); a desktop workflow
+//   ScheduleWakeup — harness loop self-pacing
+//   NotebookEdit — Jupyter notebook editing; no notebooks on a phone
+const PRUNED_TOOLS = new Set([
+    'CronCreate', 'CronDelete', 'CronList',
+    'EnterWorktree', 'ExitWorktree',
+    'ScheduleWakeup', 'NotebookEdit',
+]);
+
 function handleProxyRequest(anthReq, res) {
     const cfg   = readConfig();
     const pUrl  = cfg.providerUrl || '';
     const key   = cfg.apiKey || '';
     const stream = !!anthReq.stream;
+
+    // Drop Android-useless tools before anything reads anthReq.tools (size
+    // diagnostic below + anthToOai conversion both pick up the pruned list).
+    if (Array.isArray(anthReq.tools) && anthReq.tools.length) {
+        const before = anthReq.tools.length;
+        anthReq.tools = anthReq.tools.filter(t => !PRUNED_TOOLS.has(t.name));
+        const dropped = before - anthReq.tools.length;
+        if (dropped) log('[proxy] pruned ' + dropped + ' Android-useless tool(s)\n');
+    }
 
     const baseModel = cfg.modelId || anthReq.model || '';
     log('[proxy] request: model=' + (anthReq.model||'?') +
