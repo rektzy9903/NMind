@@ -1494,9 +1494,15 @@ function showBashCard(perm){
 
   function wireBtn(btn, cmdStr, container){
     btn.addEventListener('click', function(){
-      wrap.style.opacity = '0.65';
-      if(container) container.style.pointerEvents = 'none';
       if(typeof Android !== 'undefined') Android.sendInput('\r' + cmdStr + '\r');
+      // Collapse the prompt: remove all button rows, leave the command card as a
+      // plain log entry with a small note of what was chosen.
+      var chosen = btn.textContent;
+      allRows.forEach(function(r){ if(r.parentNode) r.parentNode.removeChild(r); });
+      var note = document.createElement('div');
+      note.style.cssText = 'padding:8px 14px;font-size:10px;font-family:Space Mono,monospace;color:#60606E;border-top:1px solid #2A2A30;';
+      note.textContent = '• ' + chosen;
+      wrap.appendChild(note);
     });
   }
   function mkBtn(label, cmdStr, color, bg, borderLeft, container){
@@ -1650,10 +1656,14 @@ function showPermissionDialog(perm){
     var borderLeft=i>0?'border-left:1px solid rgba(147,51,234,0.2);':'';
     btn.style.cssText='flex:1;background:'+b.bg+';border:none;'+borderLeft+'color:'+b.color+';font-size:12px;font-family:Space Mono,monospace;padding:10px 4px;cursor:pointer;letter-spacing:0.03em;';
     btn.addEventListener('click',function(){
-      wrap.style.opacity='0.5';
-      wrap.style.pointerEvents='none';
       // Leading \r flushes any residual chars in bridge.js inputBuf before the command
       if(typeof Android!=='undefined') Android.sendInput('\r'+b.cmd+'\r');
+      // Collapse the prompt: drop the buttons, leave a small chosen-state note.
+      if(btnRow.parentNode) btnRow.parentNode.removeChild(btnRow);
+      var note=document.createElement('div');
+      note.style.cssText='padding:8px 14px;font-size:10px;font-family:Space Mono,monospace;color:#60606E;border-top:1px solid #2A2A30;';
+      note.textContent='• '+b.label;
+      wrap.appendChild(note);
     });
     btnRow.appendChild(btn);
   });

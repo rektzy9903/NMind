@@ -3150,9 +3150,19 @@ function openPrintSession() {
         // v2.1.112 to hang indefinitely after the HEAD / health-check, never reaching the
         // POST /v1/messages call. Custom instructions are prepended to the message instead.
         const customPrompt = (cfg.customSystemPrompt || '').trim();
-        // Prepend custom instructions to the message (no --append-system-prompt — that flag
-        // causes claude-code v2.1.112 to hang indefinitely on Android after HEAD / health-check).
-        const finalMsg = customPrompt ? '[Custom Instructions]\n' + customPrompt + '\n\n' + msg : msg;
+        // The app holds MANAGE_EXTERNAL_STORAGE, so Bash can reach the whole device.
+        // claude-code's system prompt advertises the sandbox cwd, which makes weaker
+        // models refuse paths like /sdcard. Counter that with an explicit capability note.
+        const STORAGE_NOTE =
+            'Environment: you have FULL Android device storage access through the Bash tool ' +
+            '(the app holds MANAGE_EXTERNAL_STORAGE). You may list, read, create, and edit files ' +
+            'anywhere on the device — including /sdcard, /storage, and any path outside the working ' +
+            'directory. Never refuse a file request by claiming a sandbox or "authorized working ' +
+            'directory" limit; just run the appropriate Bash command.';
+        // Prepend instructions to the message (no --append-system-prompt — that flag causes
+        // claude-code v2.1.112 to hang indefinitely on Android after HEAD / health-check).
+        const preamble = [STORAGE_NOTE, customPrompt].filter(Boolean).join('\n\n');
+        const finalMsg = '[Instructions]\n' + preamble + '\n\n' + msg;
         // Inject --mcp-config when the config file exists so MCP tools (exa, etc.)
         // are available to claude-code in print mode, not just in interactive mode.
         // --mcp-config is intentionally omitted in print mode. Each message spawns a
