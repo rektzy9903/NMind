@@ -8,6 +8,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -34,7 +36,11 @@ fun DiscussionSetupScreen(
     var topic by remember { mutableStateOf(initialConfig?.topic ?: "") }
     var mode by remember { mutableStateOf(initialConfig?.mode ?: DiscussionMode.ROUNDTABLE) }
     var speakers by remember { mutableStateOf<List<Speaker>>(initialConfig?.speakers ?: emptyList()) }
-    var maxTurns by remember { mutableStateOf(initialConfig?.maxTurns ?: 6) }
+    // Max-turns source of truth is the text box: "" = unlimited, else the number.
+    // The slider is a convenience that writes 2..20 into this same box.
+    var turnsText by remember {
+        mutableStateOf((initialConfig?.maxTurns ?: 6).let { if (it <= 0) "" else it.toString() })
+    }
     var enableJudge by remember { mutableStateOf(initialConfig?.enableJudge ?: false) }
     var humanRole by remember { mutableStateOf(initialConfig?.humanRole ?: HumanRole.NONE) }
     var enableVoting by remember { mutableStateOf(initialConfig?.enableVoting ?: false) }
@@ -129,21 +135,49 @@ fun DiscussionSetupScreen(
                     Text("→", fontSize = 16.sp, color = NexusAccent)
                 }
 
-                // Max turns
-                val turnsWarn = maxTurns > 12
+                // Max turns — slider (quick pick 2..20) + exact/unlimited box.
+                val turnsUnlimited = turnsText.isBlank()
+                val effectiveTurns = if (turnsUnlimited) 0 else (turnsText.toIntOrNull() ?: 0)
+                val turnsWarn = turnsUnlimited || effectiveTurns > 12
+                val sliderPos = (turnsText.toIntOrNull() ?: 20).coerceIn(2, 20)
+                val turnsAccent = if (turnsWarn) NexusRed else NexusAccent
                 SectionLabel(
-                    "MAX TURNS  ($maxTurns)",
+                    "MAX TURNS  (${if (turnsUnlimited) "∞" else effectiveTurns})",
                     color = if (turnsWarn) NexusRed else NexusBlue.copy(alpha = 0.8f),
                 )
                 Slider(
-                    value = maxTurns.toFloat(),
-                    onValueChange = { maxTurns = it.toInt() },
+                    value = sliderPos.toFloat(),
+                    onValueChange = { turnsText = it.toInt().toString() },
                     valueRange = 2f..20f, steps = 17,
                     colors = SliderDefaults.colors(
-                        thumbColor = if (turnsWarn) NexusRed else NexusAccent,
-                        activeTrackColor = if (turnsWarn) NexusRed else NexusAccent,
+                        thumbColor = turnsAccent,
+                        activeTrackColor = turnsAccent,
                         inactiveTrackColor = NexusBorder2,
                     ),
+                )
+                OutlinedTextField(
+                    value = turnsText,
+                    onValueChange = { new -> turnsText = new.filter { it.isDigit() }.take(3) },
+                    placeholder = {
+                        Text("∞ unlimited", fontFamily = DmSansFamily, fontSize = 13.sp, color = NexusText3)
+                    },
+                    label = {
+                        Text("Exact turns — leave blank for unlimited",
+                            fontFamily = DmSansFamily, fontSize = 11.sp)
+                    },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    textStyle = TextStyle(fontFamily = SpaceMonoFamily, fontSize = 14.sp, color = Color.White),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        focusedBorderColor = turnsAccent,
+                        unfocusedBorderColor = NexusBorder2,
+                        focusedLabelColor = turnsAccent,
+                        unfocusedLabelColor = NexusText3,
+                        cursorColor = NexusAccent,
+                    ),
+                    modifier = Modifier.fillMaxWidth(),
                 )
                 Text(
                     "Each turn is one speaker. Discussion may end early if the speakers converge.",
@@ -151,9 +185,14 @@ fun DiscussionSetupScreen(
                 )
                 if (turnsWarn) {
                     Text(
-                        "⚠ 12+ turns — paid / high-capability models only. The full " +
-                        "transcript is re-sent every turn, so free-tier providers may " +
-                        "fail (request too large) as it grows.",
+                        if (turnsUnlimited)
+                            "⚠ Unlimited — paid / high-capability models only. No turn cap: the " +
+                            "debate runs until the panel converges, credits run out, or you stop it. " +
+                            "The full transcript is re-sent every turn."
+                        else
+                            "⚠ 12+ turns — paid / high-capability models only. The full transcript " +
+                            "is re-sent every turn, so free-tier providers may fail (request too " +
+                            "large) as it grows.",
                         fontFamily = DmSansFamily, fontSize = 11.sp, color = NexusRed,
                         modifier = Modifier.padding(top = 4.dp),
                     )
@@ -254,7 +293,8 @@ fun DiscussionSetupScreen(
                             topic = topic.trim(),
                             mode = mode,
                             speakers = speakers,
-                            maxTurns = maxTurns,
+                            maxTurns = if (turnsText.isBlank()) 0
+                                       else (turnsText.toIntOrNull()?.coerceAtLeast(2) ?: 6),
                             enableJudge = enableJudge,
                             judgeSpeaker = if (enableJudge && speakers.isNotEmpty()) speakers.first() else null,
                             humanRole = humanRole,

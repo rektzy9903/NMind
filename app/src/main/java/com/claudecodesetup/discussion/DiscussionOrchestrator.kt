@@ -121,8 +121,10 @@ class DiscussionOrchestrator(
     fun continueAfterCap() {
         if (loopJob?.isActive == true) return
         val s = _state.value
+        // Unlimited (maxTurns <= 0) stays unlimited; a capped run gets one more round.
+        val newCap = if (s.maxTurns <= 0) 0 else s.maxTurns + s.speakers.size
         _state.value = s.copy(
-            maxTurns = s.maxTurns + s.speakers.size,
+            maxTurns = newCap,
             isRunning = true, stoppedReason = null, converged = false,
             votes = emptyList(), awaitingHumanVote = false, votingPhase = false,
         )
@@ -135,7 +137,9 @@ class DiscussionOrchestrator(
                 val s = _state.value
                 if (!s.isRunning) break
                 val completed = s.turns.count { it.status == TurnStatus.DONE }
-                if (completed >= s.maxTurns) {
+                // maxTurns <= 0 means unlimited — only convergence / credits / a
+                // manual stop ends the debate.
+                if (s.maxTurns > 0 && completed >= s.maxTurns) {
                     finishLoop(reason = "max turns reached")
                     break
                 }

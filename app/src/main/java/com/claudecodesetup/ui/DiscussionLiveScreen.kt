@@ -99,7 +99,7 @@ fun DiscussionLiveScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 val doneCount = state.turns.count { it.status == TurnStatus.DONE }
-                Text("Turn $doneCount / ${state.maxTurns}",
+                Text("Turn $doneCount / ${if (state.maxTurns <= 0) "∞" else state.maxTurns}",
                     fontFamily = SpaceMonoFamily, fontSize = 10.sp, color = NexusText2)
                 Text("↑${state.totalPromptTokens}  ↓${state.totalCompletionTokens}",
                     fontFamily = SpaceMonoFamily, fontSize = 10.sp, color = NexusText3)
