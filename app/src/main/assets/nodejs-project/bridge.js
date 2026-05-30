@@ -1196,6 +1196,20 @@ function handleProxyRequest(anthReq, res) {
             '(' + toolsJson.length + 'c) msgs=' + msgs.length + '(' + msgsLen + 'c) total=' +
             total + 'c ≈' + Math.ceil(total / 3.5) + 'tok\n');
         if (toolsArr.length) log('[proxy] tool-names: ' + toolNames + '\n');
+        // Log incoming tool_result blocks so we can see what a tool actually
+        // returned (e.g. mkdir "permission denied" vs success) — the model loops
+        // when a tool fails and it can't tell why. Last message only, truncated.
+        const lastMsg = msgs[msgs.length - 1];
+        if (lastMsg && Array.isArray(lastMsg.content)) {
+            for (const b of lastMsg.content) {
+                if (b.type !== 'tool_result') continue;
+                const txt = Array.isArray(b.content)
+                    ? b.content.filter(x => x.type === 'text').map(x => x.text).join(' ')
+                    : String(b.content || '');
+                const flat = txt.replace(/\s+/g, ' ').slice(0, 300);
+                log('[proxy] tool-result' + (b.is_error ? ' ERROR' : '') + ': ' + (flat || '(empty)') + '\n');
+            }
+        }
     } catch (_) {}
 
     if (!pUrl) return proxyError(res, 500, 'No provider URL in config — check app settings');
