@@ -53,7 +53,7 @@ fun DiscussionSetupScreen(
 
     // Debate: give each speaker a default side as soon as the lineup is set (or
     // changes), so the SIDES picker shows a starting assignment to flip.
-    LaunchedEffect(mode, speakers.map { it.model.id }) {
+    LaunchedEffect(mode, speakers.map { it.id }) {
         if (mode == DiscussionMode.DEBATE && speakers.size in 2..4 && speakers.any { it.role.isEmpty() }) {
             speakers = PromptBuilder.defaultDebateRoles(speakers)
         }
