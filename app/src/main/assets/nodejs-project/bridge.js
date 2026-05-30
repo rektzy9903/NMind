@@ -1216,6 +1216,11 @@ function handleProxyRequest(anthReq, res) {
             const plain = Object.assign({}, oaiReq);
             delete plain.tools;
             delete plain.tool_choice;
+            // A request with no `tools` but messages that still carry assistant
+            // `tool_calls` or `role:"tool"` results is invalid for strict OAI
+            // endpoints (Gemini compat) → it 400s again. Flatten that history to
+            // plain text so the fallback actually succeeds.
+            plain.messages = flattenToolHistory(oaiReq.messages);
             sendToProvider(pUrl, key, plain, stream, res, null, on429, on402, on5xx);
         }
 
@@ -1359,6 +1364,30 @@ function anthToOai(a, model) {
     }
 
     return req;
+}
+
+// Rewrite an OAI messages array so it carries NO tool-call structure: assistant
+// `tool_calls` become a short assistant text note, and `role:"tool"` results
+// become `role:"user"` text. Used by the no-tools 400 fallback — a request with
+// tool_calls/tool messages but no `tools` declared is rejected by strict OAI
+// endpoints (Gemini compat). Returns a NEW array; never mutates the input.
+function flattenToolHistory(messages) {
+    const out = [];
+    for (const m of (messages || [])) {
+        if (m.role === 'tool') {
+            const body = typeof m.content === 'string' ? m.content : JSON.stringify(m.content || '');
+            out.push({ role: 'user', content: '[tool result] ' + body });
+        } else if (m.role === 'assistant' && Array.isArray(m.tool_calls) && m.tool_calls.length) {
+            const calls = m.tool_calls
+                .map(tc => (tc.function && tc.function.name) || 'tool')
+                .join(', ');
+            const text = (typeof m.content === 'string' && m.content) ? m.content : '';
+            out.push({ role: 'assistant', content: (text + '\n[requested tools: ' + calls + ']').trim() });
+        } else {
+            out.push(m);
+        }
+    }
+    return out;
 }
 
 // Convert OpenAI Chat Completions response → Anthropic Messages response
