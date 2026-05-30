@@ -60,10 +60,16 @@ object PromptBuilder {
                 "Pick your side and defend it — never reply \"both\", \"it depends\", or refuse to choose."
             }
             DiscussionMode.CRITIQUE -> {
-                if (isFirst) "$BASE_RULES\n\nYou go first. Propose a concrete solution / answer / plan in 1–2 paragraphs. " +
-                    "Subsequent speakers will critique your proposal."
-                else "$BASE_RULES\n\nYou are critiquing the proposal and any prior critiques. " +
-                    "Be specific — name flaws, edge cases, missed assumptions. Suggest fixes, not just complaints."
+                val critiqueRules = (
+                    "You're on a review panel with other AI models. " +
+                    "The SUBJECT under review is the material in the topic above — a claim, fact, plan, argument, or piece of writing the user presented. " +
+                    "Your job is to critique THAT material. Do NOT debate the other panelists and do NOT invent a fresh proposal of your own. " +
+                    "Read prior critiques so you don't repeat them and can build on or correct them — but keep every point aimed at the topic itself. " +
+                    "Be specific: name concrete flaws, hidden assumptions, missing cases, factual errors, weak evidence — and acknowledge what's genuinely solid. " +
+                    "Suggest fixes, not just complaints. Keep it focused: 2–6 sentences unless depth is warranted."
+                )
+                if (isFirst) "$critiqueRules\n\nYou open the critique. Assess the topic material directly — its strongest and weakest points — so the panel has a sharp starting point."
+                else "$critiqueRules\n\nContinue the critique. Add flaws or defenses the earlier reviewers missed, and correct any point of theirs that misreads the topic. Stay on the topic material — don't drift into arguing with the other reviewers."
             }
             DiscussionMode.CODE_REVIEW -> {
                 if (isFirst) "$BASE_RULES\n\nYou go first. Identify the most likely bug, performance issue, or design problem in " +
@@ -108,7 +114,7 @@ object PromptBuilder {
         DiscussionMode.CRITIQUE, DiscussionMode.CODE_REVIEW -> {
             // First speaker proposes, rest critique. Labels are advisory.
             speakers.mapIndexed { i, s ->
-                if (i == 0) s.copy(role = "Proposer") else s.copy(role = "Reviewer")
+                if (i == 0) s.copy(role = "Lead") else s.copy(role = "Reviewer")
             }
         }
         DiscussionMode.ROUNDTABLE -> speakers
