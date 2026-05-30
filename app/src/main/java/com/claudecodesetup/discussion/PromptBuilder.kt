@@ -36,7 +36,10 @@ object PromptBuilder {
         else "\nYou are: ${speaker.label}.$humanLine\n"
 
         val modePart = when (mode) {
-            DiscussionMode.ROUNDTABLE -> BASE_RULES
+            DiscussionMode.ROUNDTABLE -> BASE_RULES +
+                "\n\nThis is an open, unbiased discussion — you hold no fixed side. " +
+                "If another speaker changes your mind, say so directly and explain exactly what convinced you. " +
+                "Don't cling to your first take just to stay consistent — reasoning honestly matters more than looking right."
             DiscussionMode.DEBATE -> {
                 val side = speaker.role.ifEmpty { "Participant" }
                 "$BASE_RULES\n\nYour assigned side: $side. " +
