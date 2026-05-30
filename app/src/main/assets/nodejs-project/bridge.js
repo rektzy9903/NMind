@@ -1279,6 +1279,33 @@ function handleProxyRequest(anthReq, res) {
     attempt(baseModel, 3, 2, 0);
 }
 
+// ── Gemini thought_signature round-trip ──────────────────────────────────────
+// Gemini 3.x models return an opaque `thought_signature` on every function call
+// and REQUIRE it echoed back, attached to the same call, on subsequent turns —
+// otherwise the request 400s ("Function call is missing a thought_signature in
+// functionCall parts"). claude-code's Anthropic-format history only preserves
+// {id,name,input}, so the signature is lost on the next turn and tool use breaks
+// for the whole conversation. We stash signatures by tool_call id at capture time
+// and re-attach them in anthToOai when the same call reappears in history.
+const thoughtSigStore = new Map(); // tool_call id → thought_signature
+function storeThoughtSig(id, sig) {
+    if (!id || !sig) return;
+    if (thoughtSigStore.size > 500) { // bound memory; drop oldest
+        const first = thoughtSigStore.keys().next().value;
+        if (first !== undefined) thoughtSigStore.delete(first);
+    }
+    thoughtSigStore.set(id, sig);
+}
+// Defensive: Gemini's OpenAI-compat layer has surfaced the signature in a few
+// shapes across versions — scan the documented + likely locations.
+function extractThoughtSig(tc, delta, choice) {
+    const ec = (o) => o && o.extra_content && o.extra_content.google && o.extra_content.google.thought_signature;
+    return (tc && (ec(tc) || tc.thought_signature || tc.thoughtSignature || (tc.function && tc.function.thought_signature)))
+        || (delta && ec(delta))
+        || (choice && choice.message && ec(choice.message))
+        || null;
+}
+
 // Convert Anthropic Messages request → OpenAI Chat Completions request
 function anthToOai(a, model) {
     const msgs = [];
@@ -1317,11 +1344,17 @@ function anthToOai(a, model) {
             msgs.push({
                 role: 'assistant',
                 content: textBlocks.map(b => b.text).join('') || null,
-                tool_calls: toolUseBlocks.map(tu => ({
-                    id: tu.id || ('call_' + tu.name + '_' + Date.now()),
-                    type: 'function',
-                    function: { name: tu.name, arguments: JSON.stringify(tu.input || {}) }
-                }))
+                tool_calls: toolUseBlocks.map(tu => {
+                    const call = {
+                        id: tu.id || ('call_' + tu.name + '_' + Date.now()),
+                        type: 'function',
+                        function: { name: tu.name, arguments: JSON.stringify(tu.input || {}) }
+                    };
+                    // Re-attach Gemini thought_signature so 3.x tool turns don't 400.
+                    const sig = tu.id && thoughtSigStore.get(tu.id);
+                    if (sig) call.extra_content = { google: { thought_signature: sig } };
+                    return call;
+                })
             });
         } else if (imageBlocks.length > 0) {
             // Message with image content — convert to OpenAI vision format
@@ -1410,6 +1443,8 @@ function oaiToAnth(oai, model) {
             let input = {};
             try { input = JSON.parse(tc.function.arguments || '{}'); } catch (_) {}
             content.push({ type: 'tool_use', id: tc.id, name: tc.function.name, input });
+            const sig = extractThoughtSig(tc, null, choice);
+            if (sig) storeThoughtSig(tc.id, sig);
         }
         log('[proxy] received ' + msg.tool_calls.length + ' tool_call(s) from provider\n');
     }
@@ -1686,7 +1721,7 @@ function sendToProvider(baseUrl, apiKey, oaiReq, stream, res, onBadRequest, on42
                             const tcIdx = tc.index !== undefined ? tc.index : 0;
                             if (!tcBlocks[tcIdx]) {
                                 const blockIdx = nextBlockIdx++;
-                                tcBlocks[tcIdx] = { id: tc.id, name: (tc.function || {}).name || '', blockIdx, argsAccum: '' };
+                                tcBlocks[tcIdx] = { id: tc.id, name: (tc.function || {}).name || '', blockIdx, argsAccum: '', sig: null };
                                 sendEvent('content_block_start', {
                                     type: 'content_block_start', index: blockIdx,
                                     content_block: {
@@ -1696,6 +1731,8 @@ function sendToProvider(baseUrl, apiKey, oaiReq, stream, res, onBadRequest, on42
                                 });
                                 log('[proxy] stream: tool_use block — ' + tcBlocks[tcIdx].name + '\n');
                             }
+                            const sig = extractThoughtSig(tc, delta, choice);
+                            if (sig) tcBlocks[tcIdx].sig = sig;
                             const args = (tc.function || {}).arguments || '';
                             if (args) {
                                 tcBlocks[tcIdx].argsAccum += args;
@@ -1818,6 +1855,10 @@ function sendToProvider(baseUrl, apiKey, oaiReq, stream, res, onBadRequest, on42
                         for (const tb of Object.values(tcBlocks)) {
                             const a = (tb.argsAccum || '').replace(/\s+/g, ' ').slice(0, 300);
                             log('[proxy] tool-call: ' + tb.name + ' args=' + (a || '(empty)') + '\n');
+                            if (tb.id && tb.sig) {
+                                storeThoughtSig(tb.id, tb.sig);
+                                log('[proxy] captured thought_signature for ' + tb.name + ' (' + tb.id + ')\n');
+                            }
                         }
 
                         // Model finished but sent no text and no tool calls → inject visible error
