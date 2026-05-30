@@ -260,10 +260,11 @@ class DiscussionOrchestrator(
 
     private suspend fun finishLoop(reason: String) {
         val s = _state.value
-        // Optional judge summary
+        // Optional judge. In Debate it delivers a neutral, anonymized VERDICT
+        // (picks a winner on the merits); in other modes, a 3-paragraph summary.
         val judge = s.judgeSpeaker
         if (judge != null && s.turns.any { it.status == TurnStatus.DONE }) {
-            runJudgeSummary(judge)
+            if (s.mode == DiscussionMode.DEBATE) runVerdict() else runJudgeSummary(judge)
         }
         _state.value = _state.value.copy(isRunning = false, stoppedReason = reason)
 
@@ -323,11 +324,28 @@ class DiscussionOrchestrator(
     private suspend fun runJudgeSummary(judge: Speaker) {
         val s0 = _state.value
         val priorDone = s0.turns.filter { it.status == TurnStatus.DONE }
-        val messages = PromptBuilder.buildJudgeMessages(s0.topic, priorDone)
+        runJudgeTurn(judge, PromptBuilder.buildJudgeMessages(s0.topic, priorDone),
+            "Judge — ${judge.model.name}", "Judge")
+    }
+
+    /** Debate-only neutral verdict. Prefers a Moderator as the judge (it argued
+     *  no side); falls back to the configured judge / first speaker. The prompt
+     *  is anonymized so even a participant judges on merit, not identity. */
+    private suspend fun runVerdict() {
+        val s0 = _state.value
+        val priorDone = s0.turns.filter { it.status == TurnStatus.DONE }
+        val judge = s0.speakers.firstOrNull { it.role == "Moderator" }
+            ?: s0.judgeSpeaker ?: s0.speakers.firstOrNull() ?: return
+        runJudgeTurn(judge, PromptBuilder.buildVerdictMessages(s0.topic, priorDone),
+            "⚖ Verdict — ${judge.model.name}", "Verdict")
+    }
+
+    private suspend fun runJudgeTurn(judge: Speaker, messages: List<ChatMessage>, label: String, role: String) {
+        val s0 = _state.value
         val placeholder = Turn(
             speakerId    = judge.id,
-            speakerLabel = "Judge — ${judge.model.name}",
-            role         = "Judge",
+            speakerLabel = label,
+            role         = role,
             text         = "",
             status       = TurnStatus.STREAMING,
         )

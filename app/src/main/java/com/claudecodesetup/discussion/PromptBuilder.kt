@@ -154,6 +154,35 @@ object PromptBuilder {
         return listOf(ChatMessage("system", sys), ChatMessage("user", sb.toString()))
     }
 
+    /**
+     * Debate verdict by a neutral judge. The transcript is anonymized to
+     * "Side A (Defence)" / "Side B (Opposition)" — model names stripped — so the
+     * judge can't recognize and side with its own earlier arguments. The judge
+     * must commit to a WINNER on the merits, not on confidence/tone/length.
+     */
+    fun buildVerdictMessages(topic: String, turns: List<Turn>): List<ChatMessage> {
+        val sys = "You are a strict, neutral adjudicator of a debate. You have no stake in either side. " +
+            "Judge ONLY on the merit and rigor of the arguments — ignore confidence, tone, and length. " +
+            "The sides are anonymized: \"Side A (Defence)\" argues FOR the topic, \"Side B (Opposition)\" argues AGAINST it. " +
+            "Your FIRST line must be EXACTLY one of:  WINNER: DEFENCE  |  WINNER: OPPOSITION  |  WINNER: DRAW. " +
+            "Then give three short points: (1) the decisive argument, (2) the best-supported answer to the question on the merits, " +
+            "(3) the losing side's key weakness. Be concise and impartial."
+        val sb = StringBuilder()
+        sb.append("## Topic\n").append(topic.trim()).append("\n\n## Arguments (anonymized)\n\n")
+        for (t in turns) {
+            if (t.status != TurnStatus.DONE || t.isHuman) continue
+            val side = when (t.role) {
+                "Defence"    -> "Side A (Defence)"
+                "Opposition" -> "Side B (Opposition)"
+                "Moderator"  -> "Moderator (neutral)"
+                else         -> "Participant"
+            }
+            sb.append("### ").append(side).append("\n").append(t.text.trim()).append("\n\n")
+        }
+        sb.append("---\nDeliver your verdict (start with \"WINNER:\"):")
+        return listOf(ChatMessage("system", sys), ChatMessage("user", sb.toString()))
+    }
+
     /** Builds the message list for the judge summary at the end. */
     fun buildJudgeMessages(topic: String, turns: List<Turn>): List<ChatMessage> {
         val sys = "You are a neutral judge summarizing a panel discussion between AI models. " +

@@ -263,10 +263,17 @@ fun DiscussionSetupScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("Final judge summary", fontFamily = DmSansFamily,
+                        Text(
+                            if (mode == DiscussionMode.DEBATE) "Final verdict (neutral judge)"
+                            else "Final judge summary",
+                            fontFamily = DmSansFamily,
                             fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
                         Text(
-                            "First speaker writes a 3-paragraph summary at the end. +1 API call.",
+                            if (mode == DiscussionMode.DEBATE)
+                                "A neutral judge (your Moderator if set) reads the anonymized arguments " +
+                                "and declares a winner on the merits — not on which side it argued. +1 API call."
+                            else
+                                "First speaker writes a 3-paragraph summary at the end. +1 API call.",
                             fontFamily = DmSansFamily, fontSize = 11.sp, color = NexusText3,
                         )
                     }
