@@ -344,39 +344,35 @@ private fun HumanVoteButtons(onVote: (VoteChoice) -> Unit) {
 @Composable
 private fun HumanInputBar(awaiting: Boolean, showPass: Boolean, onSend: (String) -> Unit, onPass: () -> Unit) {
     var text by remember { mutableStateOf("") }
-    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 6.dp)) {
+    Column(modifier = Modifier.fillMaxWidth()) {
         if (awaiting) {
             Text("Your turn — the panel is waiting", fontFamily = SpaceMonoFamily,
-                fontSize = 10.sp, color = NexusAccent, modifier = Modifier.padding(bottom = 4.dp))
+                fontSize = 10.sp, color = NexusAccent,
+                modifier = Modifier.padding(start = 14.dp, top = 6.dp, bottom = 2.dp))
         } else if (showPass) {
             Text("Floor is open — interject or pass", fontFamily = SpaceMonoFamily,
-                fontSize = 10.sp, color = NexusAccent, modifier = Modifier.padding(bottom = 4.dp))
+                fontSize = 10.sp, color = NexusAccent,
+                modifier = Modifier.padding(start = 14.dp, top = 6.dp, bottom = 2.dp))
         }
-        Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(
+        ChatInputBar {
+            ChatTextField(
                 value = text,
                 onValueChange = { text = it },
-                placeholder = { Text("Add your point…", fontFamily = DmSansFamily, fontSize = 13.sp) },
+                placeholder = "Add your point…",
+                maxLines = 4,
                 modifier = Modifier.weight(1f),
-                minLines = 1, maxLines = 4,
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = NexusAccent,
-                    unfocusedBorderColor = NexusBorder2,
-                    cursorColor = NexusAccent,
-                ),
             )
-            Button(
-                onClick = { val t = text.trim(); if (t.isNotEmpty()) { onSend(t); text = "" } },
+            SendButton(
                 enabled = text.isNotBlank(),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = NexusAccent, contentColor = Color.White,
-                    disabledContainerColor = NexusBorder2),
-            ) { Text("Send", fontFamily = DmSansFamily, fontSize = 13.sp) }
+                onClick = { val t = text.trim(); if (t.isNotEmpty()) { onSend(t); text = "" } },
+            )
             if (showPass) {
-                OutlinedButton(
+                BarButton(
+                    label = "Pass",
+                    container = NexusSurface2,
+                    contentColor = NexusText2,
                     onClick = onPass,
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = NexusText2),
-                ) { Text("Pass", fontFamily = DmSansFamily, fontSize = 13.sp) }
+                )
             }
         }
     }

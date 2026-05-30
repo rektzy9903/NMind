@@ -124,34 +124,25 @@ fun QuickAskScreen(
                 }
             }
 
-            // Input row
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(NexusSurface)
-                    .padding(horizontal = 10.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.Bottom,
-            ) {
-                OutlinedTextField(
+            // Input row — shared terminal-style composer (no terminal toolbar)
+            ChatInputBar {
+                ChatTextField(
                     value = input,
                     onValueChange = { input = it },
-                    placeholder = { Text("Message…") },
+                    placeholder = "Message…",
                     enabled = state.activeSpeaker != null,
-                    minLines = 1, maxLines = 5,
                     modifier = Modifier.weight(1f),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
                 )
-                Spacer(Modifier.size(8.dp))
                 if (state.isStreaming) {
-                    Button(
+                    BarButton(
+                        label = "Stop",
+                        container = Color(0xFFEF4444),
+                        contentColor = Color.White,
                         onClick = { vm.stop() },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFFEF4444), contentColor = Color.White,
-                        ),
-                        modifier = Modifier.height(48.dp),
-                    ) { Text("Stop", fontFamily = DmSansFamily) }
+                    )
                 } else {
-                    Button(
+                    SendButton(
+                        enabled = input.isNotBlank() && state.activeSpeaker != null,
                         onClick = {
                             val t = input.trim()
                             if (t.isNotEmpty() && state.activeSpeaker != null) {
@@ -159,13 +150,7 @@ fun QuickAskScreen(
                                 input = ""
                             }
                         },
-                        enabled = input.isNotBlank() && state.activeSpeaker != null,
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = NexusAccent, contentColor = Color.White,
-                            disabledContainerColor = NexusBorder2,
-                        ),
-                        modifier = Modifier.height(48.dp),
-                    ) { Text("Send", fontFamily = DmSansFamily, fontWeight = FontWeight.SemiBold) }
+                    )
                 }
             }
         }
