@@ -4016,8 +4016,28 @@ function openPrintSession() {
             if (line.startsWith('!install')) {
                 const pkgName = line.slice(8).trim();
                 if (!pkgName) {
-                    const names = Object.keys(PACKAGE_CATALOG).join(', ');
-                    try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[33mAvailable packages:\x1b[0m ' + names + '\r\n\x1b[2mUsage: !install <package>\x1b[0m\r\n'); } catch(_) {}
+                    const entries = Object.entries(PACKAGE_CATALOG);
+                    const isNpm = (m) => m.type === 'npm';
+                    const tools = entries.filter(([, m]) => !isNpm(m));
+                    const npms  = entries.filter(([,  m]) =>  isNpm(m));
+                    const nameW = Math.max(...entries.map(([n]) => n.length));
+                    // first clause of the desc (before the em-dash) = the short label
+                    const shortDesc = (m) => {
+                        const d = (m.desc || '').split('—')[1] || (m.desc || '');
+                        return d.trim().split(/[.,(]/)[0].trim();
+                    };
+                    const row = ([n, m]) => {
+                        const pad = n + ' '.repeat(nameW - n.length);
+                        const sz  = m.size ? ' \x1b[2m(' + m.size + ')\x1b[0m' : '';
+                        return '  \x1b[36m' + pad + '\x1b[0m  ' + shortDesc(m) + sz + '\r\n';
+                    };
+                    let out = SYS_FENCE + '\x1b[1;33mAvailable packages\x1b[0m\r\n';
+                    out += '\x1b[2m─ tools ─────────────────────────\x1b[0m\r\n';
+                    for (const e of tools) out += row(e);
+                    out += '\x1b[2m─ npm ───────────────────────────\x1b[0m\r\n';
+                    for (const e of npms) out += row(e);
+                    out += '\x1b[2mUsage: !install <package>\x1b[0m\r\n';
+                    try { if (state.socket) state.socket.write(out); } catch(_) {}
                 } else {
                     installPackage(pkgName, state.socket);
                 }
