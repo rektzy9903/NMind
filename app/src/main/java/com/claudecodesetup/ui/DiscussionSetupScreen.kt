@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.material3.*
@@ -26,6 +27,7 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.claudecodesetup.R
 import com.claudecodesetup.data.AppPreferences
 import com.claudecodesetup.discussion.DiscussionConfig
 import com.claudecodesetup.discussion.DiscussionMode
@@ -161,7 +163,12 @@ fun DiscussionSetupScreen(
                         .padding(horizontal = 12.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text("📎", fontSize = 13.sp, modifier = Modifier.padding(end = 6.dp))
+                    Icon(
+                        painter = painterResource(R.drawable.ic_attach),
+                        contentDescription = "Attach file",
+                        tint = NexusAccent,
+                        modifier = Modifier.size(15.dp).padding(end = 6.dp),
+                    )
                     Text("Attach code file", fontFamily = DmSansFamily, fontSize = 12.sp,
                         fontWeight = FontWeight.Medium, color = NexusAccent)
                 }
