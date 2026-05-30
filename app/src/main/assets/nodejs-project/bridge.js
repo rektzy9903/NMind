@@ -3616,7 +3616,7 @@ function openPrintSession() {
             // ── !test-agent — end-to-end sub-agent dispatch probe ────────────
             // Writes a throwaway agent definition to ~/.claude/agents/, asks
             // claude to invoke it via the Task tool, and reports whether:
-            //   (a) Task tool fired (event with type=tool_use, name=Task)
+            //   (a) Task tool fired (event with type=tool_use, name=Agent or Task)
             //   (b) Sub-agent returned a unique tag we embedded in its prompt
             // 90s timeout — sub-agents dispatch a child claude session, which
             // means a second API call cycle on top of the parent's.
@@ -3639,7 +3639,7 @@ function openPrintSession() {
                     try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[31m[!test-agent] could not write agent file: ' + e.message + '\x1b[0m\r\n'); } catch(_) {}
                     continue;
                 }
-                const testText = 'Run the nexus_probe sub-agent (via the Task tool) for a connectivity check, then tell me the exact string it returned.';
+                const testText = 'Run the nexus_probe sub-agent (via the Agent/Task tool) for a connectivity check, then tell me the exact string it returned.';
                 const cleanup = () => { try { fs.unlinkSync(agentFile); } catch(_) {} };
                 try {
                     const tcfg = readConfig();
@@ -3679,7 +3679,7 @@ function openPrintSession() {
                         clearTimeout(tTid);
                         cleanup();
                         // Probe markers: did Task fire? did the unique tag come back?
-                        const taskFired = /"type"\s*:\s*"tool_use"[^}]*"name"\s*:\s*"Task"/.test(tOut);
+                        const taskFired = /"type"\s*:\s*"tool_use"[^}]*"name"\s*:\s*"(Task|Agent)"/.test(tOut);
                         const tagSeen   = tOut.includes(tag);
                         const gotResult = tOut.includes('"type":"result"');
                         const mark = (taskFired && tagSeen) ? '\x1b[32m✓' : (taskFired ? '\x1b[33m~' : '\x1b[31m✗');
