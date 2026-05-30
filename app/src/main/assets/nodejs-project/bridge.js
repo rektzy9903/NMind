@@ -3555,7 +3555,7 @@ function openPrintSession() {
                     '  \x1b[33m!attach <file>\x1b[0m      Attach file to next message\r\n' +
                     '  \x1b[33m!install [pkg]\x1b[0m      Install binary/npm (no arg = list available)\r\n' +
                     '  \x1b[33m!pty <cmd>\x1b[0m          Run interactive program (bash, python3…)\r\n' +
-                    '  \x1b[33m!log [n|all]\x1b[0m         Show last n lines of bridge log (default 100); !log all = full log\r\n' +
+                    '  \x1b[33m!log [n|all|clear]\x1b[0m   Show last n lines (default 100); !log all = full; !log clear = wipe\r\n' +
                     '  \x1b[33m!mcp\x1b[0m                List connected (and failed) MCP servers and tools\r\n' +
                     '  \x1b[33m!mcp-log [name|all]\x1b[0m Show captured stderr from stdio MCP servers (default 50 lines)\r\n' +
                     '  \x1b[33m!mcp-reload\x1b[0m         Apply Settings toggles without restarting the session\r\n' +
@@ -3571,6 +3571,14 @@ function openPrintSession() {
 
             if (line.startsWith('!log')) {
                 const arg = line.slice(4).trim();
+                // !log clear — wipe the accumulated log (install + downloads + all
+                // prior sessions pile up here forever, so even a fresh session's
+                // last-100-lines reaches back into old noise). Start clean.
+                if (arg === 'clear') {
+                    try { fs.writeFileSync(SETUP_LOG, ''); } catch(_) {}
+                    try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[32m[log cleared]\x1b[0m\r\n'); } catch(_) {}
+                    continue;
+                }
                 const showAll = arg === 'all';
                 const n = showAll ? Infinity : (parseInt(arg) || 100);
                 try {
