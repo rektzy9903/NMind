@@ -3822,6 +3822,32 @@ function openPrintSession() {
                     'Do NOT use the Bash tool and do NOT run any shell command — "nexus_probe" is a sub-agent, not an executable. ' +
                     'After the sub-agent replies, tell me the exact string it returned.';
                 const readSentinel = () => { try { return fs.readFileSync(sentinelFile, 'utf8'); } catch(_) { return ''; } };
+                // Pull the Task tool's tool_result (the sub-agent's returned text/error)
+                // out of the parent stream-json. This disambiguates a "ran: no": empty =
+                // the sub-agent never returned to the parent; "[ERROR] …" = it dispatched
+                // but failed (bad subagent_type, Write blocked, etc.); plain text without
+                // the tag = it ran but ignored the Write/reply instructions.
+                const extractTaskResult = (out) => {
+                    let taskId = null, txt = '';
+                    for (const ln of out.split('\n')) {
+                        const s = ln.trim(); if (!s) continue;
+                        let obj; try { obj = JSON.parse(s); } catch(_) { continue; }
+                        const content = obj && obj.message && obj.message.content;
+                        if (!Array.isArray(content)) continue;
+                        for (const b of content) {
+                            if (!b) continue;
+                            if (!taskId && b.type === 'tool_use' && (b.name === 'Task' || b.name === 'Agent')) {
+                                taskId = b.id;
+                            } else if (taskId && b.type === 'tool_result' && b.tool_use_id === taskId) {
+                                const c = b.content;
+                                txt = (typeof c === 'string') ? c
+                                    : Array.isArray(c) ? c.map(x => (x && x.text) || '').join('') : '';
+                                if (b.is_error) txt = '[ERROR] ' + txt;
+                            }
+                        }
+                    }
+                    return txt;
+                };
                 const cleanup = () => {
                     try { fs.unlinkSync(agentFile); } catch(_) {}
                     try { fs.unlinkSync(sentinelFile); } catch(_) {}
@@ -3878,6 +3904,12 @@ function openPrintSession() {
                         report += '  Sub-agent ran:      ' + (ran ? '\x1b[32myes' + (fileTag ? ' (sentinel file)' : ' (stdout tag)') + '\x1b[0m' : '\x1b[31mno\x1b[0m') + '\r\n';
                         report += '  Tag in stdout:      ' + (tagSeen   ? '\x1b[32myes\x1b[0m' : '\x1b[2mno\x1b[0m') + '\r\n';
                         report += '  Got final result:   ' + (gotResult ? '\x1b[32myes\x1b[0m' : '\x1b[31mno\x1b[0m') + '\r\n';
+                        if (taskFired) {
+                            const taskResult = extractTaskResult(tOut);
+                            report += '  Task returned:      ' + (taskResult
+                                ? '\x1b[2m' + taskResult.slice(0, 300).replace(/\r?\n/g, ' ') + '\x1b[0m'
+                                : '\x1b[31m(nothing — sub-agent never returned to parent)\x1b[0m') + '\r\n';
+                        }
                         if (!taskFired || !ran) {
                             report += '\x1b[2mstdout (last 400): ' + tOut.slice(-400) + '\x1b[0m\r\n';
                             if (tErr) report += '\x1b[2mstderr (first 200): ' + tErr.slice(0, 200) + '\x1b[0m\r\n';
