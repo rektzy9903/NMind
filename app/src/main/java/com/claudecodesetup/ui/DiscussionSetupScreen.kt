@@ -130,14 +130,18 @@ fun DiscussionSetupScreen(
                 }
 
                 // Max turns
-                SectionLabel("MAX TURNS  ($maxTurns)")
+                val turnsWarn = maxTurns > 12
+                SectionLabel(
+                    "MAX TURNS  ($maxTurns)",
+                    color = if (turnsWarn) NexusRed else NexusBlue.copy(alpha = 0.8f),
+                )
                 Slider(
                     value = maxTurns.toFloat(),
                     onValueChange = { maxTurns = it.toInt() },
-                    valueRange = 2f..12f, steps = 9,
+                    valueRange = 2f..20f, steps = 17,
                     colors = SliderDefaults.colors(
-                        thumbColor = NexusAccent,
-                        activeTrackColor = NexusAccent,
+                        thumbColor = if (turnsWarn) NexusRed else NexusAccent,
+                        activeTrackColor = if (turnsWarn) NexusRed else NexusAccent,
                         inactiveTrackColor = NexusBorder2,
                     ),
                 )
@@ -145,6 +149,15 @@ fun DiscussionSetupScreen(
                     "Each turn is one speaker. Discussion may end early if the speakers converge.",
                     fontFamily = DmSansFamily, fontSize = 11.sp, color = NexusText3,
                 )
+                if (turnsWarn) {
+                    Text(
+                        "⚠ 12+ turns — paid / high-capability models only. The full " +
+                        "transcript is re-sent every turn, so free-tier providers may " +
+                        "fail (request too large) as it grows.",
+                        fontFamily = DmSansFamily, fontSize = 11.sp, color = NexusRed,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                }
 
                 // Judge toggle
                 Row(
@@ -281,9 +294,9 @@ fun DiscussionSetupScreen(
 }
 
 @Composable
-private fun SectionLabel(s: String) {
+private fun SectionLabel(s: String, color: Color = NexusBlue.copy(alpha = 0.8f)) {
     Text(s, fontFamily = SpaceMonoFamily, fontSize = 10.sp,
-        letterSpacing = 2.sp, color = NexusBlue.copy(alpha = 0.8f))
+        letterSpacing = 2.sp, color = color)
 }
 
 @Composable

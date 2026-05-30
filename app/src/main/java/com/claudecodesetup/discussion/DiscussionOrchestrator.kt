@@ -114,11 +114,18 @@ class DiscussionOrchestrator(
         )
     }
 
-    /** User-initiated "keep going" past maxTurns. Adds one more round of turns. */
+    /** User-initiated "keep going" past maxTurns. Adds one more round of turns.
+     *  Clears the prior concluding-vote state so the extra round runs cleanly and
+     *  is re-voted fresh at the end — otherwise finishLoop appends a second set of
+     *  votes to the old ones (duplicate votes, "stuck on voting" UI). */
     fun continueAfterCap() {
         if (loopJob?.isActive == true) return
         val s = _state.value
-        _state.value = s.copy(maxTurns = s.maxTurns + s.speakers.size, isRunning = true, stoppedReason = null, converged = false)
+        _state.value = s.copy(
+            maxTurns = s.maxTurns + s.speakers.size,
+            isRunning = true, stoppedReason = null, converged = false,
+            votes = emptyList(), awaitingHumanVote = false, votingPhase = false,
+        )
         loopJob = scope.launch { runLoop() }
     }
 
