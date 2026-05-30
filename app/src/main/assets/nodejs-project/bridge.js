@@ -3677,14 +3677,21 @@ function openPrintSession() {
                 const tag = 'NEXUS_AGENT_OK_' + Date.now().toString(36);
                 const agentsDir = path.join(FILES_DIR, '.claude', 'agents');
                 const agentFile = path.join(agentsDir, 'nexus_probe.md');
+                // Sentinel file: the sub-agent writes the tag here. This proves the
+                // sub-agent actually executed even when claude-code (print mode)
+                // doesn't surface the sub-agent's internal reply into parent stdout
+                // — so the tag-in-stdout check alone can miss a successful run.
+                const sentinelFile = path.join(FILES_DIR, 'nexus_probe_result.txt');
+                try { fs.unlinkSync(sentinelFile); } catch(_) {}
                 const agentMd =
                     '---\n' +
                     'name: nexus_probe\n' +
-                    'description: Internal connectivity probe — replies with a fixed tag to confirm sub-agent dispatch. Use only when explicitly asked to run a connectivity check.\n' +
-                    'tools: []\n' +
+                    'description: Internal connectivity probe — confirms sub-agent dispatch. Use only when explicitly asked to run a connectivity check.\n' +
+                    'tools: Write\n' +
                     '---\n\n' +
-                    'You are a diagnostic sub-agent. When invoked, your only job is to reply with exactly this string and nothing else:\n\n' +
-                    tag + '\n';
+                    'You are a diagnostic sub-agent. When invoked, do exactly these two steps:\n' +
+                    '1. Use the Write tool to create the file ' + sentinelFile + ' whose entire contents are exactly this string and nothing else: ' + tag + '\n' +
+                    '2. Then reply with exactly this string and nothing else: ' + tag + '\n';
                 try {
                     fs.mkdirSync(agentsDir, { recursive: true });
                     fs.writeFileSync(agentFile, agentMd, 'utf8');
@@ -3695,7 +3702,11 @@ function openPrintSession() {
                 const testText = 'Use the Task tool (it may also be named Agent) to dispatch a sub-agent with subagent_type "nexus_probe". ' +
                     'Do NOT use the Bash tool and do NOT run any shell command — "nexus_probe" is a sub-agent, not an executable. ' +
                     'After the sub-agent replies, tell me the exact string it returned.';
-                const cleanup = () => { try { fs.unlinkSync(agentFile); } catch(_) {} };
+                const readSentinel = () => { try { return fs.readFileSync(sentinelFile, 'utf8'); } catch(_) { return ''; } };
+                const cleanup = () => {
+                    try { fs.unlinkSync(agentFile); } catch(_) {}
+                    try { fs.unlinkSync(sentinelFile); } catch(_) {}
+                };
                 try {
                     const tcfg = readConfig();
                     patchSettings(tcfg);
@@ -3732,17 +3743,23 @@ function openPrintSession() {
                         if (tDone) return;
                         tDone = true;
                         clearTimeout(tTid);
-                        cleanup();
-                        // Probe markers: did Task fire? did the unique tag come back?
+                        // Probe markers: did Task fire? did the sub-agent actually run?
+                        // The sentinel file is the authoritative signal — it can only
+                        // exist if the sub-agent executed and used its Write tool, even
+                        // when the tag never bubbles up into the parent's stdout.
+                        const fileTag   = readSentinel().includes(tag);
                         const taskFired = /"type"\s*:\s*"tool_use"[^}]*"name"\s*:\s*"(Task|Agent)"/.test(tOut);
                         const tagSeen   = tOut.includes(tag);
                         const gotResult = tOut.includes('"type":"result"');
-                        const mark = (taskFired && tagSeen) ? '\x1b[32m✓' : (taskFired ? '\x1b[33m~' : '\x1b[31m✗');
+                        cleanup();
+                        const ran = tagSeen || fileTag;   // sub-agent definitively executed
+                        const mark = (taskFired && ran) ? '\x1b[32m✓' : (taskFired ? '\x1b[33m~' : '\x1b[31m✗');
                         let report = mark + ' !test-agent exit=' + code + '\x1b[0m\r\n';
                         report += '  Task tool fired:    ' + (taskFired ? '\x1b[32myes\x1b[0m' : '\x1b[31mno\x1b[0m') + '\r\n';
-                        report += '  Sub-agent tag seen: ' + (tagSeen   ? '\x1b[32myes (' + tag + ')\x1b[0m' : '\x1b[31mno\x1b[0m') + '\r\n';
+                        report += '  Sub-agent ran:      ' + (ran ? '\x1b[32myes' + (fileTag ? ' (sentinel file)' : ' (stdout tag)') + '\x1b[0m' : '\x1b[31mno\x1b[0m') + '\r\n';
+                        report += '  Tag in stdout:      ' + (tagSeen   ? '\x1b[32myes\x1b[0m' : '\x1b[2mno\x1b[0m') + '\r\n';
                         report += '  Got final result:   ' + (gotResult ? '\x1b[32myes\x1b[0m' : '\x1b[31mno\x1b[0m') + '\r\n';
-                        if (!taskFired || !tagSeen) {
+                        if (!taskFired || !ran) {
                             report += '\x1b[2mstdout (last 400): ' + tOut.slice(-400) + '\x1b[0m\r\n';
                             if (tErr) report += '\x1b[2mstderr (first 200): ' + tErr.slice(0, 200) + '\x1b[0m\r\n';
                         }
