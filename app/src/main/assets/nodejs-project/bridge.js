@@ -3310,9 +3310,8 @@ function openPrintSession() {
         let argvCode =
             'process.argv[2]="--output-format";' +
             'process.argv[3]="stream-json";' +
-            'process.argv[4]="--print";' +
-            'process.argv[5]="--verbose";';
-        let argvLen = 6;
+            'process.argv[4]="--print";';
+        let argvLen = 5;
         if (spawnMcpCfg) {
             argvCode += 'process.argv[' + argvLen + ']="--mcp-config";';
             argvLen++;
@@ -3323,6 +3322,15 @@ function openPrintSession() {
             argvCode += 'process.argv[' + argvLen + ']="--continue";';
             argvLen++;
         }
+        // --verbose MUST be the LAST flag before the positional message. claude-code's
+        // --mcp-config is a VARIADIC option: commander keeps consuming every following
+        // argv element as an additional config path until it hits the next option-looking
+        // token. With --mcp-config <path> directly before the message, the message was
+        // swallowed as a 2nd config path → "MCP config file not found: .../[Instructions]"
+        // → exit 1 on every MCP-enabled turn. A boolean flag (--verbose) between the
+        // variadic and the message terminates the variadic so the message stays positional.
+        argvCode += 'process.argv[' + argvLen + ']="--verbose";';
+        argvLen++;
         argvCode += 'process.argv[' + argvLen + ']=' + JSON.stringify(finalMsg) + ';';
         argvLen++;
         argvCode += 'process.argv.length=' + argvLen + ';';
@@ -3344,7 +3352,7 @@ function openPrintSession() {
         // Verify cwd exists — spawn throws synchronously (ENOENT) if cwd is missing.
         const spawnCwd = (state.cwd && fs.existsSync(state.cwd)) ? state.cwd : FILES_DIR;
         log('[runMessage] spawn claude-code, model=' + (cfg.modelId || '?') + ' provider=' + (cfg.providerId || '?') + ' mode=' + (cfg.mode || '?') + ' baseUrl=' + (cfg.baseUrl || '?') + '\n');
-        log('[runMessage] argv: --output-format stream-json --print --verbose' + (spawnMcpCfg ? ' --mcp-config ' + spawnMcpCfg : '') + (state.hasHistory ? ' --continue' : '') + ' <msg>' + '\n');
+        log('[runMessage] argv: --output-format stream-json --print' + (spawnMcpCfg ? ' --mcp-config ' + spawnMcpCfg : '') + (state.hasHistory ? ' --continue' : '') + ' --verbose <msg>' + '\n');
         let proc;
         try {
             proc = spawn(LAUNCHER, ['-e', evalCode], { env, cwd: spawnCwd });
