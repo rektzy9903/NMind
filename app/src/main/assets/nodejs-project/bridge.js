@@ -1806,6 +1806,14 @@ function sendToProvider(baseUrl, apiKey, oaiReq, stream, res, onBadRequest, on42
                         }
                         // ── End WebSearch interception ───────────────────────────────────
 
+                        // Log each completed tool call's accumulated arguments so a
+                        // malformed/empty call (e.g. Write with no content → file never
+                        // lands despite "Write ran ✓") is visible in !log. Truncated.
+                        for (const tb of Object.values(tcBlocks)) {
+                            const a = (tb.argsAccum || '').replace(/\s+/g, ' ').slice(0, 300);
+                            log('[proxy] tool-call: ' + tb.name + ' args=' + (a || '(empty)') + '\n');
+                        }
+
                         // Model finished but sent no text and no tool calls → inject visible error
                         if (outTokens === 0 && Object.keys(tcBlocks).length === 0) {
                             log('[proxy] outTokens=0 — injecting empty-response error\n');
