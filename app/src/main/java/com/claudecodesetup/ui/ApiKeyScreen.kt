@@ -141,6 +141,10 @@ private fun buildRequest(provider: Provider, key: String): Request? {
             .url("https://dashscope-intl.aliyuncs.com/compatible-mode/v1/models")
             .header("Authorization", "Bearer $key")
             .build()
+        "mistral" -> builder
+            .url("https://api.mistral.ai/v1/models")
+            .header("Authorization", "Bearer $key")
+            .build()
         else -> null
     }
 }

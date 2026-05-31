@@ -212,6 +212,47 @@
       ]
     },
     {
+      "id": "mistral",
+      "name": "Mistral AI",
+      "signupUrl": "https://console.mistral.ai/api-keys",
+      "rateLimit": "Free tier (rate-limited) · then paid",
+      "malaysiaStatus": "GREEN",
+      "malaysiaNote": "EU provider — works everywhere",
+      "baseUrl": "https://api.mistral.ai/v1",
+      "requiresProxy": true,
+      "requiresApiKey": true,
+      "models": [
+        {
+          "name": "Mistral Large",
+          "modelId": "mistral-large-latest"
+        },
+        {
+          "name": "Mistral Medium",
+          "modelId": "mistral-medium-latest"
+        },
+        {
+          "name": "Mistral Small",
+          "modelId": "mistral-small-latest"
+        },
+        {
+          "name": "Codestral",
+          "modelId": "codestral-latest"
+        },
+        {
+          "name": "Pixtral Large",
+          "modelId": "pixtral-large-latest"
+        },
+        {
+          "name": "Ministral 8B",
+          "modelId": "ministral-8b-latest"
+        },
+        {
+          "name": "Magistral Medium",
+          "modelId": "magistral-medium-latest"
+        }
+      ]
+    },
+    {
       "id": "nvidia_nim",
       "name": "NVIDIA NIM",
       "signupUrl": "https://build.nvidia.com/models",

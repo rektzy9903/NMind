@@ -207,6 +207,28 @@ object Providers {
         )
     )
 
+    val MISTRAL = Provider(
+        id = "mistral",
+        name = "Mistral AI",
+        iconResId = R.drawable.ic_brand_mistral,
+        supportsLiveFetch = true,
+        signupUrl = "https://console.mistral.ai/api-keys",
+        rateLimit = "Free tier (rate-limited) · then paid",
+        malaysiaStatus = MalaysiaStatus.GREEN,
+        malaysiaNote = "EU provider — works everywhere",
+        baseUrl = "https://api.mistral.ai/v1",
+        requiresProxy = true,
+        models = listOf(
+            AiModel("Mistral Large",     "mistral-large-latest",  setOf(Cap.TOOLS, Cap.LONG_CTX),          "Most capable · text"),
+            AiModel("Mistral Medium",    "mistral-medium-latest", setOf(Cap.TOOLS, Cap.LONG_CTX),          "Balanced"),
+            AiModel("Mistral Small",     "mistral-small-latest",  setOf(Cap.TOOLS, Cap.FAST),              "Fast · efficient"),
+            AiModel("Codestral",         "codestral-latest",      setOf(Cap.TOOLS, Cap.CODING),            "Code specialist"),
+            AiModel("Pixtral Large",     "pixtral-large-latest",  setOf(Cap.TOOLS, Cap.VISION, Cap.LONG_CTX), "Vision capable"),
+            AiModel("Ministral 8B",      "ministral-8b-latest",   setOf(Cap.TOOLS, Cap.FAST),              "Tiny · edge"),
+            AiModel("Magistral Medium",  "magistral-medium-latest", setOf(Cap.REASONING),                  "Deep reasoning")
+        )
+    )
+
     val OLLAMA = Provider(
         id = "ollama",
         name = "Personal AI",
@@ -313,7 +335,7 @@ object Providers {
         models = emptyList()
     )
 
-    val ALL = listOf(GROQ, GEMINI, OPENROUTER, ANTHROPIC_API, DEEPSEEK, KIMI, QWEN, NVIDIA_NIM, META_LLAMA, OLLAMA)
+    val ALL = listOf(GROQ, GEMINI, OPENROUTER, ANTHROPIC_API, DEEPSEEK, KIMI, QWEN, MISTRAL, NVIDIA_NIM, META_LLAMA, OLLAMA)
 
     fun byId(id: String): Provider? = when (id) {
         "anthropic"     -> ANTHROPIC
@@ -328,9 +350,9 @@ object Providers {
         val caps = mutableSetOf<String>()
         if (":free" in lo || "kimi-k2" in lo) caps += Cap.FREE
         if ("vl" in lo || "vision" in lo || "scout" in lo || "maverick" in lo ||
-            "gemini" in lo || "claude" in lo) caps += Cap.VISION
+            "gemini" in lo || "claude" in lo || "pixtral" in lo) caps += Cap.VISION
         if ("r1" in lo || "reason" in lo || "think" in lo || "qwq" in lo || "o1" in lo ||
-            "o3" in lo || "gemini-2.5" in lo || "gemini-3" in lo) caps += Cap.REASONING
+            "o3" in lo || "gemini-2.5" in lo || "gemini-3" in lo || "magistral" in lo) caps += Cap.REASONING
         if ("flash" in lo || "fast" in lo || "nano" in lo || "mini" in lo ||
             "8b" in lo || "1.2b" in lo || "7b" in lo || "haiku" in lo || "lite" in lo) caps += Cap.FAST
         if ("code" in lo || "coder" in lo || "coding" in lo || "laguna" in lo || "poolside" in lo) caps += Cap.CODING
