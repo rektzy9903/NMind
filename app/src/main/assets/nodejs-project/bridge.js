@@ -1962,6 +1962,13 @@ function buildEnv() {
         // /system/bin/sh is a valid POSIX shell (the bridge's own `$` commands use
         // it). Without this, Write/Edit/Read tools work but the Bash tool is dead.
         SHELL: '/system/bin/sh',
+        // claude-code v2.1.112 only accepts a shell whose PATH contains "bash"/"zsh"
+        // (cli.js NzY filters $SHELL on includes("bash")||includes("zsh")), so plain
+        // SHELL=/system/bin/sh is silently dropped → "No suitable shell found". The
+        // CLAUDE_CODE_SHELL override is checked first and must also contain "bash";
+        // point it at the BIN_DIR/bash symlink (→ /system/bin/sh) written by
+        // writeSubagentWrappers(). This is what actually makes the Bash TOOL work.
+        CLAUDE_CODE_SHELL: path.join(BIN_DIR, 'bash'),
         LANG: 'en_US.UTF-8',
         LINES: '50',
         COLUMNS: '160',
@@ -4449,6 +4456,23 @@ function ensureProjectTrusted(cwd) {
 function writeSubagentWrappers() {
     try {
         fs.mkdirSync(BIN_DIR, { recursive: true });
+
+        // bash symlink → /system/bin/sh. claude-code v2.1.112's shell detection
+        // REJECTS any shell whose path does not contain "bash"/"zsh" (it filters
+        // $SHELL on `K.includes("bash")||K.includes("zsh")` and only probes the
+        // hardcoded /bin/bash, /usr/bin/zsh … which don't exist on Android). So
+        // SHELL=/system/bin/sh alone never registers — Bash tool dies with "No
+        // suitable shell found". A symlink NAMED bash satisfies the includes()
+        // check; it resolves to /system/bin/sh on the /system mount (NOT noexec),
+        // so execve succeeds — unlike the wrapper *scripts* below, which live on
+        // /data (noexec) and can't be exec'd. CLAUDE_CODE_SHELL (buildEnv) points
+        // here. See claude-code cli.js NzY()/o47().
+        try {
+            const bashLink = path.join(BIN_DIR, 'bash');
+            try { fs.unlinkSync(bashLink); } catch(_) {}
+            fs.symlinkSync('/system/bin/sh', bashLink);
+            log('[shell] bash symlink → /system/bin/sh at ' + bashLink + '\n');
+        } catch(e) { log('[shell] bash symlink failed: ' + e.message + '\n'); }
 
         // node wrapper — lets npm bin scripts find Node.js via our launcher
         const nodePath = path.join(BIN_DIR, 'node');
