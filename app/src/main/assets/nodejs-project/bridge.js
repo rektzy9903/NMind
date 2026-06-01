@@ -3734,7 +3734,7 @@ function openPrintSession() {
                     '  \x1b[33m!mcp-reload\x1b[0m         Apply Settings toggles without restarting the session\r\n' +
                     '  \x1b[33m!test-cli\x1b[0m           Run module-loader + proxy diagnostics\r\n' +
                     '  \x1b[33m!test-msg [text]\x1b[0m    Run exact runMessage path (patchSettings+stdin) — use to diagnose hangs\r\n' +
-                    '  \x1b[33m!test-agent\x1b[0m         Probe sub-agent dispatch via the Task tool (~/.claude/agents/)\r\n' +
+                    '  \x1b[33m!test-agent\x1b[0m         Probe sub-agent dispatch via the --agents flag (inline JSON)\r\n' +
                     '  \x1b[33m!debug\x1b[0m              Dump model/provider/settings/mcp state for remote debugging\r\n' +
                     '  \x1b[33m!help\x1b[0m               Show this help\r\n' +
                     '  \x1b[33m$ <cmd>\x1b[0m             Run a shell command\r\n\r\n'
@@ -3884,22 +3884,22 @@ function openPrintSession() {
                 // — so the tag-in-stdout check alone can miss a successful run.
                 const sentinelFile = path.join(FILES_DIR, 'nexus_probe_result.txt');
                 try { fs.unlinkSync(sentinelFile); } catch(_) {}
-                const agentMd =
-                    '---\n' +
-                    'name: nexus_probe\n' +
-                    'description: Internal connectivity probe — confirms sub-agent dispatch. Use only when explicitly asked to run a connectivity check.\n' +
-                    'tools: Write\n' +
-                    '---\n\n' +
+                const probePrompt =
                     'You are a diagnostic sub-agent. When invoked, do exactly these two steps:\n' +
                     '1. Use the Write tool to create the file ' + sentinelFile + ' whose entire contents are exactly this string and nothing else: ' + tag + '\n' +
                     '2. Then reply with exactly this string and nothing else: ' + tag + '\n';
-                try {
-                    fs.mkdirSync(agentsDir, { recursive: true });
-                    fs.writeFileSync(agentFile, agentMd, 'utf8');
-                } catch(e) {
-                    try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[31m[!test-agent] could not write agent file: ' + e.message + '\x1b[0m\r\n'); } catch(_) {}
-                    continue;
-                }
+                // Inject the agent via the --agents flag (inline JSON) instead of a
+                // ~/.claude/agents/*.md file. File discovery is broken in 2.1.112 print
+                // mode (CLAUDE.md known gaps); --agents has HIGHER precedence and no file
+                // dependency — the same move that rescued MCP (--mcp-config, inv 65a).
+                // This probe verifies whether 2.1.112 actually accepts the flag.
+                const agentsJson = JSON.stringify({
+                    nexus_probe: {
+                        description: 'Internal connectivity probe — confirms sub-agent dispatch via --agents.',
+                        prompt: probePrompt,
+                        tools: ['Write'],
+                    }
+                });
                 const testText = 'Use the Task tool (it may also be named Agent) to dispatch a sub-agent with subagent_type "nexus_probe". ' +
                     'Do NOT use the Bash tool and do NOT run any shell command — "nexus_probe" is a sub-agent, not an executable. ' +
                     'After the sub-agent replies, tell me the exact string it returned.';
@@ -3939,10 +3939,16 @@ function openPrintSession() {
                     patchSettings(tcfg);
                     const tEnv  = buildEnv();
                     const tCliUrl = 'file://' + CLAUDE_CLI;
+                    // --agents <json> injected before the message; --verbose kept LAST
+                    // before the positional message (inv 65b — a boolean flag must
+                    // terminate any preceding value-taking option so the message isn't
+                    // swallowed, the bug that bit --mcp-config).
                     const tArgv =
                         'process.argv[2]="--output-format";process.argv[3]="stream-json";' +
-                        'process.argv[4]="--print";process.argv[5]="--verbose";' +
-                        'process.argv[6]=' + JSON.stringify(testText) + ';process.argv.length=7;';
+                        'process.argv[4]="--print";' +
+                        'process.argv[5]="--agents";process.argv[6]=' + JSON.stringify(agentsJson) + ';' +
+                        'process.argv[7]="--verbose";' +
+                        'process.argv[8]=' + JSON.stringify(testText) + ';process.argv.length=9;';
                     const tEval =
                         'process.stderr.write("[eval-ok]\\n");' +
                         regexpShim + intlShim +
@@ -3950,7 +3956,7 @@ function openPrintSession() {
                         tArgv +
                         'import(' + JSON.stringify(tCliUrl) + ')' +
                         '.catch(function(e){process.stderr.write("ERR:"+String(e)+"\\n");process.exit(1);});';
-                    try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[33m!test-agent: wrote nexus_probe.md, spawning claude (90s timeout)…\x1b[0m\r\n'); } catch(_) {}
+                    try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[33m!test-agent: injecting nexus_probe via --agents flag, spawning claude (90s timeout)…\x1b[0m\r\n'); } catch(_) {}
                     const tch = spawn(LAUNCHER, ['-e', tEval], { env: tEnv, cwd: FILES_DIR });
                     try { tch.stdin.end(); } catch(_) {}
                     let tOut = '', tErr = '', tDone = false;
@@ -3982,6 +3988,12 @@ function openPrintSession() {
                         const ran = tagSeen || fileTag;   // sub-agent definitively executed
                         const mark = (taskFired && ran) ? '\x1b[32m✓' : (taskFired ? '\x1b[33m~' : '\x1b[31m✗');
                         let report = mark + ' !test-agent exit=' + code + '\x1b[0m\r\n';
+                        // Go/no-go for the --agents flag itself (commander prints
+                        // "error: unknown option '--agents'" + exits non-zero if absent).
+                        const flagRejected = /unknown option/.test(tErr) || /unknown option[^\n]*--agents/.test(tOut);
+                        report += '  --agents flag:      ' + (flagRejected
+                            ? '\x1b[31mREJECTED — not supported by 2.1.112\x1b[0m'
+                            : '\x1b[32maccepted\x1b[0m') + '\r\n';
                         report += '  Task tool fired:    ' + (taskFired ? '\x1b[32myes\x1b[0m' : '\x1b[31mno\x1b[0m') + '\r\n';
                         report += '  Sub-agent ran:      ' + (ran ? '\x1b[32myes' + (fileTag ? ' (sentinel file)' : ' (stdout tag)') + '\x1b[0m' : '\x1b[31mno\x1b[0m') + '\r\n';
                         report += '  Tag in stdout:      ' + (tagSeen   ? '\x1b[32myes\x1b[0m' : '\x1b[2mno\x1b[0m') + '\r\n';
