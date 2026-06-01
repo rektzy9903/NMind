@@ -30,7 +30,6 @@ const { spawn } = require('child_process');
 const FILES_DIR  = process.argv[2] || '/data/data/com.claudecodesetup/files';
 const LAUNCHER   = process.argv[3] || process.execPath;
 const NATIVE_DIR = path.dirname(LAUNCHER);  // directory holding libnode.so
-const PTY_HELPER = path.join(NATIVE_DIR, 'libpty-helper.so');
 
 const NPM_PREFIX  = path.join(FILES_DIR, 'npm-global');
 const CLAUDE_CLI  = path.join(
@@ -3548,12 +3547,6 @@ function openPrintSession() {
 
     // ── Input handler ─────────────────────────────────────────────────────────
     function handleInput(d, state) {
-        // If a !pty subprocess is active, relay bytes directly to it
-        if (state.ptyProc) {
-            try { state.ptyProc.stdin.write(d); } catch(_) {}
-            return;
-        }
-
         // Ctrl+C: kill the in-flight claude process
         const raw = d.toString();
         if (raw.includes('\x03')) {
@@ -3722,7 +3715,6 @@ function openPrintSession() {
                     '  \x1b[33m!attach <file>\x1b[0m      Attach file to next message\r\n' +
                     '  \x1b[33m!approve-tools [off]\x1b[0m Auto-approve all tools, hide permission cards\r\n' +
                     '  \x1b[33m!install [pkg]\x1b[0m      Install binary/npm (no arg = list available)\r\n' +
-                    '  \x1b[33m!pty <cmd>\x1b[0m          Run interactive program (bash, python3…)\r\n' +
                     '  \x1b[33m!log [n|all|clear]\x1b[0m   Show last n lines (default 100); !log all = full; !log clear = wipe\r\n' +
                     '  \x1b[33m!mcp\x1b[0m                List connected (and failed) MCP servers and tools\r\n' +
                     '  \x1b[33m!mcp-log [name|all]\x1b[0m Show captured stderr from stdio MCP servers (default 50 lines)\r\n' +
@@ -4231,50 +4223,6 @@ function openPrintSession() {
                 continue;
             }
 
-            // !pty <cmd> — hand the socket to an interactive PTY subprocess
-            if (line.startsWith('!pty ') || line === '!pty') {
-                const ptyCmd = line.slice(5).trim();
-                if (!ptyCmd) {
-                    try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[33mUsage: !pty <command>  e.g. !pty bash\x1b[0m\r\n'); } catch(_) {}
-                    continue;
-                }
-                if (!fs.existsSync(PTY_HELPER)) {
-                    try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[31m✗ libpty-helper.so not found.\x1b[0m\r\n'); } catch(_) {}
-                    continue;
-                }
-                const ptyCfg = readConfig();
-                const ptyEnv = Object.assign({}, buildEnv(), { TERM: 'xterm-256color' });
-                let ptyProc;
-                try {
-                    ptyProc = spawn(PTY_HELPER,
-                        [String(ptyCfg.ptyCols || 220), String(ptyCfg.ptyRows || 50), ...ptyCmd.split(/\s+/)],
-                        { env: ptyEnv, cwd: state.cwd });
-                } catch(e) {
-                    try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[31m[PTY] Failed: ' + e.message + '\x1b[0m\r\n'); } catch(_) {}
-                    continue;
-                }
-                state.ptyProc = ptyProc;
-                // Start/end banners use SYS_FENCE so they land in a sys bubble even
-                // if chatState is RESPONDING. PTY raw output (stdout/stderr) is NOT
-                // fenced — it's intentional terminal passthrough rendered by the ANSI
-                // engine, and !pty is never run while the bridge is busy (state.busy).
-                try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[33m[PTY] ' + ptyCmd + ' — Ctrl+D or exit to return\x1b[0m\r\n\r\n'); } catch(_) {}
-                ptyProc.stdout.on('data', d2 => { try { if (state.socket) state.socket.write(d2); } catch(_) {} });
-                ptyProc.stderr.on('data', d2 => { try { if (state.socket) state.socket.write(d2); } catch(_) {} });
-                ptyProc.on('close', code2 => {
-                    state.ptyProc = null;
-                    try { if (state.socket) state.socket.write(SYS_FENCE + '\r\n\x1b[33m[PTY] ' + ptyCmd + ' ended (exit ' + (code2 || 0) + ')\x1b[0m\r\n\r\n'); } catch(_) {}
-                });
-                ptyProc.on('error', e => {
-                    state.ptyProc = null;
-                    try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[31m[PTY] Error: ' + e.message + '\x1b[0m\r\n'); } catch(_) {}
-                });
-                if (state.socket) state.socket.once('close', () => {
-                    try { if (state.ptyProc === ptyProc) { ptyProc.kill(); state.ptyProc = null; } } catch(_) {}
-                });
-                continue;
-            }
-
             // ── Catch-all: unrecognized ! command — NEVER send to AI ────────────
             // Any ! text that reached this point matched none of the known handlers.
             // Without this guard, autocorrect variants ("!Test-cli"), typos, or
@@ -4314,7 +4262,6 @@ function openPrintSession() {
                 // Project mode: restore hasHistory from disk so history persists across restarts.
                 // Normal chat: always start fresh — don't carry conversation across app restarts.
                 hasHistory: (cfg.projectPath && saved) ? !!saved.hasHistory : false,
-                ptyProc: null,
                 cwd: (saved && saved.cwd) ? saved.cwd : (cfg.projectPath || FILES_DIR),
                 sid
             };
@@ -4367,7 +4314,6 @@ function openPrintSession() {
         socket.on('close', () => {
             if (state.socket === socket) {
                 state.socket = null;
-                if (state.ptyProc) { try { state.ptyProc.kill(); } catch(_) {} state.ptyProc = null; }
                 // In print mode there is no persistent proc to keep alive between messages;
                 // the session state (hasHistory, cwd, etc.) is kept in activeSessions so
                 // reconnecting (tab switch, brief disconnect) picks up the same context.

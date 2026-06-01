@@ -755,15 +755,10 @@ html, body {
 <!-- Keyboard toolbar -->
 <div id="toolbar">
   <button class="tb-btn tb-accent" id="btn-shell">$ </button>
-  <button class="tb-btn" id="btn-ctrl">Ctrl</button>
-  <button class="tb-btn" id="btn-tab">Tab</button>
+  <button class="tb-btn" id="btn-ctrl">^C</button>
   <button class="tb-btn" id="btn-up">↑</button>
   <button class="tb-btn" id="btn-down">↓</button>
-  <button class="tb-btn" id="btn-esc">Esc</button>
-  <button class="tb-btn" id="btn-backspace">⌫</button>
   <button class="tb-btn" id="btn-help" style="color:#f9a8d4">?</button>
-  <button class="tb-btn" id="btn-compact" style="color:#93c5fd">/compact</button>
-  <button class="tb-btn" id="btn-cost" style="color:#fde68a">$ /cost</button>
   <button class="tb-btn" id="btn-font-dec" style="color:#94a3b8">A-</button>
   <button class="tb-btn" id="btn-font-inc" style="color:#94a3b8">A+</button>
   <button class="tb-btn" id="btn-export" style="color:#86efac">⇪ Export</button>
@@ -2724,15 +2719,6 @@ ghost.addEventListener('input',function(){
   updateInputDisp();
 });
 ghost.addEventListener('keydown',function(e){
-  // Ctrl modifier active — intercept next letter and fire Ctrl+letter combo
-  if(ctrlMode && e.key.length===1){
-    e.preventDefault();
-    ctrlMode=false;
-    ctrlBtn.classList.remove('tb-ctrl-active');
-    const code=e.key.toLowerCase().charCodeAt(0)-96; // a=1…z=26
-    if(code>=1&&code<=26) tbRaw(String.fromCharCode(code));
-    return;
-  }
   if(e.key==='Enter'){e.preventDefault();sendRawInput();}
   else if(e.key==='ArrowUp'){e.preventDefault();if(inputBuffer.length===0){tbRaw('\x1b[A');}else{historyUp();}}
   else if(e.key==='ArrowDown'){e.preventDefault();if(historyIdx===-1){tbRaw('\x1b[B');}else{historyDown();}}
@@ -2768,30 +2754,19 @@ document.getElementById('btn-shell').addEventListener('click',function(){
   if(!inputBuffer.startsWith('$ ')){inputBuffer='$ '+inputBuffer;}
   ghost.value=inputBuffer;updateInputDisp();ghost.focus();
 });
-// Sticky Ctrl modifier — turns blue when active; next letter key fires Ctrl+letter
-var ctrlMode = false;
-var ctrlBtn  = document.getElementById('btn-ctrl');
-ctrlBtn.addEventListener('click', function(){
-  ctrlMode = !ctrlMode;
-  ctrlBtn.classList.toggle('tb-ctrl-active', ctrlMode);
+// ^C — interrupt the in-flight claude spawn (print mode has no live TUI, so this
+// is a one-tap Ctrl+C rather than a sticky modifier; bridge.js handleInput maps
+// \x03 to SIGTERM of the current process).
+document.getElementById('btn-ctrl').addEventListener('click', function(){
+  tbRaw('\x03');
   ghost.focus();
 });
-document.getElementById('btn-tab').addEventListener('click',function(){tbRaw('\t');});
-// ↑/↓ navigate input history; send ANSI only when input is empty (i.e. PTY-style)
+// ↑/↓ recall local input history (raw-arrow / TUI path removed with !pty).
 document.getElementById('btn-up').addEventListener('click',function(){
-  if(inputBuffer.length===0){tbRaw('\x1b[A');}else{historyUp();}
+  historyUp();
 });
 document.getElementById('btn-down').addEventListener('click',function(){
-  if(historyIdx===-1){tbRaw('\x1b[B');}else{historyDown();}
-});
-document.getElementById('btn-esc').addEventListener('click',function(){tbRaw('\x1b');});
-document.getElementById('btn-backspace').addEventListener('click',function(){
-  if(inputBuffer.length>0){
-    inputBuffer=inputBuffer.slice(0,-1);
-    ghost.value=inputBuffer;
-    updateInputDisp();
-  }
-  ghost.focus();
+  historyDown();
 });
 
 // ── Font size ─────────────────────────────────────────────────────────────────
@@ -2806,8 +2781,9 @@ function applyFontSize(sz){
 applyFontSize(termFontSize);
 
 // ── Terminal size reporting ────────────────────────────────────────────────────
-// Measures the character grid and notifies Kotlin so bridge.js can forward
-// accurate COLS/ROWS to libpty-helper.so via TIOCSWINSZ.
+// Measures the character grid and notifies Kotlin (COLS/ROWS). The !pty TTY
+// consumer was removed; this is kept for the ANSI render-width awareness and is
+// harmless if unused.
 function reportTermSize(){
   var probe=document.createElement('span');
   probe.style.cssText='position:absolute;visibility:hidden;font-family:Space Mono,Courier New,monospace;font-size:'+termFontSize+'px;white-space:pre;';
@@ -2831,16 +2807,6 @@ document.getElementById('btn-font-inc').addEventListener('click',function(){appl
 // ── Help ──────────────────────────────────────────────────────────────────────
 document.getElementById('btn-help').addEventListener('click',function(){
   if(typeof Android!=='undefined') Android.sendInput('!help\r');
-  ghost.focus();
-});
-
-// ── Compact ───────────────────────────────────────────────────────────────────
-document.getElementById('btn-compact').addEventListener('click',function(){
-  if(typeof Android!=='undefined') Android.sendInput('/compact\r');
-  ghost.focus();
-});
-document.getElementById('btn-cost').addEventListener('click',function(){
-  if(typeof Android!=='undefined') Android.sendInput('/cost\r');
   ghost.focus();
 });
 

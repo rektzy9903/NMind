@@ -27,14 +27,3 @@ set_target_properties(node_launcher PROPERTIES
     SUFFIX                   ".so"
     PREFIX                   ""
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}")
-
-# ── PTY helper ─────────────────────────────────────────────────────────────────
-# Allocates a POSIX PTY and relays stdin/stdout so bridge.js can run
-# interactive programs (python3 -i, ruby, vim, etc.) with a real TTY.
-# Same lib*.so naming trick so Android packages and extracts it as an executable.
-add_executable(pty_helper pty_helper.c)
-set_target_properties(pty_helper PROPERTIES
-    OUTPUT_NAME              "libpty-helper"
-    SUFFIX                   ".so"
-    PREFIX                   ""
-    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}")
