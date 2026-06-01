@@ -965,15 +965,17 @@ class TerminalActivity : AppCompatActivity() {
             claudeService?.sendInput(text)
         }
 
-        /** Called by JS when the terminal dimensions change. Saves the new size and
-         *  forwards an in-band resize sequence to bridge.js so libpty-helper.so
-         *  can issue TIOCSWINSZ + SIGWINCH to the running claude process. */
+        /** Called by JS when the terminal dimensions change. Records the size only.
+         *  The in-band resize sequence (ESC 0xFE …) was REMOVED with !pty: it had no
+         *  consumer left and leaked into the bridge input buffer, self-sending a
+         *  gibberish message on resize/resume (the cols/rows low-bytes are printable
+         *  punctuation). Print mode has no TTY to resize. */
         @JavascriptInterface
         fun notifyResize(cols: Int, rows: Int) {
             if (cols !in 10..999 || rows !in 5..500) return
             prefs.setPtyCols(cols)
             prefs.setPtyRows(rows)
-            claudeService?.sendResizeAll(cols, rows)
+            // NOTE: do NOT call sendResizeAll — see comment above.
         }
 
         @JavascriptInterface

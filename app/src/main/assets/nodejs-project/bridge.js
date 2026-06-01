@@ -3547,6 +3547,19 @@ function openPrintSession() {
 
     // ── Input handler ─────────────────────────────────────────────────────────
     function handleInput(d, state) {
+        // Strip in-band resize control sequences (ESC 0xFE hiC loC hiR loR, 6 bytes).
+        // These were consumed by the removed !pty TTY path; with no consumer they
+        // otherwise leak into inputBuf and — because the cols/rows low bytes are
+        // printable punctuation (. , - + * () and occasionally land on \r/\n —
+        // flush as a gibberish self-sent message (e.g. on terminal resume → resize).
+        if (Buffer.isBuffer(d) && d.indexOf(0x1b) !== -1) {
+            const out = [];
+            for (let i = 0; i < d.length; i++) {
+                if (d[i] === 0x1b && i + 1 < d.length && d[i + 1] === 0xfe) { i += 5; continue; }
+                out.push(d[i]);
+            }
+            d = Buffer.from(out);
+        }
         // Ctrl+C: kill the in-flight claude process
         const raw = d.toString();
         if (raw.includes('\x03')) {
