@@ -1143,6 +1143,24 @@ let sysRenderQueued  = false;
 // L6 — WeakMap for bubble raw text (avoids expando DOM property)
 const bubbleRawText = new WeakMap();
 
+// ── Bubble-state reset helpers ────────────────────────────────────────────
+// Single source of truth for nulling the "where am I writing?" pointers.
+// Every reset path (clear, tab-switch, new message, turn-end) calls these
+// instead of hand-nulling a subset, so a new pointer added later can't be
+// forgotten in one branch and leak a ghost bubble. See CLAUDE.md inv 44/47/66.
+function resetSysBubble(resetAnsi){
+  // resetAnsi defaults true; pass false to preserve sysAnsi (snapshot restore,
+  // M2 — resetting mid-way with rendered DOM present causes double-render bugs).
+  sysEl=null; sysOutEl=null; sysCopyBtn=null;
+  if(resetAnsi!==false) sysAnsi=makeAnsiState();
+}
+function resetAiBubble(){
+  currentAiBubble=null;
+  currentAiAnsi=null;
+  currentTurnTools=[];     // T3 per-turn tool log
+  aiBubbleHasContent=false;
+}
+
 function scrollToBottom(){
   msgs.scrollTop = msgs.scrollHeight;
 }
@@ -1261,8 +1279,8 @@ function handleOSC(content){
     resetToIdle();
     msgs.innerHTML='';
     msgs.appendChild(thinkBub);
-    sysEl=null; sysOutEl=null; sysCopyBtn=null; sysAnsi=makeAnsiState();
-    currentAiBubble=null; currentAiAnsi=null;
+    resetSysBubble(true);
+    resetAiBubble();
   } else if(content.startsWith('9;cwd:')){
     var cwd=content.slice(6);
     var cwdBar=document.getElementById('cwd-bar');
@@ -2339,12 +2357,10 @@ function finalizeAiBubble(){
     scrollToBottom();
   }
   rawAiText='';
-  currentAiBubble=null;
-  currentAiAnsi=null;
-  // T3: clear log after rendering — the next turn's thinking-start also clears,
-  // but doing it here too avoids stale entries leaking if a turn ends weirdly.
-  currentTurnTools=[];
-  aiBubbleHasContent=false;
+  // T3 note: clearing currentTurnTools here (via resetAiBubble) is belt-and-
+  // braces — the next turn's thinking-start also clears it — but it stops stale
+  // entries leaking if a turn ends weirdly.
+  resetAiBubble();
   chatState='IDLE';
 }
 
@@ -2444,10 +2460,8 @@ const _sessionSnaps = new Map();
 window.termClear=function(sid){
   stopThinkingTimer();
   msgs.innerHTML='';
-  sysEl=null; sysOutEl=null; sysCopyBtn=null;
-  sysAnsi=makeAnsiState();
-  currentAiBubble=null;
-  currentAiAnsi=null;
+  resetSysBubble(true);
+  resetAiBubble();
   chatState='IDLE';
   thinkBub.style.display='none';
   document.body.appendChild(thinkBub);
@@ -2467,8 +2481,8 @@ window.termRestoreSnapshot = function(sid) {
   // M2: do NOT reset sysAnsi here — resetting mid-way while DOM already has
   // rendered content causes ANSI state/DOM mismatch and double-render bugs.
   // sysEl is cleared so next sys output creates a fresh bubble below restored content.
-  sysEl=null; sysOutEl=null; sysCopyBtn=null;
-  currentAiBubble=null; currentAiAnsi=null;
+  resetSysBubble(false);   // false → preserve sysAnsi (M2, see above)
+  resetAiBubble();
   chatState='IDLE';
   thinkBub.style.display='none';
   document.body.appendChild(thinkBub);
@@ -2591,7 +2605,7 @@ function submitLine(text){
     }
     // All ! and $ commands run immediately regardless of busy state
     // Fresh sys bubble so bridge output appears below this cmd bubble
-    sysEl=null; sysOutEl=null; sysCopyBtn=null; sysAnsi=makeAnsiState();
+    resetSysBubble(true);
     addCmdBubble(msg,false);
     // Normalize ! command verb to lowercase before sending — Android autocorrect
     // treats "!" as sentence-end and capitalizes the next character, breaking
@@ -2613,8 +2627,7 @@ function submitLine(text){
     if(inputHistory.length>50) inputHistory.shift();
   }
   resetToIdle(); // finalize any pending AI bubble and hide thinking animation
-  sysEl=null; sysOutEl=null; sysCopyBtn=null;
-  sysAnsi=makeAnsiState();
+  resetSysBubble(true);
   // Remove suggestions bar if present
   const sb=document.getElementById('suggestions-bar');if(sb)sb.remove();
   if(pendingImageAttached){
