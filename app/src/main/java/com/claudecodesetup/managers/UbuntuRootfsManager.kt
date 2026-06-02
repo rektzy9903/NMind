@@ -2,6 +2,7 @@ package com.claudecodesetup.managers
 
 import android.content.Context
 import android.os.Build
+import android.system.Os
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry
@@ -11,8 +12,6 @@ import java.io.BufferedInputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
-import java.nio.file.Files
-import java.nio.file.Paths
 
 /**
  * Ubuntu-engine rootfs lifecycle (ubuntu-engine.md, P1).
@@ -36,7 +35,13 @@ class UbuntuRootfsManager(private val context: Context) {
     private val marker = File(rootfs, ".nexus_rootfs_ready")
     private val prootLibDir = File(filesDir, ".proot-lib")
 
-    fun isInstalled(): Boolean = marker.exists()
+    // Bump to force a clean re-extract on existing installs (e.g. after an
+    // extractor fix). "-2" = the Os.symlink fix (Files.createSymbolicLink was a
+    // silent no-op on Android → 0 symlinks created).
+    private val rootfsVersion = "ubuntu-aarch64-pd-v4.6.0-2"
+
+    fun isInstalled(): Boolean =
+        marker.exists() && marker.readText().trim() == rootfsVersion
 
     /** Phase callback for UI: (human-readable phase, 0..100 percent or -1 if indeterminate). */
     data class Step(val phase: String, val pct: Int)
@@ -74,7 +79,7 @@ class UbuntuRootfsManager(private val context: Context) {
 
             ensureFakeSysData()
             File(rootfs, "tmp").mkdirs()
-            marker.writeText("ubuntu-aarch64-pd-v4.6.0\n")
+            marker.writeText(rootfsVersion)
             Result(true, "Extracted $files files, $links symlinks (skipped $skipped device nodes).")
         } catch (e: Exception) {
             Result(false, "Extract error: ${e.message}")
@@ -105,11 +110,11 @@ class UbuntuRootfsManager(private val context: Context) {
                     entry.isDirectory -> out.mkdirs()
                     entry.isSymbolicLink -> {
                         out.parentFile?.mkdirs()
-                        try { if (out.exists() || isSymlink(out)) out.delete() } catch (_: Exception) {}
-                        try {
-                            Files.createSymbolicLink(Paths.get(out.absolutePath), Paths.get(entry.linkName))
-                            links++
-                        } catch (_: Exception) { /* dangling/duplicate — tolerate */ }
+                        try { Os.remove(out.absolutePath) } catch (_: Exception) {}
+                        // Use the raw symlink() syscall — Android's java.nio
+                        // FileSystemProvider does NOT support createSymbolicLink.
+                        try { Os.symlink(entry.linkName, out.absolutePath); links++ }
+                        catch (_: Exception) { /* dangling/duplicate — tolerate */ }
                     }
                     entry.isFile -> {
                         out.parentFile?.mkdirs()
@@ -126,19 +131,14 @@ class UbuntuRootfsManager(private val context: Context) {
         return Triple(files, links, skipped)
     }
 
-    private fun isSymlink(f: File): Boolean =
-        try { Files.isSymbolicLink(Paths.get(f.absolutePath)) } catch (_: Exception) { false }
-
     // ── proot exec ──────────────────────────────────────────────────────────
 
     /** libtalloc.so.2 → nativeDir/libtalloc.so symlink (proot keeps NEEDED .so.2). */
     private fun ensureTallocLink() {
         prootLibDir.mkdirs()
         val link = File(prootLibDir, "libtalloc.so.2")
-        try { if (link.exists() || isSymlink(link)) link.delete() } catch (_: Exception) {}
-        try {
-            Files.createSymbolicLink(Paths.get(link.absolutePath), Paths.get("$nativeDir/libtalloc.so"))
-        } catch (_: Exception) {}
+        try { Os.remove(link.absolutePath) } catch (_: Exception) {}
+        try { Os.symlink("$nativeDir/libtalloc.so", link.absolutePath) } catch (_: Exception) {}
     }
 
     /** Fake /proc + /sys/.empty files proot binds over (Android restricts the real ones). */
