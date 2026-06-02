@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b11-proot-launcher';
+const BRIDGE_BUILD = 'b12-proot-claudejson';
 
 const net   = require('net');
 const http  = require('http');
@@ -454,6 +454,12 @@ function prootGuestArgv(rp, command, opts) {
         // files — no duplicate config, sessions persist across turns. Harmless for
         // probes (just an extra bind). FILES_DIR/.claude is ensured to exist below.
         '--bind=' + path.join(FILES_DIR, '.claude') + ':/root/.claude',
+        // claude-code 2.1.160 reads a top-level ~/.claude.json (onboarding/project
+        // state) SEPARATE from the .claude/ dir. Missing → it spams stderr
+        // "Claude configuration file not found at: /root/.claude.json" (3× per spawn,
+        // leaks above the reply). Bind a host file (seeded in prootChild) so it's
+        // found and persists on the Android side alongside .claude/.
+        '--bind=' + path.join(FILES_DIR, '.claude.json') + ':/root/.claude.json',
     ];
     // Exec the guest command DIRECTLY — never via `/usr/bin/env -i`. proot only
     // mishandles execve-REPLACE (a process exec'ing in place); env -i does exactly
@@ -493,6 +499,14 @@ function prootChild(command, opts) {
     // Ensure the --bind=FILES_DIR/.claude:/root/.claude target exists (proot
     // refuses to bind a non-existent host path → "can't sanitize binding").
     try { fs.mkdirSync(path.join(FILES_DIR, '.claude'), { recursive: true }); } catch (_) {}
+    // Seed ~/.claude.json (bound to /root/.claude.json) if absent so 2.1.160 stops
+    // warning. hasCompletedOnboarding suppresses any first-run interactive flow.
+    try {
+        const cjPath = path.join(FILES_DIR, '.claude.json');
+        if (!fs.existsSync(cjPath)) {
+            fs.writeFileSync(cjPath, JSON.stringify({ hasCompletedOnboarding: true }) + '\n');
+        }
+    } catch (_) {}
     const env = Object.assign({}, process.env, {
             LD_LIBRARY_PATH: prootLibDir + ':' + NATIVE_DIR,
             PROOT_LOADER:    path.join(NATIVE_DIR, 'libproot-loader.so'),
