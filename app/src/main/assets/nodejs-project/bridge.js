@@ -395,6 +395,83 @@ function downloadFile(url, dest) {
     });
 }
 
+// ─── Ubuntu-engine proot helpers (shared by !test-rootfs / !setup-engine) ────
+// Build the proot argv for a guest command. Binds individual /dev nodes (NOT
+// all of /dev — the Android emulator's goldfish/ashmem nodes make proot loop;
+// see CLAUDE.md). PATH includes /opt/node/bin so node/npm/claude resolve.
+function prootGuestArgv(rp, command) {
+    return [
+        '-L', '--kernel-release=6.17.0-PRoot-Distro',
+        '--link2symlink', '--kill-on-exit',
+        '--rootfs=' + rp, '--root-id', '--cwd=/root',
+        '--bind=/dev/null', '--bind=/dev/zero',
+        '--bind=/dev/random', '--bind=/dev/urandom', '--bind=/dev/tty',
+        '--bind=/proc',
+        '--bind=/proc/self/fd:/dev/fd',
+        '--bind=/proc/self/fd/0:/dev/stdin',
+        '--bind=/proc/self/fd/1:/dev/stdout',
+        '--bind=/proc/self/fd/2:/dev/stderr',
+        '--bind=' + rp + '/proc/.loadavg:/proc/loadavg',
+        '--bind=' + rp + '/proc/.stat:/proc/stat',
+        '--bind=' + rp + '/proc/.uptime:/proc/uptime',
+        '--bind=' + rp + '/proc/.version:/proc/version',
+        '--bind=' + rp + '/proc/.vmstat:/proc/vmstat',
+        '--bind=' + rp + '/proc/.sysctl_entry_cap_last_cap:/proc/sys/kernel/cap_last_cap',
+        '--bind=' + rp + '/proc/.sysctl_inotify_max_user_watches:/proc/sys/fs/inotify/max_user_watches',
+        '--bind=' + rp + '/sys/.empty:/sys/fs/selinux',
+        '--bind=' + FILES_DIR + ':/root/.nexus',
+        '/usr/bin/env', '-i',
+        'HOME=/root', 'LANG=C.UTF-8',
+        'PATH=/opt/node/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+        'TERM=xterm-256color', 'TMPDIR=/tmp',
+    ].concat(command);
+}
+
+// Run a command inside the Ubuntu rootfs via node spawn (NOT ProcessBuilder —
+// bionic scrubs LD_LIBRARY_PATH on PB children, see CLAUDE.md). Resolves
+// {code, out}. onData (optional) streams combined stdout+stderr as it arrives.
+// opts.verbose → proot -v1 (loud per-syscall trace, for diagnosis only).
+//
+// CRITICAL: proot is launched through an sh wrapper that closes every inherited
+// fd >2 first. libnode runs inside the Android app, so the proot child inherits
+// hundreds of framework fds (WebView, goldfish/ashmem graphics, mmap'd .apk).
+// proot scans /proc/self/fd and ptrace-processes each → hangs on the emulator
+// ("access to /dev/goldfish_pipe (fd N) won't be translated"). Closing them
+// first gives proot a clean table (just stdio) so it starts instantly.
+function runProotGuest(command, timeoutMs, onData, opts) {
+    return new Promise((resolve) => {
+        const rp = path.join(FILES_DIR, 'ubuntu');
+        const prootLibDir = path.join(FILES_DIR, '.proot-lib');
+        try { fs.mkdirSync(prootLibDir, { recursive: true }); } catch (_) {}
+        const tl = path.join(prootLibDir, 'libtalloc.so.2');
+        try { fs.unlinkSync(tl); } catch (_) {}
+        try { fs.symlinkSync(path.join(NATIVE_DIR, 'libtalloc.so'), tl); } catch (_) {}
+        try { fs.mkdirSync(path.join(rp, 'tmp'), { recursive: true }); } catch (_) {}
+        const env = Object.assign({}, process.env, {
+            LD_LIBRARY_PATH: prootLibDir + ':' + NATIVE_DIR,
+            PROOT_LOADER:    path.join(NATIVE_DIR, 'libproot-loader.so'),
+            PROOT_LOADER_32: path.join(NATIVE_DIR, 'libproot-loader32.so'),
+            PROOT_L2S_DIR:   path.join(rp, '.l2s'),
+            PROOT_TMP_DIR:   path.join(rp, 'tmp'),
+        });
+        const prootArgs = (opts && opts.verbose ? ['-v', '1'] : []).concat(prootGuestArgv(rp, command));
+        // Close inherited fds >2 (only those actually open, via /proc/$$/fd) then exec proot.
+        const closeFds = 'for f in /proc/$$/fd/*; do n=${f##*/}; if [ "$n" -gt 2 ] 2>/dev/null; then eval "exec $n<&-" 2>/dev/null; fi; done 2>/dev/null; exec "$@"';
+        let ch, out = '', done = false;
+        try {
+            ch = spawn('/system/bin/sh',
+                ['-c', closeFds, 'sh', path.join(NATIVE_DIR, 'libproot.so')].concat(prootArgs),
+                { env });
+        } catch (e) { return resolve({ code: null, out: 'spawn threw: ' + e.message }); }
+        const onChunk = d => { const s = d.toString(); out += s; if (onData) { try { onData(s); } catch (_) {} } };
+        ch.stdout.on('data', onChunk);
+        ch.stderr.on('data', onChunk);
+        ch.on('error', e => { if (done) return; done = true; resolve({ code: null, out: out + '\nspawn error: ' + e.message }); });
+        const tid = setTimeout(() => { if (done) return; done = true; try { ch.kill('SIGKILL'); } catch (_) {} resolve({ code: null, out: out + '\n[timeout ' + timeoutMs + 'ms]' }); }, timeoutMs);
+        ch.on('close', c => { if (done) return; done = true; clearTimeout(tid); resolve({ code: c, out }); });
+    });
+}
+
 // ─── Package install helpers ─────────────────────────────────────────────────
 
 // Fetches the latest python-build-standalone musl ARM64 asset URL via GitHub API.
@@ -3737,6 +3814,7 @@ function openPrintSession() {
                     '  \x1b[33m!test-agent\x1b[0m         Probe sub-agent dispatch via the --agents flag (inline JSON)\r\n' +
                     '  \x1b[33m!test-proot\x1b[0m         Probe: does bundled proot exec from nativeLibDir (Ubuntu engine)\r\n' +
                     '  \x1b[33m!test-rootfs\x1b[0m        Probe: run extracted Ubuntu rootfs via proot (cat /etc/os-release)\r\n' +
+                    '  \x1b[33m!setup-engine\x1b[0m       Batched P1: boot rootfs → install Node 22 + claude-code → claude --version\r\n' +
                     '  \x1b[33m!debug\x1b[0m              Dump model/provider/settings/mcp state for remote debugging\r\n' +
                     '  \x1b[33m!help\x1b[0m               Show this help\r\n' +
                     '  \x1b[33m$ <cmd>\x1b[0m             Run a shell command\r\n\r\n'
@@ -3942,90 +4020,106 @@ function openPrintSession() {
             // Extract the rootfs first via Settings → 🐞 Ubuntu engine.
             if (line.startsWith('!test-rootfs')) {
                 const w = (s) => { try { if (state.socket) state.socket.write(SYS_FENCE + s); } catch(_) {} };
-                try {
-                    const prootBin = path.join(NATIVE_DIR, 'libproot.so');
+                const rp = path.join(FILES_DIR, 'ubuntu');
+                if (!fs.existsSync(path.join(rp, 'etc', 'os-release'))) {
+                    w('\x1b[31m✗ !test-rootfs: no rootfs at ' + rp + '\x1b[0m\r\n' +
+                      '\x1b[2mExtract it first: Settings → 🐞 Ubuntu engine → Install + probe.\x1b[0m\r\n');
+                    continue;
+                }
+                w('\x1b[33m!test-rootfs: proot -v1 → cat /etc/os-release (60s)…\x1b[0m\r\n');
+                // verbose:true → proot -v1; fds are closed first by runProotGuest.
+                runProotGuest(['/usr/bin/cat', '/etc/os-release'], 60000, null, { verbose: true })
+                    .then(r => {
+                        const ok = r.code === 0 && /Ubuntu/i.test(r.out);
+                        const body = r.out.trim();
+                        w((ok ? '\x1b[32m✅ Ubuntu rootfs runs via proot — P1b CONFIRMED\x1b[0m'
+                              : '\x1b[31m✗ rootfs probe failed (exit=' + r.code + ')\x1b[0m') + '\r\n' +
+                          '\x1b[2m' + (ok ? body.slice(0, 600) : body.slice(-1200)) + '\x1b[0m\r\n');
+                    })
+                    .catch(e => w('\x1b[31m[!test-rootfs error] ' + (e && e.message) + '\x1b[0m\r\n'));
+                continue;
+            }
+
+            // ── !setup-engine — batched P1 bring-up (one build, many stages) ─
+            // Runs the whole Ubuntu-engine acceptance chain inside the rootfs and
+            // reports each stage, so we don't burn a CI build per check:
+            //   1 proot boots the rootfs (os-release)
+            //   2 write test (/root + /tmp writable in guest)
+            //   3 Node 22: reuse if present, else download .tar.gz + extract to /opt/node
+            //   4 npm --version
+            //   5 npm i -g @anthropic-ai/claude-code  (network via shared netns)
+            //   6 claude --version  ← full P1 acceptance
+            // Idempotent: re-running skips node download if /opt/node already works.
+            if (line.startsWith('!setup-engine')) {
+                const w = (s) => { try { if (state.socket) state.socket.write(SYS_FENCE + s); } catch(_) {} };
+                const G = '\x1b[32m', R = '\x1b[31m', Y = '\x1b[33m', D = '\x1b[2m', X = '\x1b[0m';
+                (async () => {
                     const rp = path.join(FILES_DIR, 'ubuntu');
                     if (!fs.existsSync(path.join(rp, 'etc', 'os-release'))) {
-                        w('\x1b[31m✗ !test-rootfs: no rootfs at ' + rp + '\x1b[0m\r\n' +
-                          '\x1b[2mExtract it first: Settings → 🐞 Ubuntu engine → Install + probe.\x1b[0m\r\n');
-                        continue;
+                        w(R + '✗ no rootfs at ' + rp + X + '\r\n' +
+                          D + 'Extract it first: Settings → 🐞 Ubuntu engine → Install + probe.' + X + '\r\n');
+                        return;
                     }
-                    const prootLibDir = path.join(FILES_DIR, '.proot-lib');
-                    try { fs.mkdirSync(prootLibDir, { recursive: true }); } catch(_) {}
-                    const tallocLink = path.join(prootLibDir, 'libtalloc.so.2');
-                    try { fs.unlinkSync(tallocLink); } catch(_) {}
-                    try { fs.symlinkSync(path.join(NATIVE_DIR, 'libtalloc.so'), tallocLink); } catch(_) {}
-                    try { fs.mkdirSync(path.join(rp, 'tmp'), { recursive: true }); } catch(_) {}
+                    // DNS for npm: base rootfs resolv.conf is often a dangling symlink.
+                    try { fs.unlinkSync(path.join(rp, 'etc', 'resolv.conf')); } catch(_) {}
+                    try { fs.writeFileSync(path.join(rp, 'etc', 'resolv.conf'), 'nameserver 8.8.8.8\nnameserver 1.1.1.1\n'); } catch(_) {}
+                    const fail = (label, r) => w(R + '✗ ' + label + ' (code=' + r.code + ')' + X + '\r\n' +
+                        D + (r.out.trim().slice(-700) || '(no output)') + X + '\r\n');
 
-                    // NOTE: do NOT --bind=/dev wholesale. On the Android emulator
-                    // (Appetize) /dev contains goldfish_pipe/goldfish_address_space/
-                    // ashmem* (emulator-IPC nodes); exposing them made proot loop
-                    // forever "access to /dev/goldfish_pipe". Bind only the real
-                    // char devices a guest needs. Same hygiene helps real devices.
-                    const argv = [
-                        '-v', '1',
-                        '-L', '--kernel-release=6.17.0-PRoot-Distro',
-                        '--link2symlink', '--kill-on-exit',
-                        '--rootfs=' + rp, '--root-id', '--cwd=/root',
-                        '--bind=/dev/null', '--bind=/dev/zero',
-                        '--bind=/dev/random', '--bind=/dev/urandom',
-                        '--bind=/dev/tty',
-                        '--bind=/proc',
-                        '--bind=/proc/self/fd:/dev/fd',
-                        '--bind=/proc/self/fd/0:/dev/stdin',
-                        '--bind=/proc/self/fd/1:/dev/stdout',
-                        '--bind=/proc/self/fd/2:/dev/stderr',
-                        '--bind=' + rp + '/proc/.loadavg:/proc/loadavg',
-                        '--bind=' + rp + '/proc/.stat:/proc/stat',
-                        '--bind=' + rp + '/proc/.uptime:/proc/uptime',
-                        '--bind=' + rp + '/proc/.version:/proc/version',
-                        '--bind=' + rp + '/proc/.vmstat:/proc/vmstat',
-                        '--bind=' + rp + '/proc/.sysctl_entry_cap_last_cap:/proc/sys/kernel/cap_last_cap',
-                        '--bind=' + rp + '/proc/.sysctl_inotify_max_user_watches:/proc/sys/fs/inotify/max_user_watches',
-                        '--bind=' + rp + '/sys/.empty:/sys/fs/selinux',
-                        '--bind=' + FILES_DIR + ':/root/.nexus',
-                        '/usr/bin/env', '-i',
-                        'HOME=/root', 'LANG=C.UTF-8',
-                        'PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
-                        'TERM=xterm-256color', 'TMPDIR=/tmp',
-                        '/usr/bin/cat', '/etc/os-release',
-                    ];
-                    const pEnv = Object.assign({}, process.env, {
-                        LD_LIBRARY_PATH: prootLibDir + ':' + NATIVE_DIR,
-                        PROOT_LOADER:    path.join(NATIVE_DIR, 'libproot-loader.so'),
-                        PROOT_LOADER_32: path.join(NATIVE_DIR, 'libproot-loader32.so'),
-                        PROOT_L2S_DIR:   path.join(rp, '.l2s'),
-                        PROOT_TMP_DIR:   path.join(rp, 'tmp'),
-                    });
-                    w('\x1b[33m!test-rootfs: proot -v1 → cat /etc/os-release (60s)…\x1b[0m\r\n');
-                    const pch = spawn(prootBin, argv, { env: pEnv });
-                    let pOut = '', pErr = '', pDone = false;
-                    pch.stdout.on('data', d => { pOut += d.toString(); });
-                    pch.stderr.on('data', d => { pErr += d.toString(); });
-                    pch.on('error', e => {
-                        if (pDone) return; pDone = true;
-                        w('\x1b[31m✗ !test-rootfs: spawn FAILED — ' + e.message + '\x1b[0m\r\n');
-                    });
-                    const pTid = setTimeout(() => {
-                        if (pDone) return; pDone = true;
-                        try { pch.kill('SIGKILL'); } catch(_) {}
-                        // Dump the TAIL of proot's -v1 trace — shows where it hung.
-                        const tail = (pErr + pOut).trim().slice(-1200);
-                        w('\x1b[31m✗ !test-rootfs: TIMEOUT 60s (proot hung)\x1b[0m\r\n' +
-                          '\x1b[2m── last proot -v1 trace ──\r\n' + (tail || '(no output at all — stuck before first write)') + '\x1b[0m\r\n');
-                    }, 60000);
-                    pch.on('close', code => {
-                        if (pDone) return; pDone = true;
-                        clearTimeout(pTid);
-                        const txt = (pOut + pErr).trim();
-                        const ok = code === 0 && /Ubuntu/i.test(pOut);
-                        w((ok ? '\x1b[32m✅ Ubuntu rootfs runs via proot — P1b CONFIRMED\x1b[0m'
-                              : '\x1b[31m✗ rootfs probe failed (exit=' + code + ')\x1b[0m') + '\r\n' +
-                          '\x1b[2m' + (txt.slice(0, 600) || '(no output)') + '\x1b[0m\r\n');
-                    });
-                } catch(e) {
-                    w('\x1b[31m[!test-rootfs error] ' + e.message + '\x1b[0m\r\n');
-                }
+                    // 1) boot
+                    w(Y + '[1/6] proot boot…' + X + '\r\n');
+                    let r = await runProotGuest(['/usr/bin/cat', '/etc/os-release'], 60000);
+                    if (!/Ubuntu/i.test(r.out)) { fail('boot failed', r); return; }
+                    const pretty = (r.out.match(/PRETTY_NAME="?([^"\n]+)/) || [])[1] || 'Ubuntu';
+                    w(G + '✓ booted: ' + pretty + X + '\r\n');
+
+                    // 2) write test
+                    w(Y + '[2/6] write test (/root, /tmp)…' + X + '\r\n');
+                    r = await runProotGuest(['/bin/sh', '-c', 'echo ok > /root/.wtest && echo ok > /tmp/.wtest && cat /root/.wtest /tmp/.wtest && rm -f /root/.wtest /tmp/.wtest'], 30000);
+                    if (r.code !== 0) { fail('write test failed', r); return; }
+                    w(G + '✓ guest filesystem writable' + X + '\r\n');
+
+                    // 3) Node 22 — reuse if present
+                    w(Y + '[3/6] node…' + X + '\r\n');
+                    r = await runProotGuest(['/opt/node/bin/node', '--version'], 30000);
+                    if (r.code !== 0) {
+                        const nodeUrl = 'https://nodejs.org/dist/v22.22.3/node-v22.22.3-linux-arm64.tar.gz';
+                        const dest = path.join(FILES_DIR, 'node22.tar.gz');
+                        w(D + '  downloading Node 22 (.tar.gz ~30 MB)…' + X + '\r\n');
+                        try { await downloadFile(nodeUrl, dest); }
+                        catch (e) { w(R + '✗ node download failed: ' + e.message + X + '\r\n'); return; }
+                        w(D + '  extracting into /opt/node…' + X + '\r\n');
+                        r = await runProotGuest(['/bin/sh', '-c',
+                            'mkdir -p /opt && tar -xzf /root/.nexus/node22.tar.gz -C /opt && ' +
+                            'rm -rf /opt/node && mv /opt/node-v22.22.3-linux-arm64 /opt/node && ' +
+                            '/opt/node/bin/node --version'], 180000);
+                        try { fs.unlinkSync(dest); } catch(_) {}
+                        if (r.code !== 0) { fail('node extract/run failed', r); return; }
+                    }
+                    w(G + '✓ node ' + r.out.trim() + X + '\r\n');
+
+                    // 4) npm
+                    w(Y + '[4/6] npm…' + X + '\r\n');
+                    r = await runProotGuest(['/bin/sh', '-c', 'npm --version'], 60000);
+                    if (r.code !== 0) { fail('npm failed', r); return; }
+                    w(G + '✓ npm ' + r.out.trim() + X + '\r\n');
+
+                    // 5) install claude-code (stream tail so it doesn't look hung)
+                    w(Y + '[5/6] npm i -g @anthropic-ai/claude-code (network; can take a few min)…' + X + '\r\n');
+                    let lastMark = Date.now();
+                    r = await runProotGuest(['/bin/sh', '-c',
+                        'npm i -g @anthropic-ai/claude-code 2>&1'], 600000,
+                        () => { const now = Date.now(); if (now - lastMark > 15000) { lastMark = now; w(D + '  …still installing…' + X + '\r\n'); } });
+                    if (r.code !== 0) { fail('npm install failed', r); return; }
+                    w(G + '✓ claude-code installed' + X + '\r\n');
+
+                    // 6) claude --version  (the real acceptance)
+                    w(Y + '[6/6] claude --version…' + X + '\r\n');
+                    r = await runProotGuest(['/bin/sh', '-c', 'claude --version'], 60000);
+                    if (r.code !== 0) { fail('claude --version failed', r); return; }
+                    w(G + '✅ ENGINE READY — ' + r.out.trim() + X + '\r\n' +
+                      G + '   P1 COMPLETE: latest claude-code runs on glibc via proot.' + X + '\r\n');
+                })().catch(e => w(R + '[!setup-engine error] ' + (e && e.message) + X + '\r\n'));
                 continue;
             }
 
