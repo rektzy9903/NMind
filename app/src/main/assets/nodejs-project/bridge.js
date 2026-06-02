@@ -455,40 +455,21 @@ function runProotGuest(command, timeoutMs, onData, opts) {
             PROOT_TMP_DIR:   path.join(rp, 'tmp'),
         });
         const prootArgs = (opts && opts.verbose ? ['-v', '1'] : []).concat(prootGuestArgv(rp, command));
-        // Close inherited fds >2 (only those actually open, via /proc/$$/fd) then exec proot.
-        // Self-diagnosing markers (to stderr) pinpoint where a failure happens:
-        //   __WRAP_START__ reached the wrapper; __WRAP_PREEXEC__ loop done, about to
-        //   exec proot; __WRAP_EXECFAIL rc=N → exec of proot itself failed.
-        // Close inherited fds >2 before exec-ing proot. TWO mksh traps to avoid:
-        //  (1) globbing /proc/$$/fd/* lists the dir-stream's OWN fd, which mksh
-        //      closes after expanding → that number is stale; `exec <stale><&-`
-        //      is a FATAL redirection error on a non-interactive special builtin
-        //      (aborts → exit 127). Guard: re-test `[ -e ]` per fd.
-        //  (2) `cmd 2>/dev/null` makes mksh save the real stderr to a high fd for
-        //      the redirect's lifetime. `done 2>/dev/null` holds that save-fd open
-        //      across the WHOLE loop — it appears in /proc/$$/fd, passes `[ -e ]`,
-        //      so the loop CLOSES mksh's own saved-stderr fd; when the loop ends
-        //      mksh fails to restore stderr → abort BEFORE __WRAP_PREEXEC__ → 127.
-        //      Fix: NO redirections inside the loop, so no save-fds exist to step
-        //      on. With no `2>/dev/null` hiding errors, the `[ -e ]` immediately
-        //      before each close guarantees the fd is open (single-threaded), so
-        //      the close can never be the fatal bad-fd case. `case` skips the
-        //      literal '*' if the glob ever fails to match.
-        const closeFds =
-            'echo __WRAP_START__ 1>&2; ' +
-            'for f in /proc/$$/fd/*; do ' +
-                'n=${f##*/}; ' +
-                'case "$n" in *[!0-9]*) continue ;; esac; ' +
-                'if [ "$n" -gt 2 ] && [ -e "/proc/$$/fd/$n" ]; then eval "exec $n<&-"; fi; ' +
-            'done; ' +
-            'echo __WRAP_PREEXEC__ 1>&2; ' +
-            'exec "$@"; ' +
-            'echo "__WRAP_EXECFAIL rc=$?" 1>&2';
+        // proot must run with NO inherited fds >2: libnode lives inside the Android
+        // app process, so a spawned child inherits hundreds of framework fds
+        // (WebView, goldfish_pipe/ashmem, mmap'd .apk) that lack FD_CLOEXEC; proot
+        // ptrace-processes each and hangs. We can't close them in an `sh -c`
+        // wrapper — Android's mksh aborts the close loop (it steps on its own
+        // saved-stderr fd) and its redirection lexer rejects high fd numbers as
+        // IO_NUMBER (`exec 104<&-` → tries to run command "104" → exit 127). So we
+        // launch proot through libfdexec.so, a tiny native PIE exe that close(2)s
+        // every fd >2 (bad fds are a harmless EBADF) then execv's proot. env is
+        // inherited across the execv (LD_LIBRARY_PATH, PROOT_LOADER, …).
+        const FDEXEC = path.join(NATIVE_DIR, 'libfdexec.so');
+        const prootBin = path.join(NATIVE_DIR, 'libproot.so');
         let ch, out = '', done = false;
         try {
-            ch = spawn('/system/bin/sh',
-                ['-c', closeFds, 'sh', path.join(NATIVE_DIR, 'libproot.so')].concat(prootArgs),
-                { env });
+            ch = spawn(FDEXEC, [prootBin].concat(prootArgs), { env });
         } catch (e) { return resolve({ code: null, out: 'spawn threw: ' + e.message }); }
         const onChunk = d => { const s = d.toString(); out += s; if (onData) { try { onData(s); } catch (_) {} } };
         ch.stdout.on('data', onChunk);

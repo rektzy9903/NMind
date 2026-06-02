@@ -27,3 +27,13 @@ set_target_properties(node_launcher PROPERTIES
     SUFFIX                   ".so"
     PREFIX                   ""
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}")
+
+# ── fd-closer + exec shim (launches proot without inherited-fd leakage) ───────
+# Closes all fds > 2 then execv's its argv[1]. Shipped as libfdexec.so so it
+# lands in nativeLibraryDir (exec-capable). mksh can't do this — see fdexec.cpp.
+add_executable(fdexec fdexec.cpp)
+set_target_properties(fdexec PROPERTIES
+    OUTPUT_NAME              "libfdexec"
+    SUFFIX                   ".so"
+    PREFIX                   ""
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}")
