@@ -2,12 +2,15 @@ package com.claudecodesetup
 
 import android.app.AlertDialog
 import android.content.Intent
+import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
 import android.view.MenuItem
 import android.view.View
+import android.widget.Button
 import android.widget.CheckBox
 import android.widget.LinearLayout
+import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.Switch
 import android.widget.TextView
@@ -15,10 +18,13 @@ import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
 import com.claudecodesetup.data.AppPreferences
 import com.claudecodesetup.data.Providers
 import com.claudecodesetup.databinding.ActivitySettingsBinding
 import com.claudecodesetup.managers.NodeBridgeManager
+import com.claudecodesetup.managers.UbuntuRootfsManager
+import kotlinx.coroutines.launch
 import java.io.File
 import org.json.JSONArray
 import org.json.JSONObject
@@ -48,6 +54,96 @@ class SettingsActivity : AppCompatActivity() {
 
         populateFields()
         setupActions()
+        if (BuildConfig.DEBUG) addUbuntuEngineDebugSection()
+    }
+
+    /**
+     * DEBUG-only Ubuntu-engine bring-up panel (ubuntu-engine.md, P1b).
+     * Downloads + extracts the proot-distro Ubuntu rootfs, then probes it via
+     * proot (`cat /etc/os-release`) to prove the rootfs+proot+binds chain works
+     * on-device. Built programmatically so no layout XML changes are needed.
+     */
+    private fun addUbuntuEngineDebugSection() {
+        val ubuntu = UbuntuRootfsManager(this)
+        val pad = (16 * resources.displayMetrics.density).toInt()
+
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(pad, pad, pad, pad)
+            setBackgroundColor(Color.parseColor("#151518"))
+            val lp = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = pad }
+            layoutParams = lp
+        }
+        val header = TextView(this).apply {
+            text = "🐞 Ubuntu engine (debug)"
+            setTextColor(Color.parseColor("#E8834A"))
+            textSize = 14f
+        }
+        val status = TextView(this).apply {
+            text = if (ubuntu.isInstalled()) "Rootfs: installed" else "Rootfs: not installed"
+            setTextColor(Color.parseColor("#9090A0"))
+            textSize = 12f
+            setPadding(0, pad / 2, 0, pad / 2)
+        }
+        val bar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            visibility = View.GONE
+            max = 100
+        }
+        val output = TextView(this).apply {
+            setTextColor(Color.parseColor("#3DD68C"))
+            textSize = 11f
+            typeface = android.graphics.Typeface.MONOSPACE
+            setPadding(pad / 2, pad / 2, pad / 2, pad / 2)
+            setBackgroundColor(Color.parseColor("#0A0A0C"))
+            visibility = View.GONE
+        }
+        val btn = Button(this).apply {
+            text = "Install + probe Ubuntu rootfs"
+        }
+        btn.setOnClickListener {
+            btn.isEnabled = false
+            bar.visibility = View.VISIBLE
+            output.visibility = View.GONE
+            lifecycleScope.launch {
+                val res = ubuntu.installRootfs { step ->
+                    runOnUiThread {
+                        status.text = step.phase
+                        if (step.pct < 0) { bar.isIndeterminate = true }
+                        else { bar.isIndeterminate = false; bar.progress = step.pct }
+                    }
+                }
+                if (!res.success) {
+                    runOnUiThread {
+                        bar.visibility = View.GONE
+                        status.text = "❌ ${res.message}"
+                        status.setTextColor(Color.parseColor("#F87171"))
+                        btn.isEnabled = true
+                    }
+                    return@launch
+                }
+                runOnUiThread { status.text = "✅ ${res.message}\nProbing via proot…" }
+                val (code, out) = ubuntu.probeOsRelease()
+                runOnUiThread {
+                    bar.visibility = View.GONE
+                    output.visibility = View.VISIBLE
+                    val ok = code == 0 && out.contains("Ubuntu", ignoreCase = true)
+                    status.text = if (ok) "✅ Ubuntu rootfs runs via proot (exit=$code)"
+                                  else "❌ probe failed (exit=$code)"
+                    status.setTextColor(Color.parseColor(if (ok) "#3DD68C" else "#F87171"))
+                    output.text = out.take(1500)
+                    btn.isEnabled = true
+                }
+            }
+        }
+
+        card.addView(header)
+        card.addView(status)
+        card.addView(bar)
+        card.addView(btn)
+        card.addView(output)
+        binding.settingsContent.addView(card)
     }
 
     override fun onResume() {

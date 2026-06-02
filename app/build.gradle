@@ -144,6 +144,9 @@ dependencies {
     implementation 'com.google.code.gson:gson:2.10.1'
     // PDF text extraction for the discussion file-attach (PdfBox-Android, Tom Roush)
     implementation 'com.tom-roush:pdfbox-android:2.0.27.0'
+    // Ubuntu-engine rootfs extraction (.tar.xz) — Java/Android has no built-in xz.
+    implementation 'org.apache.commons:commons-compress:1.26.2'
+    implementation 'org.tukaani:xz:1.9'
     testImplementation 'junit:junit:4.13.2'
     androidTestImplementation 'androidx.test.ext:junit:1.1.5'
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
