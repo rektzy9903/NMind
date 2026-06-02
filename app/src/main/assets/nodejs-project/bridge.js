@@ -4194,26 +4194,30 @@ function openPrintSession() {
                     continue;
                 }
                 // Each combo merges over the base env (which has PROOT_NO_SECCOMP=1).
-                // '' deletes a base var. Guest = env→cat canary (in-guest execve).
+                // '' deletes a base var. Canary = chdir + getcwd: `cd /root` exercises
+                // the chdir syscall, `/bin/pwd` (the REAL binary, not the shell builtin
+                // which just echoes $PWD) exercises getcwd. Both ENOSYS under the base
+                // env on-device → npm/claude can't start (uv_cwd). We want a combo where
+                // this prints "/root" at exit 0.
                 const combos = [
                     { tag: '1 base (NO_SECCOMP=1)',                     env: {} },
-                    { tag: '2 seccomp on + ASSUME_NEW=1',              env: { PROOT_NO_SECCOMP: '', PROOT_ASSUME_NEW_SECCOMP: '1' } },
-                    { tag: '3 seccomp on + ASSUME_NEW=0',              env: { PROOT_NO_SECCOMP: '', PROOT_ASSUME_NEW_SECCOMP: '0' } },
-                    { tag: '4 NO_SECCOMP=1 + ASSUME_NEW=1',            env: { PROOT_ASSUME_NEW_SECCOMP: '1' } },
-                    { tag: '5 NO_SECCOMP=1 + MEMFD_UNSUPPORTED=1',     env: { PROOT_ASSUME_MEMFD_UNSUPPORTED: '1' } },
-                    { tag: '6 seccomp on + FORCE_KOMPAT=1',            env: { PROOT_NO_SECCOMP: '', PROOT_FORCE_KOMPAT: '1' } },
+                    { tag: '2 seccomp ON (NO_SECCOMP unset)',          env: { PROOT_NO_SECCOMP: '' } },
+                    { tag: '3 seccomp ON + ASSUME_NEW=1',              env: { PROOT_NO_SECCOMP: '', PROOT_ASSUME_NEW_SECCOMP: '1' } },
+                    { tag: '4 NO_SECCOMP=1 + FORCE_KOMPAT=1',          env: { PROOT_FORCE_KOMPAT: '1' } },
+                    { tag: '5 seccomp ON + FORCE_KOMPAT=1',            env: { PROOT_NO_SECCOMP: '', PROOT_FORCE_KOMPAT: '1' } },
+                    { tag: '6 NO_SECCOMP=1 + ASSUME_NEW=1',            env: { PROOT_ASSUME_NEW_SECCOMP: '1' } },
                 ];
                 (async () => {
                     let combined = '', winner = '';
                     for (const c of combos) {
                         w('\x1b[33m!fix-seccomp: ' + c.tag + ' …\x1b[0m\r\n');
                         let r;
-                        try { r = await runProotGuest(['/usr/bin/cat', '/etc/os-release'], 25000, null, { verbose: 1, extraEnv: c.env }); }
+                        try { r = await runProotGuest(['/bin/sh', '-c', 'cd /root && /bin/pwd'], 25000, null, { verbose: 1, extraEnv: c.env }); }
                         catch (e) { r = { code: 'EXC', out: 'exception: ' + (e && e.message) }; }
-                        const ok = r.code === 0 && /Ubuntu/i.test(r.out);
+                        const ok = r.code === 0 && /\/root/.test(r.out);
                         if (ok && !winner) winner = c.tag;
-                        w('  ' + (ok ? '\x1b[32m✓ exit 0 — IN-GUEST EXEC WORKS\x1b[0m'
-                                     : '\x1b[31m✗ exit=' + r.code + '\x1b[0m') + '\r\n');
+                        w('  ' + (ok ? '\x1b[32m✓ chdir+getcwd OK → ' + r.out.trim() + '\x1b[0m'
+                                     : '\x1b[31m✗ exit=' + r.code + ' ' + r.out.trim().slice(0, 80) + '\x1b[0m') + '\r\n');
                         combined += '\n\n===== COMBO ' + c.tag + ' (exit=' + r.code + ', ok=' + ok +
                                     ') env=' + JSON.stringify(c.env) + ' =====\n' + r.out.trim();
                     }
