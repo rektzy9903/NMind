@@ -4105,6 +4105,47 @@ function openPrintSession() {
                 continue;
             }
 
+            // ── !test-loader — one-shot loader-hang triage (3 probes, 1 URL) ──
+            // The v1.3.4 trace showed proot reaches guest launch then hangs in the
+            // loader injection. This runs the 3 isolating probes back-to-back at
+            // -v9 and uploads ONE combined trace, so the user types a single
+            // command and pastes a single URL:
+            //   A  env-wrapped cat   (the real engine path)
+            //   B  raw cat           (no /usr/bin/env -i → isolates double-exec)
+            //   C  raw /bin/true     (simplest guest → isolates loader vs program)
+            if (line.startsWith('!test-loader')) {
+                const w = (s) => { try { if (state.socket) state.socket.write(SYS_FENCE + s); } catch(_) {} };
+                const rp = path.join(FILES_DIR, 'ubuntu');
+                if (!fs.existsSync(path.join(rp, 'etc', 'os-release'))) {
+                    w('\x1b[31m✗ !test-loader: no rootfs — extract first (Settings → 🐞 Ubuntu engine).\x1b[0m\r\n');
+                    continue;
+                }
+                (async () => {
+                    const probes = [
+                        { tag: 'A env-wrapped cat', cmd: ['/usr/bin/cat', '/etc/os-release'], opts: { verbose: 9 }, t: 30000 },
+                        { tag: 'B raw cat',         cmd: ['/bin/cat', '/etc/os-release'],     opts: { verbose: 9, rawExec: true }, t: 30000 },
+                        { tag: 'C raw /bin/true',   cmd: ['/bin/true'],                       opts: { verbose: 9, rawExec: true }, t: 30000 },
+                    ];
+                    let combined = '';
+                    for (const p of probes) {
+                        w('\x1b[33m!test-loader: ' + p.tag + ' (≤' + (p.t/1000) + 's)…\x1b[0m\r\n');
+                        let r;
+                        try { r = await runProotGuest(p.cmd, p.t, null, p.opts); }
+                        catch (e) { r = { code: 'EXC', out: 'exception: ' + (e && e.message) }; }
+                        const hung = /\[timeout/.test(r.out);
+                        w('  ' + (r.code === 0 ? '\x1b[32m✓ exit 0\x1b[0m'
+                                : hung ? '\x1b[31m✗ HUNG\x1b[0m'
+                                : '\x1b[31m✗ exit=' + r.code + '\x1b[0m') + '\r\n');
+                        combined += '\n\n========== PROBE ' + p.tag + ' (exit=' + r.code +
+                                    ') ==========\n' + r.out.trim();
+                    }
+                    const url = await uploadDiag('=== !test-loader (3 probes @ -v9) ===' + combined);
+                    if (url) w('\x1b[36m📋 full trace (all 3): ' + url + '\x1b[0m\r\n');
+                    else     w('\x1b[31m(trace upload failed — paste site unreachable)\x1b[0m\r\n');
+                })();
+                continue;
+            }
+
             // ── !setup-engine — batched P1 bring-up (one build, many stages) ─
             // Runs the whole Ubuntu-engine acceptance chain inside the rootfs and
             // reports each stage, so we don't burn a CI build per check:
