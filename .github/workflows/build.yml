@@ -52,62 +52,64 @@ jobs:
       # The Ubuntu engine (ubuntu-engine.md) runs latest claude-code inside a
       # proot rootfs. proot must live in nativeLibDir (the only exec-capable path
       # on Android 10+; /data is noexec) and be named lib*.so (Android only
-      # extracts /^lib.*\.so$/ from the APK). We reuse UserLAnd's PROVEN Android
-      # 10+ (.a10) proot build — it's dynamically linked against libtalloc.so.2,
-      # so we ship libtalloc too and patchelf the one NEEDED entry to libtalloc.so
-      # (no ".so.2" file would ever extract). The loaders are static ELFs that
-      # proot injects via ptrace (read, not exec) → they just need to be present.
-      #   proot.a10        → libproot.so          (the proot binary, dynamic PIE)
-      #   loader.a10       → libproot-loader.so    (static; PROOT_LOADER points here)
-      #   loader32.a10     → libproot-loader32.so  (static; PROOT_LOADER_32)
-      #   libtalloc.so.2.a10 → libtalloc.so        (proot's only non-system dep)
-      # proot.js sets PROOT_LOADER/PROOT_LOADER_32 + LD_LIBRARY_PATH=nativeDir.
-      - name: Download + repackage proot (UserLAnd assets)
+      # extracts /^lib.*\.so$/ from the APK).
+      #
+      # SOURCE = TERMUX apt repo (was UserLAnd v1.5.1 .a10; swapped 2026-06-02).
+      # UserLAnd's older proot reached guest launch on the Appetize emulator but
+      # HUNG at the ptrace loader-injection step (memfd loader, fd3/fd4 — see
+      # !test-loader trace paste.rs/846nK). Termux ships a current, actively-
+      # patched proot (5.x) with Android-specific fixes that UserLAnd lacks. The
+      # binary is a dynamic PIE NEEDing libtalloc.so.2 (we ship Termux's libtalloc
+      # as libtalloc.so + a runtime symlink; bionic rejects any patchelf, so the
+      # binary stays PRISTINE — never patchelf an Android-targeted ELF).
+      #   usr/bin/proot              → libproot.so          (dynamic PIE)
+      #   usr/libexec/proot/loader   → libproot-loader.so   (PROOT_LOADER points here)
+      #   usr/libexec/proot/loader32 → libproot-loader32.so (PROOT_LOADER_32)
+      #   usr/lib/libtalloc.so.2     → libtalloc.so         (proot's only non-system dep)
+      # bridge.js sets PROOT_LOADER/PROOT_LOADER_32 + LD_LIBRARY_PATH=symlink-dir:nativeDir.
+      - name: Download + repackage proot (Termux apt)
         run: |
           set -euo pipefail
           sudo apt-get update -qq && sudo apt-get install -y -qq patchelf
-          UL=v1.5.1
-          BASE="https://github.com/CypherpunkArmory/UserLAnd-Assets-Support/releases/download/${UL}"
+          TBASE="https://packages.termux.dev/apt/termux-main"
 
-          # Extract one asset, preferring the Android-10+ (.a10) variant; leaves
-          # $tmp/$f if found, silent no-op if neither variant is present.
-          extract_one() {  # $1=tmp  $2=zip  $3=basename
-            local tmp="$1" zip="$2" f="$3"
-            if unzip -o -q "$zip" "${f}.a10" -d "$tmp" 2>/dev/null; then
-              mv "$tmp/${f}.a10" "$tmp/${f}"
-            else
-              unzip -o -q "$zip" "${f}" -d "$tmp" 2>/dev/null || true
+          # Resolve a package's pool Filename from the binary-<arch> Packages index
+          # (try plain, then .gz). Prints the Filename: path, empty if not found.
+          pkg_filename() {  # $1=pkg  $2=termux-arch
+            local pkg="$1" arch="$2" idx
+            idx="$(curl -fsSL "${TBASE}/dists/stable/main/binary-${arch}/Packages" 2>/dev/null || true)"
+            if [ -z "$idx" ]; then
+              idx="$(curl -fsSL "${TBASE}/dists/stable/main/binary-${arch}/Packages.gz" 2>/dev/null | gunzip -c 2>/dev/null || true)"
             fi
+            echo "$idx" | awk -v p="$pkg" 'BEGIN{RS="";FS="\n"}{n="";f="";for(i=1;i<=NF;i++){if($i=="Package: "p)n=p;if($i ~ /^Filename: /)f=substr($i,11)}if(n!=""&&f!=""){print f;exit}}'
           }
 
-          repackage_abi() {  # $1 = abi-zip-name   $2 = jniLibs abi dir
-            local zip="$1" abi="$2" tmp
+          fetch_deb() {  # $1=pkg  $2=termux-arch  $3=outfile
+            local fn; fn="$(pkg_filename "$1" "$2")"
+            [ -n "$fn" ] || { echo "::error::termux pkg '$1' ($2) not in index"; return 1; }
+            curl -fL --retry 3 "${TBASE}/${fn}" -o "$3"
+          }
+
+          repackage_abi() {  # $1 = termux-arch   $2 = jniLibs abi dir
+            local tarch="$1" abi="$2" tmp pre
             tmp="$(mktemp -d)"
-            echo "── $abi: fetching $zip"
-            curl -fL --retry 3 "${BASE}/${zip}" -o "$tmp/assets.zip"
-            for f in proot loader loader32 libtalloc.so.2; do
-              extract_one "$tmp" "$tmp/assets.zip" "$f"
-            done
-            # Required everywhere; loader32 is 64-bit-only (a 32-bit proot has no
-            # 32-bit-of-32-bit loader) so it's optional.
-            for r in proot loader libtalloc.so.2; do
-              [ -f "$tmp/$r" ] || { echo "::error::$abi: required proot file '$r' missing in $zip"; rm -rf "$tmp"; return 1; }
+            echo "── $abi: fetching Termux proot + libtalloc ($tarch)"
+            fetch_deb proot     "$tarch" "$tmp/proot.deb"
+            fetch_deb libtalloc "$tarch" "$tmp/libtalloc.deb"
+            dpkg-deb -x "$tmp/proot.deb"     "$tmp/x"
+            dpkg-deb -x "$tmp/libtalloc.deb" "$tmp/x"
+            pre="$tmp/x/data/data/com.termux/files/usr"
+            for r in "bin/proot" "libexec/proot/loader" "lib/libtalloc.so.2"; do
+              [ -e "$pre/$r" ] || { echo "::error::$abi: missing '$r' in Termux debs"; rm -rf "$tmp"; return 1; }
             done
             mkdir -p "app/src/main/jniLibs/$abi"
-            # DO NOT patchelf the proot binary. Android's bionic linker is far
-            # stricter than glibc ld — patchelf --replace-needed/--set-rpath
-            # rewrites the dynamic string table in a way bionic rejects at load
-            # ("linker_phdr.cpp Load CHECK"), even though the UserLAnd binary is
-            # known-good unmodified. proot keeps its NEEDED libtalloc.so.2; we
-            # ship libtalloc as libtalloc.so (only lib*.so extracts from the APK)
-            # and the bridge symlinks libtalloc.so.2 → libtalloc.so at runtime
-            # into a dir on LD_LIBRARY_PATH (the symlink resolves to the real
-            # exec-capable file in nativeLibDir). See bridge.js !test-proot.
-            cp "$tmp/proot"          "app/src/main/jniLibs/$abi/libproot.so"
-            cp "$tmp/loader"         "app/src/main/jniLibs/$abi/libproot-loader.so"
-            cp "$tmp/libtalloc.so.2" "app/src/main/jniLibs/$abi/libtalloc.so"
-            if [ -f "$tmp/loader32" ]; then
-              cp "$tmp/loader32"     "app/src/main/jniLibs/$abi/libproot-loader32.so"
+            # PRISTINE copies — no patchelf (bionic rejects rewritten ELFs).
+            # cp -L resolves the libtalloc.so.2 → .so.2.x.y symlink to the real file.
+            cp    "$pre/bin/proot"            "app/src/main/jniLibs/$abi/libproot.so"
+            cp    "$pre/libexec/proot/loader" "app/src/main/jniLibs/$abi/libproot-loader.so"
+            cp -L "$pre/lib/libtalloc.so.2"   "app/src/main/jniLibs/$abi/libtalloc.so"
+            if [ -e "$pre/libexec/proot/loader32" ]; then
+              cp  "$pre/libexec/proot/loader32" "app/src/main/jniLibs/$abi/libproot-loader32.so"
             else
               echo "  ($abi: no loader32 — expected for a 32-bit ABI)"
             fi
@@ -115,13 +117,13 @@ jobs:
           }
 
           # arm64 is the test/primary target → strict (a failure must fail CI).
-          repackage_abi "arm64-v8a-assets.zip" "arm64-v8a"
+          repackage_abi "aarch64" "arm64-v8a"
           # armv7 is best-effort: if it can't be packaged, the Ubuntu engine just
           # stays unavailable on 32-bit devices (prootReady()=false → libnode).
-          ( repackage_abi "armeabi-v7a-assets.zip" "armeabi-v7a" ) \
+          ( repackage_abi "arm" "armeabi-v7a" ) \
             || echo "::warning::armv7 proot packaging failed — Ubuntu engine unavailable on 32-bit (libnode fallback stays)"
 
-          echo "── proot payload packaged (pristine — NOT patchelf'd):"
+          echo "── proot payload packaged (Termux, pristine — NOT patchelf'd):"
           ls -la app/src/main/jniLibs/*/libproot*.so app/src/main/jniLibs/*/libtalloc.so
           echo "── arm64 libproot.so NEEDED (libtalloc.so.2 expected — satisfied via runtime symlink):"
           patchelf --print-needed app/src/main/jniLibs/arm64-v8a/libproot.so
