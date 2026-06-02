@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b23-probe4-append';
+const BRIDGE_BUILD = 'b24-probe5-noperms';
 
 const net   = require('net');
 const http  = require('http');
@@ -5216,6 +5216,93 @@ function openPrintSession() {
                     w(rep);
                   })
                   .catch(e => { w(R + '[!test-append proot error] ' + (e && e.message) + X + '\r\n'); });
+                continue;
+            }
+
+            // ── !test-noperms — re-probe the permission apparatus on 2.1.160 ────
+            // Invariant re-audit probe #5 (③, inv 25/31/32/71). On Bionic/2.1.112
+            // --dangerously-skip-permissions HUNG (inv 5b), so tool approval was done
+            // entirely via settings.json permissions.allow:['*'] + customApiKeyResponses
+            // .approved (so sk-ant-proxy000 is accepted without the login selector) +
+            // auto_approve.json + the permission card. Now that skip-permissions WORKS
+            // on proot (b15) the whole stack may be redundant. Test: write a MINIMAL
+            // settings.json with NEITHER permissions.allow NOR customApiKeyResponses
+            // (keep only theme/onboarding + additionalDirectories — the separate
+            // workspace boundary, inv 62), spawn a Write-tool task relying solely on
+            // --dangerously-skip-permissions + IS_SANDBOX, then RESTORE settings.
+            //   tool ran + no login hang → the apparatus is deletable scar (P4).
+            if (line.startsWith('!test-noperms') && getEngineMode() === 'proot') {
+                const w = (s) => { try { if (state.socket) state.socket.write(SYS_FENCE + s); } catch(_) {} };
+                const G='\x1b[32m', Y='\x1b[33m', R='\x1b[31m', D='\x1b[2m', X='\x1b[0m';
+                const claudeDir = path.join(FILES_DIR, '.claude');
+                const sp = path.join(claudeDir, 'settings.json');
+                const npSentinelHost  = path.join(claudeDir, 'noperm_probe.txt');
+                const npSentinelGuest = '/root/.claude/noperm_probe.txt';
+                let backup = null;
+                const restore = () => {
+                    try {
+                        if (backup === null) { try { fs.unlinkSync(sp); } catch(_) {} }
+                        else fs.writeFileSync(sp, backup);
+                    } catch(_) {}
+                    try { fs.unlinkSync(npSentinelHost); } catch(_) {}
+                };
+                try {
+                    try { fs.mkdirSync(claudeDir, { recursive: true }); } catch(_) {}
+                    try { backup = fs.readFileSync(sp, 'utf8'); } catch(_) { backup = null; }
+                    try { fs.unlinkSync(npSentinelHost); } catch(_) {}
+                    // MINIMAL settings — no permissions.allow, no customApiKeyResponses.
+                    const minimal = {
+                        theme: 'dark', hasCompletedOnboarding: true,
+                        hasShownWelcome: true, skipWelcome: true,
+                        permissions: { additionalDirectories: ['/root', '/sdcard', FILES_DIR] },
+                    };
+                    fs.writeFileSync(sp, JSON.stringify(minimal, null, 2));
+                } catch (e) {
+                    restore();
+                    w(R + '✗ !test-noperms: could not stage settings: ' + e.message + X + '\r\n');
+                    continue;
+                }
+                const npBenv = buildEnv();
+                const npGuestEnv = {
+                    ANTHROPIC_API_KEY:   npBenv.ANTHROPIC_API_KEY,
+                    ANTHROPIC_MODEL:     npBenv.ANTHROPIC_MODEL,
+                    DISABLE_AUTOUPDATER: '1',
+                    SHELL:               '/bin/bash',
+                    IS_SANDBOX:          '1',
+                };
+                if (npBenv.ANTHROPIC_BASE_URL) npGuestEnv.ANTHROPIC_BASE_URL = npBenv.ANTHROPIC_BASE_URL;
+                const npMsg = 'Use the Write tool to create the file ' + npSentinelGuest +
+                              ' with the exact contents PERMOK and nothing else. Then reply with OK.';
+                const npArgv = [GUEST_CLAUDE, '--output-format', 'stream-json', '--print',
+                                '--dangerously-skip-permissions', '--verbose', npMsg];
+                w(Y + '!test-noperms (proot/2.1.160): settings stripped (no permissions.allow, no customApiKeyResponses), Write task (90s)…' + X + '\r\n');
+                runProotGuest(npArgv, 90000, null, { extraEnv: npGuestEnv, workspace: FILES_DIR })
+                  .then(r => {
+                    const out = r.out || '';
+                    const fileOk    = (() => { try { return fs.readFileSync(npSentinelHost,'utf8').includes('PERMOK'); } catch(_) { return false; } })();
+                    const timedOut  = /\[timeout \d+ms\]/.test(out) || r.code === null;
+                    const gotResult = out.includes('"type":"result"');
+                    const writeFired= /"type"\s*:\s*"tool_use"[^}]*"name"\s*:\s*"Write"/.test(out);
+                    // Login/key-rejection signals (the customApiKeyResponses purpose).
+                    const loginHang = /Invalid API key|login|Please run|select.*account|API Key|authentication/i.test(out) && !gotResult;
+                    restore();
+                    const works = fileOk && !timedOut && !loginHang;
+                    const mark = works ? (G+'✓') : (R+'✗');
+                    let rep = mark + ' !test-noperms (proot) exit=' + r.code + X + '\r\n';
+                    rep += '  Apparatus needed? ' + (works
+                            ? G+'NO — tool ran + key accepted with permissions.allow AND customApiKeyResponses removed. Deletable scar (P4).'+X
+                            : loginHang ? R+'customApiKeyResponses still needed (login/key prompt without it)'+X
+                            : !fileOk ? R+'permissions.allow may still be needed (Write did not land)'+X
+                            : Y+'inconclusive — see stdout'+X) + '\r\n';
+                    rep += '  Write tool fired:   ' + (writeFired ? G+'yes'+X : R+'no'+X) + '\r\n';
+                    rep += '  File written (PERMOK): ' + (fileOk ? G+'yes'+X : R+'no'+X) + '\r\n';
+                    rep += '  Completed (no hang): ' + (!timedOut ? G+'yes'+X : R+'no — TIMED OUT'+X) + '\r\n';
+                    rep += '  Got final result:   ' + (gotResult ? G+'yes'+X : R+'no'+X) + '\r\n';
+                    rep += D+'  (settings.json restored)'+X+'\r\n';
+                    if (!works) rep += D+'stdout (last 500): ' + out.slice(-500).replace(/\r?\n/g,' ') + X + '\r\n';
+                    w(rep);
+                  })
+                  .catch(e => { restore(); w(R + '[!test-noperms proot error] ' + (e && e.message) + X + '\r\n'); });
                 continue;
             }
 
