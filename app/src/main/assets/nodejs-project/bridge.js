@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b28-mcp-waitfor';
+const BRIDGE_BUILD = 'b29-p3b-mcp-wired';
 
 const net   = require('net');
 const http  = require('http');
@@ -2719,6 +2719,52 @@ function writeSpawnMcpConfig() {
         return null;
     }
 }
+
+// P3b — write a NATIVE HTTP mcp-config for the PROOT guest. On 2.1.160/glibc the
+// inv-51 spawn-hang on type:http servers is gone (probed b26–b28), so we hand
+// claude-code the HTTP servers directly (no stdio shim needed — that was the
+// Bionic workaround). The file is written under FILES_DIR/.claude, which is bound
+// to the guest's /root/.claude, so we return the GUEST-visible path. Returns null
+// when no HTTP MCP server is configured (caller omits --mcp-config).
+//
+// NOTE: native HTTP servers register as "pending" and connect ASYNC — the model
+// must call WaitForMcpServers before the tools appear (b28). runMessage pairs this
+// with an --append-system-prompt nudge so the model knows to wait.
+const PROOT_MCP_GUEST_PATH = '/root/.claude/mcp_guest_config.json';
+function writeProotMcpConfig() {
+    try {
+        let httpEntries = [];
+        try { if (fs.existsSync(MCP_HTTP_CONFIG)) httpEntries = JSON.parse(fs.readFileSync(MCP_HTTP_CONFIG, 'utf8')) || []; } catch (_) {}
+        httpEntries = (Array.isArray(httpEntries) ? httpEntries : [])
+            .filter(e => e && e.name && e.url && e.enabled !== false);
+        const hostPath = path.join(FILES_DIR, '.claude', 'mcp_guest_config.json');
+        if (!httpEntries.length) {
+            try { if (fs.existsSync(hostPath)) fs.unlinkSync(hostPath); } catch (_) {}
+            return null;
+        }
+        const mcpServers = {};
+        for (const up of httpEntries) {
+            const safe = String(up.name).replace(/[^a-zA-Z0-9_-]/g, '_');
+            mcpServers[safe] = { type: 'http', url: String(up.url), headers: up.headers || {} };
+        }
+        try { fs.mkdirSync(path.join(FILES_DIR, '.claude'), { recursive: true }); } catch (_) {}
+        fs.writeFileSync(hostPath, JSON.stringify({ mcpServers }, null, 2));
+        log('[mcp-proot] --mcp-config (native http) servers: ' + Object.keys(mcpServers).join(', ') + '\n');
+        return PROOT_MCP_GUEST_PATH;
+    } catch (e) {
+        log('[mcp-proot] writeProotMcpConfig error: ' + e.message + '\n');
+        return null;
+    }
+}
+// Nudge appended to the system prompt when proot MCP is active — native HTTP MCP
+// servers connect async (pending at turn start), so a model that wants an mcp__
+// tool must wait for the connection first (b28).
+const PROOT_MCP_SYS_NUDGE =
+    'Some tools are provided by MCP servers that connect a moment after this turn ' +
+    'begins (they appear as tools named mcp__<server>__<tool>). If you intend to use ' +
+    'any MCP tool and it is not yet listed, FIRST call the WaitForMcpServers tool and ' +
+    'wait until it reports ready, then use the MCP tool.';
+
 const mcpStdioServers = new Map(); // name → { proc, tools, pendingCbs, msgId, buf }
 // MCP-7: per-server restart counters for crash auto-reconnect. Cleared after
 // 5 min of stable uptime (see setTimeout in startMcpStdioServer success path).
@@ -3969,6 +4015,15 @@ function openPrintSession() {
             // it hangs here, we lose nothing. If it works, the entire permission apparatus
             // (card, auto_approve, customApiKeyResponses) can be deleted as scar tissue.
             guestArgv.push('--dangerously-skip-permissions');
+            // P3b: native HTTP MCP for the guest (no stdio shim — inv-51 hang is a
+            // Bionic scar, confirmed b26–b28). --mcp-config is variadic, so a flag
+            // (--append-system-prompt / --continue / --verbose) must follow its value
+            // before the positional message (inv 65b).
+            const guestMcp = writeProotMcpConfig();
+            if (guestMcp) {
+                guestArgv.push('--mcp-config', guestMcp);
+                guestArgv.push('--append-system-prompt', PROOT_MCP_SYS_NUDGE);
+            }
             if (state.hasHistory) guestArgv.push('--continue');
             guestArgv.push('--verbose', finalMsg);
             try {
