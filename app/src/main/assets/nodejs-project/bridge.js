@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b17-noperm-proot';
+const BRIDGE_BUILD = 'b18-defer-p2-reactive';
 
 const net   = require('net');
 const http  = require('http');
@@ -1408,6 +1408,36 @@ const CORE_TOOLS = new Set([
     'Bash', 'Read', 'Edit', 'Write', 'Glob', 'Grep',
 ]);
 
+// The synthetic tool we hand the model in place of the deferred ones (Anthropic
+// shape — anthToOai converts it like any other tool). When the model calls it,
+// the proxy intercepts (never reaches claude-code), matches the catalog, and
+// re-calls the provider WITH the discovered tools added → Level-2 reactive.
+const TOOL_SEARCH_DEF = {
+    name: 'tool_search',
+    description: 'Find and load additional tools you do not currently have. Call this with ' +
+        'keywords when the task needs a capability missing from your current tool list — e.g. ' +
+        '"web search" / "fetch url" for web access, "task" / "todo" for task tracking, ' +
+        '"agent" / "subagent" / "delegate" for dispatching sub-agents, "plan" for plan mode. ' +
+        'Returns the matching tools, which immediately become callable.',
+    input_schema: {
+        type: 'object',
+        properties: { query: { type: 'string', description: 'keywords describing the capability you need' } },
+        required: ['query'],
+    },
+};
+// Match deferred-tool OAI defs against a free-text query (name + description,
+// case-insensitive token overlap). Returns ≤5; if nothing matches, returns the
+// first 5 so the model is never left empty-handed.
+function matchDeferredTools(query, catalog) {
+    const toks = String(query || '').toLowerCase().split(/[^a-z0-9_]+/).filter(t => t.length > 1);
+    let hits = (catalog || []).filter(c => {
+        const hay = ((c.function && c.function.name) + ' ' + (c.function && c.function.description || '')).toLowerCase();
+        return toks.some(t => hay.includes(t));
+    });
+    if (!hits.length) hits = (catalog || []).slice(0, 5);
+    return hits.slice(0, 5);
+}
+
 function handleProxyRequest(anthReq, res) {
     const cfg   = readConfig();
     const pUrl  = cfg.providerUrl || '';
@@ -1439,17 +1469,20 @@ function handleProxyRequest(anthReq, res) {
             (userOff.length ? ' (' + userOff.length + ' user-disabled)' : '') + '\n');
     }
 
-    // ── Tool deferral (Phase 1) ──────────────────────────────────────────────
-    // Gated on cfg.deferTools (!defer on) AND OAI providers only — the Anthropic
-    // passthrough path already gets native server-side tool search for free, so
-    // we never touch its tool list here. Keep = CORE_TOOLS ∪ tools the model has
-    // already used in this conversation (so a discovered tool "sticks" across
-    // turns and isn't re-dropped). Anything not kept is deferred (dropped for now).
-    // SAFETY: this only ever SUBTRACTS from the request; on any doubt it subtracts
-    // nothing, so worst case == today's behavior. Never sends a malformed request.
+    // ── Tool deferral (Phase 2 — reactive "lazy load" for OAI providers) ──────
+    // Gated on !defer on AND OAI providers only (Anthropic passthrough gets native
+    // server-side tool search free). We send CORE ∪ {tools used this session} +
+    // a synthetic `tool_search` tool, and hold the rest in a catalog. When the
+    // model calls tool_search, sendToProvider intercepts it, matches the catalog,
+    // and re-calls the provider WITH the discovered tools added — the model never
+    // loses access, it just fetches tools on demand (see the interception block).
+    // SAFETY: this only SUBTRACTS real tools from the up-front request and ADDS a
+    // discovery path; on any failure the interception finishes the stream cleanly,
+    // and tool_search calls never leak to claude-code.
+    let deferCatalogOai = null;
     if (getDeferTools() && !(cfg.providerUrl || '').includes('api.anthropic.com')
         && Array.isArray(anthReq.tools) && anthReq.tools.length) {
-        // Tools already exercised in history → keep them available.
+        // Tools already exercised in history → keep them available (no re-search).
         const usedInHistory = new Set();
         for (const m of (anthReq.messages || [])) {
             if (!Array.isArray(m.content)) continue;
@@ -1458,18 +1491,30 @@ function handleProxyRequest(anthReq, res) {
             }
         }
         const beforeDefer = anthReq.tools.length;
-        const deferredNames = [];
+        const deferredAnth = [];
         anthReq.tools = anthReq.tools.filter(t => {
             const n = t.name || '';
-            // Always keep core, MCP tools, and anything already used this session.
             const keep = CORE_TOOLS.has(n) || /^mcp__/.test(n) || usedInHistory.has(n);
-            if (!keep) deferredNames.push(n);
+            if (!keep) deferredAnth.push(t);
             return keep;
         });
-        if (deferredNames.length) {
-            log('[proxy] deferred ' + deferredNames.length + '/' + beforeDefer +
-                ' tool(s): ' + deferredNames.join(',') +
-                (usedInHistory.size ? ' (kept ' + usedInHistory.size + ' from history)' : '') + '\n');
+        if (deferredAnth.length) {
+            // Build the catalog in OAI function shape (same mapping anthToOai uses)
+            // so the interception can splice matched tools straight into the follow-up.
+            deferCatalogOai = deferredAnth.map(t => ({
+                type: 'function',
+                function: {
+                    name: t.name,
+                    description: t.description || '',
+                    parameters: t.input_schema || { type: 'object', properties: {} },
+                },
+            }));
+            // Hand the model the discovery tool in place of the deferred ones.
+            anthReq.tools.push(TOOL_SEARCH_DEF);
+            log('[proxy] deferred ' + deferredAnth.length + '/' + beforeDefer +
+                ' tool(s) → catalog: ' + deferredAnth.map(t => t.name).join(',') +
+                (usedInHistory.size ? ' (kept ' + usedInHistory.size + ' from history)' : '') +
+                ' + injected tool_search\n');
         }
     }
 
@@ -1525,6 +1570,11 @@ function handleProxyRequest(anthReq, res) {
     }
     const modelList  = Array.isArray(cfg.modelList) ? cfg.modelList : [];
     const oaiBase    = anthToOai(anthReq, baseModel);
+    // Stash the deferred-tool catalog on the request object; sendToProvider lifts
+    // it off (and deletes it) before sending the body, then uses it to resolve any
+    // tool_search call the model makes. Non-enumerable would be cleaner but a plain
+    // prop is fine since sendToProvider always strips it.
+    if (deferCatalogOai && deferCatalogOai.length) oaiBase.__deferCatalog = deferCatalogOai;
     const hasTools   = !!(oaiBase.tools && oaiBase.tools.length);
     const isHfSpace  = pUrl.includes('.hf.space');
 
@@ -1785,6 +1835,51 @@ function oaiToAnth(oai, model) {
     };
 }
 
+// One-shot non-streaming POST to the provider's /chat/completions → parsed JSON.
+// Used by the tool_search follow-up (and reusable for any internal proxy call).
+function postOai(baseUrl, apiKey, reqObj) {
+    return new Promise((resolve, reject) => {
+        let tgt;
+        try {
+            const base = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+            tgt = new URL(base + '/chat/completions');
+        } catch (e) { return reject(e); }
+        const body = JSON.stringify(Object.assign({}, reqObj, { stream: false }));
+        const hdrs = {
+            'Content-Type':   'application/json',
+            'Content-Length': Buffer.byteLength(body),
+            'Authorization':  'Bearer ' + apiKey,
+            'User-Agent':     'Mozilla/5.0 (Linux; Android 10) ClaudeCodeSetup/1.0',
+            'Accept':         'application/json',
+        };
+        if (tgt.hostname.includes('openrouter')) {
+            hdrs['HTTP-Referer'] = 'https://github.com/fahmi304/Nexus-Mind';
+            hdrs['X-Title']      = 'Nexus Mind';
+        }
+        const lib2 = tgt.protocol === 'https:' ? https : http;
+        const r = lib2.request({
+            hostname: tgt.hostname,
+            port: tgt.port || (tgt.protocol === 'https:' ? 443 : 80),
+            method: 'POST',
+            path: tgt.pathname + (tgt.search || ''),
+            headers: hdrs,
+        }, rr => {
+            let buf = '';
+            rr.setEncoding('utf8');
+            rr.on('data', c => { buf += c; });
+            rr.on('end', () => {
+                try { resolve(JSON.parse(buf)); }
+                catch (e) { reject(new Error('postOai parse: ' + e.message + ' body=' + buf.slice(0, 200))); }
+            });
+            rr.on('error', reject);
+        });
+        r.setTimeout(60000, () => { r.destroy(); reject(new Error('postOai timeout (60s)')); });
+        r.on('error', reject);
+        r.write(body);
+        r.end();
+    });
+}
+
 function sendToProvider(baseUrl, apiKey, oaiReq, stream, res, onBadRequest, on429, on402, on5xx) {
     let targetUrl;
     try {
@@ -1793,6 +1888,12 @@ function sendToProvider(baseUrl, apiKey, oaiReq, stream, res, onBadRequest, on42
     } catch (e) {
         return proxyError(res, 500, 'Invalid provider URL: ' + baseUrl);
     }
+
+    // Lift the deferred-tool catalog off the request (set by handleProxyRequest's
+    // defer block) BEFORE serializing — the provider must never see it. The stream
+    // handler reads `deferCatalog` to resolve tool_search calls.
+    const deferCatalog = oaiReq.__deferCatalog || null;
+    if (oaiReq.__deferCatalog) delete oaiReq.__deferCatalog;
 
     const body    = JSON.stringify(oaiReq);
     const lib     = targetUrl.protocol === 'https:' ? https : http;
@@ -2065,6 +2166,88 @@ function sendToProvider(baseUrl, apiKey, oaiReq, stream, res, onBadRequest, on42
 
                     if (finishCode && !finished) {
                         log('[proxy] finish_reason=' + finishCode + ' tokens=' + outTokens + '\n');
+
+                        // ── tool_search interception (reactive deferral, Phase 2) ─────────
+                        // The model asked for tools it doesn't have. Match the deferred
+                        // catalog, then re-call the provider WITH the discovered tools added
+                        // and stream that result to claude-code (text or a real tool_use).
+                        // claude-code never sees tool_search — it only sees the resolved turn.
+                        // Only fires when tool_search is the SOLE call (the usual shape — the
+                        // model decides it needs tools before doing anything else); a mixed
+                        // call falls through so real tools aren't swallowed.
+                        if (finishCode === 'tool_calls' && deferCatalog) {
+                            const tbVals = Object.values(tcBlocks);
+                            const onlySearch = tbVals.length === 1 && tbVals[0].name === 'tool_search';
+                            if (onlySearch) {
+                                const sb = tbVals[0];
+                                let query = '';
+                                try { query = (JSON.parse(sb.argsAccum || '{}') || {}).query || ''; } catch (_) {}
+                                const matched = matchDeferredTools(query, deferCatalog);
+                                log('[proxy] tool_search query=' + JSON.stringify(query) +
+                                    ' → ' + matched.map(m => m.function.name).join(',') + '\n');
+                                (async () => {
+                                    try {
+                                        // Echo the model's tool_search call + a tool result that
+                                        // names the loaded tools (keeps OAI tool-call history valid).
+                                        const assistantMsg = {
+                                            role: 'assistant', content: null,
+                                            tool_calls: [{ id: sb.id, type: 'function',
+                                                function: { name: 'tool_search', arguments: sb.argsAccum || '{}' } }],
+                                        };
+                                        const toolMsg = {
+                                            role: 'tool', tool_call_id: sb.id,
+                                            content: 'Loaded tools: ' + matched.map(m => m.function.name).join(', ') +
+                                                '. They are now available — call the one you need.',
+                                        };
+                                        // Follow-up tools = everything we already sent (incl. tool_search,
+                                        // so the history ref stays valid) + the discovered tools, deduped.
+                                        const seen = new Set();
+                                        const followTools = [];
+                                        for (const t of (oaiReq.tools || []).concat(matched)) {
+                                            const n = t.function && t.function.name;
+                                            if (n && !seen.has(n)) { seen.add(n); followTools.push(t); }
+                                        }
+                                        const followReq = Object.assign({}, oaiReq, {
+                                            messages: [...(oaiReq.messages || []), assistantMsg, toolMsg],
+                                            tools: followTools,
+                                        });
+                                        delete followReq.tool_choice;
+                                        const parsed = await postOai(baseUrl, apiKey, followReq);
+                                        const anth = oaiToAnth(parsed, oaiReq.model);
+                                        // Serialize the resolved message into the live SSE stream.
+                                        let emittedTool = false;
+                                        for (const block of (anth.content || [])) {
+                                            if (block.type === 'text' && block.text) {
+                                                outTokens++;
+                                                sendEvent('content_block_delta', { type: 'content_block_delta',
+                                                    index: 0, delta: { type: 'text_delta', text: block.text } });
+                                            } else if (block.type === 'tool_use' && block.name !== 'tool_search') {
+                                                const bi = nextBlockIdx++;
+                                                sendEvent('content_block_start', { type: 'content_block_start',
+                                                    index: bi, content_block: { type: 'tool_use', id: block.id,
+                                                        name: block.name, input: {} } });
+                                                sendEvent('content_block_delta', { type: 'content_block_delta',
+                                                    index: bi, delta: { type: 'input_json_delta',
+                                                        partial_json: JSON.stringify(block.input || {}) } });
+                                                tcBlocks['fu_' + bi] = { id: block.id, name: block.name,
+                                                    blockIdx: bi, argsAccum: JSON.stringify(block.input || {}), sig: null };
+                                                emittedTool = true;
+                                                log('[proxy] tool_search→discovered call: ' + block.name + '\n');
+                                            }
+                                        }
+                                        finishStream(emittedTool ? 'tool_use' : 'end_turn');
+                                    } catch (e) {
+                                        log('[proxy] tool_search resolution failed: ' + e.message + '\n');
+                                        // Fail safe: tell the user, close cleanly. Never hang.
+                                        sendEvent('content_block_delta', { type: 'content_block_delta', index: 0,
+                                            delta: { type: 'text_delta',
+                                                text: '\n\n⚠ Could not load additional tools — try rephrasing or !defer off.' } });
+                                        finishStream('end_turn');
+                                    }
+                                })();
+                                return; // async chain calls finishStream
+                            }
+                        }
 
                         // ── WebSearch local execution ────────────────────────────────────
                         // When the provider returns tool_calls for WebSearch or web_search,
