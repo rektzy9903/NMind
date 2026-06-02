@@ -423,15 +423,14 @@ function prootGuestArgv(rp, command, opts) {
         '--bind=' + rp + '/sys/.empty:/sys/fs/selinux',
         '--bind=' + FILES_DIR + ':/root/.nexus',
     ];
-    // opts.rawExec → exec the guest directly (no `/usr/bin/env -i` wrapper), to
-    // isolate whether the hang is the env double-exec vs proot's loader itself.
-    if (opts && opts.rawExec) return a.concat(command);
-    return a.concat([
-        '/usr/bin/env', '-i',
-        'HOME=/root', 'LANG=C.UTF-8',
-        'PATH=/opt/node/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
-        'TERM=xterm-256color', 'TMPDIR=/tmp',
-    ]).concat(command);
+    // Exec the guest command DIRECTLY — never via `/usr/bin/env -i`. proot only
+    // mishandles execve-REPLACE (a process exec'ing in place); env -i does exactly
+    // that, so it ENOSYS'd on EVERY guest call (proven on-device, paste aaI0q:
+    // timeout's fork+exec of cat works, env's exec-replace doesn't). The guest's
+    // environment (HOME/PATH/…) is supplied via proot's spawn env in runProotGuest
+    // (proot propagates its environ to the guest), so no env wrapper is needed.
+    // opts.rawExec is now a no-op (kept for call-site compatibility).
+    return a.concat(command);
 }
 
 // Run a command inside the Ubuntu rootfs via node spawn (NOT ProcessBuilder —
@@ -460,6 +459,15 @@ function runProotGuest(command, timeoutMs, onData, opts) {
             PROOT_LOADER_32: path.join(NATIVE_DIR, 'libproot-loader32.so'),
             PROOT_L2S_DIR:   path.join(rp, '.l2s'),
             PROOT_TMP_DIR:   path.join(rp, 'tmp'),
+            // GUEST environment — proot propagates its environ to the guest, so
+            // these reach the program directly (no `/usr/bin/env -i` wrapper, which
+            // proot can't exec — see prootGuestArgv). HOME/PATH/etc. override any
+            // Android values inherited from process.env above.
+            HOME:   '/root',
+            PATH:   '/opt/node/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+            LANG:   'C.UTF-8',
+            TERM:   'xterm-256color',
+            TMPDIR: '/tmp',
             // proot's seccomp-bpf fast-path mishandles the IN-GUEST execve hand-off
             // on some Android kernels (ptrace cancels the execve to re-issue with
             // the loader, but the seccomp event ALSO fires and returns ENOSYS →
