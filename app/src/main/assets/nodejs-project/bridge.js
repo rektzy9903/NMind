@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b22-probe2-slash';
+const BRIDGE_BUILD = 'b23-probe4-append';
 
 const net   = require('net');
 const http  = require('http');
@@ -5163,6 +5163,59 @@ function openPrintSession() {
                     w(rep);
                   })
                   .catch(e => { sCleanup(); w(R + '[!test-slash proot error] ' + (e && e.message) + X + '\r\n'); });
+                continue;
+            }
+
+            // ── !test-append — re-probe --append-system-prompt on 2.1.160 ──────
+            // Invariant re-audit probe #4 (①). On Bionic/2.1.112 this flag HUNG
+            // every spawn (inv 5a): claude reached the HEAD/health-check then never
+            // POSTed /v1/messages → all spawns exit 143 after the 180s timeout. That
+            // hang is the sole reason custom personas are PREPENDED to the message
+            // text instead. Re-test on glibc/2.1.160: spawn the guest with
+            // --append-system-prompt and a trivial message; if it returns promptly
+            // (not a timeout) the flag works → drop the prepend hack on the proot path.
+            if (line.startsWith('!test-append') && getEngineMode() === 'proot') {
+                const w = (s) => { try { if (state.socket) state.socket.write(SYS_FENCE + s); } catch(_) {} };
+                const G='\x1b[32m', Y='\x1b[33m', R='\x1b[31m', D='\x1b[2m', X='\x1b[0m';
+                const aBenv = buildEnv();
+                try { patchSettings(readConfig()); } catch(_) {}
+                const aGuestEnv = {
+                    ANTHROPIC_API_KEY:   aBenv.ANTHROPIC_API_KEY,
+                    ANTHROPIC_MODEL:     aBenv.ANTHROPIC_MODEL,
+                    DISABLE_AUTOUPDATER: '1',
+                    SHELL:               '/bin/bash',
+                    IS_SANDBOX:          '1',
+                };
+                if (aBenv.ANTHROPIC_BASE_URL) aGuestEnv.ANTHROPIC_BASE_URL = aBenv.ANTHROPIC_BASE_URL;
+                const sysInject = 'You must end every single reply with the exact word BANANA on its own.';
+                const aArgv = [GUEST_CLAUDE, '--output-format', 'stream-json', '--print',
+                               '--dangerously-skip-permissions',
+                               '--append-system-prompt', sysInject,
+                               '--verbose', 'Say hello in one short sentence.'];
+                const t0 = Date.now();
+                w(Y + '!test-append (proot/2.1.160): spawning with --append-system-prompt (90s; Bionic hung here → 180s timeout)…' + X + '\r\n');
+                runProotGuest(aArgv, 90000, null, { extraEnv: aGuestEnv, workspace: FILES_DIR })
+                  .then(r => {
+                    const out = r.out || '';
+                    const ms = Date.now() - t0;
+                    const timedOut  = /\[timeout \d+ms\]/.test(out) || r.code === null;
+                    const gotResult = out.includes('"type":"result"');
+                    const bananaSeen= /BANANA/.test(out);
+                    const flagRejected = /unknown option[^\n]*append-system-prompt/i.test(out);
+                    const works = !timedOut && gotResult && !flagRejected;
+                    const mark = works ? (G+'✓') : (R+'✗');
+                    let rep = mark + ' !test-append (proot) exit=' + r.code + ' in ' + ms + 'ms' + X + '\r\n';
+                    rep += '  --append-system-prompt: ' + (flagRejected ? R+'REJECTED (unknown option)'+X
+                            : works ? G+'WORKS — no hang. Drop the prepend-persona hack on proot.'+X
+                            : timedOut ? R+'HANG (timed out, same as Bionic — keep prepend hack)'+X
+                            : Y+'inconclusive (no result, not a clean timeout)'+X) + '\r\n';
+                    rep += '  Completed (no hang): ' + (!timedOut ? G+'yes'+X : R+'no — TIMED OUT'+X) + '\r\n';
+                    rep += '  Got final result:   ' + (gotResult ? G+'yes'+X : R+'no'+X) + '\r\n';
+                    rep += '  System prompt honored (BANANA): ' + (bananaSeen ? G+'yes'+X : D+'no (flag may still work; weak model)'+X) + '\r\n';
+                    if (!works) rep += D+'stdout (last 500): ' + out.slice(-500).replace(/\r?\n/g,' ') + X + '\r\n';
+                    w(rep);
+                  })
+                  .catch(e => { w(R + '[!test-append proot error] ' + (e && e.message) + X + '\r\n'); });
                 continue;
             }
 
