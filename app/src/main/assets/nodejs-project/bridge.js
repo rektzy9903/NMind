@@ -4277,12 +4277,28 @@ function openPrintSession() {
                         w(D + '  downloading Node 22 (.tar.gz ~30 MB)…' + X + '\r\n');
                         try { await downloadFile(nodeUrl, dest); }
                         catch (e) { w(R + '✗ node download failed: ' + e.message + X + '\r\n'); return; }
-                        w(D + '  extracting into /opt/node…' + X + '\r\n');
+                        // Decompress the .gz HERE in node (zlib), not in the guest:
+                        // `tar -xzf` forks the external `gzip` binary, and that exec
+                        // ENOSYS'd on-device. Producing a plain .tar lets the guest
+                        // use `tar -xf` (no compression filter, no forked gzip).
+                        w(D + '  decompressing (node zlib)…' + X + '\r\n');
+                        const tarPath = path.join(FILES_DIR, 'node22.tar');
+                        try {
+                            const zlib = require('zlib');
+                            await new Promise((res, rej) => {
+                                fs.createReadStream(dest)
+                                  .pipe(zlib.createGunzip())
+                                  .pipe(fs.createWriteStream(tarPath))
+                                  .on('finish', res).on('error', rej);
+                            });
+                        } catch (e) { w(R + '✗ gunzip failed: ' + e.message + X + '\r\n'); try { fs.unlinkSync(dest); } catch(_){} return; }
+                        try { fs.unlinkSync(dest); } catch(_) {}
+                        w(D + '  extracting into /opt/node (tar -xf, no gzip fork)…' + X + '\r\n');
                         r = await ge(['/bin/sh', '-c',
-                            'mkdir -p /opt && tar -xzf /root/.nexus/node22.tar.gz -C /opt && ' +
+                            'mkdir -p /opt && tar -xf /root/.nexus/node22.tar -C /opt && ' +
                             'rm -rf /opt/node && mv /opt/node-v22.22.3-linux-arm64 /opt/node && ' +
                             '/opt/node/bin/node --version'], 180000);
-                        try { fs.unlinkSync(dest); } catch(_) {}
+                        try { fs.unlinkSync(tarPath); } catch(_) {}
                         if (r.code !== 0) { fail('node extract/run failed', r); return; }
                     }
                     w(G + '✓ node ' + r.out.trim() + X + '\r\n');
