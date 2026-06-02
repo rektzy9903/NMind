@@ -101,3 +101,58 @@ jobs:
           echo "Build successful"
           echo "APK size: $(du -sh "$APK" | cut -f1)"
           echo "Path: $APK"
+
+      # ── 11. Push APK to Appetize.io (browser emulator) ───────────────────────
+      # Appetize runs a PREBUILT APK; it cannot pull from CI, so we push it via
+      # the REST API. Requires repo secret APPETIZE_API_TOKEN (Appetize account →
+      # API token). Optional repo VARIABLE APPETIZE_PUBLIC_KEY: when set, we UPDATE
+      # that same app so the test URL stays stable; when empty, we CREATE a new app
+      # and print its publicKey to save. Skips gracefully if the token isn't set,
+      # so existing builds never break.
+      - name: Upload APK to Appetize
+        env:
+          APPETIZE_API_TOKEN:  ${{ secrets.APPETIZE_API_TOKEN }}
+          APPETIZE_PUBLIC_KEY: ${{ vars.APPETIZE_PUBLIC_KEY }}
+        run: |
+          set -euo pipefail
+          APK=app/build/outputs/apk/debug/NexusMind-debug.apk
+
+          if [ -z "${APPETIZE_API_TOKEN:-}" ]; then
+            echo "::notice::APPETIZE_API_TOKEN not set — skipping Appetize upload."
+            echo "Add it under Settings → Secrets and variables → Actions to enable."
+            exit 0
+          fi
+
+          if [ -n "${APPETIZE_PUBLIC_KEY:-}" ]; then
+            echo "Updating existing Appetize app ($APPETIZE_PUBLIC_KEY) — URL stays the same"
+            ENDPOINT="https://${APPETIZE_API_TOKEN}@api.appetize.io/v1/apps/${APPETIZE_PUBLIC_KEY}"
+          else
+            echo "Creating a NEW Appetize app (no APPETIZE_PUBLIC_KEY set yet)"
+            ENDPOINT="https://${APPETIZE_API_TOKEN}@api.appetize.io/v1/apps"
+          fi
+
+          RESP=$(curl -sS --fail-with-body "$ENDPOINT" \
+                   -F "file=@${APK}" \
+                   -F "platform=android")
+
+          PUB=$(echo "$RESP" | jq -r '.publicKey // empty')
+          URL=$(echo "$RESP" | jq -r '.publicURL // .appURL // empty')
+
+          {
+            echo "### 📱 Appetize build ready"
+            echo ""
+            echo "- **Test link:** ${URL:-<see raw response>}"
+            echo "- **publicKey:** \`${PUB:-?}\`"
+            if [ -z "${APPETIZE_PUBLIC_KEY:-}" ]; then
+              echo ""
+              echo "> ⚠️ First upload — save \`$PUB\` as repo **variable** \`APPETIZE_PUBLIC_KEY\`"
+              echo "> (Settings → Secrets and variables → Actions → Variables) so future pushes"
+              echo "> update the SAME app and the test URL stops changing."
+            fi
+            echo ""
+            echo "> ℹ️ ABI note: this APK ships **arm64/armv7 only** (no x86). If Appetize's device"
+            echo "> is x86_64, the UI loads but the Node bridge (libnode.so) won't — pick an ARM"
+            echo "> device, or treat a real phone as ground truth for engine testing."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo "Appetize upload OK — publicKey=$PUB url=$URL"
