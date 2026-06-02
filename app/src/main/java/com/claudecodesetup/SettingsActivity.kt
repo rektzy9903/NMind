@@ -123,18 +123,21 @@ class SettingsActivity : AppCompatActivity() {
                     }
                     return@launch
                 }
-                runOnUiThread { status.text = "✅ ${res.message}\nProbing via proot…" }
+                // proot itself is driven by node (bridge), NOT ProcessBuilder:
+                // bionic scrubs LD_LIBRARY_PATH on PB children (AT_SECURE) so proot
+                // can't resolve libtalloc.so.2 here. Extraction (this button) is
+                // Kotlin; the proot probe is `!test-rootfs` in the terminal.
                 val diag = ubuntu.diagnostics()
-                val envEcho = ubuntu.probeLinkerEnv()
-                val (code, out) = ubuntu.probeOsRelease()
                 runOnUiThread {
                     bar.visibility = View.GONE
                     output.visibility = View.VISIBLE
-                    val ok = code == 0 && out.contains("Ubuntu", ignoreCase = true)
-                    status.text = if (ok) "✅ Ubuntu rootfs runs via proot (exit=$code)"
-                                  else "❌ probe failed (exit=$code)"
-                    status.setTextColor(Color.parseColor(if (ok) "#3DD68C" else "#F87171"))
-                    output.text = ("── preflight ──\n$diag── sh sees ──\n$envEcho\n\n── probe (exit=$code) ──\n$out").take(2500)
+                    status.text = "✅ ${res.message}"
+                    status.setTextColor(Color.parseColor("#3DD68C"))
+                    output.text = ("── rootfs extracted ──\n$diag\n" +
+                        "Now verify proot in the terminal:\n" +
+                        "  open Chat Box → type  !test-rootfs\n" +
+                        "(proot must run via node, not here — AT_SECURE strips\n" +
+                        " LD_LIBRARY_PATH from ProcessBuilder children.)").take(2500)
                     btn.isEnabled = true
                 }
             }

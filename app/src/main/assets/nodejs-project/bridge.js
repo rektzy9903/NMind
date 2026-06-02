@@ -3736,6 +3736,7 @@ function openPrintSession() {
                     '  \x1b[33m!test-msg [text]\x1b[0m    Run exact runMessage path (patchSettings+stdin) — use to diagnose hangs\r\n' +
                     '  \x1b[33m!test-agent\x1b[0m         Probe sub-agent dispatch via the --agents flag (inline JSON)\r\n' +
                     '  \x1b[33m!test-proot\x1b[0m         Probe: does bundled proot exec from nativeLibDir (Ubuntu engine)\r\n' +
+                    '  \x1b[33m!test-rootfs\x1b[0m        Probe: run extracted Ubuntu rootfs via proot (cat /etc/os-release)\r\n' +
                     '  \x1b[33m!debug\x1b[0m              Dump model/provider/settings/mcp state for remote debugging\r\n' +
                     '  \x1b[33m!help\x1b[0m               Show this help\r\n' +
                     '  \x1b[33m$ <cmd>\x1b[0m             Run a shell command\r\n\r\n'
@@ -3927,6 +3928,93 @@ function openPrintSession() {
                     });
                 } catch(e) {
                     w('\x1b[31m[!test-proot error] ' + e.message + '\x1b[0m\r\n');
+                }
+                continue;
+            }
+
+            // ── !test-rootfs — Ubuntu-engine P1b acceptance probe ────────────
+            // Runs the REAL proot argv (rootfs + binds) against the extracted
+            // Ubuntu rootfs (FILES_DIR/ubuntu) via node's spawn and prints
+            // /etc/os-release. MUST go through node, not Kotlin ProcessBuilder:
+            // bionic scrubs LD_LIBRARY_PATH on ProcessBuilder children (AT_SECURE),
+            // so proot can't resolve libtalloc.so.2 there — confirmed on-device.
+            // node/libuv execve honors LD_LIBRARY_PATH (same path !test-proot uses).
+            // Extract the rootfs first via Settings → 🐞 Ubuntu engine.
+            if (line.startsWith('!test-rootfs')) {
+                const w = (s) => { try { if (state.socket) state.socket.write(SYS_FENCE + s); } catch(_) {} };
+                try {
+                    const prootBin = path.join(NATIVE_DIR, 'libproot.so');
+                    const rp = path.join(FILES_DIR, 'ubuntu');
+                    if (!fs.existsSync(path.join(rp, 'etc', 'os-release'))) {
+                        w('\x1b[31m✗ !test-rootfs: no rootfs at ' + rp + '\x1b[0m\r\n' +
+                          '\x1b[2mExtract it first: Settings → 🐞 Ubuntu engine → Install + probe.\x1b[0m\r\n');
+                        continue;
+                    }
+                    const prootLibDir = path.join(FILES_DIR, '.proot-lib');
+                    try { fs.mkdirSync(prootLibDir, { recursive: true }); } catch(_) {}
+                    const tallocLink = path.join(prootLibDir, 'libtalloc.so.2');
+                    try { fs.unlinkSync(tallocLink); } catch(_) {}
+                    try { fs.symlinkSync(path.join(NATIVE_DIR, 'libtalloc.so'), tallocLink); } catch(_) {}
+                    try { fs.mkdirSync(path.join(rp, 'tmp'), { recursive: true }); } catch(_) {}
+
+                    const argv = [
+                        '-L', '--kernel-release=6.17.0-PRoot-Distro',
+                        '--link2symlink', '--kill-on-exit',
+                        '--rootfs=' + rp, '--root-id', '--cwd=/root',
+                        '--bind=/dev', '--bind=/dev/urandom:/dev/random',
+                        '--bind=/proc',
+                        '--bind=/proc/self/fd:/dev/fd',
+                        '--bind=/proc/self/fd/0:/dev/stdin',
+                        '--bind=/proc/self/fd/1:/dev/stdout',
+                        '--bind=/proc/self/fd/2:/dev/stderr',
+                        '--bind=/sys',
+                        '--bind=' + rp + '/proc/.loadavg:/proc/loadavg',
+                        '--bind=' + rp + '/proc/.stat:/proc/stat',
+                        '--bind=' + rp + '/proc/.uptime:/proc/uptime',
+                        '--bind=' + rp + '/proc/.version:/proc/version',
+                        '--bind=' + rp + '/proc/.vmstat:/proc/vmstat',
+                        '--bind=' + rp + '/proc/.sysctl_entry_cap_last_cap:/proc/sys/kernel/cap_last_cap',
+                        '--bind=' + rp + '/proc/.sysctl_inotify_max_user_watches:/proc/sys/fs/inotify/max_user_watches',
+                        '--bind=' + rp + '/sys/.empty:/sys/fs/selinux',
+                        '--bind=' + FILES_DIR + ':/root/.nexus',
+                        '/usr/bin/env', '-i',
+                        'HOME=/root', 'LANG=C.UTF-8',
+                        'PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+                        'TERM=xterm-256color', 'TMPDIR=/tmp',
+                        '/usr/bin/cat', '/etc/os-release',
+                    ];
+                    const pEnv = Object.assign({}, process.env, {
+                        LD_LIBRARY_PATH: prootLibDir + ':' + NATIVE_DIR,
+                        PROOT_LOADER:    path.join(NATIVE_DIR, 'libproot-loader.so'),
+                        PROOT_LOADER_32: path.join(NATIVE_DIR, 'libproot-loader32.so'),
+                        PROOT_L2S_DIR:   path.join(rp, '.l2s'),
+                        PROOT_TMP_DIR:   path.join(rp, 'tmp'),
+                    });
+                    w('\x1b[33m!test-rootfs: proot → cat /etc/os-release (30s)…\x1b[0m\r\n');
+                    const pch = spawn(prootBin, argv, { env: pEnv });
+                    let pOut = '', pErr = '', pDone = false;
+                    pch.stdout.on('data', d => { pOut += d.toString(); });
+                    pch.stderr.on('data', d => { pErr += d.toString(); });
+                    pch.on('error', e => {
+                        if (pDone) return; pDone = true;
+                        w('\x1b[31m✗ !test-rootfs: spawn FAILED — ' + e.message + '\x1b[0m\r\n');
+                    });
+                    const pTid = setTimeout(() => {
+                        if (pDone) return; pDone = true;
+                        try { pch.kill(); } catch(_) {}
+                        w('\x1b[31m✗ !test-rootfs: TIMEOUT 30s\x1b[0m\r\n');
+                    }, 30000);
+                    pch.on('close', code => {
+                        if (pDone) return; pDone = true;
+                        clearTimeout(pTid);
+                        const txt = (pOut + pErr).trim();
+                        const ok = code === 0 && /Ubuntu/i.test(pOut);
+                        w((ok ? '\x1b[32m✅ Ubuntu rootfs runs via proot — P1b CONFIRMED\x1b[0m'
+                              : '\x1b[31m✗ rootfs probe failed (exit=' + code + ')\x1b[0m') + '\r\n' +
+                          '\x1b[2m' + (txt.slice(0, 600) || '(no output)') + '\x1b[0m\r\n');
+                    });
+                } catch(e) {
+                    w('\x1b[31m[!test-rootfs error] ' + e.message + '\x1b[0m\r\n');
                 }
                 continue;
             }
