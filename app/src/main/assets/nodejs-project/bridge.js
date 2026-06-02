@@ -3957,18 +3957,24 @@ function openPrintSession() {
                     try { fs.symlinkSync(path.join(NATIVE_DIR, 'libtalloc.so'), tallocLink); } catch(_) {}
                     try { fs.mkdirSync(path.join(rp, 'tmp'), { recursive: true }); } catch(_) {}
 
+                    // NOTE: do NOT --bind=/dev wholesale. On the Android emulator
+                    // (Appetize) /dev contains goldfish_pipe/goldfish_address_space/
+                    // ashmem* (emulator-IPC nodes); exposing them made proot loop
+                    // forever "access to /dev/goldfish_pipe". Bind only the real
+                    // char devices a guest needs. Same hygiene helps real devices.
                     const argv = [
                         '-v', '1',
                         '-L', '--kernel-release=6.17.0-PRoot-Distro',
                         '--link2symlink', '--kill-on-exit',
                         '--rootfs=' + rp, '--root-id', '--cwd=/root',
-                        '--bind=/dev', '--bind=/dev/urandom:/dev/random',
+                        '--bind=/dev/null', '--bind=/dev/zero',
+                        '--bind=/dev/random', '--bind=/dev/urandom',
+                        '--bind=/dev/tty',
                         '--bind=/proc',
                         '--bind=/proc/self/fd:/dev/fd',
                         '--bind=/proc/self/fd/0:/dev/stdin',
                         '--bind=/proc/self/fd/1:/dev/stdout',
                         '--bind=/proc/self/fd/2:/dev/stderr',
-                        '--bind=/sys',
                         '--bind=' + rp + '/proc/.loadavg:/proc/loadavg',
                         '--bind=' + rp + '/proc/.stat:/proc/stat',
                         '--bind=' + rp + '/proc/.uptime:/proc/uptime',
