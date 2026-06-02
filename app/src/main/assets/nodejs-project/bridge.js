@@ -459,9 +459,15 @@ function runProotGuest(command, timeoutMs, onData, opts) {
         // Self-diagnosing markers (to stderr) pinpoint where a failure happens:
         //   __WRAP_START__ reached the wrapper; __WRAP_PREEXEC__ loop done, about to
         //   exec proot; __WRAP_EXECFAIL rc=N → exec of proot itself failed.
+        // Re-check each fd still exists before closing: globbing /proc/$$/fd/*
+        // lists the dir-stream's OWN fd, which mksh closes after expanding — so
+        // that number is stale, and `exec <stale>&-` is a fatal redirection error
+        // on a non-interactive shell (aborts before reaching exec proot → 127).
         const closeFds =
             'echo __WRAP_START__ 1>&2; ' +
-            'for f in /proc/$$/fd/*; do n=${f##*/}; if [ "$n" -gt 2 ] 2>/dev/null; then eval "exec $n<&-" 2>/dev/null; fi; done 2>/dev/null; ' +
+            'for f in /proc/$$/fd/*; do n=${f##*/}; ' +
+            'if [ "$n" -gt 2 ] 2>/dev/null && [ -e "/proc/$$/fd/$n" ]; then eval "exec $n<&-" 2>/dev/null; fi; ' +
+            'done 2>/dev/null; ' +
             'echo __WRAP_PREEXEC__ 1>&2; ' +
             'exec "$@"; ' +
             'echo "__WRAP_EXECFAIL rc=$?" 1>&2';
