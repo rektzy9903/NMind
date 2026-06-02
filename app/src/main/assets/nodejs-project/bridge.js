@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b16-defer-p1';
+const BRIDGE_BUILD = 'b17-noperm-proot';
 
 const net   = require('net');
 const http  = require('http');
@@ -3556,6 +3556,12 @@ function openPrintSession() {
             // the panel would never appear because we'd return before sending the OSC.
             const savedApprove = loadApproveList();
             const isAgentTool = (toolName === 'Agent' || toolName === 'Task');
+            // Proot engine auto-runs every tool (--dangerously-skip-permissions +
+            // IS_SANDBOX=1), so the permission card is pure cosmetic noise — the tool
+            // already ran by the time it'd show. Suppress it. Keep Agent/Task so the
+            // sub-agent panel still renders. Legacy engine keeps the card (it relies on
+            // the y\n + permissions.allow auto-approve and the "Always allow" button).
+            if (!isAgentTool && getEngineMode() === 'proot') return;
             if (!isAgentTool && isToolAlreadyAllowed(toolName, toolInput, savedApprove.allow)) return;
             const perm = { toolName, toolInput, id: permId, suggestions, autoApproved: true };
             state.pendingPerm = perm;
@@ -3596,6 +3602,8 @@ function openPrintSession() {
         // the OSC even when permissions.allow:['*'] would otherwise suppress it.
         const savedApprove = loadApproveList();
         const isAgentTool = (toolName === 'Agent' || toolName === 'Task');
+        // Proot engine: tools auto-run, card is noise — suppress (keep Agent/Task panel).
+        if (!isAgentTool && getEngineMode() === 'proot') return;
         if (!isAgentTool && isToolAlreadyAllowed(toolName, { prompt: line }, savedApprove.allow)) return;
         const perm = { toolName, toolInput: { prompt: line }, id: Date.now() + '-txt', autoApproved: true };
         state.pendingPerm = perm;
