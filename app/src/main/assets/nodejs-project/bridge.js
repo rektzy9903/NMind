@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b12-proot-claudejson';
+const BRIDGE_BUILD = 'b13-proot-cwd';
 
 const net   = require('net');
 const http  = require('http');
@@ -429,7 +429,7 @@ function prootGuestArgv(rp, command, opts) {
     const a = [
         '-L', '--kernel-release=6.17.0-PRoot-Distro',
         '--link2symlink', '--kill-on-exit',
-        '--rootfs=' + rp, '--root-id', '--cwd=/root',
+        '--rootfs=' + rp, '--root-id',
         '--bind=/dev/null', '--bind=/dev/zero',
         '--bind=/dev/random', '--bind=/dev/urandom', '--bind=/dev/tty',
         '--bind=/proc',
@@ -461,6 +461,33 @@ function prootGuestArgv(rp, command, opts) {
         // found and persists on the Android side alongside .claude/.
         '--bind=' + path.join(FILES_DIR, '.claude.json') + ':/root/.claude.json',
     ];
+    // ── P3a: workspace cwd + Android storage binds ──────────────────────────
+    // Make the guest claude see the SAME filesystem as the legacy Bash tool. We
+    // bind the standard Android storage roots into the guest at the IDENTICAL
+    // path (host /sdcard → guest /sdcard, etc.) so any absolute path resolves the
+    // same inside and outside proot — a file the user `$ cd`'d into or that claude
+    // Reads/Writes lands in the real Android location. These mirror
+    // permissions.additionalDirectories (inv 62). Only bind paths that exist —
+    // proot refuses a non-existent host path ("can't sanitize binding").
+    for (const root of ['/sdcard', '/storage/emulated/0', FILES_DIR]) {
+        try { if (fs.existsSync(root)) a.push('--bind=' + root + ':' + root); } catch (_) {}
+    }
+    // Guest working directory: the user's current Android cwd (opts.workspace),
+    // bound above, so Read/Write/Edit/Bash operate where the user expects. Falls
+    // back to /root (guest HOME) when no workspace is given (probes, no cwd set).
+    let guestCwd = '/root';
+    if (opts && opts.workspace) {
+        try {
+            if (fs.existsSync(opts.workspace)) {
+                // ensure the exact dir is bound (covered by a root bind above in
+                // the common case, but a workspace outside those roots needs its own)
+                if (!['/sdcard', '/storage/emulated/0', FILES_DIR].some(r => opts.workspace === r || opts.workspace.startsWith(r + '/')))
+                    a.push('--bind=' + opts.workspace + ':' + opts.workspace);
+                guestCwd = opts.workspace;
+            }
+        } catch (_) {}
+    }
+    a.push('--cwd=' + guestCwd);
     // Exec the guest command DIRECTLY — never via `/usr/bin/env -i`. proot only
     // mishandles execve-REPLACE (a process exec'ing in place); env -i does exactly
     // that, so it ENOSYS'd on EVERY guest call (proven on-device, paste aaI0q:
@@ -3616,7 +3643,7 @@ function openPrintSession() {
         // now that CLAUDE_CODE_SANDBOXED is gone (which also un-sandboxes the Bash tool).
         ensureProjectTrusted(spawnCwd);
         const engineMode = getEngineMode();
-        log('[runMessage] engine=' + engineMode + ' spawn claude-code, model=' + (cfg.modelId || '?') + ' provider=' + (cfg.providerId || '?') + ' mode=' + (cfg.mode || '?') + ' baseUrl=' + (cfg.baseUrl || '?') + '\n');
+        log('[runMessage] engine=' + engineMode + ' spawn claude-code, model=' + (cfg.modelId || '?') + ' provider=' + (cfg.providerId || '?') + ' mode=' + (cfg.mode || '?') + ' baseUrl=' + (cfg.baseUrl || '?') + (engineMode === 'proot' ? ' guestCwd=' + spawnCwd : '') + '\n');
         log('[runMessage] argv: --output-format stream-json --print' + (spawnMcpCfg ? ' --mcp-config ' + spawnMcpCfg : '') + (state.hasHistory ? ' --continue' : '') + ' --verbose <msg>' + '\n');
         let proc;
         if (engineMode === 'proot') {
@@ -3645,7 +3672,7 @@ function openPrintSession() {
             if (state.hasHistory) guestArgv.push('--continue');
             guestArgv.push('--verbose', finalMsg);
             try {
-                proc = prootChild(guestArgv, { extraEnv: guestEnv });
+                proc = prootChild(guestArgv, { extraEnv: guestEnv, workspace: spawnCwd });
             } catch (e) {
                 log('[runMessage] proot spawn failed: ' + e.message + '\n');
                 try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[31m[proot engine spawn error] ' + e.message + '\x1b[0m\r\n'); } catch(_) {}
