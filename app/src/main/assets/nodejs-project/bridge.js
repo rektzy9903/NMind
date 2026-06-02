@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b25-probe6-shell';
+const BRIDGE_BUILD = 'b26-p3b-mcpprobe';
 
 const net   = require('net');
 const http  = require('http');
@@ -5358,6 +5358,95 @@ function openPrintSession() {
                     w(rep);
                   })
                   .catch(e => { w(R + '[!test-shell proot error] ' + (e && e.message) + X + '\r\n'); });
+                continue;
+            }
+
+            // ── !test-mcp — P3b: probe NATIVE HTTP MCP in the proot guest ───────
+            // The legacy path wraps each HTTP MCP server (e.g. Exa) in a stdio shim
+            // (mcp_http_proxy.js via libnode-launcher) because 2.1.112 HUNG on a
+            // native type:http/sse server connecting at spawn (inv 51). That shim is
+            // all Android-side (LAUNCHER, NATIVE_DIR, FILES_DIR paths) and can't run
+            // in the guest — hence `mcp tools in request: 0` on proot. The guest has
+            // real node + real network, so native HTTP MCP should work directly on
+            // 2.1.160. Test: write a NATIVE {type:"http",url,headers} mcp-config into
+            // the guest (/root/.claude via bind), spawn with --mcp-config, and check
+            // (a) no spawn hang (inv 51 gone) (b) mcp__<server>__* tools register.
+            if (line.startsWith('!test-mcp') && getEngineMode() === 'proot') {
+                const w = (s) => { try { if (state.socket) state.socket.write(SYS_FENCE + s); } catch(_) {} };
+                const G='\x1b[32m', Y='\x1b[33m', R='\x1b[31m', D='\x1b[2m', X='\x1b[0m';
+                let httpEntries = [];
+                try { if (fs.existsSync(MCP_HTTP_CONFIG)) httpEntries = JSON.parse(fs.readFileSync(MCP_HTTP_CONFIG,'utf8')) || []; } catch(_) {}
+                httpEntries = (Array.isArray(httpEntries) ? httpEntries : []).filter(e => e && e.name && e.url);
+                if (!httpEntries.length) {
+                    w(Y + '!test-mcp: no HTTP MCP server configured. Add one (e.g. Exa) in Settings → MCP first, then retry.' + X + '\r\n');
+                    continue;
+                }
+                // Build a NATIVE http mcp-config (no shim).
+                const mcpServers = {};
+                for (const up of httpEntries) {
+                    const safe = String(up.name).replace(/[^a-zA-Z0-9_-]/g, '_');
+                    mcpServers[safe] = { type: 'http', url: String(up.url), headers: up.headers || {} };
+                }
+                const guestCfgHost  = path.join(FILES_DIR, '.claude', 'mcp_test_guest.json');
+                const guestCfgGuest = '/root/.claude/mcp_test_guest.json';
+                try {
+                    fs.mkdirSync(path.join(FILES_DIR, '.claude'), { recursive: true });
+                    fs.writeFileSync(guestCfgHost, JSON.stringify({ mcpServers }, null, 2));
+                } catch (e) { w(R + '✗ !test-mcp: could not write guest mcp-config: ' + e.message + X + '\r\n'); continue; }
+                const srvNames = Object.keys(mcpServers);
+                const mBenv = buildEnv();
+                try { patchSettings(readConfig()); } catch(_) {}
+                const mGuestEnv = {
+                    ANTHROPIC_API_KEY:   mBenv.ANTHROPIC_API_KEY,
+                    ANTHROPIC_MODEL:     mBenv.ANTHROPIC_MODEL,
+                    DISABLE_AUTOUPDATER: '1',
+                    SHELL:               '/bin/bash',
+                    IS_SANDBOX:          '1',
+                    MCP_TIMEOUT:         '30000',
+                    MCP_TOOL_TIMEOUT:    '30000',
+                };
+                if (mBenv.ANTHROPIC_BASE_URL) mGuestEnv.ANTHROPIC_BASE_URL = mBenv.ANTHROPIC_BASE_URL;
+                // inv 65b: --mcp-config is variadic — keep --verbose between it and the message.
+                const mMsg = 'List the names of any tools you have whose names begin with "mcp__", one per line. ' +
+                             'If you have none, reply exactly: NO_MCP_TOOLS.';
+                const mArgv = [GUEST_CLAUDE, '--output-format', 'stream-json', '--print',
+                               '--dangerously-skip-permissions',
+                               '--mcp-config', guestCfgGuest, '--verbose', mMsg];
+                w(Y + '!test-mcp (proot/2.1.160): native HTTP MCP [' + srvNames.join(', ') + '], spawning (120s; inv-51 hung here on 2.1.112)…' + X + '\r\n');
+                runProotGuest(mArgv, 120000, null, { extraEnv: mGuestEnv, workspace: FILES_DIR })
+                  .then(r => {
+                    const out = r.out || '';
+                    const timedOut   = /\[timeout \d+ms\]/.test(out) || r.code === null;
+                    const gotResult  = out.includes('"type":"result"');
+                    const mcpToolSeen= /mcp__/.test(out);
+                    // system/init event lists connected mcp_servers — parse for status.
+                    let connected = false, failed = false;
+                    for (const ln of out.split('\n')) {
+                        const s = ln.trim(); if (!s.startsWith('{')) continue;
+                        let o; try { o = JSON.parse(s); } catch(_) { continue; }
+                        const arr = o && o.mcp_servers;
+                        if (Array.isArray(arr)) for (const sv of arr) {
+                            if (/connect/i.test(sv.status||'')) connected = true;
+                            if (/fail|error/i.test(sv.status||'')) failed = true;
+                        }
+                    }
+                    const works = !timedOut && (connected || mcpToolSeen);
+                    try { fs.unlinkSync(guestCfgHost); } catch(_) {}
+                    const mark = works ? (G+'✓') : (R+'✗');
+                    let rep = mark + ' !test-mcp (proot) exit=' + r.code + X + '\r\n';
+                    rep += '  Native HTTP MCP works? ' + (works
+                            ? G+'YES — server connected + tools registered at spawn (inv-51 hang is a Bionic scar). Wire --mcp-config into proot runMessage.'+X
+                            : timedOut ? R+'NO — spawn HUNG (inv-51 still bites; need the stdio shim in-guest)'+X
+                            : failed ? R+'server FAILED to connect (check URL/headers/key)'+X
+                            : Y+'inconclusive — see stdout'+X) + '\r\n';
+                    rep += '  Server connected:   ' + (connected ? G+'yes'+X : (failed ? R+'no (failed)'+X : D+'unknown'+X)) + '\r\n';
+                    rep += '  mcp__ tool seen:    ' + (mcpToolSeen ? G+'yes'+X : R+'no'+X) + '\r\n';
+                    rep += '  Completed (no hang): ' + (!timedOut ? G+'yes'+X : R+'no — TIMED OUT'+X) + '\r\n';
+                    rep += '  Got final result:   ' + (gotResult ? G+'yes'+X : R+'no'+X) + '\r\n';
+                    if (!works) rep += D+'stdout (last 600): ' + out.slice(-600).replace(/\r?\n/g,' ') + X + '\r\n';
+                    w(rep);
+                  })
+                  .catch(e => { try { fs.unlinkSync(guestCfgHost); } catch(_) {} w(R + '[!test-mcp proot error] ' + (e && e.message) + X + '\r\n'); });
                 continue;
             }
 
