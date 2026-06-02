@@ -3958,6 +3958,7 @@ function openPrintSession() {
                     try { fs.mkdirSync(path.join(rp, 'tmp'), { recursive: true }); } catch(_) {}
 
                     const argv = [
+                        '-v', '1',
                         '-L', '--kernel-release=6.17.0-PRoot-Distro',
                         '--link2symlink', '--kill-on-exit',
                         '--rootfs=' + rp, '--root-id', '--cwd=/root',
@@ -3990,7 +3991,7 @@ function openPrintSession() {
                         PROOT_L2S_DIR:   path.join(rp, '.l2s'),
                         PROOT_TMP_DIR:   path.join(rp, 'tmp'),
                     });
-                    w('\x1b[33m!test-rootfs: proot → cat /etc/os-release (30s)…\x1b[0m\r\n');
+                    w('\x1b[33m!test-rootfs: proot -v1 → cat /etc/os-release (60s)…\x1b[0m\r\n');
                     const pch = spawn(prootBin, argv, { env: pEnv });
                     let pOut = '', pErr = '', pDone = false;
                     pch.stdout.on('data', d => { pOut += d.toString(); });
@@ -4001,9 +4002,12 @@ function openPrintSession() {
                     });
                     const pTid = setTimeout(() => {
                         if (pDone) return; pDone = true;
-                        try { pch.kill(); } catch(_) {}
-                        w('\x1b[31m✗ !test-rootfs: TIMEOUT 30s\x1b[0m\r\n');
-                    }, 30000);
+                        try { pch.kill('SIGKILL'); } catch(_) {}
+                        // Dump the TAIL of proot's -v1 trace — shows where it hung.
+                        const tail = (pErr + pOut).trim().slice(-1200);
+                        w('\x1b[31m✗ !test-rootfs: TIMEOUT 60s (proot hung)\x1b[0m\r\n' +
+                          '\x1b[2m── last proot -v1 trace ──\r\n' + (tail || '(no output at all — stuck before first write)') + '\x1b[0m\r\n');
+                    }, 60000);
                     pch.on('close', code => {
                         if (pDone) return; pDone = true;
                         clearTimeout(pTid);
