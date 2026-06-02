@@ -459,15 +459,28 @@ function runProotGuest(command, timeoutMs, onData, opts) {
         // Self-diagnosing markers (to stderr) pinpoint where a failure happens:
         //   __WRAP_START__ reached the wrapper; __WRAP_PREEXEC__ loop done, about to
         //   exec proot; __WRAP_EXECFAIL rc=N → exec of proot itself failed.
-        // Re-check each fd still exists before closing: globbing /proc/$$/fd/*
-        // lists the dir-stream's OWN fd, which mksh closes after expanding — so
-        // that number is stale, and `exec <stale>&-` is a fatal redirection error
-        // on a non-interactive shell (aborts before reaching exec proot → 127).
+        // Close inherited fds >2 before exec-ing proot. TWO mksh traps to avoid:
+        //  (1) globbing /proc/$$/fd/* lists the dir-stream's OWN fd, which mksh
+        //      closes after expanding → that number is stale; `exec <stale><&-`
+        //      is a FATAL redirection error on a non-interactive special builtin
+        //      (aborts → exit 127). Guard: re-test `[ -e ]` per fd.
+        //  (2) `cmd 2>/dev/null` makes mksh save the real stderr to a high fd for
+        //      the redirect's lifetime. `done 2>/dev/null` holds that save-fd open
+        //      across the WHOLE loop — it appears in /proc/$$/fd, passes `[ -e ]`,
+        //      so the loop CLOSES mksh's own saved-stderr fd; when the loop ends
+        //      mksh fails to restore stderr → abort BEFORE __WRAP_PREEXEC__ → 127.
+        //      Fix: NO redirections inside the loop, so no save-fds exist to step
+        //      on. With no `2>/dev/null` hiding errors, the `[ -e ]` immediately
+        //      before each close guarantees the fd is open (single-threaded), so
+        //      the close can never be the fatal bad-fd case. `case` skips the
+        //      literal '*' if the glob ever fails to match.
         const closeFds =
             'echo __WRAP_START__ 1>&2; ' +
-            'for f in /proc/$$/fd/*; do n=${f##*/}; ' +
-            'if [ "$n" -gt 2 ] 2>/dev/null && [ -e "/proc/$$/fd/$n" ]; then eval "exec $n<&-" 2>/dev/null; fi; ' +
-            'done 2>/dev/null; ' +
+            'for f in /proc/$$/fd/*; do ' +
+                'n=${f##*/}; ' +
+                'case "$n" in *[!0-9]*) continue ;; esac; ' +
+                'if [ "$n" -gt 2 ] && [ -e "/proc/$$/fd/$n" ]; then eval "exec $n<&-"; fi; ' +
+            'done; ' +
             'echo __WRAP_PREEXEC__ 1>&2; ' +
             'exec "$@"; ' +
             'echo "__WRAP_EXECFAIL rc=$?" 1>&2';
