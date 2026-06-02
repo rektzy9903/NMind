@@ -267,8 +267,23 @@ class NodeBridgeManager(private val context: Context) {
     private fun ensureBridgeJs(): File? {
         val dest = File(context.filesDir, "bridge.js")
         return try {
-            context.assets.open("nodejs-project/bridge.js").use { src ->
-                dest.outputStream().use { src.copyTo(it) }
+            // DEBUG hot-load: if a valid bridge_dev.js exists (downloaded inside
+            // node by the `!hotload` terminal command — off the main thread, so no
+            // NetworkOnMainThreadException), use it instead of the bundled asset.
+            // This makes JS-only iterations need only `git push` + `!hotload` +
+            // force-stop/reopen — NO APK rebuild. Sanity-checked so a bad download
+            // can't brick the bridge; falls back to the bundled asset otherwise.
+            // DEBUG-only — release always ships the audited bundled bridge.js.
+            val devBridge = File(context.filesDir, "bridge_dev.js")
+            val useDev = com.claudecodesetup.BuildConfig.DEBUG && devBridge.exists() &&
+                devBridge.length() > 5000 && devBridge.readText().contains("SYS_FENCE")
+            if (useDev) {
+                devBridge.copyTo(dest, overwrite = true)
+                Log.i(TAG, "bridge.js hot-loaded from bridge_dev.js (${devBridge.length()} bytes)")
+            } else {
+                context.assets.open("nodejs-project/bridge.js").use { src ->
+                    dest.outputStream().use { src.copyTo(it) }
+                }
             }
             // MCP-1: also copy the HTTP MCP stdio-proxy shim. bridge.js patchSettings
             // looks for it at filesDir/mcp_http_proxy.js and injects mcpServers entries

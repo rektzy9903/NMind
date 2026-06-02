@@ -4074,6 +4074,43 @@ function openPrintSession() {
                 continue;
             }
 
+            // ── !hotload — DEBUG: pull the latest bridge.js from GitHub (no APK) ─
+            // Downloads (inside node, off the Android main thread) the branch's
+            // bridge.js → filesDir/bridge_dev.js. On next app start, the Kotlin
+            // ensureBridgeJs() prefers a valid bridge_dev.js over the bundled asset
+            // (DEBUG only). So a JS change = git push → !hotload → force-stop/reopen,
+            // NO rebuild. `!hotload reset` removes the dev copy (back to bundled).
+            if (line.startsWith('!hotload')) {
+                const w = (s) => { try { if (state.socket) state.socket.write(SYS_FENCE + s); } catch(_) {} };
+                const arg = line.slice('!hotload'.length).trim();
+                const devPath = path.join(FILES_DIR, 'bridge_dev.js');
+                if (arg === 'reset') {
+                    try { fs.unlinkSync(devPath); w('\x1b[32m✓ hot-load reset\x1b[0m\r\n'); }
+                    catch(_) { w('\x1b[33m(no dev bridge to reset)\x1b[0m\r\n'); }
+                    w('\x1b[2mForce-stop + reopen the app to apply (bundled bridge.js).\x1b[0m\r\n');
+                    continue;
+                }
+                const url = 'https://raw.githubusercontent.com/fahmi304/Nexus-Mind/feat/custom-agents/' +
+                            'app/src/main/assets/nodejs-project/bridge.js?t=' + Date.now();
+                const tmp = devPath + '.tmp';
+                w('\x1b[33m!hotload: downloading latest bridge.js from GitHub…\x1b[0m\r\n');
+                downloadFile(url, tmp).then(() => {
+                    const txt = fs.readFileSync(tmp, 'utf8');
+                    if (txt.length > 5000 && txt.includes('SYS_FENCE')) {
+                        fs.renameSync(tmp, devPath);
+                        w('\x1b[32m✓ hot-loaded ' + txt.length + ' bytes → bridge_dev.js\x1b[0m\r\n' +
+                          '\x1b[36mNow FORCE-STOP the app and reopen it to run the new bridge.js.\x1b[0m\r\n');
+                    } else {
+                        try { fs.unlinkSync(tmp); } catch(_) {}
+                        w('\x1b[31m✗ download invalid (size=' + txt.length + ') — kept current\x1b[0m\r\n');
+                    }
+                }).catch(e => {
+                    try { fs.unlinkSync(tmp); } catch(_) {}
+                    w('\x1b[31m✗ hotload failed: ' + (e && e.message) + '\x1b[0m\r\n');
+                });
+                continue;
+            }
+
             // ── !test-rootfs — Ubuntu-engine P1b acceptance probe ────────────
             // Runs the REAL proot argv (rootfs + binds) against the extracted
             // Ubuntu rootfs (FILES_DIR/ubuntu) via node's spawn and prints
