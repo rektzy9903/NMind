@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b26-p3b-mcpprobe';
+const BRIDGE_BUILD = 'b27-mcpprobe-diag';
 
 const net   = require('net');
 const http  = require('http');
@@ -5414,37 +5414,54 @@ function openPrintSession() {
                                '--mcp-config', guestCfgGuest, '--verbose', mMsg];
                 w(Y + '!test-mcp (proot/2.1.160): native HTTP MCP [' + srvNames.join(', ') + '], spawning (120s; inv-51 hung here on 2.1.112)…' + X + '\r\n');
                 runProotGuest(mArgv, 120000, null, { extraEnv: mGuestEnv, workspace: FILES_DIR })
-                  .then(r => {
+                  .then(async r => {
                     const out = r.out || '';
                     const timedOut   = /\[timeout \d+ms\]/.test(out) || r.code === null;
                     const gotResult  = out.includes('"type":"result"');
                     const mcpToolSeen= /mcp__/.test(out);
-                    // system/init event lists connected mcp_servers — parse for status.
-                    let connected = false, failed = false;
+                    // Find the system/init event (first stream-json line) — it lists
+                    // connected mcp_servers + the full tools array. Dump it verbatim.
+                    let initEvt = null, connected = false, failed = false, initTools = 0;
                     for (const ln of out.split('\n')) {
                         const s = ln.trim(); if (!s.startsWith('{')) continue;
                         let o; try { o = JSON.parse(s); } catch(_) { continue; }
+                        if (o.type === 'system' && o.subtype === 'init' && !initEvt) initEvt = o;
                         const arr = o && o.mcp_servers;
                         if (Array.isArray(arr)) for (const sv of arr) {
                             if (/connect/i.test(sv.status||'')) connected = true;
-                            if (/fail|error/i.test(sv.status||'')) failed = true;
+                            if (/fail|error|closed/i.test(sv.status||'')) failed = true;
                         }
                     }
-                    const works = !timedOut && (connected || mcpToolSeen);
+                    if (initEvt && Array.isArray(initEvt.tools)) initTools = initEvt.tools.filter(t => /^mcp__/.test(String(t))).length;
+                    const works = !timedOut && (connected || mcpToolSeen || initTools > 0);
+                    // Lines mentioning mcp/connection errors (stderr is folded into out).
+                    const mcpLines = out.split('\n').filter(l => /mcp|MCP|ECONN|ENOTFOUND|fetch failed|connect|401|403|timeout/i.test(l)).slice(0, 12);
                     try { fs.unlinkSync(guestCfgHost); } catch(_) {}
                     const mark = works ? (G+'✓') : (R+'✗');
                     let rep = mark + ' !test-mcp (proot) exit=' + r.code + X + '\r\n';
                     rep += '  Native HTTP MCP works? ' + (works
-                            ? G+'YES — server connected + tools registered at spawn (inv-51 hang is a Bionic scar). Wire --mcp-config into proot runMessage.'+X
-                            : timedOut ? R+'NO — spawn HUNG (inv-51 still bites; need the stdio shim in-guest)'+X
+                            ? G+'YES — wire --mcp-config into proot runMessage (no shim).'+X
+                            : timedOut ? R+'NO — spawn HUNG (inv-51 still bites; need stdio shim in-guest)'+X
                             : failed ? R+'server FAILED to connect (check URL/headers/key)'+X
-                            : Y+'inconclusive — see stdout'+X) + '\r\n';
+                            : Y+'inconclusive — see init event + mcp lines below'+X) + '\r\n';
                     rep += '  Server connected:   ' + (connected ? G+'yes'+X : (failed ? R+'no (failed)'+X : D+'unknown'+X)) + '\r\n';
-                    rep += '  mcp__ tool seen:    ' + (mcpToolSeen ? G+'yes'+X : R+'no'+X) + '\r\n';
-                    rep += '  Completed (no hang): ' + (!timedOut ? G+'yes'+X : R+'no — TIMED OUT'+X) + '\r\n';
-                    rep += '  Got final result:   ' + (gotResult ? G+'yes'+X : R+'no'+X) + '\r\n';
-                    if (!works) rep += D+'stdout (last 600): ' + out.slice(-600).replace(/\r?\n/g,' ') + X + '\r\n';
+                    rep += '  mcp__ tools in init: ' + (initTools>0 ? G+String(initTools)+X : R+'0'+X) + '\r\n';
+                    rep += '  mcp__ seen anywhere: ' + (mcpToolSeen ? G+'yes'+X : R+'no'+X) + '\r\n';
+                    rep += '  Completed (no hang): ' + (!timedOut ? G+'yes'+X : R+'no'+X) + '\r\n';
+                    // The init event is the authoritative connection record — show it.
+                    if (initEvt) {
+                        rep += D+'init.mcp_servers: ' + JSON.stringify(initEvt.mcp_servers || '(field absent)') + X + '\r\n';
+                        rep += D+'init.tools: ' + JSON.stringify(initEvt.tools || []).slice(0, 400) + X + '\r\n';
+                    } else {
+                        rep += R+'  (no system/init event found in output!)'+X+'\r\n';
+                    }
+                    if (mcpLines.length) rep += D+'mcp/conn lines:\r\n  ' + mcpLines.join('\r\n  ').slice(0, 800) + X + '\r\n';
                     w(rep);
+                    // Upload full trace so we can read it off-device (Appetize crops).
+                    try {
+                        const url = await uploadDiag('=== !test-mcp guest trace (exit=' + r.code + ') ===\nargv: ' + JSON.stringify(mArgv) + '\nconfig: ' + JSON.stringify({mcpServers}) + '\n\n' + out);
+                        if (url) w(G + 'full trace: ' + url + X + '\r\n');
+                    } catch(_) {}
                   })
                   .catch(e => { try { fs.unlinkSync(guestCfgHost); } catch(_) {} w(R + '[!test-mcp proot error] ' + (e && e.message) + X + '\r\n'); });
                 continue;
