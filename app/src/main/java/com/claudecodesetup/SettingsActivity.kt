@@ -124,6 +124,7 @@ class SettingsActivity : AppCompatActivity() {
                     return@launch
                 }
                 runOnUiThread { status.text = "✅ ${res.message}\nProbing via proot…" }
+                val diag = ubuntu.diagnostics()
                 val (code, out) = ubuntu.probeOsRelease()
                 runOnUiThread {
                     bar.visibility = View.GONE
@@ -132,7 +133,7 @@ class SettingsActivity : AppCompatActivity() {
                     status.text = if (ok) "✅ Ubuntu rootfs runs via proot (exit=$code)"
                                   else "❌ probe failed (exit=$code)"
                     status.setTextColor(Color.parseColor(if (ok) "#3DD68C" else "#F87171"))
-                    output.text = out.take(1500)
+                    output.text = ("── preflight ──\n$diag\n── probe (exit=$code) ──\n$out").take(2500)
                     btn.isEnabled = true
                 }
             }

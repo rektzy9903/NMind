@@ -225,4 +225,33 @@ class UbuntuRootfsManager(private val context: Context) {
 
     /** P1b acceptance probe: prove the rootfs runs end-to-end via proot. */
     suspend fun probeOsRelease(): Pair<Int?, String> = runInRootfs(listOf("/usr/bin/cat", "/etc/os-release"), 30_000)
+
+    /**
+     * Preflight diagnostics — surfaces the exact native-lib + symlink state so a
+     * "libtalloc.so.2 not found" failure can be split between (a) the build never
+     * packaged libtalloc.so, (b) Os.symlink silently failed, (c) the link dangles.
+     * Run before the proot spawn; cheap, no proot launch.
+     */
+    fun diagnostics(): String {
+        ensureTallocLink()
+        val sb = StringBuilder()
+        sb.append("nativeDir = $nativeDir\n")
+        val nd = File(nativeDir)
+        val libs = nd.listFiles { f -> f.name.startsWith("libproot") || f.name.startsWith("libtalloc") }
+        if (libs == null || libs.isEmpty()) {
+            sb.append("  [!] NO libproot*/libtalloc* in nativeDir\n")
+        } else {
+            for (f in libs.sortedBy { it.name }) sb.append("  ${f.name}  ${f.length()}B\n")
+        }
+        val talloc = File(nativeDir, "libtalloc.so")
+        sb.append("libtalloc.so exists=${talloc.exists()} size=${talloc.length()}\n")
+        val link = File(prootLibDir, "libtalloc.so.2")
+        sb.append("symlink $link\n")
+        sb.append("  exists=${link.exists()}\n")
+        try { sb.append("  → readlink=${Os.readlink(link.absolutePath)}\n") }
+        catch (e: Exception) { sb.append("  → readlink FAILED: ${e.message}\n") }
+        sb.append("  target-resolves=${link.canonicalFile.exists()}\n")
+        sb.append("LD_LIBRARY_PATH=${prootLibDir.absolutePath}:$nativeDir\n")
+        return sb.toString()
+    }
 }
