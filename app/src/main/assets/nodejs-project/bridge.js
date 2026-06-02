@@ -4304,6 +4304,7 @@ function openPrintSession() {
                         D + (r.out.trim().slice(-700) || '(no output)') + X + '\r\n');
 
                     // 1) boot
+                    w(D + '(build: cwd-fix+getcwd-probe)' + X + '\r\n');
                     w(Y + '[1/6] proot boot…' + X + '\r\n');
                     let r = await ge(['/usr/bin/cat', '/etc/os-release'], 60000);
                     if (!/Ubuntu/i.test(r.out)) { fail('boot failed', r); return; }
@@ -4350,6 +4351,14 @@ function openPrintSession() {
                         if (r.code !== 0) { fail('node extract/run failed', r); return; }
                     }
                     w(G + '✓ node ' + r.out.trim() + X + '\r\n');
+
+                    // 3b) getcwd probe — npm aborts with uv_cwd ENOSYS if process.cwd()
+                    // fails under proot. Isolate it: pwd (shell) + node process.cwd().
+                    w(Y + '[3b/6] getcwd probe…' + X + '\r\n');
+                    r = await ge(['/bin/sh', '-c',
+                        'echo "pwd=$(pwd 2>&1)"; cd /root; echo "pwd2=$(pwd 2>&1)"; ' +
+                        '/opt/node/bin/node -e "try{process.stdout.write(\'node.cwd=\'+process.cwd())}catch(e){process.stdout.write(\'node.cwd ERR \'+e.code+\' \'+e.syscall)}"'], 30000);
+                    w(D + '  ' + r.out.trim().replace(/\n/g, ' | ') + X + '\r\n');
 
                     // 4) npm
                     w(Y + '[4/6] npm…' + X + '\r\n');
