@@ -407,10 +407,12 @@ function prootGuestArgv(rp, command) {
         '--bind=/dev/null', '--bind=/dev/zero',
         '--bind=/dev/random', '--bind=/dev/urandom', '--bind=/dev/tty',
         '--bind=/proc',
-        '--bind=/proc/self/fd:/dev/fd',
-        '--bind=/proc/self/fd/0:/dev/stdin',
-        '--bind=/proc/self/fd/1:/dev/stdout',
-        '--bind=/proc/self/fd/2:/dev/stderr',
+        // NOTE: proot-distro normally also binds /proc/self/fd → /dev/fd and
+        // /proc/self/fd/{0,1,2} → /dev/std{in,out,err}. We DON'T: node spawns
+        // proot with PIPE stdio, so /proc/self/fd/{0,1,2} resolve to "pipe:[…]"
+        // (not a filesystem path) → proot "can't sanitize binding" + stalls.
+        // Those binds are interactive-shell convenience only; the guest inherits
+        // fds 0/1/2 directly regardless, so cat/npm/claude all work without them.
         '--bind=' + rp + '/proc/.loadavg:/proc/loadavg',
         '--bind=' + rp + '/proc/.stat:/proc/stat',
         '--bind=' + rp + '/proc/.uptime:/proc/uptime',
@@ -453,6 +455,10 @@ function runProotGuest(command, timeoutMs, onData, opts) {
             PROOT_LOADER_32: path.join(NATIVE_DIR, 'libproot-loader32.so'),
             PROOT_L2S_DIR:   path.join(rp, '.l2s'),
             PROOT_TMP_DIR:   path.join(rp, 'tmp'),
+            // proot's seccomp-bpf fast-path stalls on Android emulator kernels
+            // (proot finishes all bindings, starts the guest, then hangs). The
+            // canonical fix is to fall back to pure-ptrace interception.
+            PROOT_NO_SECCOMP: '1',
         });
         const prootArgs = (opts && opts.verbose ? ['-v', '1'] : []).concat(prootGuestArgv(rp, command));
         // proot must run with NO inherited fds >2: libnode lives inside the Android
@@ -477,6 +483,29 @@ function runProotGuest(command, timeoutMs, onData, opts) {
         ch.on('error', e => { if (done) return; done = true; resolve({ code: null, out: out + '\nspawn error: ' + e.message }); });
         const tid = setTimeout(() => { if (done) return; done = true; try { ch.kill('SIGKILL'); } catch (_) {} resolve({ code: null, out: out + '\n[timeout ' + timeoutMs + 'ms]' }); }, timeoutMs);
         ch.on('close', c => { if (done) return; done = true; clearTimeout(tid); resolve({ code: c, out }); });
+    });
+}
+
+// Upload a diagnostic blob to a no-auth paste service; resolves the short URL
+// (or '' on failure). Used so on-device proot/engine traces can be read in FULL
+// off-device — an emulator screenshot crops the right 60% of every trace line,
+// which is exactly why the Ubuntu-engine bring-up kept stalling on guesswork.
+function uploadDiag(text) {
+    return new Promise((resolve) => {
+        try {
+            const body = Buffer.from(String(text || '').slice(0, 400000), 'utf8');
+            const req = https.request({
+                hostname: 'paste.rs', path: '/', method: 'POST',
+                headers: { 'Content-Type': 'text/plain', 'Content-Length': body.length },
+            }, (res) => {
+                let d = '';
+                res.on('data', c => d += c);
+                res.on('end', () => resolve((d || '').trim()));
+            });
+            req.on('error', () => resolve(''));
+            req.setTimeout(15000, () => { try { req.destroy(); } catch (_) {} resolve(''); });
+            req.write(body); req.end();
+        } catch (_) { resolve(''); }
     });
 }
 
@@ -4037,12 +4066,17 @@ function openPrintSession() {
                 w('\x1b[33m!test-rootfs: proot -v1 → cat /etc/os-release (60s)…\x1b[0m\r\n');
                 // verbose:true → proot -v1; fds are closed first by runProotGuest.
                 runProotGuest(['/usr/bin/cat', '/etc/os-release'], 60000, null, { verbose: true })
-                    .then(r => {
+                    .then(async r => {
                         const ok = r.code === 0 && /Ubuntu/i.test(r.out);
                         const body = r.out.trim();
                         w((ok ? '\x1b[32m✅ Ubuntu rootfs runs via proot — P1b CONFIRMED\x1b[0m'
                               : '\x1b[31m✗ rootfs probe failed (exit=' + r.code + ')\x1b[0m') + '\r\n' +
                           '\x1b[2m' + (ok ? body.slice(0, 600) : body.slice(-1200)) + '\x1b[0m\r\n');
+                        // Always upload the FULL trace so it can be read off-device
+                        // (emulator screenshots crop every line). Short URL only.
+                        const url = await uploadDiag(
+                            '=== !test-rootfs (exit=' + r.code + ', ok=' + ok + ') ===\n' + body);
+                        if (url) w('\x1b[36m📋 full trace: ' + url + '\x1b[0m\r\n');
                     })
                     .catch(e => w('\x1b[31m[!test-rootfs error] ' + (e && e.message) + '\x1b[0m\r\n'));
                 continue;
