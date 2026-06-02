@@ -507,7 +507,13 @@ function runProotGuest(command, timeoutMs, onData, opts) {
         const prootBin = path.join(NATIVE_DIR, 'libproot.so');
         let ch, out = '', done = false;
         try {
-            ch = spawn(FDEXEC, [prootBin].concat(prootArgs), { env });
+            // cwd = rootfs dir: proot reads the HOST cwd at startup to seed its
+            // virtual cwd. If the bridge's inherited host cwd ("/" or the app dir)
+            // has no mapping inside the rootfs, proot's getcwd() virtualization
+            // returns ENOSYS → node's uv_cwd aborts (hit on npm: process.cwd()).
+            // Pointing the host cwd at the rootfs root maps to guest "/", and
+            // --cwd=/root then chdirs the guest into /root, so getcwd() works.
+            ch = spawn(FDEXEC, [prootBin].concat(prootArgs), { env, cwd: rp });
         } catch (e) { return resolve({ code: null, out: 'spawn threw: ' + e.message }); }
         const onChunk = d => { const s = d.toString(); out += s; if (onData) { try { onData(s); } catch (_) {} } };
         ch.stdout.on('data', onChunk);
