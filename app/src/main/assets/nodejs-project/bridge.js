@@ -456,7 +456,15 @@ function runProotGuest(command, timeoutMs, onData, opts) {
         });
         const prootArgs = (opts && opts.verbose ? ['-v', '1'] : []).concat(prootGuestArgv(rp, command));
         // Close inherited fds >2 (only those actually open, via /proc/$$/fd) then exec proot.
-        const closeFds = 'for f in /proc/$$/fd/*; do n=${f##*/}; if [ "$n" -gt 2 ] 2>/dev/null; then eval "exec $n<&-" 2>/dev/null; fi; done 2>/dev/null; exec "$@"';
+        // Self-diagnosing markers (to stderr) pinpoint where a failure happens:
+        //   __WRAP_START__ reached the wrapper; __WRAP_PREEXEC__ loop done, about to
+        //   exec proot; __WRAP_EXECFAIL rc=N → exec of proot itself failed.
+        const closeFds =
+            'echo __WRAP_START__ 1>&2; ' +
+            'for f in /proc/$$/fd/*; do n=${f##*/}; if [ "$n" -gt 2 ] 2>/dev/null; then eval "exec $n<&-" 2>/dev/null; fi; done 2>/dev/null; ' +
+            'echo __WRAP_PREEXEC__ 1>&2; ' +
+            'exec "$@"; ' +
+            'echo "__WRAP_EXECFAIL rc=$?" 1>&2';
         let ch, out = '', done = false;
         try {
             ch = spawn('/system/bin/sh',
