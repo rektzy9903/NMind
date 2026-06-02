@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b9-seccomp-on';
+const BRIDGE_BUILD = 'b10-proot-engine';
 
 const net   = require('net');
 const http  = require('http');
@@ -41,6 +41,18 @@ const CLAUDE_CLI  = path.join(
     NPM_PREFIX, 'lib', 'node_modules',
     '@anthropic-ai', 'claude-code', 'cli.js'
 );
+// Proot Ubuntu engine (P2): claude-code 2.1.160 installed by !setup-engine into
+// /opt/node inside the rootfs. cli.js path is GUEST-side (inside proot), fixed by
+// npm's default global prefix (/opt/node). Engine selection lives in a tiny file
+// (filesDir/engine_mode = 'proot'|'legacy'); default legacy = the proven 2.1.112
+// libnode path. Toggle from the terminal with `!engine proot` / `!engine legacy`.
+const GUEST_CLI     = '/opt/node/lib/node_modules/@anthropic-ai/claude-code/cli.js';
+const GUEST_NODE    = '/opt/node/bin/node';
+const ENGINE_FILE   = path.join(FILES_DIR, 'engine_mode');
+function getEngineMode() {
+    try { return fs.readFileSync(ENGINE_FILE, 'utf8').trim() === 'proot' ? 'proot' : 'legacy'; }
+    catch (_) { return 'legacy'; }
+}
 const CONFIG_FILE   = path.join(FILES_DIR, 'bridge_config.json');
 const SETUP_LOG     = path.join(FILES_DIR, 'setup.log');
 const SETUP_DONE    = path.join(FILES_DIR, 'setup_done');
@@ -427,6 +439,12 @@ function prootGuestArgv(rp, command, opts) {
         '--bind=' + rp + '/proc/.sysctl_inotify_max_user_watches:/proc/sys/fs/inotify/max_user_watches',
         '--bind=' + rp + '/sys/.empty:/sys/fs/selinux',
         '--bind=' + FILES_DIR + ':/root/.nexus',
+        // Engine path: the bridge writes claude-code's settings.json, auto_approve,
+        // and --continue session files under FILES_DIR/.claude. Bind it to the guest
+        // HOME's /root/.claude so the GUEST claude (HOME=/root) reads the exact same
+        // files — no duplicate config, sessions persist across turns. Harmless for
+        // probes (just an extra bind). FILES_DIR/.claude is ensured to exist below.
+        '--bind=' + path.join(FILES_DIR, '.claude') + ':/root/.claude',
     ];
     // Exec the guest command DIRECTLY — never via `/usr/bin/env -i`. proot only
     // mishandles execve-REPLACE (a process exec'ing in place); env -i does exactly
@@ -449,16 +467,24 @@ function prootGuestArgv(rp, command, opts) {
 // proot scans /proc/self/fd and ptrace-processes each → hangs on the emulator
 // ("access to /dev/goldfish_pipe (fd N) won't be translated"). Closing them
 // first gives proot a clean table (just stdio) so it starts instantly.
-function runProotGuest(command, timeoutMs, onData, opts) {
-    return new Promise((resolve) => {
-        const rp = path.join(FILES_DIR, 'ubuntu');
-        const prootLibDir = path.join(FILES_DIR, '.proot-lib');
-        try { fs.mkdirSync(prootLibDir, { recursive: true }); } catch (_) {}
-        const tl = path.join(prootLibDir, 'libtalloc.so.2');
-        try { fs.unlinkSync(tl); } catch (_) {}
-        try { fs.symlinkSync(path.join(NATIVE_DIR, 'libtalloc.so'), tl); } catch (_) {}
-        try { fs.mkdirSync(path.join(rp, 'tmp'), { recursive: true }); } catch (_) {}
-        const env = Object.assign({}, process.env, {
+// Build the proot env + argv and SPAWN the guest, returning the live ChildProcess
+// (NOT a promise). Shared by runProotGuest (buffered, for probes) and the proot
+// ENGINE path in runMessage (streaming stdout + stdin.end + kill). opts.extraEnv
+// merges over the base guest env ('' / null deletes a var); opts.verbose → -vN.
+// Throws synchronously if spawn fails (caller wraps in try/catch).
+function prootChild(command, opts) {
+    opts = opts || {};
+    const rp = path.join(FILES_DIR, 'ubuntu');
+    const prootLibDir = path.join(FILES_DIR, '.proot-lib');
+    try { fs.mkdirSync(prootLibDir, { recursive: true }); } catch (_) {}
+    const tl = path.join(prootLibDir, 'libtalloc.so.2');
+    try { fs.unlinkSync(tl); } catch (_) {}
+    try { fs.symlinkSync(path.join(NATIVE_DIR, 'libtalloc.so'), tl); } catch (_) {}
+    try { fs.mkdirSync(path.join(rp, 'tmp'), { recursive: true }); } catch (_) {}
+    // Ensure the --bind=FILES_DIR/.claude:/root/.claude target exists (proot
+    // refuses to bind a non-existent host path → "can't sanitize binding").
+    try { fs.mkdirSync(path.join(FILES_DIR, '.claude'), { recursive: true }); } catch (_) {}
+    const env = Object.assign({}, process.env, {
             LD_LIBRARY_PATH: prootLibDir + ':' + NATIVE_DIR,
             PROOT_LOADER:    path.join(NATIVE_DIR, 'libproot-loader.so'),
             PROOT_LOADER_32: path.join(NATIVE_DIR, 'libproot-loader32.so'),
@@ -512,16 +538,22 @@ function runProotGuest(command, timeoutMs, onData, opts) {
         // inherited across the execv (LD_LIBRARY_PATH, PROOT_LOADER, …).
         const FDEXEC = path.join(NATIVE_DIR, 'libfdexec.so');
         const prootBin = path.join(NATIVE_DIR, 'libproot.so');
+        // cwd = rootfs dir: proot reads the HOST cwd at startup to seed its
+        // virtual cwd. If the bridge's inherited host cwd ("/" or the app dir)
+        // has no mapping inside the rootfs, proot's getcwd() virtualization
+        // returns ENOSYS → node's uv_cwd aborts (hit on npm: process.cwd()).
+        // Pointing the host cwd at the rootfs root maps to guest "/", and
+        // --cwd=/root then chdirs the guest into /root, so getcwd() works.
+        return spawn(FDEXEC, [prootBin].concat(prootArgs), { env, cwd: rp });
+}
+
+// Buffered convenience wrapper over prootChild — resolves {code, out} when the
+// guest exits; onData (optional) streams combined stdout+stderr as it arrives.
+function runProotGuest(command, timeoutMs, onData, opts) {
+    return new Promise((resolve) => {
         let ch, out = '', done = false;
-        try {
-            // cwd = rootfs dir: proot reads the HOST cwd at startup to seed its
-            // virtual cwd. If the bridge's inherited host cwd ("/" or the app dir)
-            // has no mapping inside the rootfs, proot's getcwd() virtualization
-            // returns ENOSYS → node's uv_cwd aborts (hit on npm: process.cwd()).
-            // Pointing the host cwd at the rootfs root maps to guest "/", and
-            // --cwd=/root then chdirs the guest into /root, so getcwd() works.
-            ch = spawn(FDEXEC, [prootBin].concat(prootArgs), { env, cwd: rp });
-        } catch (e) { return resolve({ code: null, out: 'spawn threw: ' + e.message }); }
+        try { ch = prootChild(command, opts); }
+        catch (e) { return resolve({ code: null, out: 'spawn threw: ' + e.message }); }
         const onChunk = d => { const s = d.toString(); out += s; if (onData) { try { onData(s); } catch (_) {} } };
         ch.stdout.on('data', onChunk);
         ch.stderr.on('data', onChunk);
@@ -3560,15 +3592,51 @@ function openPrintSession() {
         // Pre-trust this cwd so claude-code skips the "do you trust this folder?" prompt
         // now that CLAUDE_CODE_SANDBOXED is gone (which also un-sandboxes the Bash tool).
         ensureProjectTrusted(spawnCwd);
-        log('[runMessage] spawn claude-code, model=' + (cfg.modelId || '?') + ' provider=' + (cfg.providerId || '?') + ' mode=' + (cfg.mode || '?') + ' baseUrl=' + (cfg.baseUrl || '?') + '\n');
+        const engineMode = getEngineMode();
+        log('[runMessage] engine=' + engineMode + ' spawn claude-code, model=' + (cfg.modelId || '?') + ' provider=' + (cfg.providerId || '?') + ' mode=' + (cfg.mode || '?') + ' baseUrl=' + (cfg.baseUrl || '?') + '\n');
         log('[runMessage] argv: --output-format stream-json --print' + (spawnMcpCfg ? ' --mcp-config ' + spawnMcpCfg : '') + (state.hasHistory ? ' --continue' : '') + ' --verbose <msg>' + '\n');
         let proc;
-        try {
-            proc = spawn(LAUNCHER, ['-e', evalCode], { env, cwd: spawnCwd });
-        } catch(e) {
-            log('[runMessage] spawn failed: ' + e.message + '\n');
-            try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[31m[spawn error] ' + e.message + '\x1b[0m\r\n'); } catch(_) {}
-            return;
+        if (engineMode === 'proot') {
+            // ── P2: PROOT ENGINE (claude-code 2.1.160 on glibc) ─────────────────
+            // Spawn `node cli.js --print …` INSIDE the Ubuntu rootfs. No regexpShim/
+            // intlShim/patchCliJsForAndroid here — real glibc node 22 has ICU + full
+            // Unicode regex. The proxy bypass survives unchanged: proot shares the
+            // host netns so ANTHROPIC_BASE_URL=127.0.0.1:8082 reaches the bridge proxy,
+            // and the guest claude sends x-api-key:sk-ant-proxy000 which the proxy
+            // auth-gate accepts (no x-local-token needed). settings.json + session
+            // files are the SAME on-disk files via the /root/.claude bind.
+            // NOTE: --mcp-config is intentionally omitted in the proot path for P2
+            // (the spawn-mcp config references Android-side shim paths that don't
+            //  exist in the guest) — MCP wiring is a P3 task.
+            const benv = buildEnv();
+            const guestEnv = {
+                ANTHROPIC_API_KEY:   benv.ANTHROPIC_API_KEY,
+                ANTHROPIC_MODEL:     benv.ANTHROPIC_MODEL,
+                DISABLE_AUTOUPDATER: '1',
+                MCP_TIMEOUT:         '30000',
+                MCP_TOOL_TIMEOUT:    '30000',
+                SHELL:               '/bin/bash',   // real bash exists in the guest
+            };
+            if (benv.ANTHROPIC_BASE_URL) guestEnv.ANTHROPIC_BASE_URL = benv.ANTHROPIC_BASE_URL;
+            const guestArgv = [GUEST_NODE, GUEST_CLI, '--output-format', 'stream-json', '--print'];
+            if (state.hasHistory) guestArgv.push('--continue');
+            guestArgv.push('--verbose', finalMsg);
+            try {
+                proc = prootChild(guestArgv, { extraEnv: guestEnv });
+            } catch (e) {
+                log('[runMessage] proot spawn failed: ' + e.message + '\n');
+                try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[31m[proot engine spawn error] ' + e.message + '\x1b[0m\r\n'); } catch(_) {}
+                return;
+            }
+        } else {
+            // ── LEGACY ENGINE (claude-code 2.1.112 via libnode launcher) ────────
+            try {
+                proc = spawn(LAUNCHER, ['-e', evalCode], { env, cwd: spawnCwd });
+            } catch(e) {
+                log('[runMessage] spawn failed: ' + e.message + '\n');
+                try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[31m[spawn error] ' + e.message + '\x1b[0m\r\n'); } catch(_) {}
+                return;
+            }
         }
         // Close stdin immediately — claude-code --print reads from stdin when it is a pipe
         // and blocks waiting for EOF if stdin stays open. Closing it tells claude-code stdin
@@ -3897,6 +3965,7 @@ function openPrintSession() {
                     '  \x1b[33m!test-proot\x1b[0m         Probe: does bundled proot exec from nativeLibDir (Ubuntu engine)\r\n' +
                     '  \x1b[33m!test-rootfs\x1b[0m        Probe: run extracted Ubuntu rootfs via proot (cat /etc/os-release)\r\n' +
                     '  \x1b[33m!setup-engine\x1b[0m       Batched P1: boot rootfs → install Node 22 + claude-code → claude --version\r\n' +
+                    '  \x1b[33m!engine\x1b[0m             Switch message engine: !engine proot (2.1.160) | !engine legacy (2.1.112)\r\n' +
                     '  \x1b[33m!debug\x1b[0m              Dump model/provider/settings/mcp state for remote debugging\r\n' +
                     '  \x1b[33m!help\x1b[0m               Show this help\r\n' +
                     '  \x1b[33m$ <cmd>\x1b[0m             Run a shell command\r\n\r\n'
@@ -4287,6 +4356,27 @@ function openPrintSession() {
                     if (url) w('\x1b[36m📋 full trace (all 3): ' + url + '\x1b[0m\r\n');
                     else     w('\x1b[31m(trace upload failed — paste site unreachable)\x1b[0m\r\n');
                 })();
+                continue;
+            }
+
+            // ── !engine — toggle the message engine (proot 2.1.160 vs legacy 2.1.112) ─
+            // Writes filesDir/engine_mode. Takes effect on the NEXT message (runMessage
+            // reads it fresh per turn). `!engine` / `!engine status` reports current.
+            if (line.startsWith('!engine')) {
+                const w = (s) => { try { if (state.socket) state.socket.write(SYS_FENCE + s); } catch(_) {} };
+                const arg = line.slice('!engine'.length).trim().toLowerCase();
+                const cur = getEngineMode();
+                if (arg === 'proot' || arg === 'legacy') {
+                    try { fs.writeFileSync(ENGINE_FILE, arg); } catch(_) {}
+                    // Switching engines means a different claude-code version writes the
+                    // session files; clear history so --continue can't cross engines.
+                    try { fs.writeFileSync(path.join(FILES_DIR, 'history_clear_requested'), '1'); } catch(_) {}
+                    w('\x1b[32m✓ engine → ' + arg + (arg === 'proot' ? ' (claude-code 2.1.160, glibc/proot)' : ' (claude-code 2.1.112, libnode)') + '\x1b[0m\r\n' +
+                      '\x1b[2mTakes effect on your next message. History cleared (engines don’t share sessions).\x1b[0m\r\n');
+                } else {
+                    w('\x1b[33mengine = ' + cur + '\x1b[0m\r\n' +
+                      '\x1b[2mUsage: !engine proot | !engine legacy   (build ' + BRIDGE_BUILD + ')\x1b[0m\r\n');
+                }
                 continue;
             }
 
