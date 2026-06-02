@@ -48,6 +48,61 @@ jobs:
           echo "libnode.so sizes:"
           du -sh app/src/main/jniLibs/*/libnode.so
 
+      # ── 4b. Download + repackage proot (Ubuntu engine, P1) ───────────────────
+      # The Ubuntu engine (ubuntu-engine.md) runs latest claude-code inside a
+      # proot rootfs. proot must live in nativeLibDir (the only exec-capable path
+      # on Android 10+; /data is noexec) and be named lib*.so (Android only
+      # extracts /^lib.*\.so$/ from the APK). We reuse UserLAnd's PROVEN Android
+      # 10+ (.a10) proot build — it's dynamically linked against libtalloc.so.2,
+      # so we ship libtalloc too and patchelf the one NEEDED entry to libtalloc.so
+      # (no ".so.2" file would ever extract). The loaders are static ELFs that
+      # proot injects via ptrace (read, not exec) → they just need to be present.
+      #   proot.a10        → libproot.so          (the proot binary, dynamic PIE)
+      #   loader.a10       → libproot-loader.so    (static; PROOT_LOADER points here)
+      #   loader32.a10     → libproot-loader32.so  (static; PROOT_LOADER_32)
+      #   libtalloc.so.2.a10 → libtalloc.so        (proot's only non-system dep)
+      # proot.js sets PROOT_LOADER/PROOT_LOADER_32 + LD_LIBRARY_PATH=nativeDir.
+      - name: Download + repackage proot (UserLAnd assets)
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq && sudo apt-get install -y -qq patchelf
+          UL=v1.5.1
+          BASE="https://github.com/CypherpunkArmory/UserLAnd-Assets-Support/releases/download/${UL}"
+
+          repackage_abi() {  # $1 = abi-zip-name   $2 = jniLibs abi dir
+            local zip="$1" abi="$2" tmp
+            tmp="$(mktemp -d)"
+            echo "── $abi: fetching $zip"
+            curl -fL --retry 3 "${BASE}/${zip}" -o "$tmp/assets.zip"
+            # Prefer the Android-10+ (.a10) variants; fall back to plain if absent.
+            for f in proot loader loader32 libtalloc.so.2; do
+              if unzip -o -q "$tmp/assets.zip" "${f}.a10" -d "$tmp" 2>/dev/null; then
+                mv "$tmp/${f}.a10" "$tmp/${f}"
+              else
+                unzip -o -q "$tmp/assets.zip" "${f}" -d "$tmp"
+              fi
+            done
+            mkdir -p "app/src/main/jniLibs/$abi"
+            # proot links libtalloc.so.2 → rename dep to a real .so filename, and
+            # set RPATH=$ORIGIN so libtalloc.so resolves next to the binary even
+            # when launched without LD_LIBRARY_PATH (e.g. the manual `$` probe).
+            patchelf --replace-needed libtalloc.so.2 libtalloc.so "$tmp/proot"
+            patchelf --set-rpath '$ORIGIN' "$tmp/proot"
+            cp "$tmp/proot"          "app/src/main/jniLibs/$abi/libproot.so"
+            cp "$tmp/loader"         "app/src/main/jniLibs/$abi/libproot-loader.so"
+            cp "$tmp/loader32"       "app/src/main/jniLibs/$abi/libproot-loader32.so"
+            cp "$tmp/libtalloc.so.2" "app/src/main/jniLibs/$abi/libtalloc.so"
+            rm -rf "$tmp"
+          }
+
+          repackage_abi "arm64-v8a-assets.zip"   "arm64-v8a"
+          repackage_abi "armeabi-v7a-assets.zip" "armeabi-v7a"
+
+          echo "── proot payload packaged:"
+          ls -la app/src/main/jniLibs/*/libproot*.so app/src/main/jniLibs/*/libtalloc.so
+          echo "── arm64 libproot.so NEEDED (libtalloc.so.2 must be GONE):"
+          patchelf --print-needed app/src/main/jniLibs/arm64-v8a/libproot.so
+
       # ── 5. Cache Gradle packages ─────────────────────────────────────────────
       - name: Cache Gradle packages
         uses: actions/cache@v4

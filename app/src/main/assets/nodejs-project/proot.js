@@ -14,16 +14,20 @@
  * ── Native packaging requirement (CI / build.yml, see ubuntu-engine.md) ──
  * Android only extracts files matching /^lib.*\.so$/ from the APK lib dir, and
  * only the native-lib dir is exec-capable on Android 10+ (/data is noexec). So
- * the proot executable + its loaders must be shipped as lib*.so names:
+ * the proot executable + its deps must be shipped as lib*.so names:
  *
- *   jniLibs/<abi>/libproot.so           ← the proot binary (MUST be STATIC —
- *                                          Termux's proot needs libtalloc.so.2,
- *                                          which cannot be packaged/exec'd here)
- *   jniLibs/<abi>/libproot-loader.so    ← proot's 64-bit ptrace loader
- *   jniLibs/<abi>/libproot-loader32.so  ← proot's 32-bit loader
+ *   jniLibs/<abi>/libproot.so           ← the proot binary (UserLAnd .a10 build:
+ *                                          a dynamic PIE, NEEDED libtalloc.so.2 —
+ *                                          NOT static. CI patchelf's that NEEDED
+ *                                          to libtalloc.so and sets RPATH=$ORIGIN)
+ *   jniLibs/<abi>/libtalloc.so          ← proot's only non-system shared dep
+ *   jniLibs/<abi>/libproot-loader.so    ← proot's 64-bit loader (static ELF;
+ *                                          injected via ptrace, read not exec'd)
+ *   jniLibs/<abi>/libproot-loader32.so  ← proot's 32-bit loader (static ELF)
  *
- * Our custom layout differs from Termux's, so PROOT_LOADER / PROOT_LOADER_32
- * MUST be set explicitly (Termux's proot has the path compiled in; ours does not).
+ * The bundled proot has a Termux loader path compiled in, so PROOT_LOADER /
+ * PROOT_LOADER_32 MUST be set explicitly (prootEnv() does this); libtalloc.so is
+ * resolved by the linker via RPATH=$ORIGIN (or LD_LIBRARY_PATH=nativeDir).
  */
 
 'use strict';
@@ -57,6 +61,7 @@ function paths() {
         proot:    path.join(nd, 'libproot.so'),
         loader:   path.join(nd, 'libproot-loader.so'),
         loader32: path.join(nd, 'libproot-loader32.so'),
+        talloc:   path.join(nd, 'libtalloc.so'),       // proot's bundled shared dep
         rootfs,
         l2s:      path.join(rootfs, '.l2s'),           // --link2symlink store
         tmp:      path.join(rootfs, 'tmp'),
@@ -179,6 +184,7 @@ function ensureFakeSysData(rootfs) {
 function prootReady() {
     const p = paths();
     return fs.existsSync(p.proot) && fs.existsSync(p.loader) &&
+           fs.existsSync(p.talloc) &&
            fs.existsSync(path.join(p.rootfs, 'usr', 'bin'));
 }
 

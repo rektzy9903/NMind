@@ -3735,6 +3735,7 @@ function openPrintSession() {
                     '  \x1b[33m!test-cli\x1b[0m           Run module-loader + proxy diagnostics\r\n' +
                     '  \x1b[33m!test-msg [text]\x1b[0m    Run exact runMessage path (patchSettings+stdin) — use to diagnose hangs\r\n' +
                     '  \x1b[33m!test-agent\x1b[0m         Probe sub-agent dispatch via the --agents flag (inline JSON)\r\n' +
+                    '  \x1b[33m!test-proot\x1b[0m         Probe: does bundled proot exec from nativeLibDir (Ubuntu engine)\r\n' +
                     '  \x1b[33m!debug\x1b[0m              Dump model/provider/settings/mcp state for remote debugging\r\n' +
                     '  \x1b[33m!help\x1b[0m               Show this help\r\n' +
                     '  \x1b[33m$ <cmd>\x1b[0m             Run a shell command\r\n\r\n'
@@ -3863,6 +3864,57 @@ function openPrintSession() {
                     });
                 } catch(e) {
                     try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[31m[!test-msg error] ' + e.message + '\x1b[0m\r\n'); } catch(_) {}
+                }
+                continue;
+            }
+
+            // ── !test-proot — Ubuntu-engine P1 "confirm C" probe ─────────────
+            // Execs the bundled proot binary (libproot.so in nativeLibDir) with
+            // `--version`. This proves the single riskiest assumption of the
+            // Ubuntu engine: that a (dynamic) proot binary actually EXECUTES from
+            // nativeLibDir on this device (the only exec-capable path; /data is
+            // noexec) and that its libtalloc.so dep resolves. No rootfs needed —
+            // --version parses argv and exits before any ptrace/loader work.
+            if (line.startsWith('!test-proot')) {
+                const w = (s) => { try { if (state.socket) state.socket.write(SYS_FENCE + s); } catch(_) {} };
+                try {
+                    const prootBin = path.join(NATIVE_DIR, 'libproot.so');
+                    if (!fs.existsSync(prootBin)) {
+                        w('\x1b[31m✗ !test-proot: libproot.so NOT in ' + NATIVE_DIR + '\x1b[0m\r\n' +
+                          '\x1b[2m(this APK predates the proot CI step — rebuild from the branch that has it)\x1b[0m\r\n');
+                        continue;
+                    }
+                    w('\x1b[33m!test-proot: exec libproot.so --version (15s)…\x1b[0m\r\n');
+                    const pEnv = Object.assign({}, process.env, {
+                        LD_LIBRARY_PATH: NATIVE_DIR,                                    // find libtalloc.so
+                        PROOT_LOADER:    path.join(NATIVE_DIR, 'libproot-loader.so'),
+                        PROOT_LOADER_32: path.join(NATIVE_DIR, 'libproot-loader32.so'),
+                    });
+                    const pch = spawn(prootBin, ['--version'], { env: pEnv });
+                    let pOut = '', pErr = '', pDone = false;
+                    pch.stdout.on('data', d => { pOut += d.toString(); });
+                    pch.stderr.on('data', d => { pErr += d.toString(); });
+                    pch.on('error', e => {
+                        if (pDone) return; pDone = true;
+                        w('\x1b[31m✗ !test-proot: spawn FAILED — ' + e.message + '\x1b[0m\r\n' +
+                          '\x1b[2mEACCES→noexec/perm · ENOEXEC→bad/dynamic binary · "library not found"→libtalloc didn\'t resolve\x1b[0m\r\n');
+                    });
+                    const pTid = setTimeout(() => {
+                        if (pDone) return; pDone = true;
+                        try { pch.kill(); } catch(_) {}
+                        w('\x1b[31m✗ !test-proot: TIMEOUT 15s\x1b[0m\r\n');
+                    }, 15000);
+                    pch.on('close', code => {
+                        if (pDone) return; pDone = true;
+                        clearTimeout(pTid);
+                        const txt = (pOut + pErr).trim();
+                        const ok = code === 0 && /proot|version/i.test(txt);
+                        w((ok ? '\x1b[32m✓ proot EXECS from nativeLibDir — C CONFIRMED\x1b[0m'
+                              : '\x1b[31m✗ proot did NOT run cleanly (exit=' + code + ')\x1b[0m') + '\r\n' +
+                          '\x1b[2m' + (txt.slice(0, 400) || '(no output)') + '\x1b[0m\r\n');
+                    });
+                } catch(e) {
+                    w('\x1b[31m[!test-proot error] ' + e.message + '\x1b[0m\r\n');
                 }
                 continue;
             }
