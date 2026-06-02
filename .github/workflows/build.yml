@@ -69,18 +69,29 @@ jobs:
           UL=v1.5.1
           BASE="https://github.com/CypherpunkArmory/UserLAnd-Assets-Support/releases/download/${UL}"
 
+          # Extract one asset, preferring the Android-10+ (.a10) variant; leaves
+          # $tmp/$f if found, silent no-op if neither variant is present.
+          extract_one() {  # $1=tmp  $2=zip  $3=basename
+            local tmp="$1" zip="$2" f="$3"
+            if unzip -o -q "$zip" "${f}.a10" -d "$tmp" 2>/dev/null; then
+              mv "$tmp/${f}.a10" "$tmp/${f}"
+            else
+              unzip -o -q "$zip" "${f}" -d "$tmp" 2>/dev/null || true
+            fi
+          }
+
           repackage_abi() {  # $1 = abi-zip-name   $2 = jniLibs abi dir
             local zip="$1" abi="$2" tmp
             tmp="$(mktemp -d)"
             echo "── $abi: fetching $zip"
             curl -fL --retry 3 "${BASE}/${zip}" -o "$tmp/assets.zip"
-            # Prefer the Android-10+ (.a10) variants; fall back to plain if absent.
             for f in proot loader loader32 libtalloc.so.2; do
-              if unzip -o -q "$tmp/assets.zip" "${f}.a10" -d "$tmp" 2>/dev/null; then
-                mv "$tmp/${f}.a10" "$tmp/${f}"
-              else
-                unzip -o -q "$tmp/assets.zip" "${f}" -d "$tmp"
-              fi
+              extract_one "$tmp" "$tmp/assets.zip" "$f"
+            done
+            # Required everywhere; loader32 is 64-bit-only (a 32-bit proot has no
+            # 32-bit-of-32-bit loader) so it's optional.
+            for r in proot loader libtalloc.so.2; do
+              [ -f "$tmp/$r" ] || { echo "::error::$abi: required proot file '$r' missing in $zip"; rm -rf "$tmp"; return 1; }
             done
             mkdir -p "app/src/main/jniLibs/$abi"
             # proot links libtalloc.so.2 → rename dep to a real .so filename, and
@@ -90,13 +101,21 @@ jobs:
             patchelf --set-rpath '$ORIGIN' "$tmp/proot"
             cp "$tmp/proot"          "app/src/main/jniLibs/$abi/libproot.so"
             cp "$tmp/loader"         "app/src/main/jniLibs/$abi/libproot-loader.so"
-            cp "$tmp/loader32"       "app/src/main/jniLibs/$abi/libproot-loader32.so"
             cp "$tmp/libtalloc.so.2" "app/src/main/jniLibs/$abi/libtalloc.so"
+            if [ -f "$tmp/loader32" ]; then
+              cp "$tmp/loader32"     "app/src/main/jniLibs/$abi/libproot-loader32.so"
+            else
+              echo "  ($abi: no loader32 — expected for a 32-bit ABI)"
+            fi
             rm -rf "$tmp"
           }
 
-          repackage_abi "arm64-v8a-assets.zip"   "arm64-v8a"
-          repackage_abi "armeabi-v7a-assets.zip" "armeabi-v7a"
+          # arm64 is the test/primary target → strict (a failure must fail CI).
+          repackage_abi "arm64-v8a-assets.zip" "arm64-v8a"
+          # armv7 is best-effort: if it can't be packaged, the Ubuntu engine just
+          # stays unavailable on 32-bit devices (prootReady()=false → libnode).
+          ( repackage_abi "armeabi-v7a-assets.zip" "armeabi-v7a" ) \
+            || echo "::warning::armv7 proot packaging failed — Ubuntu engine unavailable on 32-bit (libnode fallback stays)"
 
           echo "── proot payload packaged:"
           ls -la app/src/main/jniLibs/*/libproot*.so app/src/main/jniLibs/*/libtalloc.so
