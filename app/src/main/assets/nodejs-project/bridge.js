@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b19-defer-p2-fix';
+const BRIDGE_BUILD = 'b20-defer-stream-race';
 
 const net   = require('net');
 const http  = require('http');
@@ -2037,6 +2037,9 @@ function sendToProvider(baseUrl, apiKey, oaiReq, stream, res, onBadRequest, on42
             // Idle timer: if OpenRouter sends 200 OK but then stalls sending SSE events,
             // abort after 30 s rather than letting the claude --print 180 s timeout fire.
             function abortStalled() {
+                // A deferral follow-up has its own 60 s postOai timeout and owns
+                // finishStream — don't yank the stream out from under it.
+                if (deferralPending) return;
                 log('[proxy] stream idle timeout (30 s) — aborting stalled provider response\n');
                 try { provRes.destroy(); } catch(_) {}
                 // Close res directly in case destroy() doesn't fire error event synchronously
@@ -2058,6 +2061,14 @@ function sendToProvider(baseUrl, apiKey, oaiReq, stream, res, onBadRequest, on42
             }
 
             let finished = false; // prevents duplicate stop events
+            // Set true when an interception (tool_search/WebSearch) launches its
+            // async follow-up. The provider's FIRST stream emits 'end' within ms of
+            // [DONE] — long before the follow-up's fresh network round-trip resolves.
+            // Without this guard, provRes.on('end') / abortStalled would call
+            // finishStream() and close claude-code's res BEFORE the follow-up emits
+            // its discovered tool_use (symptom: "AI response gone after thinking",
+            // firstContent=false). When pending, the async chain owns finishStream.
+            let deferralPending = false;
 
             function finishStream(stopReason) {
                 if (finished) return;
@@ -2203,6 +2214,7 @@ function sendToProvider(baseUrl, apiKey, oaiReq, stream, res, onBadRequest, on42
                                 const matched = matchDeferredTools(query, deferCatalog);
                                 log('[proxy] tool_search query=' + JSON.stringify(query) +
                                     ' → ' + matched.map(m => m.function.name).join(',') + '\n');
+                                deferralPending = true; // async chain owns finishStream
                                 (async () => {
                                     try {
                                         // Echo the model's tool_search call + a tool result that
@@ -2277,6 +2289,7 @@ function sendToProvider(baseUrl, apiKey, oaiReq, stream, res, onBadRequest, on42
                                 b.name === 'WebSearch' || b.name === 'web_search');
                             if (wsCalls.length > 0) {
                                 log('[proxy] intercepting ' + wsCalls.length + ' WebSearch call(s) — executing locally\n');
+                                deferralPending = true; // async chain owns finishStream
                                 (async () => {
                                     try {
                                         const results = await Promise.all(wsCalls.map(async tb => {
@@ -2400,6 +2413,10 @@ function sendToProvider(baseUrl, apiKey, oaiReq, stream, res, onBadRequest, on42
 
             provRes.on('end', () => {
                 clearTimeout(streamIdleTimer);
+                // An interception's async follow-up is resolving — it will call
+                // finishStream when done. Do NOT finalize here or we close the
+                // stream before the discovered tool_use is emitted.
+                if (deferralPending) return;
                 if (!finished) {
                     // Stream ended without a finish_reason — or provider sent nothing at all.
                     // If no text was produced, inject a visible error so the user gets feedback
