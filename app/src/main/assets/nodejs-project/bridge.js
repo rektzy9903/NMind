@@ -399,8 +399,8 @@ function downloadFile(url, dest) {
 // Build the proot argv for a guest command. Binds individual /dev nodes (NOT
 // all of /dev — the Android emulator's goldfish/ashmem nodes make proot loop;
 // see CLAUDE.md). PATH includes /opt/node/bin so node/npm/claude resolve.
-function prootGuestArgv(rp, command) {
-    return [
+function prootGuestArgv(rp, command, opts) {
+    const a = [
         '-L', '--kernel-release=6.17.0-PRoot-Distro',
         '--link2symlink', '--kill-on-exit',
         '--rootfs=' + rp, '--root-id', '--cwd=/root',
@@ -422,11 +422,16 @@ function prootGuestArgv(rp, command) {
         '--bind=' + rp + '/proc/.sysctl_inotify_max_user_watches:/proc/sys/fs/inotify/max_user_watches',
         '--bind=' + rp + '/sys/.empty:/sys/fs/selinux',
         '--bind=' + FILES_DIR + ':/root/.nexus',
+    ];
+    // opts.rawExec → exec the guest directly (no `/usr/bin/env -i` wrapper), to
+    // isolate whether the hang is the env double-exec vs proot's loader itself.
+    if (opts && opts.rawExec) return a.concat(command);
+    return a.concat([
         '/usr/bin/env', '-i',
         'HOME=/root', 'LANG=C.UTF-8',
         'PATH=/opt/node/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
         'TERM=xterm-256color', 'TMPDIR=/tmp',
-    ].concat(command);
+    ]).concat(command);
 }
 
 // Run a command inside the Ubuntu rootfs via node spawn (NOT ProcessBuilder —
@@ -460,7 +465,9 @@ function runProotGuest(command, timeoutMs, onData, opts) {
             // canonical fix is to fall back to pure-ptrace interception.
             PROOT_NO_SECCOMP: '1',
         });
-        const prootArgs = (opts && opts.verbose ? ['-v', '1'] : []).concat(prootGuestArgv(rp, command));
+        // opts.verbose may be a boolean (→ -v1) or a number 0-9 (→ -vN).
+        const vlvl = (opts && opts.verbose) ? (opts.verbose === true ? 1 : opts.verbose) : 0;
+        const prootArgs = (vlvl ? ['-v', String(vlvl)] : []).concat(prootGuestArgv(rp, command, opts));
         // proot must run with NO inherited fds >2: libnode lives inside the Android
         // app process, so a spawned child inherits hundreds of framework fds
         // (WebView, goldfish_pipe/ashmem, mmap'd .apk) that lack FD_CLOEXEC; proot
@@ -4063,9 +4070,24 @@ function openPrintSession() {
                       '\x1b[2mExtract it first: Settings → 🐞 Ubuntu engine → Install + probe.\x1b[0m\r\n');
                     continue;
                 }
-                w('\x1b[33m!test-rootfs: proot -v1 → cat /etc/os-release (60s)…\x1b[0m\r\n');
-                // verbose:true → proot -v1; fds are closed first by runProotGuest.
-                runProotGuest(['/usr/bin/cat', '/etc/os-release'], 60000, null, { verbose: true })
+                // Flexible diagnostic: !test-rootfs [N] [raw] [guest args…]
+                //   N    = proot verbosity 0-9 (default 1; use 9 to see the exact
+                //          stuck syscall)
+                //   raw  = exec the guest directly, no `/usr/bin/env -i` wrapper
+                //          (isolates env double-exec from proot's loader)
+                //   rest = guest argv (default: /usr/bin/cat /etc/os-release)
+                // Terminal commands are free (no CI), so iterate here, not via builds.
+                const toks = line.slice('!test-rootfs'.length).trim().split(/\s+/).filter(Boolean);
+                let vlvl = 1, rawExec = false;
+                while (toks.length) {
+                    if (/^\d$/.test(toks[0])) { vlvl = parseInt(toks.shift(), 10); }
+                    else if (toks[0] === 'raw') { rawExec = true; toks.shift(); }
+                    else break;
+                }
+                const guest = toks.length ? toks : ['/usr/bin/cat', '/etc/os-release'];
+                w('\x1b[33m!test-rootfs: proot -v' + vlvl + (rawExec ? ' raw' : '') +
+                  ' → ' + guest.join(' ') + ' (60s)…\x1b[0m\r\n');
+                runProotGuest(guest, 60000, null, { verbose: vlvl, rawExec })
                     .then(async r => {
                         const ok = r.code === 0 && /Ubuntu/i.test(r.out);
                         const body = r.out.trim();
@@ -4074,8 +4096,9 @@ function openPrintSession() {
                           '\x1b[2m' + (ok ? body.slice(0, 600) : body.slice(-1200)) + '\x1b[0m\r\n');
                         // Always upload the FULL trace so it can be read off-device
                         // (emulator screenshots crop every line). Short URL only.
-                        const url = await uploadDiag(
-                            '=== !test-rootfs (exit=' + r.code + ', ok=' + ok + ') ===\n' + body);
+                        const url = await uploadDiag('=== !test-rootfs -v' + vlvl +
+                            (rawExec ? ' raw' : '') + ' [' + guest.join(' ') +
+                            '] (exit=' + r.code + ', ok=' + ok + ') ===\n' + body);
                         if (url) w('\x1b[36m📋 full trace: ' + url + '\x1b[0m\r\n');
                     })
                     .catch(e => w('\x1b[31m[!test-rootfs error] ' + (e && e.message) + '\x1b[0m\r\n'));
