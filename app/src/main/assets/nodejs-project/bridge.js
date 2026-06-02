@@ -460,11 +460,23 @@ function runProotGuest(command, timeoutMs, onData, opts) {
             PROOT_LOADER_32: path.join(NATIVE_DIR, 'libproot-loader32.so'),
             PROOT_L2S_DIR:   path.join(rp, '.l2s'),
             PROOT_TMP_DIR:   path.join(rp, 'tmp'),
-            // proot's seccomp-bpf fast-path stalls on Android emulator kernels
-            // (proot finishes all bindings, starts the guest, then hangs). The
-            // canonical fix is to fall back to pure-ptrace interception.
+            // proot's seccomp-bpf fast-path mishandles the IN-GUEST execve hand-off
+            // on some Android kernels (ptrace cancels the execve to re-issue with
+            // the loader, but the seccomp event ALSO fires and returns ENOSYS →
+            // "Function not implemented"). PROOT_NO_SECCOMP=1 should fall back to
+            // pure ptrace. PROOT_ASSUME_NEW_SECCOMP corrects the seccomp/ptrace
+            // event ordering if proot auto-detects it wrong. Both overridable per
+            // probe via opts.extraEnv to find what actually works on-device.
             PROOT_NO_SECCOMP: '1',
         });
+        // Per-probe env overrides (diagnostic): test PROOT_* knobs from the
+        // terminal without a rebuild. Set to null/'' to DELETE a base var.
+        if (opts && opts.extraEnv) {
+            for (const k in opts.extraEnv) {
+                const v = opts.extraEnv[k];
+                if (v === null || v === '') delete env[k]; else env[k] = String(v);
+            }
+        }
         // opts.verbose may be a boolean (→ -v1) or a number 0-9 (→ -vN).
         const vlvl = (opts && opts.verbose) ? (opts.verbose === true ? 1 : opts.verbose) : 0;
         const prootArgs = (vlvl ? ['-v', String(vlvl)] : []).concat(prootGuestArgv(rp, command, opts));
@@ -4070,24 +4082,31 @@ function openPrintSession() {
                       '\x1b[2mExtract it first: Settings → 🐞 Ubuntu engine → Install + probe.\x1b[0m\r\n');
                     continue;
                 }
-                // Flexible diagnostic: !test-rootfs [N] [raw] [guest args…]
-                //   N    = proot verbosity 0-9 (default 1; use 9 to see the exact
-                //          stuck syscall)
-                //   raw  = exec the guest directly, no `/usr/bin/env -i` wrapper
-                //          (isolates env double-exec from proot's loader)
-                //   rest = guest argv (default: /usr/bin/cat /etc/os-release)
+                // Flexible diagnostic: !test-rootfs [N] [raw] [ENV=K=V…] [guest args…]
+                //   N        = proot verbosity 0-9 (default 1)
+                //   raw      = exec the guest directly, no `/usr/bin/env -i` wrapper
+                //   ENV=K=V  = override a proot env var (ENV=K= deletes it). Used to
+                //              find the seccomp knob that fixes in-guest execve, e.g.
+                //              ENV=PROOT_ASSUME_NEW_SECCOMP=1 or ENV=PROOT_NO_SECCOMP=1
+                //   rest     = guest argv (default: /usr/bin/cat /etc/os-release)
                 // Terminal commands are free (no CI), so iterate here, not via builds.
                 const toks = line.slice('!test-rootfs'.length).trim().split(/\s+/).filter(Boolean);
-                let vlvl = 1, rawExec = false;
+                let vlvl = 1, rawExec = false; const extraEnv = {};
                 while (toks.length) {
                     if (/^\d$/.test(toks[0])) { vlvl = parseInt(toks.shift(), 10); }
                     else if (toks[0] === 'raw') { rawExec = true; toks.shift(); }
+                    else if (toks[0].startsWith('ENV=')) {
+                        const kv = toks.shift().slice(4); const i = kv.indexOf('=');
+                        if (i > 0) extraEnv[kv.slice(0, i)] = kv.slice(i + 1);
+                    }
                     else break;
                 }
+                const envNote = Object.keys(extraEnv).length
+                    ? ' [env ' + Object.entries(extraEnv).map(([k, v]) => k + '=' + v).join(' ') + ']' : '';
                 const guest = toks.length ? toks : ['/usr/bin/cat', '/etc/os-release'];
-                w('\x1b[33m!test-rootfs: proot -v' + vlvl + (rawExec ? ' raw' : '') +
+                w('\x1b[33m!test-rootfs: proot -v' + vlvl + (rawExec ? ' raw' : '') + envNote +
                   ' → ' + guest.join(' ') + ' (60s)…\x1b[0m\r\n');
-                runProotGuest(guest, 60000, null, { verbose: vlvl, rawExec })
+                runProotGuest(guest, 60000, null, { verbose: vlvl, rawExec, extraEnv })
                     .then(async r => {
                         const ok = r.code === 0 && /Ubuntu/i.test(r.out);
                         const body = r.out.trim();
@@ -4097,7 +4116,7 @@ function openPrintSession() {
                         // Always upload the FULL trace so it can be read off-device
                         // (emulator screenshots crop every line). Short URL only.
                         const url = await uploadDiag('=== !test-rootfs -v' + vlvl +
-                            (rawExec ? ' raw' : '') + ' [' + guest.join(' ') +
+                            (rawExec ? ' raw' : '') + envNote + ' [' + guest.join(' ') +
                             '] (exit=' + r.code + ', ok=' + ok + ') ===\n' + body);
                         if (url) w('\x1b[36m📋 full trace: ' + url + '\x1b[0m\r\n');
                     })
