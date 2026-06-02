@@ -81,7 +81,11 @@ jobs:
             if [ -z "$idx" ]; then
               idx="$(curl -fsSL "${TBASE}/dists/stable/main/binary-${arch}/Packages.gz" 2>/dev/null | gunzip -c 2>/dev/null || true)"
             fi
-            echo "$idx" | awk -v p="$pkg" 'BEGIN{RS="";FS="\n"}{n="";f="";for(i=1;i<=NF;i++){if($i=="Package: "p)n=p;if($i ~ /^Filename: /)f=substr($i,11)}if(n!=""&&f!=""){print f;exit}}'
+            # NOTE: no awk `exit` on first match — that closes the pipe early and
+            # `echo` (writing the ~1.7MB index) gets SIGPIPE, which pipefail+set-e
+            # turns into a silent script death. Use a `!d` flag to print the first
+            # (= newest) match while still consuming all input.
+            echo "$idx" | awk -v p="$pkg" 'BEGIN{RS="";FS="\n"}{n="";f="";for(i=1;i<=NF;i++){if($i=="Package: "p)n=p;if($i ~ /^Filename: /)f=substr($i,11)}if(n!=""&&f!=""&&!d){print f;d=1}}'
           }
 
           fetch_deb() {  # $1=pkg  $2=termux-arch  $3=outfile
