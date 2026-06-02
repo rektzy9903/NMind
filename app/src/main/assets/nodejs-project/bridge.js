@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b20-defer-stream-race';
+const BRIDGE_BUILD = 'b21-probe1-customagent';
 
 const net   = require('net');
 const http  = require('http');
@@ -4879,6 +4879,89 @@ function openPrintSession() {
             //   (b) Sub-agent returned a unique tag we embedded in its prompt
             // 90s timeout — sub-agents dispatch a child claude session, which
             // means a second API call cycle on top of the parent's.
+            if (line.startsWith('!test-agent') && getEngineMode() === 'proot') {
+                // ── PROOT branch — re-probe FILE-based custom-agent discovery on
+                // claude-code 2.1.160 (the feat/custom-agents premise). On 2.1.112
+                // print mode this returned "Agent type 'nexus_probe' not found.
+                // Available agents: Explore, Plan, …" — a hard version limit (Known
+                // gaps / [[project-subagent-status]]). We write a REAL agent .md into
+                // the guest's /root/.claude/agents/ (via the FILES_DIR/.claude bind),
+                // NOT the --agents flag, because file discovery is exactly what we're
+                // testing. If 2.1.160 finds it → branch unblocked.
+                const w = (s) => { try { if (state.socket) state.socket.write(SYS_FENCE + s); } catch(_) {} };
+                const G='\x1b[32m', Y='\x1b[33m', R='\x1b[31m', D='\x1b[2m', X='\x1b[0m';
+                const pTag = 'NEXUS_AGENT_OK_' + Date.now().toString(36);
+                const pAgentsDir = path.join(FILES_DIR, '.claude', 'agents');
+                const pAgentFile = path.join(pAgentsDir, 'nexus_probe.md');
+                const pSentinelHost  = path.join(FILES_DIR, '.claude', 'nexus_probe_result.txt');
+                const pSentinelGuest = '/root/.claude/nexus_probe_result.txt';
+                try { fs.unlinkSync(pSentinelHost); } catch(_) {}
+                const pCleanup = () => {
+                    try { fs.unlinkSync(pAgentFile); } catch(_) {}
+                    try { fs.unlinkSync(pSentinelHost); } catch(_) {}
+                };
+                try {
+                    fs.mkdirSync(pAgentsDir, { recursive: true });
+                    // Valid claude-code agent definition (YAML frontmatter + body).
+                    fs.writeFileSync(pAgentFile,
+                        '---\n' +
+                        'name: nexus_probe\n' +
+                        'description: Internal connectivity probe — confirms FILE-based custom sub-agent discovery on 2.1.160.\n' +
+                        'tools: Write\n' +
+                        '---\n' +
+                        'You are a diagnostic sub-agent. When invoked, do exactly these two steps and nothing else:\n' +
+                        '1. Use the Write tool to create the file ' + pSentinelGuest + ' whose entire contents are exactly: ' + pTag + '\n' +
+                        '2. Reply with exactly this string and nothing else: ' + pTag + '\n');
+                } catch (e) {
+                    w(R + '✗ !test-agent (proot): could not write agent file: ' + e.message + X + '\r\n');
+                    continue;
+                }
+                const pTestText = 'Use the Task tool (it may also be named Agent) to dispatch a sub-agent with subagent_type "nexus_probe". ' +
+                    'Do NOT use the Bash tool and do NOT run any shell command — "nexus_probe" is a sub-agent, not an executable. ' +
+                    'After the sub-agent replies, tell me the exact string it returned.';
+                // Same guest env/argv as the runMessage proot branch (IS_SANDBOX=1 +
+                // skip-permissions so the sub-agent's Write isn't permission-gated).
+                const pBenv = buildEnv();
+                try { patchSettings(readConfig()); } catch(_) {}
+                const pGuestEnv = {
+                    ANTHROPIC_API_KEY:   pBenv.ANTHROPIC_API_KEY,
+                    ANTHROPIC_MODEL:     pBenv.ANTHROPIC_MODEL,
+                    DISABLE_AUTOUPDATER: '1',
+                    SHELL:               '/bin/bash',
+                    IS_SANDBOX:          '1',
+                };
+                if (pBenv.ANTHROPIC_BASE_URL) pGuestEnv.ANTHROPIC_BASE_URL = pBenv.ANTHROPIC_BASE_URL;
+                const pArgv = [GUEST_CLAUDE, '--output-format', 'stream-json', '--print',
+                               '--dangerously-skip-permissions', '--verbose', pTestText];
+                w(Y + '!test-agent (proot/2.1.160): wrote ~/.claude/agents/nexus_probe.md, dispatching (120s)…' + X + '\r\n');
+                runProotGuest(pArgv, 120000, null, { extraEnv: pGuestEnv, workspace: FILES_DIR })
+                  .then(r => {
+                    const out = r.out || '';
+                    const fileTag   = (() => { try { return fs.readFileSync(pSentinelHost,'utf8').includes(pTag); } catch(_) { return false; } })();
+                    const taskFired = /"type"\s*:\s*"tool_use"[^}]*"name"\s*:\s*"(Task|Agent)"/.test(out);
+                    const notFound  = /not found\.?\s*Available agents/i.test(out) || /Agent type ['"]?nexus_probe['"]? not found/i.test(out);
+                    const tagSeen   = out.includes(pTag);
+                    const gotResult = out.includes('"type":"result"');
+                    const ran       = tagSeen || fileTag;
+                    // The headline verdict: was the FILE-defined agent discovered?
+                    const discovered = taskFired && !notFound && (ran || gotResult);
+                    pCleanup();
+                    const mark = discovered ? (G+'✓') : (taskFired ? (Y+'~') : (R+'✗'));
+                    let rep = mark + ' !test-agent (proot) exit=' + r.code + X + '\r\n';
+                    rep += '  Custom agent discovered: ' + (discovered ? G+'YES — 2.1.160 loads ~/.claude/agents/*.md! Branch unblocked.'+X
+                            : notFound ? R+'NO — still "not found" (version limit persists on 2.1.160)'+X
+                            : Y+'inconclusive (Task did not fire — model ignored the tool)'+X) + '\r\n';
+                    rep += '  Task tool fired:    ' + (taskFired ? G+'yes'+X : R+'no'+X) + '\r\n';
+                    rep += '  "not found" error:  ' + (notFound ? R+'yes'+X : G+'no'+X) + '\r\n';
+                    rep += '  Sub-agent ran:      ' + (ran ? G+'yes'+(fileTag?' (sentinel file)':' (stdout tag)')+X : D+'no'+X) + '\r\n';
+                    rep += '  Got final result:   ' + (gotResult ? G+'yes'+X : R+'no'+X) + '\r\n';
+                    if (!discovered) rep += D+'stdout (last 500): ' + out.slice(-500).replace(/\r?\n/g,' ') + X + '\r\n';
+                    w(rep);
+                  })
+                  .catch(e => { pCleanup(); w(R + '[!test-agent proot error] ' + (e && e.message) + X + '\r\n'); });
+                continue;
+            }
+
             if (line.startsWith('!test-agent')) {
                 const tag = 'NEXUS_AGENT_OK_' + Date.now().toString(36);
                 const agentsDir = path.join(FILES_DIR, '.claude', 'agents');
