@@ -104,14 +104,13 @@ jobs:
 
       # ── 11. Push APK to Appetize.io (browser emulator) ───────────────────────
       # Appetize runs a PREBUILT APK; it cannot pull from CI, so we push it via
-      # the REST API. Requires repo secret APPETIZE_API_TOKEN (Appetize account →
-      # API token). Optional repo VARIABLE APPETIZE_PUBLIC_KEY: when set, we UPDATE
-      # that same app so the test URL stays stable; when empty, we CREATE a new app
-      # and print its publicKey to save. Skips gracefully if the token isn't set,
-      # so existing builds never break.
+      # the REST API. Token is hardcoded below by owner choice (free-trial token,
+      # exposure waived). Optional repo VARIABLE APPETIZE_PUBLIC_KEY: when set, we
+      # UPDATE that same app so the test URL stays stable; when empty, we CREATE a
+      # new app and print its publicKey to save.
       - name: Upload APK to Appetize
         env:
-          APPETIZE_API_TOKEN:  ${{ secrets.APPETIZE_API_TOKEN }}
+          APPETIZE_API_TOKEN:  tok_sbpkqmqqbvb46opko5x2kavsnq
           APPETIZE_PUBLIC_KEY: ${{ vars.APPETIZE_PUBLIC_KEY }}
         run: |
           set -euo pipefail
