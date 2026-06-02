@@ -227,6 +227,26 @@ class UbuntuRootfsManager(private val context: Context) {
     suspend fun probeOsRelease(): Pair<Int?, String> = runInRootfs(listOf("/usr/bin/cat", "/etc/os-release"), 30_000)
 
     /**
+     * Decisive AT_SECURE check: spawn /system/bin/sh with the SAME env we hand
+     * proot and echo back LD_LIBRARY_PATH. If it prints our value → the env IS
+     * exported and bionic's linker is ignoring it (AT_SECURE=1 on ProcessBuilder
+     * children) → ProcessBuilder can't launch proot, must drive it via node.
+     * If it prints empty → ProcessBuilder isn't exporting it (fixable directly).
+     */
+    suspend fun probeLinkerEnv(): String = withContext(Dispatchers.IO) {
+        ensureTallocLink()
+        val pb = ProcessBuilder("/system/bin/sh", "-c", "echo LLP=[\$LD_LIBRARY_PATH]")
+            .redirectErrorStream(true)
+        pb.environment()["LD_LIBRARY_PATH"] = "${prootLibDir.absolutePath}:$nativeDir"
+        try {
+            val p = pb.start()
+            val o = p.inputStream.bufferedReader().readText().trim()
+            p.waitFor(5, java.util.concurrent.TimeUnit.SECONDS)
+            o
+        } catch (e: Exception) { "sh probe error: ${e.message}" }
+    }
+
+    /**
      * Preflight diagnostics — surfaces the exact native-lib + symlink state so a
      * "libtalloc.so.2 not found" failure can be split between (a) the build never
      * packaged libtalloc.so, (b) Os.symlink silently failed, (c) the link dangles.
