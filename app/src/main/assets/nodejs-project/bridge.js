@@ -18,6 +18,11 @@
  *   argv[3] = <nativeLibDir>/libnode-launcher.so
  */
 
+// Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
+// !hotload can prove which version actually loaded (the GitHub raw CDN serves
+// ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
+const BRIDGE_BUILD = 'b8-getcwd-sweep+apifetch';
+
 const net   = require('net');
 const http  = require('http');
 const path  = require('path');
@@ -4101,24 +4106,36 @@ function openPrintSession() {
                     w('\x1b[2mForce-stop + reopen the app to apply (bundled bridge.js).\x1b[0m\r\n');
                     continue;
                 }
-                const url = 'https://raw.githubusercontent.com/fahmi304/Nexus-Mind/feat/custom-agents/' +
-                            'app/src/main/assets/nodejs-project/bridge.js?t=' + Date.now();
+                // Fetch via the GitHub *API* contents endpoint, NOT raw.githubusercontent
+                // .com. The raw CDN (Fastly) serves ~5-min-stale copies and ignores our
+                // ?t= cache-buster, so hotloads kept loading old code. The API serves the
+                // branch HEAD (ETag-based), and `Accept: …raw` returns the file verbatim.
+                const url = 'https://api.github.com/repos/fahmi304/Nexus-Mind/contents/' +
+                            'app/src/main/assets/nodejs-project/bridge.js?ref=feat/custom-agents';
                 const tmp = devPath + '.tmp';
-                w('\x1b[33m!hotload: downloading latest bridge.js from GitHub…\x1b[0m\r\n');
-                downloadFile(url, tmp).then(() => {
-                    const txt = fs.readFileSync(tmp, 'utf8');
+                w('\x1b[33m!hotload: fetching latest bridge.js (GitHub API, running build ' + BRIDGE_BUILD + ')…\x1b[0m\r\n');
+                (async () => {
+                    const res = await httpsGet(url, { headers: {
+                        'Accept': 'application/vnd.github.raw',
+                        'User-Agent': 'nexus-hotload',
+                        'Cache-Control': 'no-cache',
+                    }});
+                    if (res.statusCode !== 200) { res.resume(); throw new Error('HTTP ' + res.statusCode + ' (API)'); }
+                    let txt = ''; res.setEncoding('utf8');
+                    await new Promise((rs, rj) => { res.on('data', c => txt += c); res.on('end', rs); res.on('error', rj); });
                     if (txt.length > 5000 && txt.includes('SYS_FENCE')) {
-                        fs.renameSync(tmp, devPath);
-                        w('\x1b[32m✓ hot-loaded ' + txt.length + ' bytes → bridge_dev.js\x1b[0m\r\n' +
-                          '\x1b[36mNow FORCE-STOP the app and reopen it to run the new bridge.js.\x1b[0m\r\n');
+                        const m = txt.match(/BRIDGE_BUILD\s*=\s*'([^']+)'/);
+                        const dlBuild = m ? m[1] : '(no stamp)';
+                        fs.writeFileSync(devPath, txt);
+                        w('\x1b[32m✓ hot-loaded ' + txt.length + ' bytes → build ' + dlBuild + '\x1b[0m\r\n' +
+                          (dlBuild === BRIDGE_BUILD
+                            ? '\x1b[33m⚠ downloaded build == running build (already current, or you just need to force-stop+reopen)\x1b[0m\r\n'
+                            : '') +
+                          '\x1b[36mNow FORCE-STOP the app and reopen it. After reopen, run a command — it will show build ' + dlBuild + '.\x1b[0m\r\n');
                     } else {
-                        try { fs.unlinkSync(tmp); } catch(_) {}
                         w('\x1b[31m✗ download invalid (size=' + txt.length + ') — kept current\x1b[0m\r\n');
                     }
-                }).catch(e => {
-                    try { fs.unlinkSync(tmp); } catch(_) {}
-                    w('\x1b[31m✗ hotload failed: ' + (e && e.message) + '\x1b[0m\r\n');
-                });
+                })().catch(e => w('\x1b[31m✗ hotload failed: ' + (e && e.message) + '\x1b[0m\r\n'));
                 continue;
             }
 
@@ -4207,6 +4224,7 @@ function openPrintSession() {
                     { tag: '5 seccomp ON + FORCE_KOMPAT=1',            env: { PROOT_NO_SECCOMP: '', PROOT_FORCE_KOMPAT: '1' } },
                     { tag: '6 NO_SECCOMP=1 + ASSUME_NEW=1',            env: { PROOT_ASSUME_NEW_SECCOMP: '1' } },
                 ];
+                w('\x1b[2m(build ' + BRIDGE_BUILD + ')\x1b[0m\r\n');
                 (async () => {
                     let combined = '', winner = '';
                     for (const c of combos) {
@@ -4308,7 +4326,7 @@ function openPrintSession() {
                         D + (r.out.trim().slice(-700) || '(no output)') + X + '\r\n');
 
                     // 1) boot
-                    w(D + '(build: cwd-fix+getcwd-probe)' + X + '\r\n');
+                    w(D + '(build ' + BRIDGE_BUILD + ')' + X + '\r\n');
                     w(Y + '[1/6] proot boot…' + X + '\r\n');
                     let r = await ge(['/usr/bin/cat', '/etc/os-release'], 60000);
                     if (!/Ubuntu/i.test(r.out)) { fail('boot failed', r); return; }
