@@ -94,11 +94,15 @@ jobs:
               [ -f "$tmp/$r" ] || { echo "::error::$abi: required proot file '$r' missing in $zip"; rm -rf "$tmp"; return 1; }
             done
             mkdir -p "app/src/main/jniLibs/$abi"
-            # proot links libtalloc.so.2 → rename dep to a real .so filename, and
-            # set RPATH=$ORIGIN so libtalloc.so resolves next to the binary even
-            # when launched without LD_LIBRARY_PATH (e.g. the manual `$` probe).
-            patchelf --replace-needed libtalloc.so.2 libtalloc.so "$tmp/proot"
-            patchelf --set-rpath '$ORIGIN' "$tmp/proot"
+            # DO NOT patchelf the proot binary. Android's bionic linker is far
+            # stricter than glibc ld — patchelf --replace-needed/--set-rpath
+            # rewrites the dynamic string table in a way bionic rejects at load
+            # ("linker_phdr.cpp Load CHECK"), even though the UserLAnd binary is
+            # known-good unmodified. proot keeps its NEEDED libtalloc.so.2; we
+            # ship libtalloc as libtalloc.so (only lib*.so extracts from the APK)
+            # and the bridge symlinks libtalloc.so.2 → libtalloc.so at runtime
+            # into a dir on LD_LIBRARY_PATH (the symlink resolves to the real
+            # exec-capable file in nativeLibDir). See bridge.js !test-proot.
             cp "$tmp/proot"          "app/src/main/jniLibs/$abi/libproot.so"
             cp "$tmp/loader"         "app/src/main/jniLibs/$abi/libproot-loader.so"
             cp "$tmp/libtalloc.so.2" "app/src/main/jniLibs/$abi/libtalloc.so"
@@ -117,9 +121,9 @@ jobs:
           ( repackage_abi "armeabi-v7a-assets.zip" "armeabi-v7a" ) \
             || echo "::warning::armv7 proot packaging failed — Ubuntu engine unavailable on 32-bit (libnode fallback stays)"
 
-          echo "── proot payload packaged:"
+          echo "── proot payload packaged (pristine — NOT patchelf'd):"
           ls -la app/src/main/jniLibs/*/libproot*.so app/src/main/jniLibs/*/libtalloc.so
-          echo "── arm64 libproot.so NEEDED (libtalloc.so.2 must be GONE):"
+          echo "── arm64 libproot.so NEEDED (libtalloc.so.2 expected — satisfied via runtime symlink):"
           patchelf --print-needed app/src/main/jniLibs/arm64-v8a/libproot.so
 
       # ── 5. Cache Gradle packages ─────────────────────────────────────────────

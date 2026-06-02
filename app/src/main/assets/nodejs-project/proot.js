@@ -18,16 +18,20 @@
  *
  *   jniLibs/<abi>/libproot.so           ← the proot binary (UserLAnd .a10 build:
  *                                          a dynamic PIE, NEEDED libtalloc.so.2 —
- *                                          NOT static. CI patchelf's that NEEDED
- *                                          to libtalloc.so and sets RPATH=$ORIGIN)
+ *                                          shipped PRISTINE. Do NOT patchelf it:
+ *                                          bionic's linker rejects patched ELFs
+ *                                          ("linker_phdr.cpp Load CHECK").)
  *   jniLibs/<abi>/libtalloc.so          ← proot's only non-system shared dep
  *   jniLibs/<abi>/libproot-loader.so    ← proot's 64-bit loader (static ELF;
  *                                          injected via ptrace, read not exec'd)
  *   jniLibs/<abi>/libproot-loader32.so  ← proot's 32-bit loader (static ELF)
  *
- * The bundled proot has a Termux loader path compiled in, so PROOT_LOADER /
- * PROOT_LOADER_32 MUST be set explicitly (prootEnv() does this); libtalloc.so is
- * resolved by the linker via RPATH=$ORIGIN (or LD_LIBRARY_PATH=nativeDir).
+ * Because proot keeps NEEDED "libtalloc.so.2" but only "libtalloc.so" extracts
+ * from the APK, ensureTallocLink() creates a symlink libtalloc.so.2 → the real
+ * libtalloc.so (in nativeLibDir) inside a writable dir that prootEnv() puts on
+ * LD_LIBRARY_PATH. The symlink resolves to the exec-capable nativeLibDir file.
+ * The bundled proot also has a Termux loader path compiled in, so PROOT_LOADER /
+ * PROOT_LOADER_32 MUST be set explicitly (prootEnv() does this).
  */
 
 'use strict';
@@ -62,6 +66,7 @@ function paths() {
         loader:   path.join(nd, 'libproot-loader.so'),
         loader32: path.join(nd, 'libproot-loader32.so'),
         talloc:   path.join(nd, 'libtalloc.so'),       // proot's bundled shared dep
+        libDir:   path.join(fd, '.proot-lib'),         // holds libtalloc.so.2 symlink
         rootfs,
         l2s:      path.join(rootfs, '.l2s'),           // --link2symlink store
         tmp:      path.join(rootfs, 'tmp'),
@@ -76,6 +81,7 @@ function paths() {
  */
 function prootEnv(extra) {
     const p = paths();
+    ensureTallocLink();   // make libtalloc.so.2 resolvable before LD_LIBRARY_PATH uses it
     const env = Object.assign({}, process.env, {
         PROOT_LOADER:    p.loader,
         PROOT_LOADER_32: p.loader32,
@@ -85,9 +91,24 @@ function prootEnv(extra) {
         // PROOT_NO_SECCOMP=1 as the fallback. Off by default; flip on-device if
         // spawns hang/abort. (ubuntu-engine.md risk list.)
         // PROOT_NO_SECCOMP: '1',
-        LD_LIBRARY_PATH: p.nativeDir,
+        // libDir (holds the libtalloc.so.2 symlink) first, then nativeDir.
+        LD_LIBRARY_PATH: p.libDir + ':' + p.nativeDir,
     });
     return Object.assign(env, extra || {});
+}
+
+/*
+ * ensureTallocLink() — proot keeps NEEDED "libtalloc.so.2" but the APK only
+ * extracts "libtalloc.so". Create a symlink libtalloc.so.2 → <nativeDir>/libtalloc.so
+ * in p.libDir (on LD_LIBRARY_PATH). The symlink resolves to the real file in
+ * nativeLibDir, which is on an exec-capable mount, so dlopen succeeds.
+ */
+function ensureTallocLink() {
+    const p = paths();
+    try { fs.mkdirSync(p.libDir, { recursive: true }); } catch (_) {}
+    const link = path.join(p.libDir, 'libtalloc.so.2');
+    try { fs.unlinkSync(link); } catch (_) {}
+    try { fs.symlinkSync(p.talloc, link); } catch (_) {}
 }
 
 /*
@@ -188,7 +209,7 @@ function prootReady() {
            fs.existsSync(path.join(p.rootfs, 'usr', 'bin'));
 }
 
-module.exports = { paths, prootEnv, buildProotArgv, ensureFakeSysData, prootReady, DEFAULT_FAKE_KERNEL };
+module.exports = { paths, prootEnv, buildProotArgv, ensureFakeSysData, ensureTallocLink, prootReady, DEFAULT_FAKE_KERNEL };
 
 // ── Standalone dry-run: `node proot.js --dry-run` prints the argv it would run.
 // Lets us eyeball the command without any native files present.

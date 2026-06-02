@@ -3884,9 +3884,21 @@ function openPrintSession() {
                           '\x1b[2m(this APK predates the proot CI step — rebuild from the branch that has it)\x1b[0m\r\n');
                         continue;
                     }
+                    // proot is shipped pristine (NOT patchelf'd — bionic rejects
+                    // patched binaries). It still NEEDs "libtalloc.so.2", but only
+                    // "libtalloc.so" extracts from the APK. Bridge the gap with a
+                    // symlink in a writable dir on LD_LIBRARY_PATH: the symlink
+                    // resolves to the real exec-capable file in nativeLibDir.
+                    const prootLibDir = path.join(FILES_DIR, '.proot-lib');
+                    try { fs.mkdirSync(prootLibDir, { recursive: true }); } catch(_) {}
+                    const tallocLink = path.join(prootLibDir, 'libtalloc.so.2');
+                    try { fs.unlinkSync(tallocLink); } catch(_) {}
+                    try { fs.symlinkSync(path.join(NATIVE_DIR, 'libtalloc.so'), tallocLink); } catch(e) {
+                        w('\x1b[33m!test-proot: symlink warn — ' + e.message + '\x1b[0m\r\n');
+                    }
                     w('\x1b[33m!test-proot: exec libproot.so --version (15s)…\x1b[0m\r\n');
                     const pEnv = Object.assign({}, process.env, {
-                        LD_LIBRARY_PATH: NATIVE_DIR,                                    // find libtalloc.so
+                        LD_LIBRARY_PATH: prootLibDir + ':' + NATIVE_DIR,               // libtalloc.so.2 → libtalloc.so
                         PROOT_LOADER:    path.join(NATIVE_DIR, 'libproot-loader.so'),
                         PROOT_LOADER_32: path.join(NATIVE_DIR, 'libproot-loader32.so'),
                     });
