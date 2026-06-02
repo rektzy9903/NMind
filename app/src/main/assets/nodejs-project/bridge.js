@@ -4124,6 +4124,51 @@ function openPrintSession() {
                 continue;
             }
 
+            // ── !fix-seccomp — sweep proot seccomp knobs to fix in-guest execve ─
+            // In-guest execve (env→cat) ENOSYS's because seccomp interferes with
+            // proot's execve→loader hand-off. The fix is a proot env knob; this
+            // tries each combo IN SEQUENCE against the env→cat canary and reports
+            // which one yields exit 0 — one command, one URL. The winning combo is
+            // then baked into runProotGuest's base env permanently.
+            if (line.startsWith('!fix-seccomp')) {
+                const w = (s) => { try { if (state.socket) state.socket.write(SYS_FENCE + s); } catch(_) {} };
+                const rp = path.join(FILES_DIR, 'ubuntu');
+                if (!fs.existsSync(path.join(rp, 'etc', 'os-release'))) {
+                    w('\x1b[31m✗ !fix-seccomp: no rootfs — extract first (Settings → 🐞 Ubuntu engine).\x1b[0m\r\n');
+                    continue;
+                }
+                // Each combo merges over the base env (which has PROOT_NO_SECCOMP=1).
+                // '' deletes a base var. Guest = env→cat canary (in-guest execve).
+                const combos = [
+                    { tag: '1 base (NO_SECCOMP=1)',                     env: {} },
+                    { tag: '2 seccomp on + ASSUME_NEW=1',              env: { PROOT_NO_SECCOMP: '', PROOT_ASSUME_NEW_SECCOMP: '1' } },
+                    { tag: '3 seccomp on + ASSUME_NEW=0',              env: { PROOT_NO_SECCOMP: '', PROOT_ASSUME_NEW_SECCOMP: '0' } },
+                    { tag: '4 NO_SECCOMP=1 + ASSUME_NEW=1',            env: { PROOT_ASSUME_NEW_SECCOMP: '1' } },
+                    { tag: '5 NO_SECCOMP=1 + MEMFD_UNSUPPORTED=1',     env: { PROOT_ASSUME_MEMFD_UNSUPPORTED: '1' } },
+                    { tag: '6 seccomp on + FORCE_KOMPAT=1',            env: { PROOT_NO_SECCOMP: '', PROOT_FORCE_KOMPAT: '1' } },
+                ];
+                (async () => {
+                    let combined = '', winner = '';
+                    for (const c of combos) {
+                        w('\x1b[33m!fix-seccomp: ' + c.tag + ' …\x1b[0m\r\n');
+                        let r;
+                        try { r = await runProotGuest(['/usr/bin/cat', '/etc/os-release'], 25000, null, { verbose: 1, extraEnv: c.env }); }
+                        catch (e) { r = { code: 'EXC', out: 'exception: ' + (e && e.message) }; }
+                        const ok = r.code === 0 && /Ubuntu/i.test(r.out);
+                        if (ok && !winner) winner = c.tag;
+                        w('  ' + (ok ? '\x1b[32m✓ exit 0 — IN-GUEST EXEC WORKS\x1b[0m'
+                                     : '\x1b[31m✗ exit=' + r.code + '\x1b[0m') + '\r\n');
+                        combined += '\n\n===== COMBO ' + c.tag + ' (exit=' + r.code + ', ok=' + ok +
+                                    ') env=' + JSON.stringify(c.env) + ' =====\n' + r.out.trim();
+                    }
+                    w(winner ? '\x1b[32m🎯 WINNER: ' + winner + '\x1b[0m\r\n'
+                             : '\x1b[31m✗ no combo worked — see trace\x1b[0m\r\n');
+                    const url = await uploadDiag('=== !fix-seccomp sweep (winner: ' + (winner || 'NONE') + ') ===' + combined);
+                    if (url) w('\x1b[36m📋 full trace: ' + url + '\x1b[0m\r\n');
+                })();
+                continue;
+            }
+
             // ── !test-loader — one-shot loader-hang triage (3 probes, 1 URL) ──
             // The v1.3.4 trace showed proot reaches guest launch then hangs in the
             // loader injection. This runs the 3 isolating probes back-to-back at
@@ -4178,6 +4223,17 @@ function openPrintSession() {
             if (line.startsWith('!setup-engine')) {
                 const w = (s) => { try { if (state.socket) state.socket.write(SYS_FENCE + s); } catch(_) {} };
                 const G = '\x1b[32m', R = '\x1b[31m', Y = '\x1b[33m', D = '\x1b[2m', X = '\x1b[0m';
+                // !setup-engine [ENV=K=V…] — same proot env overrides as !test-rootfs,
+                // so the seccomp combo that !fix-seccomp found can be applied to the
+                // WHOLE install chain WITHOUT a rebuild. ge() threads it into every
+                // guest call. (Once confirmed, the winning combo is baked into the
+                // runProotGuest base env permanently.)
+                const seEnv = {};
+                for (const t of line.slice('!setup-engine'.length).trim().split(/\s+/).filter(Boolean)) {
+                    if (t.startsWith('ENV=')) { const kv = t.slice(4); const i = kv.indexOf('='); if (i > 0) seEnv[kv.slice(0, i)] = kv.slice(i + 1); }
+                }
+                const ge = (cmd, t, onData) => runProotGuest(cmd, t, onData, { extraEnv: seEnv });
+                if (Object.keys(seEnv).length) w(D + 'env: ' + Object.entries(seEnv).map(([k, v]) => k + '=' + v).join(' ') + X + '\r\n');
                 (async () => {
                     const rp = path.join(FILES_DIR, 'ubuntu');
                     if (!fs.existsSync(path.join(rp, 'etc', 'os-release'))) {
@@ -4193,20 +4249,20 @@ function openPrintSession() {
 
                     // 1) boot
                     w(Y + '[1/6] proot boot…' + X + '\r\n');
-                    let r = await runProotGuest(['/usr/bin/cat', '/etc/os-release'], 60000);
+                    let r = await ge(['/usr/bin/cat', '/etc/os-release'], 60000);
                     if (!/Ubuntu/i.test(r.out)) { fail('boot failed', r); return; }
                     const pretty = (r.out.match(/PRETTY_NAME="?([^"\n]+)/) || [])[1] || 'Ubuntu';
                     w(G + '✓ booted: ' + pretty + X + '\r\n');
 
                     // 2) write test
                     w(Y + '[2/6] write test (/root, /tmp)…' + X + '\r\n');
-                    r = await runProotGuest(['/bin/sh', '-c', 'echo ok > /root/.wtest && echo ok > /tmp/.wtest && cat /root/.wtest /tmp/.wtest && rm -f /root/.wtest /tmp/.wtest'], 30000);
+                    r = await ge(['/bin/sh', '-c', 'echo ok > /root/.wtest && echo ok > /tmp/.wtest && cat /root/.wtest /tmp/.wtest && rm -f /root/.wtest /tmp/.wtest'], 30000);
                     if (r.code !== 0) { fail('write test failed', r); return; }
                     w(G + '✓ guest filesystem writable' + X + '\r\n');
 
                     // 3) Node 22 — reuse if present
                     w(Y + '[3/6] node…' + X + '\r\n');
-                    r = await runProotGuest(['/opt/node/bin/node', '--version'], 30000);
+                    r = await ge(['/opt/node/bin/node', '--version'], 30000);
                     if (r.code !== 0) {
                         const nodeUrl = 'https://nodejs.org/dist/v22.22.3/node-v22.22.3-linux-arm64.tar.gz';
                         const dest = path.join(FILES_DIR, 'node22.tar.gz');
@@ -4214,7 +4270,7 @@ function openPrintSession() {
                         try { await downloadFile(nodeUrl, dest); }
                         catch (e) { w(R + '✗ node download failed: ' + e.message + X + '\r\n'); return; }
                         w(D + '  extracting into /opt/node…' + X + '\r\n');
-                        r = await runProotGuest(['/bin/sh', '-c',
+                        r = await ge(['/bin/sh', '-c',
                             'mkdir -p /opt && tar -xzf /root/.nexus/node22.tar.gz -C /opt && ' +
                             'rm -rf /opt/node && mv /opt/node-v22.22.3-linux-arm64 /opt/node && ' +
                             '/opt/node/bin/node --version'], 180000);
@@ -4225,14 +4281,14 @@ function openPrintSession() {
 
                     // 4) npm
                     w(Y + '[4/6] npm…' + X + '\r\n');
-                    r = await runProotGuest(['/bin/sh', '-c', 'npm --version'], 60000);
+                    r = await ge(['/bin/sh', '-c', 'npm --version'], 60000);
                     if (r.code !== 0) { fail('npm failed', r); return; }
                     w(G + '✓ npm ' + r.out.trim() + X + '\r\n');
 
                     // 5) install claude-code (stream tail so it doesn't look hung)
                     w(Y + '[5/6] npm i -g @anthropic-ai/claude-code (network; can take a few min)…' + X + '\r\n');
                     let lastMark = Date.now();
-                    r = await runProotGuest(['/bin/sh', '-c',
+                    r = await ge(['/bin/sh', '-c',
                         'npm i -g @anthropic-ai/claude-code 2>&1'], 600000,
                         () => { const now = Date.now(); if (now - lastMark > 15000) { lastMark = now; w(D + '  …still installing…' + X + '\r\n'); } });
                     if (r.code !== 0) { fail('npm install failed', r); return; }
@@ -4240,7 +4296,7 @@ function openPrintSession() {
 
                     // 6) claude --version  (the real acceptance)
                     w(Y + '[6/6] claude --version…' + X + '\r\n');
-                    r = await runProotGuest(['/bin/sh', '-c', 'claude --version'], 60000);
+                    r = await ge(['/bin/sh', '-c', 'claude --version'], 60000);
                     if (r.code !== 0) { fail('claude --version failed', r); return; }
                     w(G + '✅ ENGINE READY — ' + r.out.trim() + X + '\r\n' +
                       G + '   P1 COMPLETE: latest claude-code runs on glibc via proot.' + X + '\r\n');
