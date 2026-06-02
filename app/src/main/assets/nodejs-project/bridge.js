@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b18-defer-p2-reactive';
+const BRIDGE_BUILD = 'b19-defer-p2-fix';
 
 const net   = require('net');
 const http  = require('http');
@@ -1429,13 +1429,17 @@ const TOOL_SEARCH_DEF = {
 // case-insensitive token overlap). Returns ≤5; if nothing matches, returns the
 // first 5 so the model is never left empty-handed.
 function matchDeferredTools(query, catalog) {
+    const cat = catalog || [];
     const toks = String(query || '').toLowerCase().split(/[^a-z0-9_]+/).filter(t => t.length > 1);
-    let hits = (catalog || []).filter(c => {
+    const hits = cat.filter(c => {
         const hay = ((c.function && c.function.name) + ' ' + (c.function && c.function.description || '')).toLowerCase();
         return toks.some(t => hay.includes(t));
     });
-    if (!hits.length) hits = (catalog || []).slice(0, 5);
-    return hits.slice(0, 5);
+    // On a clean match return ≤5; on NO match return the WHOLE catalog rather than
+    // an arbitrary first-5 — better to over-supply for one follow-up call than to
+    // steer the model to the wrong tools (e.g. query "deep-research" wouldn't token-
+    // match "WebSearch", so first-5 would hand back Agent/Task and never surface it).
+    return hits.length ? hits.slice(0, 5) : cat;
 }
 
 function handleProxyRequest(anthReq, res) {
@@ -2060,6 +2064,7 @@ function sendToProvider(baseUrl, apiKey, oaiReq, stream, res, onBadRequest, on42
                 finished = true;
                 sendEvent('content_block_stop', { type: 'content_block_stop', index: 0 });
                 for (const tb of Object.values(tcBlocks)) {
+                    if (tb.suppressed) continue; // tool_search was never opened — no stop
                     sendEvent('content_block_stop', { type: 'content_block_stop', index: tb.blockIdx });
                 }
                 sendEvent('message_delta', {
@@ -2140,26 +2145,37 @@ function sendToProvider(baseUrl, apiKey, oaiReq, stream, res, onBadRequest, on42
                         for (const tc of delta.tool_calls) {
                             const tcIdx = tc.index !== undefined ? tc.index : 0;
                             if (!tcBlocks[tcIdx]) {
-                                const blockIdx = nextBlockIdx++;
-                                tcBlocks[tcIdx] = { id: tc.id, name: (tc.function || {}).name || '', blockIdx, argsAccum: '', sig: null };
-                                sendEvent('content_block_start', {
-                                    type: 'content_block_start', index: blockIdx,
-                                    content_block: {
-                                        type: 'tool_use', id: tc.id,
-                                        name: (tc.function || {}).name || '', input: {}
-                                    }
-                                });
-                                log('[proxy] stream: tool_use block — ' + tcBlocks[tcIdx].name + '\n');
+                                const nm = (tc.function || {}).name || '';
+                                // SUPPRESS tool_search: it's our synthetic discovery tool —
+                                // claude-code never declared it, so it must NOT be streamed
+                                // as a tool_use (else "No such tool available: tool_search").
+                                // We accumulate its args and resolve it at finish (below).
+                                const suppressed = (nm === 'tool_search' && !!deferCatalog);
+                                const blockIdx = suppressed ? -1 : nextBlockIdx++;
+                                tcBlocks[tcIdx] = { id: tc.id, name: nm, blockIdx, argsAccum: '', sig: null, suppressed };
+                                if (!suppressed) {
+                                    sendEvent('content_block_start', {
+                                        type: 'content_block_start', index: blockIdx,
+                                        content_block: {
+                                            type: 'tool_use', id: tc.id, name: nm, input: {}
+                                        }
+                                    });
+                                    log('[proxy] stream: tool_use block — ' + nm + '\n');
+                                } else {
+                                    log('[proxy] stream: tool_search call (suppressed — resolving via catalog)\n');
+                                }
                             }
                             const sig = extractThoughtSig(tc, delta, choice);
                             if (sig) tcBlocks[tcIdx].sig = sig;
                             const args = (tc.function || {}).arguments || '';
                             if (args) {
                                 tcBlocks[tcIdx].argsAccum += args;
-                                sendEvent('content_block_delta', {
-                                    type: 'content_block_delta', index: tcBlocks[tcIdx].blockIdx,
-                                    delta: { type: 'input_json_delta', partial_json: args }
-                                });
+                                if (!tcBlocks[tcIdx].suppressed) {
+                                    sendEvent('content_block_delta', {
+                                        type: 'content_block_delta', index: tcBlocks[tcIdx].blockIdx,
+                                        delta: { type: 'input_json_delta', partial_json: args }
+                                    });
+                                }
                             }
                         }
                     }
@@ -2172,14 +2188,16 @@ function sendToProvider(baseUrl, apiKey, oaiReq, stream, res, onBadRequest, on42
                         // catalog, then re-call the provider WITH the discovered tools added
                         // and stream that result to claude-code (text or a real tool_use).
                         // claude-code never sees tool_search — it only sees the resolved turn.
-                        // Only fires when tool_search is the SOLE call (the usual shape — the
-                        // model decides it needs tools before doing anything else); a mixed
-                        // call falls through so real tools aren't swallowed.
-                        if (finishCode === 'tool_calls' && deferCatalog) {
+                        // NB: gated on the PRESENCE of a (suppressed) tool_search call, NOT on
+                        // finishCode — Gemini emits the call with finish_reason='stop', so a
+                        // `=== 'tool_calls'` gate misses it entirely. Fires only when no OTHER
+                        // (real) tool was called this step, so real tools aren't swallowed.
+                        if (deferCatalog) {
                             const tbVals = Object.values(tcBlocks);
-                            const onlySearch = tbVals.length === 1 && tbVals[0].name === 'tool_search';
-                            if (onlySearch) {
-                                const sb = tbVals[0];
+                            const searchCall = tbVals.find(b => b.name === 'tool_search');
+                            const otherCalls = tbVals.filter(b => b.name !== 'tool_search');
+                            if (searchCall && otherCalls.length === 0) {
+                                const sb = searchCall;
                                 let query = '';
                                 try { query = (JSON.parse(sb.argsAccum || '{}') || {}).query || ''; } catch (_) {}
                                 const matched = matchDeferredTools(query, deferCatalog);
