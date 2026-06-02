@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b13-proot-cwd';
+const BRIDGE_BUILD = 'b14-proot-skipperm';
 
 const net   = require('net');
 const http  = require('http');
@@ -3669,6 +3669,13 @@ function openPrintSession() {
             };
             if (benv.ANTHROPIC_BASE_URL) guestEnv.ANTHROPIC_BASE_URL = benv.ANTHROPIC_BASE_URL;
             const guestArgv = [GUEST_CLAUDE, '--output-format', 'stream-json', '--print'];
+            // ③ permission-hack re-probe (b14): --dangerously-skip-permissions HUNG on
+            // Bionic (inv 5b) — that was the whole reason for permissions.allow:['*'] +
+            // y\n auto-approve + auto_approve.json + the permission card. On glibc/2.1.160
+            // the HEAD-check hang should be gone. PROOT PATH ONLY (legacy untouched): if
+            // it hangs here, we lose nothing. If it works, the entire permission apparatus
+            // (card, auto_approve, customApiKeyResponses) can be deleted as scar tissue.
+            guestArgv.push('--dangerously-skip-permissions');
             if (state.hasHistory) guestArgv.push('--continue');
             guestArgv.push('--verbose', finalMsg);
             try {
