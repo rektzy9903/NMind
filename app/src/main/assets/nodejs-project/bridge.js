@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b8-getcwd-sweep+apifetch';
+const BRIDGE_BUILD = 'b9-seccomp-on';
 
 const net   = require('net');
 const http  = require('http');
@@ -478,14 +478,16 @@ function runProotGuest(command, timeoutMs, onData, opts) {
             // with an OpenSSL configuration error (seen on npm). /dev/null tells OpenSSL
             // to skip loading any config file (default settings are fine for TLS).
             OPENSSL_CONF: '/dev/null',
-            // proot's seccomp-bpf fast-path mishandles the IN-GUEST execve hand-off
-            // on some Android kernels (ptrace cancels the execve to re-issue with
-            // the loader, but the seccomp event ALSO fires and returns ENOSYS →
-            // "Function not implemented"). PROOT_NO_SECCOMP=1 should fall back to
-            // pure ptrace. PROOT_ASSUME_NEW_SECCOMP corrects the seccomp/ptrace
-            // event ordering if proot auto-detects it wrong. Both overridable per
-            // probe via opts.extraEnv to find what actually works on-device.
-            PROOT_NO_SECCOMP: '1',
+            // SECCOMP: leave it ON (do NOT set PROOT_NO_SECCOMP). The on-device
+            // !fix-seccomp sweep (build b8) proved seccomp mode-2 "ptrace
+            // acceleration (new syscall order)" is REQUIRED here: with
+            // PROOT_NO_SECCOMP=1 (pure ptrace) the chdir + getcwd syscalls ENOSYS
+            // on this kernel → npm/claude abort with uv_cwd. With seccomp ON,
+            // chdir/getcwd translate AND in-guest fork+exec still works (the
+            // canary `/bin/sh -c 'cd /root && /bin/pwd'` ran clean). The old
+            // worry that seccomp breaks the execve→loader hand-off was actually
+            // the env -i exec-replace issue (since removed), not seccomp.
+            // Still overridable per probe via opts.extraEnv.
         });
         // Per-probe env overrides (diagnostic): test PROOT_* knobs from the
         // terminal without a rebuild. Set to null/'' to DELETE a base var.
