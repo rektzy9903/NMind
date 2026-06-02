@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b15-proot-sandbox';
+const BRIDGE_BUILD = 'b16-defer-p1';
 
 const net   = require('net');
 const http  = require('http');
@@ -61,6 +61,14 @@ const ENGINE_FILE   = path.join(FILES_DIR, 'engine_mode');
 function getEngineMode() {
     try { return fs.readFileSync(ENGINE_FILE, 'utf8').trim() === 'proot' ? 'proot' : 'legacy'; }
     catch (_) { return 'legacy'; }
+}
+// Tool-deferral toggle — own flag file (bridge_config.json is Kotlin-owned and
+// gets overwritten on restart, so bridge-side toggles persist separately, same
+// as engine_mode). Default OFF until Phase-2 reactive search lands.
+const DEFER_FILE    = path.join(FILES_DIR, 'defer_tools');
+function getDeferTools() {
+    try { return fs.readFileSync(DEFER_FILE, 'utf8').trim() === 'on'; }
+    catch (_) { return false; }
 }
 const CONFIG_FILE   = path.join(FILES_DIR, 'bridge_config.json');
 const SETUP_LOG     = path.join(FILES_DIR, 'setup.log');
@@ -1383,6 +1391,23 @@ const PRUNED_TOOLS = new Set([
     'Skill', 'Monitor', 'PushNotification', 'RemoteTrigger', 'AskUserQuestion',
 ]);
 
+// ── Tool deferral (proxy-side "lazy load" for OAI providers) ──────────────────
+// Anthropic's real tool-search is a SERVER-side feature of api.anthropic.com
+// (defer_loading + tool_search_tool); OAI providers (Gemini/OpenRouter/…) have
+// no equivalent. So we emulate it in the proxy. CORE_TOOLS are the high-frequency
+// file/shell tools always sent in full; everything else is "deferred" — held back
+// to cut the ~72KB/≈29.5K-tok tool payload claude-code ships every turn.
+//
+// PHASE 1 (current): when `!defer on`, send CORE ∪ {tools already used in this
+// conversation's history}; deferred tools are simply dropped. This rides the
+// EXISTING streaming path (zero new risk) and is reversible per-turn — its only
+// downside is the model can't reach a deferred tool it hasn't used yet. PHASE 2
+// adds a real `tool_search` function + an internal sub-loop so the model can
+// discover deferred tools ON DEMAND (Level-2 reactive). See CLAUDE.md / engine memory.
+const CORE_TOOLS = new Set([
+    'Bash', 'Read', 'Edit', 'Write', 'Glob', 'Grep',
+]);
+
 function handleProxyRequest(anthReq, res) {
     const cfg   = readConfig();
     const pUrl  = cfg.providerUrl || '';
@@ -1412,6 +1437,40 @@ function handleProxyRequest(anthReq, res) {
         const dropped = before - anthReq.tools.length;
         if (dropped) log('[proxy] pruned ' + dropped + ' tool(s)' +
             (userOff.length ? ' (' + userOff.length + ' user-disabled)' : '') + '\n');
+    }
+
+    // ── Tool deferral (Phase 1) ──────────────────────────────────────────────
+    // Gated on cfg.deferTools (!defer on) AND OAI providers only — the Anthropic
+    // passthrough path already gets native server-side tool search for free, so
+    // we never touch its tool list here. Keep = CORE_TOOLS ∪ tools the model has
+    // already used in this conversation (so a discovered tool "sticks" across
+    // turns and isn't re-dropped). Anything not kept is deferred (dropped for now).
+    // SAFETY: this only ever SUBTRACTS from the request; on any doubt it subtracts
+    // nothing, so worst case == today's behavior. Never sends a malformed request.
+    if (getDeferTools() && !(cfg.providerUrl || '').includes('api.anthropic.com')
+        && Array.isArray(anthReq.tools) && anthReq.tools.length) {
+        // Tools already exercised in history → keep them available.
+        const usedInHistory = new Set();
+        for (const m of (anthReq.messages || [])) {
+            if (!Array.isArray(m.content)) continue;
+            for (const b of m.content) {
+                if (b && b.type === 'tool_use' && b.name) usedInHistory.add(b.name);
+            }
+        }
+        const beforeDefer = anthReq.tools.length;
+        const deferredNames = [];
+        anthReq.tools = anthReq.tools.filter(t => {
+            const n = t.name || '';
+            // Always keep core, MCP tools, and anything already used this session.
+            const keep = CORE_TOOLS.has(n) || /^mcp__/.test(n) || usedInHistory.has(n);
+            if (!keep) deferredNames.push(n);
+            return keep;
+        });
+        if (deferredNames.length) {
+            log('[proxy] deferred ' + deferredNames.length + '/' + beforeDefer +
+                ' tool(s): ' + deferredNames.join(',') +
+                (usedInHistory.size ? ' (kept ' + usedInHistory.size + ' from history)' : '') + '\n');
+        }
     }
 
     const baseModel = cfg.modelId || anthReq.model || '';
@@ -4031,6 +4090,7 @@ function openPrintSession() {
                     '  \x1b[33m!test-rootfs\x1b[0m        Probe: run extracted Ubuntu rootfs via proot (cat /etc/os-release)\r\n' +
                     '  \x1b[33m!setup-engine\x1b[0m       Batched P1: boot rootfs → install Node 22 + claude-code → claude --version\r\n' +
                     '  \x1b[33m!engine\x1b[0m             Switch message engine: !engine proot (2.1.160) | !engine legacy (2.1.112)\r\n' +
+                    '  \x1b[33m!defer\x1b[0m              Proxy tool deferral (lazy-load) for OAI providers: !defer on | off\r\n' +
                     '  \x1b[33m!debug\x1b[0m              Dump model/provider/settings/mcp state for remote debugging\r\n' +
                     '  \x1b[33m!help\x1b[0m               Show this help\r\n' +
                     '  \x1b[33m$ <cmd>\x1b[0m             Run a shell command\r\n\r\n'
@@ -4441,6 +4501,28 @@ function openPrintSession() {
                 } else {
                     w('\x1b[33mengine = ' + cur + '\x1b[0m\r\n' +
                       '\x1b[2mUsage: !engine proot | !engine legacy   (build ' + BRIDGE_BUILD + ')\x1b[0m\r\n');
+                }
+                continue;
+            }
+
+            // ── !defer — proxy-side tool deferral toggle (lazy-load for OAI) ──
+            // Writes filesDir/defer_tools. Read fresh per proxy request. OAI
+            // providers only (Anthropic passthrough gets native search free).
+            // PHASE 1: deferred tools are dropped (kept = core ∪ history-used);
+            // PHASE 2 will add on-demand discovery via a tool_search round-trip.
+            if (line.startsWith('!defer')) {
+                const w = (s) => { try { if (state.socket) state.socket.write(SYS_FENCE + s); } catch(_) {} };
+                const arg = line.slice('!defer'.length).trim().toLowerCase();
+                if (arg === 'on' || arg === 'off') {
+                    try { fs.writeFileSync(DEFER_FILE, arg); } catch(_) {}
+                    w('\x1b[32m✓ tool deferral → ' + arg + '\x1b[0m\r\n' +
+                      '\x1b[2m' + (arg === 'on'
+                        ? 'Phase 1: non-core tools dropped (kept: core + tools used this session). Watch [proxy] deferred/size in !log.'
+                        : 'All tools sent every turn (default).') +
+                      ' Takes effect on your next message.\x1b[0m\r\n');
+                } else {
+                    w('\x1b[33mtool deferral = ' + (getDeferTools() ? 'on' : 'off') + '\x1b[0m\r\n' +
+                      '\x1b[2mUsage: !defer on | !defer off   core=' + Array.from(CORE_TOOLS).join(',') + '\x1b[0m\r\n');
                 }
                 continue;
             }
