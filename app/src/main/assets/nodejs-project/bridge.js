@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b24-probe5-noperms';
+const BRIDGE_BUILD = 'b25-probe6-shell';
 
 const net   = require('net');
 const http  = require('http');
@@ -5303,6 +5303,61 @@ function openPrintSession() {
                     w(rep);
                   })
                   .catch(e => { restore(); w(R + '[!test-noperms proot error] ' + (e && e.message) + X + '\r\n'); });
+                continue;
+            }
+
+            // ── !test-shell — re-probe the Bash tool's shell requirement on 2.1.160 ──
+            // Invariant re-audit probe #6 (①, inv 70). On Bionic, claude-code filters
+            // shell candidates by $SHELL containing "bash"/"zsh" then probes hardcoded
+            // /bin/bash etc. (none exist on Android) → "No suitable shell found" on every
+            // Bash-tool call. The legacy fix = a BIN_DIR/bash symlink → /system/bin/sh +
+            // CLAUDE_CODE_SHELL. The proot guest has a REAL /bin/bash and we set SHELL=
+            // /bin/bash, so the symlink + CLAUDE_CODE_SHELL dance should be unnecessary.
+            // Test: spawn the guest WITHOUT CLAUDE_CODE_SHELL, run a Bash-tool task; if
+            // the command's output comes back (no "No suitable shell"), drop the hack on proot.
+            if (line.startsWith('!test-shell') && getEngineMode() === 'proot') {
+                const w = (s) => { try { if (state.socket) state.socket.write(SYS_FENCE + s); } catch(_) {} };
+                const G='\x1b[32m', Y='\x1b[33m', R='\x1b[31m', D='\x1b[2m', X='\x1b[0m';
+                const shTag = 'SHELLOK_' + Date.now().toString(36);
+                const shBenv = buildEnv();
+                try { patchSettings(readConfig()); } catch(_) {}
+                const shGuestEnv = {
+                    ANTHROPIC_API_KEY:   shBenv.ANTHROPIC_API_KEY,
+                    ANTHROPIC_MODEL:     shBenv.ANTHROPIC_MODEL,
+                    DISABLE_AUTOUPDATER: '1',
+                    SHELL:               '/bin/bash',  // real bash in the guest
+                    IS_SANDBOX:          '1',
+                    // Deliberately NOT setting CLAUDE_CODE_SHELL — that's the legacy hack.
+                };
+                if (shBenv.ANTHROPIC_BASE_URL) shGuestEnv.ANTHROPIC_BASE_URL = shBenv.ANTHROPIC_BASE_URL;
+                const shMsg = 'Use the Bash tool to run exactly this command: echo ' + shTag +
+                              ' . Then tell me its output.';
+                const shArgv = [GUEST_CLAUDE, '--output-format', 'stream-json', '--print',
+                                '--dangerously-skip-permissions', '--verbose', shMsg];
+                w(Y + '!test-shell (proot/2.1.160): Bash-tool task, no CLAUDE_CODE_SHELL (90s)…' + X + '\r\n');
+                runProotGuest(shArgv, 90000, null, { extraEnv: shGuestEnv, workspace: FILES_DIR })
+                  .then(r => {
+                    const out = r.out || '';
+                    const bashFired = /"type"\s*:\s*"tool_use"[^}]*"name"\s*:\s*"Bash"/.test(out);
+                    const noShell   = /No suitable shell found|Posix shell environment/i.test(out);
+                    const tagRan    = out.includes(shTag) && bashFired; // tag echoed back via tool_result
+                    const gotResult = out.includes('"type":"result"');
+                    const works = bashFired && !noShell && tagRan;
+                    const mark = works ? (G+'✓') : (bashFired ? (Y+'~') : (R+'✗'));
+                    let rep = mark + ' !test-shell (proot) exit=' + r.code + X + '\r\n';
+                    rep += '  CLAUDE_CODE_SHELL/symlink needed? ' + (works
+                            ? G+'NO — Bash tool ran with just SHELL=/bin/bash. Drop the symlink+CLAUDE_CODE_SHELL hack on proot.'+X
+                            : noShell ? R+'YES — "No suitable shell found" (keep the hack)'+X
+                            : !bashFired ? Y+'inconclusive (model never called Bash)'+X
+                            : Y+'inconclusive — see stdout'+X) + '\r\n';
+                    rep += '  Bash tool fired:    ' + (bashFired ? G+'yes'+X : R+'no'+X) + '\r\n';
+                    rep += '  "No suitable shell": ' + (noShell ? R+'yes'+X : G+'no'+X) + '\r\n';
+                    rep += '  Command output seen: ' + (tagRan ? G+'yes'+X : D+'no'+X) + '\r\n';
+                    rep += '  Got final result:   ' + (gotResult ? G+'yes'+X : R+'no'+X) + '\r\n';
+                    if (!works) rep += D+'stdout (last 500): ' + out.slice(-500).replace(/\r?\n/g,' ') + X + '\r\n';
+                    w(rep);
+                  })
+                  .catch(e => { w(R + '[!test-shell proot error] ' + (e && e.message) + X + '\r\n'); });
                 continue;
             }
 
