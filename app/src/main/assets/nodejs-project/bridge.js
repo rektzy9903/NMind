@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b21-probe1-customagent';
+const BRIDGE_BUILD = 'b22-probe2-slash';
 
 const net   = require('net');
 const http  = require('http');
@@ -4933,6 +4933,7 @@ function openPrintSession() {
                 if (pBenv.ANTHROPIC_BASE_URL) pGuestEnv.ANTHROPIC_BASE_URL = pBenv.ANTHROPIC_BASE_URL;
                 const pArgv = [GUEST_CLAUDE, '--output-format', 'stream-json', '--print',
                                '--dangerously-skip-permissions', '--verbose', pTestText];
+                if (getDeferTools()) w(Y + '⚠ tool deferral is ON — Agent/Task is in the defer catalog, so it gets stripped from the request and this probe will read a false "Task did not fire". Run !defer off first.' + X + '\r\n');
                 w(Y + '!test-agent (proot/2.1.160): wrote ~/.claude/agents/nexus_probe.md, dispatching (120s)…' + X + '\r\n');
                 runProotGuest(pArgv, 120000, null, { extraEnv: pGuestEnv, workspace: FILES_DIR })
                   .then(r => {
@@ -5102,6 +5103,66 @@ function openPrintSession() {
                     cleanup();
                     try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[31m[!test-agent error] ' + e.message + '\x1b[0m\r\n'); } catch(_) {}
                 }
+                continue;
+            }
+
+            // ── !test-slash — re-probe custom slash-command loading on 2.1.160 ──
+            // Invariant re-audit probe #2 (②). On 2.1.112 print mode, custom
+            // ~/.claude/commands/*.md were NOT expanded — claude passed "/foo"
+            // through as literal prompt text (Known gaps). Re-test on proot/2.1.160:
+            // write a real command file into the guest /root/.claude/commands/ (via
+            // the FILES_DIR/.claude bind) whose body asks the model to emit a unique
+            // tag, then send "/nexustest". If 2.1.160 expands it, the tag comes back;
+            // if not, the model treats "/nexustest" as a literal path.
+            if (line.startsWith('!test-slash') && getEngineMode() === 'proot') {
+                const w = (s) => { try { if (state.socket) state.socket.write(SYS_FENCE + s); } catch(_) {} };
+                const G='\x1b[32m', Y='\x1b[33m', R='\x1b[31m', D='\x1b[2m', X='\x1b[0m';
+                const sTag = 'NEXUS_SLASH_OK_' + Date.now().toString(36);
+                const sCmdDir  = path.join(FILES_DIR, '.claude', 'commands');
+                const sCmdFile = path.join(sCmdDir, 'nexustest.md');
+                const sCleanup = () => { try { fs.unlinkSync(sCmdFile); } catch(_) {} };
+                try {
+                    fs.mkdirSync(sCmdDir, { recursive: true });
+                    fs.writeFileSync(sCmdFile,
+                        'Reply with exactly this string and nothing else, no punctuation: ' + sTag + '\n');
+                } catch (e) {
+                    w(R + '✗ !test-slash: could not write command file: ' + e.message + X + '\r\n');
+                    continue;
+                }
+                const sBenv = buildEnv();
+                try { patchSettings(readConfig()); } catch(_) {}
+                const sGuestEnv = {
+                    ANTHROPIC_API_KEY:   sBenv.ANTHROPIC_API_KEY,
+                    ANTHROPIC_MODEL:     sBenv.ANTHROPIC_MODEL,
+                    DISABLE_AUTOUPDATER: '1',
+                    SHELL:               '/bin/bash',
+                    IS_SANDBOX:          '1',
+                };
+                if (sBenv.ANTHROPIC_BASE_URL) sGuestEnv.ANTHROPIC_BASE_URL = sBenv.ANTHROPIC_BASE_URL;
+                const sArgv = [GUEST_CLAUDE, '--output-format', 'stream-json', '--print',
+                               '--dangerously-skip-permissions', '--verbose', '/nexustest'];
+                w(Y + '!test-slash (proot/2.1.160): wrote ~/.claude/commands/nexustest.md, sending "/nexustest" (90s)…' + X + '\r\n');
+                runProotGuest(sArgv, 90000, null, { extraEnv: sGuestEnv, workspace: FILES_DIR })
+                  .then(r => {
+                    const out = r.out || '';
+                    const tagSeen   = out.includes(sTag);
+                    // Literal pass-through signals: claude treated /nexustest as a path/cmd.
+                    const literal   = /\/nexustest/.test(out) && !tagSeen;
+                    const gotResult = out.includes('"type":"result"');
+                    sCleanup();
+                    const expanded  = tagSeen;
+                    const mark = expanded ? (G+'✓') : (R+'✗');
+                    let rep = mark + ' !test-slash (proot) exit=' + r.code + X + '\r\n';
+                    rep += '  Slash command expanded: ' + (expanded
+                            ? G+'YES — 2.1.160 loads ~/.claude/commands/*.md! (was a 2.1.112 limit)'+X
+                            : literal ? R+'NO — "/nexustest" passed through as literal text (limit persists)'+X
+                            : Y+'inconclusive (tag absent, no literal echo — check stdout below)'+X) + '\r\n';
+                    rep += '  Tag returned:       ' + (tagSeen ? G+'yes'+X : R+'no'+X) + '\r\n';
+                    rep += '  Got final result:   ' + (gotResult ? G+'yes'+X : R+'no'+X) + '\r\n';
+                    if (!expanded) rep += D+'stdout (last 500): ' + out.slice(-500).replace(/\r?\n/g,' ') + X + '\r\n';
+                    w(rep);
+                  })
+                  .catch(e => { sCleanup(); w(R + '[!test-slash proot error] ' + (e && e.message) + X + '\r\n'); });
                 continue;
             }
 
