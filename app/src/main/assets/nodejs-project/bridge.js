@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b10-proot-engine';
+const BRIDGE_BUILD = 'b11-proot-launcher';
 
 const net   = require('net');
 const http  = require('http');
@@ -48,6 +48,15 @@ const CLAUDE_CLI  = path.join(
 // libnode path. Toggle from the terminal with `!engine proot` / `!engine legacy`.
 const GUEST_CLI     = '/opt/node/lib/node_modules/@anthropic-ai/claude-code/cli.js';
 const GUEST_NODE    = '/opt/node/bin/node';
+// The npm-installed launcher symlink (/opt/node/bin/claude → ../lib/node_modules/
+// .../cli.js). We invoke THIS by absolute path rather than `node <cli.js>` directly:
+// 2.1.160's package layout / global prefix can put cli.js somewhere other than the
+// guessed GUEST_CLI path (on-device the literal path MODULE_NOT_FOUND'd), but the
+// launcher is what `!setup-engine` step [6] `claude --version` proved works. It's a
+// `#!/usr/bin/env node` script — the kernel honours the shebang and PATH (which has
+// /opt/node/bin) resolves node. Absolute argv[0] needs no shell, so the user message
+// stays a separate argv element with zero quoting risk.
+const GUEST_CLAUDE  = '/opt/node/bin/claude';
 const ENGINE_FILE   = path.join(FILES_DIR, 'engine_mode');
 function getEngineMode() {
     try { return fs.readFileSync(ENGINE_FILE, 'utf8').trim() === 'proot' ? 'proot' : 'legacy'; }
@@ -3618,7 +3627,7 @@ function openPrintSession() {
                 SHELL:               '/bin/bash',   // real bash exists in the guest
             };
             if (benv.ANTHROPIC_BASE_URL) guestEnv.ANTHROPIC_BASE_URL = benv.ANTHROPIC_BASE_URL;
-            const guestArgv = [GUEST_NODE, GUEST_CLI, '--output-format', 'stream-json', '--print'];
+            const guestArgv = [GUEST_CLAUDE, '--output-format', 'stream-json', '--print'];
             if (state.hasHistory) guestArgv.push('--continue');
             guestArgv.push('--verbose', finalMsg);
             try {
