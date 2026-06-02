@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b27-mcpprobe-diag';
+const BRIDGE_BUILD = 'b28-mcp-waitfor';
 
 const net   = require('net');
 const http  = require('http');
@@ -5407,8 +5407,14 @@ function openPrintSession() {
                 };
                 if (mBenv.ANTHROPIC_BASE_URL) mGuestEnv.ANTHROPIC_BASE_URL = mBenv.ANTHROPIC_BASE_URL;
                 // inv 65b: --mcp-config is variadic — keep --verbose between it and the message.
-                const mMsg = 'List the names of any tools you have whose names begin with "mcp__", one per line. ' +
-                             'If you have none, reply exactly: NO_MCP_TOOLS.';
+                // Native HTTP MCP registers the server as "pending" at init and connects
+                // ASYNC — a fast model answers before the handshake finishes (b27). claude-code
+                // ships WaitForMcpServers exactly for this; instruct the model to call it first
+                // so we learn whether native HTTP works *given time* vs is genuinely stuck.
+                const mMsg = 'First, call the WaitForMcpServers tool and wait until all MCP servers ' +
+                             'have finished connecting. Then list the names of every tool you have whose ' +
+                             'name begins with "mcp__", one per line. If after waiting you still have none, ' +
+                             'reply exactly: NO_MCP_TOOLS.';
                 const mArgv = [GUEST_CLAUDE, '--output-format', 'stream-json', '--print',
                                '--dangerously-skip-permissions',
                                '--mcp-config', guestCfgGuest, '--verbose', mMsg];
