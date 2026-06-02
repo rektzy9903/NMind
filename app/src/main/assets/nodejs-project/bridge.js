@@ -468,6 +468,11 @@ function runProotGuest(command, timeoutMs, onData, opts) {
             LANG:   'C.UTF-8',
             TERM:   'xterm-256color',
             TMPDIR: '/tmp',
+            // Node's bundled OpenSSL fopen()s /etc/ssl/openssl.cnf at startup; under
+            // proot that path returns ENOSYS ("Function not implemented") → node aborts
+            // with an OpenSSL configuration error (seen on npm). /dev/null tells OpenSSL
+            // to skip loading any config file (default settings are fine for TLS).
+            OPENSSL_CONF: '/dev/null',
             // proot's seccomp-bpf fast-path mishandles the IN-GUEST execve hand-off
             // on some Android kernels (ptrace cancels the execve to re-issue with
             // the loader, but the seccomp event ALSO fires and returns ENOSYS →
