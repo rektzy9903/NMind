@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b44-cleanup';
+const BRIDGE_BUILD = 'b45-pty-mcp';
 
 const net   = require('net');
 const http  = require('http');
@@ -5124,6 +5124,28 @@ function openPrintSession() {
                     if (add) fs.appendFileSync(groupPath, add);
                 }
             } catch (e) { log('[ubuntu-pty] /etc/group seed: ' + e.message + '\n'); }
+            // MCP for the INTERACTIVE claude: the user types bare `claude`, which gets
+            // NO --mcp-config (only print-mode's runMessage passes it), so it never sees
+            // Exa/HTTP MCP. Fix: (1) (re)generate the guest MCP config from the current
+            // Settings (writeProotMcpConfig → /root/.claude/mcp_guest_config.json), and
+            // (2) drop a `claude` shell wrapper in /root/.bash_profile that injects
+            // --mcp-config when that file exists. --mcp-config is appended AFTER "$@" so
+            // the variadic option (inv 65b) can't swallow a positional prompt.
+            try {
+                writeProotMcpConfig(); // writes FILES_DIR/.claude/mcp_guest_config.json (HTTP servers) or removes it
+                const bp = path.join(FILES_DIR, 'ubuntu', 'root', '.bash_profile');
+                const wrapper =
+                    '# Nexus: load defaults, then wrap `claude` to pick up MCP servers from Settings.\n' +
+                    '[ -f ~/.bashrc ] && . ~/.bashrc\n' +
+                    'claude() {\n' +
+                    '  if [ -f /root/.claude/mcp_guest_config.json ]; then\n' +
+                    '    command /opt/node/bin/claude "$@" --mcp-config /root/.claude/mcp_guest_config.json\n' +
+                    '  else\n' +
+                    '    command /opt/node/bin/claude "$@"\n' +
+                    '  fi\n' +
+                    '}\n';
+                fs.writeFileSync(bp, wrapper);
+            } catch (e) { log('[ubuntu-pty] mcp wrapper: ' + e.message + '\n'); }
             // Interactive TUI auth — GATEWAY MODE (ref: Alishahryar1/free-claude-code).
             // The b38/b40 customApiKeyResponses seeding was the WRONG approach: setting
             // ANTHROPIC_API_KEY makes the interactive `claude` treat it as a "custom API
