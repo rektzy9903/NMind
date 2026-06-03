@@ -128,7 +128,7 @@ html, body {
   min-width: 0;
   max-width: calc(100% - 42px); /* 26px avatar + 8px gap + 8px safety */
   padding: 10px 13px;
-  font-size: 13px;
+  font-size: calc(13px * var(--cfs, 1));
   line-height: 1.7;
   overflow-wrap: anywhere;
   word-break: break-word;
@@ -215,7 +215,7 @@ html, body {
   margin: 7px 0;
   overflow-x: auto;
   font-family: 'Space Mono','Courier New',monospace;
-  font-size: 12px;
+  font-size: calc(12px * var(--cfs, 1));
   line-height: 1.65;
   white-space: pre;
   color: #e2e8f0;
@@ -226,14 +226,14 @@ html, body {
   border-radius: 4px;
   padding: 1px 5px;
   font-family: 'Space Mono','Courier New',monospace;
-  font-size: 12px;
+  font-size: calc(12px * var(--cfs, 1));
   color: #7dd3fc;
 }
 .md-table {
   border-collapse: collapse;
   width: 100%;
   margin: 6px 0;
-  font-size: 12px;
+  font-size: calc(12px * var(--cfs, 1));
 }
 .md-table th, .md-table td {
   border: 1px solid rgba(255,255,255,0.15);
@@ -249,9 +249,9 @@ html, body {
 .hl-kw     { color: #c084fc; }
 .hl-str    { color: #86efac; }
 .hl-comment{ color: #64748b; font-style: italic; }
-.md-h1 { font-size: 16px; font-weight: bold; color: #e2e8f0; margin: 6px 0 3px; }
-.md-h2 { font-size: 14px; font-weight: bold; color: #cbd5e1; margin: 5px 0 2px; }
-.md-h3 { font-size: 13px; font-weight: bold; color: #94a3b8; margin: 4px 0 2px; }
+.md-h1 { font-size: calc(16px * var(--cfs, 1)); font-weight: bold; color: #e2e8f0; margin: 6px 0 3px; }
+.md-h2 { font-size: calc(14px * var(--cfs, 1)); font-weight: bold; color: #cbd5e1; margin: 5px 0 2px; }
+.md-h3 { font-size: calc(13px * var(--cfs, 1)); font-weight: bold; color: #94a3b8; margin: 4px 0 2px; }
 .md-li { margin-left: 16px; }
 
 /* ── Thinking bubble ─────────────────────────────────────────────────────── */
@@ -2878,6 +2878,10 @@ function applyFontSize(sz){
   termFontSize=Math.max(10,Math.min(22,sz));
   localStorage.setItem('termFontSize',String(termFontSize));
   msgs.style.fontSize=termFontSize+'px';
+  // Chat bubbles + markdown have their own fixed px sizes that override the
+  // container font-size, so the inherited size alone does nothing. Drive them
+  // all off a single scale var (--cfs); 14 = default → scale 1.0 (no change).
+  msgs.style.setProperty('--cfs', (termFontSize/14).toFixed(3));
   reportTermSize();
 }
 applyFontSize(termFontSize);
