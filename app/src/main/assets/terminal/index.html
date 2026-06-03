@@ -1330,6 +1330,9 @@ function handleOSC(content){
     msgs.appendChild(thinkBub);
     resetSysBubble(true);
     resetAiBubble();
+    // Drop the saved snapshot too (parity with termClear) so switching tabs away
+    // and back can't restore the just-cleared conversation.
+    try { if(_activeSid!=null) _sessionSnaps.delete(_activeSid); } catch(_){}
   } else if(content.startsWith('9;cwd:')){
     var cwd=content.slice(6);
     var cwdBar=document.getElementById('cwd-bar');
@@ -2447,7 +2450,14 @@ function scheduleSysRender(){
   requestAnimationFrame(function(){
     sysRenderQueued=false;
     if(sysEl&&sysAnsi){
-      const lines=sysAnsi.lines;
+      let lines=sysAnsi.lines;
+      // Drop trailing blank grid rows: a one-line sys message ending in "\r\n"
+      // (e.g. "[history cleared …]") leaves an empty 2nd row, which would
+      // otherwise be treated as output → a spurious empty .sys-output block + a
+      // Copy button. Trim so a single logical line stays a plain label.
+      let _end=lines.length;
+      while(_end>1 && (!lines[_end-1] || lines[_end-1].length===0)) _end--;
+      lines=lines.slice(0,_end);
       if(lines.length<=1){
         sysEl.innerHTML=linesToHtml(lines);
         if(sysOutEl) sysOutEl.style.display='none';
@@ -2505,8 +2515,12 @@ window.termWrite=function(raw){
 // Keyed by session ID (integer). Stores msgs.innerHTML so switching tabs
 // restores the exact rendered conversation without replaying raw bytes.
 const _sessionSnaps = new Map();
+// Tracks the session whose conversation is currently shown, so the bridge's
+// `9;clear-ui` OSC (which carries no sid) can drop the right stale snapshot.
+let _activeSid = null;
 
 window.termClear=function(sid){
+  if(sid!=null) _activeSid=sid;
   stopThinkingTimer();
   msgs.innerHTML='';
   resetSysBubble(true);
@@ -2524,6 +2538,7 @@ window.termSaveSnapshot = function(sid) {
 
 // Returns true if snapshot existed and was restored, false if not found.
 window.termRestoreSnapshot = function(sid) {
+  if(sid!=null) _activeSid=sid;
   if (!_sessionSnaps.has(sid)) return false;
   stopThinkingTimer();
   msgs.innerHTML = _sessionSnaps.get(sid);
