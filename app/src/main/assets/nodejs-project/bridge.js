@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b49-runEngineSetup';
+const BRIDGE_BUILD = 'b50-provision-watcher';
 
 const net   = require('net');
 const http  = require('http');
@@ -5745,3 +5745,48 @@ try {
 log('Starting bridge server (proot engine).\n');
 try { fs.writeFileSync(SETUP_DONE, 'true'); } catch (_) {}
 startBridgeServer();
+
+// ─── First-run auto-provisioning watcher ──────────────────────────────────────
+// Kotlin (SetupActivity) extracts the Ubuntu rootfs (it owns xz/tar; node can't),
+// then drops a `provision_requested` marker. We run the SHARED install chain
+// (runEngineSetup) and report progress to setup.log (SetupActivity polls it) +
+// completion markers `engine_provisioned` / `provision_failed` for its gate.
+// Same debugged chain as !setup-engine, just file-triggered instead of typed.
+const PROVISION_REQ  = path.join(FILES_DIR, 'provision_requested');
+const PROVISION_OK   = path.join(FILES_DIR, 'engine_provisioned');
+const PROVISION_FAIL = path.join(FILES_DIR, 'provision_failed');
+let _provisioning = false;
+function checkProvisionRequest() {
+    if (_provisioning) return;
+    if (!fs.existsSync(PROVISION_REQ)) return;
+    _provisioning = true;
+    try { fs.unlinkSync(PROVISION_REQ); } catch (_) {}
+    try { fs.unlinkSync(PROVISION_FAIL); } catch (_) {}
+    // setup.log is SetupActivity's progress channel — reset it for a clean run.
+    try { fs.writeFileSync(SETUP_LOG, ''); } catch (_) {}
+    const plog = (s) => { try { fs.appendFileSync(SETUP_LOG, s + '\n'); } catch (_) {} };
+    // Structured lines SetupActivity parses: "[provision] pct=NN <TAG> <msg>".
+    const emit = ({ level, msg, stage, pct }) => {
+        const tag = level === 'err' ? 'ERR' : level === 'ok' ? 'OK'
+                  : level === 'done' ? 'DONE' : level === 'stage' ? 'STAGE' : '..';
+        plog('[provision]' + (pct != null ? ' pct=' + pct : '') + ' ' + tag + ' ' + String(msg).replace(/\n/g, ' '));
+    };
+    log('[provision] auto-provisioning requested — running runEngineSetup\n');
+    Promise.resolve()
+        .then(() => runEngineSetup(emit, {}))
+        .then(res => {
+            if (res && res.ok) {
+                try { fs.writeFileSync(PROVISION_OK, res.version || 'ok'); } catch (_) {}
+                plog('[provision] COMPLETE ' + (res.version || ''));
+            } else {
+                try { fs.writeFileSync(PROVISION_FAIL, (res && res.error) || 'failed'); } catch (_) {}
+                plog('[provision] FAILED ' + ((res && res.error) || ''));
+            }
+        })
+        .catch(e => {
+            try { fs.writeFileSync(PROVISION_FAIL, String(e && e.message)); } catch (_) {}
+            plog('[provision] FAILED ' + (e && e.message));
+        })
+        .finally(() => { _provisioning = false; });
+}
+setInterval(checkProvisionRequest, 2000);
