@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b47-test-persistent';
+const BRIDGE_BUILD = 'b48-warm-session';
 
 const net   = require('net');
 const http  = require('http');
@@ -72,6 +72,17 @@ function getEngineMode() {
 const DEFER_FILE    = path.join(FILES_DIR, 'defer_tools');
 function getDeferTools() {
     try { return fs.readFileSync(DEFER_FILE, 'utf8').trim() === 'on'; }
+    catch (_) { return false; }
+}
+// Warm-session toggle — ONE long-lived `claude --print --input-format stream-json`
+// per chat tab, fed NDJSON over a kept-open stdin, instead of a fresh spawn per
+// message. Kills the ~30s cold start (proot boot + node + claude init); proven
+// 21.3× faster on the 2nd turn by !test-persistent (b47). Own flag file (same
+// reason as defer_tools/engine_mode — bridge_config.json is Kotlin-owned). Default
+// OFF until the warm path soaks; flip default once stable.
+const WARM_FILE     = path.join(FILES_DIR, 'warm_session');
+function getWarmMode() {
+    try { return fs.readFileSync(WARM_FILE, 'utf8').trim() === 'on'; }
     catch (_) { return false; }
 }
 const CONFIG_FILE   = path.join(FILES_DIR, 'bridge_config.json');
@@ -3423,6 +3434,179 @@ function openPrintSession() {
         log('[perm-text] unexpected on proot: ' + line.slice(0, 120) + '\n');
     }
 
+    // ── Warm-session path (getWarmMode) — ONE persistent claude per tab ───────
+    // The OPPOSITE of single-shot inv 5c: stdin stays OPEN and each turn is one
+    // NDJSON user line. The proc loops reading stdin (proven by !test-persistent),
+    // so turn 2+ skip the ~30s cold start. History lives IN the proc (no
+    // --continue). Config baked at spawn (model env, --append-system-prompt,
+    // --mcp-config, cwd) → respawn when any of those change, on !clear, on
+    // model/provider change, and on crash. Single-shot path is untouched (fallback).
+    const WARM_TURN_TIMEOUT_MS = 180000;
+
+    // Build the guest env for a warm claude proc (mirrors the single-shot block).
+    function warmGuestEnv() {
+        const benv = buildEnv();
+        const e = {
+            ANTHROPIC_API_KEY:   benv.ANTHROPIC_API_KEY,
+            ANTHROPIC_MODEL:     benv.ANTHROPIC_MODEL,
+            DISABLE_AUTOUPDATER: '1',
+            MCP_TIMEOUT:         '30000',
+            MCP_TOOL_TIMEOUT:    '30000',
+            SHELL:               '/bin/bash',
+            IS_SANDBOX:          '1',
+        };
+        if (benv.ANTHROPIC_BASE_URL) e.ANTHROPIC_BASE_URL = benv.ANTHROPIC_BASE_URL;
+        return e;
+    }
+
+    // The system-prompt string baked into a warm proc for a given config — used
+    // both at spawn and to detect when a respawn is needed.
+    function warmSysFor(appendSys, prootMcpCfg) {
+        return [appendSys, prootMcpCfg ? PROOT_MCP_SYS_NUDGE : ''].filter(Boolean).join('\n\n');
+    }
+
+    // Kill the warm proc (if any) so the next message respawns with fresh config.
+    function killWarmProc(state, why) {
+        const p = state.warmProc;
+        if (!p) return;
+        log('[warm] killing warm proc (' + (why || '') + ')\n');
+        try { p._manualKill = true; p.kill('SIGTERM'); } catch(_) {}
+        state.warmProc = null;
+    }
+
+    // Finalize the in-flight warm turn: flip to idle, clear the timer, optionally
+    // print an error. Deduped — both the `result` event and proc `close` can call it.
+    function finishWarmTurn(state, proc, errText) {
+        const tc = state.turn;
+        if (!tc || tc.done) return;
+        tc.done = true;
+        if (tc.tid) { clearTimeout(tc.tid); tc.tid = null; }
+        if (state.currentProc === proc) state.currentProc = null;
+        state.busy = false;
+        state.thinkingDone = false;
+        try { if (state.socket) state.socket.write('\x1b]9;thinking-done\x07'); } catch(_) {}
+        if (errText) { try { if (state.socket) state.socket.write(SYS_FENCE + errText); } catch(_) {} }
+    }
+
+    // Spawn the persistent claude proc and attach its (once-only) stream handlers.
+    // Handlers dispatch into the CURRENT turn context (state.turn), which runWarmTurn
+    // replaces per message. stdin is NOT closed.
+    function spawnWarmProc(state, appendSys, prootMcpCfg, spawnCwd) {
+        const guestArgv = [GUEST_CLAUDE,
+            '--input-format', 'stream-json',
+            '--output-format', 'stream-json',
+            '--print',
+            '--dangerously-skip-permissions'];
+        if (prootMcpCfg) guestArgv.push('--mcp-config', prootMcpCfg);
+        const sys = warmSysFor(appendSys, prootMcpCfg);
+        if (sys) guestArgv.push('--append-system-prompt', sys);
+        // NO --continue: the warm proc keeps history in-process.
+        guestArgv.push('--verbose');
+        const proc = prootChild(guestArgv, { extraEnv: warmGuestEnv(), workspace: spawnCwd });
+        proc._warm    = true;
+        proc._warmCwd = spawnCwd;
+        proc._warmMcp = prootMcpCfg || '';
+        proc._warmSys = sys;
+        log('[warm] spawned warm proc cwd=' + spawnCwd + ' mcp=' + (prootMcpCfg ? 'yes' : 'no') + '\n');
+
+        let lineBuf = '';
+        proc.stdout.on('data', chunk => {
+            lineBuf += chunk.toString();
+            const lines = lineBuf.split('\n');
+            lineBuf = lines.pop();
+            for (const ln of lines) {
+                const t = ln.trim();
+                if (t.startsWith('{')) {
+                    let evt;
+                    try { evt = JSON.parse(t); }
+                    catch(_) {
+                        log('[warm-stdout] ' + t.slice(0, 200) + '\n');
+                        try { if (state.socket) state.socket.write(SYS_FENCE + ln + '\n'); } catch(_) {}
+                        continue;
+                    }
+                    const tc = state.turn || {};
+                    handleStreamEvent(evt, state, proc,
+                        tc.firstContent, fc => { tc.firstContent = fc; },
+                        tc.resultReceived, rr => { tc.resultReceived = rr; });
+                    if (evt.type === 'result') finishWarmTurn(state, proc);
+                } else if (t.length > 0) {
+                    log('[warm-plain] ' + t.slice(0, 200) + '\n');
+                    try { if (state.socket) state.socket.write(SYS_FENCE + ln + '\n'); } catch(_) {}
+                }
+            }
+        });
+        proc.stderr.on('data', d => {
+            const s = d.toString();
+            if (state.turn) state.turn.stderrBuf = (state.turn.stderrBuf || '') + s;
+            log('[warm-stderr] ' + s);
+            const lines = s.split('\n').filter(l => {
+                const x = l.trim();
+                return x && !/^Warning: no stdin data received/.test(x);
+            });
+            if (lines.length) { try { if (state.socket) state.socket.write(SYS_FENCE + lines.join('\n')); } catch(_) {} }
+        });
+        proc.on('error', e => {
+            log('[warm] proc error: ' + e.message + '\n');
+            if (state.warmProc === proc) state.warmProc = null;
+            finishWarmTurn(state, proc, '\x1b[31m[warm engine error] ' + e.message + '\x1b[0m\r\n');
+        });
+        proc.on('close', code => {
+            log('[warm] proc closed code=' + code + '\n');
+            if (state.warmProc === proc) state.warmProc = null;
+            // Proc died mid-turn (crash / kill) → finalize so the UI unsticks; the
+            // next message respawns. Suppress the error line on intentional kills.
+            if (state.currentProc === proc) {
+                finishWarmTurn(state, proc, (proc._manualKill || proc._ctrlCKill) ? null :
+                    '\x1b[31m[warm proc exited ' + code + ' — next message restarts it]\x1b[0m\r\n');
+            }
+        });
+        state.warmProc = proc;
+        return proc;
+    }
+
+    // Run one user turn on the warm proc (spawning/respawning as needed).
+    function runWarmTurn(state, finalMsg, appendSys, prootMcpCfg, spawnCwd) {
+        let proc = state.warmProc;
+        // Respawn if any baked-in config changed (cwd / MCP set / system prompt).
+        if (proc && (proc._warmCwd !== spawnCwd ||
+                     proc._warmMcp !== (prootMcpCfg || '') ||
+                     proc._warmSys !== warmSysFor(appendSys, prootMcpCfg))) {
+            killWarmProc(state, 'config changed');
+            proc = null;
+        }
+        if (!proc) {
+            try { proc = spawnWarmProc(state, appendSys, prootMcpCfg, spawnCwd); }
+            catch (e) {
+                log('[warm] spawn failed: ' + e.message + '\n');
+                try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[31m[warm spawn error] ' + e.message + '\x1b[0m\r\n'); } catch(_) {}
+                return;
+            }
+        }
+        // Fresh per-turn context.
+        state.turn = { firstContent: false, resultReceived: false, stderrBuf: '', done: false, tid: null };
+        state.currentProc  = proc;
+        state.busy         = true;
+        state.thinkingDone = false;
+        state.pendingPerm  = null;
+        state.lastAiText   = '';
+        try { if (state.socket) state.socket.write('\x1b]9;thinking-start\x07'); } catch(_) {}
+        state.turn.tid = setTimeout(() => {
+            log('[warm] turn timeout — killing warm proc\n');
+            try { proc._manualKill = true; proc.kill('SIGKILL'); } catch(_) {}
+            if (state.warmProc === proc) state.warmProc = null;
+            finishWarmTurn(state, proc,
+                '\x1b[31m✗ Timed out (180 s)\x1b[0m\r\n\x1b[2mSwitch to a faster model (Groq, Gemini Flash) in Settings.\x1b[0m\r\n');
+        }, WARM_TURN_TIMEOUT_MS);
+        // One NDJSON user line — the schema !test-persistent proved.
+        const ndjson = JSON.stringify({ type: 'user', message: { role: 'user', content: [{ type: 'text', text: finalMsg }] } }) + '\n';
+        try { proc.stdin.write(ndjson); }
+        catch (e) {
+            log('[warm] stdin write failed: ' + e.message + '\n');
+            if (state.warmProc === proc) state.warmProc = null;
+            finishWarmTurn(state, proc, '\x1b[31m[warm write error — resend your message] ' + e.message + '\x1b[0m\r\n');
+        }
+    }
+
     // ── Spawn one claude --print process for a single user message ────────────
     function runMessage(msg, state) {
         const cfg = readConfig();
@@ -3436,6 +3620,9 @@ function openPrintSession() {
             state.hasHistory = false;
             clearSessionState(state.sid);
             clearClaudeSessionFiles();
+            // The warm proc has the OLD model/persona baked into its env + history;
+            // kill it so the next message respawns against the new config.
+            killWarmProc(state, 'model/provider change');
             try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[33m[Model changed — history cleared for clean start]\x1b[0m\r\n'); } catch(_) {}
         }
 
@@ -3466,6 +3653,17 @@ function openPrintSession() {
         // Pre-trust this cwd so claude-code skips the "do you trust this folder?" prompt
         // now that CLAUDE_CODE_SANDBOXED is gone (which also un-sandboxes the Bash tool).
         ensureProjectTrusted(spawnCwd);
+
+        // ── WARM PATH (getWarmMode) — reuse ONE persistent proc, skip cold start ──
+        // Branch off before the single-shot spawn. Everything above (config, MCP,
+        // appendSys, cwd, trust) is shared. The single-shot path below is the
+        // untouched fallback when warm mode is off.
+        if (getWarmMode()) {
+            log('[runMessage] WARM path (persistent proc), model=' + (cfg.modelId || '?') + ' guestCwd=' + spawnCwd + '\n');
+            runWarmTurn(state, finalMsg, appendSys, prootMcpCfg, spawnCwd);
+            return;
+        }
+
         log('[runMessage] spawn claude-code (proot/2.1.160), model=' + (cfg.modelId || '?') + ' provider=' + (cfg.providerId || '?') + ' mode=' + (cfg.mode || '?') + ' baseUrl=' + (cfg.baseUrl || '?') + ' guestCwd=' + spawnCwd + '\n');
         log('[runMessage] argv: --output-format stream-json --print' + (prootMcpCfg ? ' --mcp-config ' + prootMcpCfg : '') + ' --append-system-prompt <sys' + (prootMcpCfg ? '+mcp-nudge' : '') + '>' + (state.hasHistory ? ' --continue' : '') + ' --verbose <msg>' + '\n');
         let proc;
@@ -3685,6 +3883,12 @@ function openPrintSession() {
                 state.currentProc = null;
                 state.busy = false;
                 state.thinkingDone = false;
+                // Warm mode: ^C interrupts the turn AND the warm proc (its stdin/turn
+                // is now mid-stream) → drop it so the next message respawns clean.
+                if (dyingProc._warm) {
+                    if (state.turn && state.turn.tid) { clearTimeout(state.turn.tid); state.turn.done = true; }
+                    if (state.warmProc === dyingProc) state.warmProc = null;
+                }
                 try { if (state.socket) state.socket.write('\x1b]9;thinking-done\x07'); } catch(_) {}
                 try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[33m^C — interrupted\x1b[0m\r\n'); } catch(_) {}
             }
@@ -3766,6 +3970,10 @@ function openPrintSession() {
                     try { state.currentProc.kill('SIGTERM'); } catch(_) {}
                     state.currentProc = null;
                 }
+                // Warm mode: history lives in the proc, so a true reset = kill it.
+                // (currentProc may already be the warm proc above; null warmProc too.)
+                killWarmProc(state, '!clear');
+                if (state.turn && state.turn.tid) { clearTimeout(state.turn.tid); state.turn.done = true; }
                 state.busy          = false;
                 state.hasHistory    = false;
                 state.contextBlock  = '';
@@ -3803,6 +4011,7 @@ function openPrintSession() {
                     '  \x1b[33m!setup-engine\x1b[0m       Batched P1: boot rootfs → install Node 22 + claude-code → claude --version\r\n' +
                     '  \x1b[33m!cleanup\x1b[0m            Reclaim install caches (npm/apt/tarballs, ~400MB) without re-provisioning\r\n' +
                     '  \x1b[33m!defer\x1b[0m              Proxy tool deferral (lazy-load) for OAI providers: !defer on | off\r\n' +
+                    '  \x1b[33m!warm\x1b[0m               Persistent session — reuse one warm proc, skip cold start: !warm on | off\r\n' +
                     '  \x1b[33m!debug\x1b[0m              Dump model/provider/settings/mcp state for remote debugging\r\n' +
                     '  \x1b[33m!help\x1b[0m               Show this help\r\n' +
                     '  \x1b[33m$ <cmd>\x1b[0m             Run a shell command\r\n\r\n'
@@ -4218,6 +4427,33 @@ function openPrintSession() {
                 } else {
                     w('\x1b[33mtool deferral = ' + (getDeferTools() ? 'on' : 'off') + '\x1b[0m\r\n' +
                       '\x1b[2mUsage: !defer on | !defer off   core=' + Array.from(CORE_TOOLS).join(',') + '\x1b[0m\r\n');
+                }
+                continue;
+            }
+
+            // ── !warm — persistent-session toggle (one warm proc per tab) ────
+            // Writes filesDir/warm_session. ON = reuse ONE `claude --print
+            // --input-format stream-json` per tab, fed NDJSON over a kept-open
+            // stdin → no per-message cold start (b47 probe: 32s→1.5s). Respawns on
+            // !clear / model change / config change / crash. OFF = fresh spawn per
+            // message (the proven default). Pre-gate-safe: runs while idle only
+            // (a toggle mid-turn would race the active proc), so leave it post-gate.
+            if (line.startsWith('!warm')) {
+                const w = (s) => { try { if (state.socket) state.socket.write(SYS_FENCE + s); } catch(_) {} };
+                const arg = line.slice('!warm'.length).trim().toLowerCase();
+                if (arg === 'on' || arg === 'off') {
+                    try { fs.writeFileSync(WARM_FILE, arg); } catch(_) {}
+                    // Turning OFF: drop any live warm proc so the next message cold-spawns.
+                    if (arg === 'off') killWarmProc(state, '!warm off');
+                    w('\x1b[32m✓ warm session → ' + arg + '\x1b[0m\r\n' +
+                      '\x1b[2m' + (arg === 'on'
+                        ? 'One persistent claude per tab — 1st message still cold (~30s), then warm (~1-2s). Respawns on !clear / model change.'
+                        : 'Fresh spawn per message (default).') +
+                      ' Takes effect on your next message.\x1b[0m\r\n');
+                } else {
+                    w('\x1b[33mwarm session = ' + (getWarmMode() ? 'on' : 'off') +
+                      (state.warmProc ? ' (proc alive)' : '') + '\x1b[0m\r\n' +
+                      '\x1b[2mUsage: !warm on | !warm off\x1b[0m\r\n');
                 }
                 continue;
             }
