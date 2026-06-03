@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b41-gateway-auth-token';
+const BRIDGE_BUILD = 'b42-version-autodetect';
 
 const net   = require('net');
 const http  = require('http');
@@ -5257,6 +5257,27 @@ try {
 // its own claude-code in the Ubuntu rootfs (provisioned by !setup-engine /
 // UbuntuRootfsManager), so the bridge always just starts its servers — no
 // libnode-side cli.js install check, no \p{} patching, no sub-agent wrappers.
+// Auto-detect the REAL installed claude-code version → filesDir/claude_version, so
+// Settings → About shows the actual version (and follows npm upgrades) instead of a
+// hardcoded constant. Reads the guest's package.json directly — no guest spawn.
+try {
+    const ccCandidates = [
+        path.join(FILES_DIR, 'ubuntu', 'opt', 'node', 'lib', 'node_modules', '@anthropic-ai', 'claude-code', 'package.json'),
+        path.join(FILES_DIR, 'ubuntu', 'usr', 'lib', 'node_modules', '@anthropic-ai', 'claude-code', 'package.json'),
+        path.join(FILES_DIR, 'ubuntu', 'usr', 'local', 'lib', 'node_modules', '@anthropic-ai', 'claude-code', 'package.json'),
+    ];
+    for (const c of ccCandidates) {
+        try {
+            const pkg = JSON.parse(fs.readFileSync(c, 'utf8'));
+            if (pkg && pkg.version) {
+                fs.writeFileSync(path.join(FILES_DIR, 'claude_version'), String(pkg.version).trim());
+                log('[version] claude-code ' + pkg.version + ' (from ' + c + ')\n');
+                break;
+            }
+        } catch (_) {}
+    }
+} catch (_) {}
+
 log('Starting bridge server (proot engine).\n');
 try { fs.writeFileSync(SETUP_DONE, 'true'); } catch (_) {}
 startBridgeServer();

@@ -92,6 +92,6 @@ class DownloadManager {
         // Proot Ubuntu engine: claude-code provisioned into the rootfs by !setup-engine
         // (npm i -g @anthropic-ai/claude-code). Shown in Settings → About when no live
         // version has been recorded. Update when the provisioned baseline changes.
-        const val ENGINE_CLAUDE_VERSION = "2.1.160"
+        const val ENGINE_CLAUDE_VERSION = "2.1.161"
     }
 }

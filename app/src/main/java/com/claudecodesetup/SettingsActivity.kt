@@ -274,8 +274,12 @@ class SettingsActivity : AppCompatActivity() {
         // Claude Code = the version running in the app. Prefer a live-recorded value
         // (none yet — setInstalledClaudeVersion is unused), else the proot engine
         // baseline. NOT the legacy 2.1.112 pin (that engine was deleted in P4).
-        val claudeVersion = prefs.getInstalledClaudeVersion()
-            .ifEmpty { com.claudecodesetup.managers.DownloadManager.ENGINE_CLAUDE_VERSION }
+        // Prefer the REAL version the bridge auto-detected from the installed
+        // claude-code package.json (filesDir/claude_version) — follows npm upgrades.
+        // Fall back to the engine baseline constant if it hasn't been written yet.
+        val claudeVersion = runCatching { File(filesDir, "claude_version").readText().trim() }
+            .getOrNull()?.takeIf { it.isNotEmpty() }
+            ?: prefs.getInstalledClaudeVersion().ifEmpty { com.claudecodesetup.managers.DownloadManager.ENGINE_CLAUDE_VERSION }
         binding.tvClaudeVersion.text = "v$claudeVersion"
 
     }
