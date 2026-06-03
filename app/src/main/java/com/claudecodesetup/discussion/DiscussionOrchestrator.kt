@@ -421,7 +421,11 @@ class DiscussionOrchestrator(
                         updateTurn(idx) { it.copy(text = sb.toString()) }
                     }
                     is ChatChunk.Done -> {
-                        updateTurn(idx) { it.copy(status = TurnStatus.DONE,
+                        // Small judge models often garble the required 2-line header
+                        // (e.g. "ANSWER: WINNER: DEFENCE" + several contradictory
+                        // "WINNER:" tokens). Clean it up so the verdict renders sanely.
+                        val finalText = if (role == "Verdict") normalizeVerdict(sb.toString()) else sb.toString()
+                        updateTurn(idx) { it.copy(text = finalText, status = TurnStatus.DONE,
                             promptTokens = chunk.promptTokens, completionTokens = chunk.completionTokens) }
                     }
                     is ChatChunk.RateLimited,
@@ -442,6 +446,42 @@ class DiscussionOrchestrator(
                 it.copy(status = TurnStatus.FAILED, errorMessage = e.message ?: e.javaClass.simpleName)
             }
         }
+    }
+
+    /**
+     * Rebuild a debate verdict into a clean header even when a weak judge model
+     * emits a garbled one. Strategy: collect every "WINNER: DEFENCE|OPPOSITION|DRAW"
+     * token and take the majority; pull the ANSWER text (stripping any embedded
+     * WINNER tokens); keep the explanatory remainder (the "(1)(2)(3)" points).
+     * Falls back to the raw text untouched if nothing parseable is found.
+     */
+    private fun normalizeVerdict(raw: String): String {
+        val text = raw.trim()
+        if (text.isEmpty()) return raw
+        val winnerRe = Regex("""WINNER:\s*(DEFENCE|OPPOSITION|DRAW)""", RegexOption.IGNORE_CASE)
+        val winners = winnerRe.findAll(text).map { it.groupValues[1].uppercase() }.toList()
+        val winner = winners.groupingBy { it }.eachCount().entries
+            .maxWithOrNull(compareBy({ it.value }, { it.key == "DRAW" }))?.key
+        // ANSWER text from the first "ANSWER:" capture, with WINNER tokens / pipes scrubbed.
+        val answerRaw = Regex("""ANSWER:\s*(.+)""", RegexOption.IGNORE_CASE)
+            .find(text)?.groupValues?.get(1).orEmpty()
+        var answer = answerRaw.replace(winnerRe, "").replace("|", " ").trim().trim('-', ' ', '.')
+        if (answer.isEmpty()) {
+            answer = when (winner) {
+                "DEFENCE"    -> "Defence side"
+                "OPPOSITION" -> "Opposition side"
+                "DRAW"       -> "Draw — no clear winner"
+                else         -> return raw   // unparseable — don't make it worse
+            }
+        }
+        // Body = everything from the first numbered point onward (the (1)(2)(3) reasons).
+        val bodyStart = text.indexOf("(1)")
+        val body = if (bodyStart >= 0) text.substring(bodyStart).trim() else ""
+        val sb = StringBuilder()
+        sb.append("ANSWER: ").append(answer).append('\n')
+        sb.append("WINNER: ").append(winner ?: "DRAW")
+        if (body.isNotEmpty()) sb.append("\n\n").append(body)
+        return sb.toString()
     }
 
     private fun updateTurn(index: Int, mutator: (Turn) -> Turn) {
