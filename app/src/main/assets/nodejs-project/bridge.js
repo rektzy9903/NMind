@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b32-p4-legacy-deleted';
+const BRIDGE_BUILD = 'b33-p4-tier1-deadcode';
 
 const net   = require('net');
 const http  = require('http');
@@ -2709,21 +2709,8 @@ function buildMcpServersObj() {
 
 // Write the --mcp-config file for a spawn; returns its path, or null if no
 // servers are configured (so the caller omits the flag entirely).
-function writeSpawnMcpConfig() {
-    const servers = buildMcpServersObj();
-    if (Object.keys(servers).length === 0) {
-        try { if (fs.existsSync(MCP_SPAWN_CONFIG)) fs.unlinkSync(MCP_SPAWN_CONFIG); } catch (_) {}
-        return null;
-    }
-    try {
-        fs.writeFileSync(MCP_SPAWN_CONFIG, JSON.stringify({ mcpServers: servers }, null, 2));
-        log('[mcp-spawn] --mcp-config servers: ' + Object.keys(servers).join(', ') + '\n');
-        return MCP_SPAWN_CONFIG;
-    } catch (e) {
-        log('[mcp-spawn] write error: ' + e.message + '\n');
-        return null;
-    }
-}
+// P4: writeSpawnMcpConfig() (the legacy stdio-shim --mcp-config for the libnode
+// engine) was DELETED — the proot engine uses native HTTP MCP via writeProotMcpConfig.
 
 // P3b — write a NATIVE HTTP mcp-config for the PROOT guest. On 2.1.160/glibc the
 // inv-51 spawn-hang on type:http servers is gone (probed b26–b28), so we hand
@@ -3576,36 +3563,9 @@ function installPackage(name, socket) {
 
 // ─── PTY Phase 2: persistent claude session ───────────────────────────────────
 
-// Build the bootstrap eval string for interactive mode.
-// No --print flag, no message in argv — stdin stays open so the user can
-// send multiple turns to one persistent process.
-function buildInteractiveEvalCode() {
-    const cliUrl  = 'file://' + CLAUDE_CLI;
-    const exitLog = JSON.stringify(path.join(FILES_DIR, 'session_exit.log'));
-    const hasMcp  = fs.existsSync(MCP_CONFIG_FILE);
-    // --output-format stream-json is intentionally omitted: that flag is only
-    // valid with --print; in interactive mode claude rejects it and exits 1.
-    // We forward raw PTY bytes to the socket (ANSI TUI relay) instead.
-    // argv[0] = launcher, argv[1] = CLAUDE_CLI (set below). Claude parses from
-    // argv[2] onward — no sparse slots or it will hit undefined and exit 1.
-    const argvCode = hasMcp
-        ? 'process.argv[2]="--mcp-config";process.argv[3]=' + JSON.stringify(MCP_CONFIG_FILE) +
-          ';process.argv[4]="--dangerously-skip-permissions";process.argv.length=5;'
-        : 'process.argv[2]="--dangerously-skip-permissions";process.argv.length=3;';
-    return (
-        'process.on("exit",function(c){' +
-        'try{require("fs").appendFileSync(' + exitLog + ',"[exit] "+c+"\\n");}catch(_){}}); ' +
-        'process.on("unhandledRejection",function(r){' +
-        'try{require("fs").appendFileSync(' + exitLog + ',' +
-        '"[unhandledRejection] "+String(r&&(r.stack||r.message)||r).slice(0,400)+"\\n");}catch(_){}});' +
-        regexpShim +
-        intlShim +
-        'process.argv[1]=' + JSON.stringify(CLAUDE_CLI) + ';' +
-        argvCode +
-        'import(' + JSON.stringify(cliUrl) + ')' +
-        '.catch(function(e){process.stderr.write("import-err:"+String(e)+"\\n");process.exit(1);});'
-    );
-}
+// P4: buildInteractiveEvalCode() was the PTY/interactive-mode bootstrap for the
+// legacy libnode engine — DELETED (PTY was removed 2026-06-01, inv 5d; the legacy
+// engine itself is gone). proot spawns claude directly inside the guest.
 
 
 // ─── Print-mode session server ────────────────────────────────────────────────
@@ -4138,9 +4098,8 @@ function openPrintSession() {
                     '  \x1b[33m!mcp\x1b[0m                List connected (and failed) MCP servers and tools\r\n' +
                     '  \x1b[33m!mcp-log [name|all]\x1b[0m Show captured stderr from stdio MCP servers (default 50 lines)\r\n' +
                     '  \x1b[33m!mcp-reload\x1b[0m         Apply Settings toggles without restarting the session\r\n' +
-                    '  \x1b[33m!test-cli\x1b[0m           Run module-loader + proxy diagnostics\r\n' +
-                    '  \x1b[33m!test-msg [text]\x1b[0m    Run exact runMessage path (patchSettings+stdin) — use to diagnose hangs\r\n' +
-                    '  \x1b[33m!test-agent\x1b[0m         Probe sub-agent dispatch via the --agents flag (inline JSON)\r\n' +
+                    '  \x1b[33m!test-agent\x1b[0m         Probe sub-agent dispatch (writes ~/.claude/agents/nexus_probe.md, runs it)\r\n' +
+                    '  \x1b[33m!test-mcp\x1b[0m           Probe native HTTP MCP in the proot guest\r\n' +
                     '  \x1b[33m!test-proot\x1b[0m         Probe: does bundled proot exec from nativeLibDir (Ubuntu engine)\r\n' +
                     '  \x1b[33m!test-rootfs\x1b[0m        Probe: run extracted Ubuntu rootfs via proot (cat /etc/os-release)\r\n' +
                     '  \x1b[33m!setup-engine\x1b[0m       Batched P1: boot rootfs → install Node 22 + claude-code → claude --version\r\n' +
@@ -4214,65 +4173,6 @@ function openPrintSession() {
                     try { if (state.socket) state.socket.write(SYS_FENCE + out); } catch(_) {}
                 } catch(e) {
                     try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[31m[debug error] ' + e.message + '\x1b[0m\r\n'); } catch(_) {}
-                }
-                continue;
-            }
-
-            // ── !test-msg — run exact runMessage code path with a test message ───
-            // Unlike !test-cli step [3], this calls patchSettings + writes y\n to
-            // stdin — exactly what a real message does. If this hangs but step [3]
-            // works, the issue is in patchSettings or the stdin writes.
-            if (line.startsWith('!test-msg')) {
-                const testText = line.slice(9).trim() || 'hello';
-                try {
-                    const tcfg = readConfig();
-                    patchSettings(tcfg);
-                    const tEnv  = buildEnv();
-                    const tCliUrl = 'file://' + CLAUDE_CLI;
-                    const tArgv =
-                        'process.argv[2]="--output-format";process.argv[3]="stream-json";' +
-                        'process.argv[4]="--print";process.argv[5]="--verbose";' +
-                        'process.argv[6]=' + JSON.stringify(testText) + ';process.argv.length=7;';
-                    const tEval =
-                        'process.stderr.write("[eval-ok]\\n");' +
-                        regexpShim + intlShim +
-                        'process.argv[1]=' + JSON.stringify(CLAUDE_CLI) + ';' +
-                        tArgv +
-                        'import(' + JSON.stringify(tCliUrl) + ')' +
-                        '.catch(function(e){process.stderr.write("ERR:"+String(e)+"\\n");process.exit(1);});';
-                    try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[33m!test-msg: spawning with patchSettings+stdin (30s timeout)…\x1b[0m\r\n'); } catch(_) {}
-                    const tch = spawn(LAUNCHER, ['-e', tEval], { env: tEnv, cwd: FILES_DIR });
-                    try { tch.stdin.end(); } catch(_) {}
-                    let tOut = '', tErr = '', tDone = false;
-                    tch.stdout.on('data', d => { tOut += d.toString(); });
-                    tch.stderr.on('data', d => { tErr += d.toString(); });
-                    const tTid = setTimeout(() => {
-                        if (tDone) return;
-                        tDone = true;
-                        try { tch.kill(); } catch(_) {}
-                        try { if (state.socket) state.socket.write(SYS_FENCE +
-                            '\x1b[31m!test-msg: TIMEOUT 30s — POST never reached\x1b[0m\r\n' +
-                            '\x1b[2mstdout: ' + tOut.slice(0, 300) + '\x1b[0m\r\n' +
-                            '\x1b[2mstderr: ' + tErr.slice(0, 300) + '\x1b[0m\r\n'); } catch(_) {}
-                    }, 30000);
-                    tch.on('close', code => {
-                        if (tDone) return;
-                        tDone = true;
-                        clearTimeout(tTid);
-                        const gotResponse = tOut.includes('"type":"result"') || tOut.includes('"type":"assistant"');
-                        const mark = gotResponse ? '\x1b[32m✓' : '\x1b[31m✗';
-                        const first = tOut.split('\n').find(l => l.trim().startsWith('{')) || '';
-                        try { if (state.socket) state.socket.write(SYS_FENCE +
-                            mark + ' !test-msg exit=' + code + '\x1b[0m\r\n' +
-                            (gotResponse
-                                ? '\x1b[32mPOST reached — claude responded!\x1b[0m\r\n' + first.slice(0, 150) + '\r\n'
-                                : '\x1b[31mNo response from claude\x1b[0m\r\n' +
-                                  '\x1b[2mstdout: ' + tOut.slice(0, 300) + '\x1b[0m\r\n' +
-                                  '\x1b[2mstderr: ' + tErr.slice(0, 300) + '\x1b[0m\r\n'
-                            )); } catch(_) {}
-                    });
-                } catch(e) {
-                    try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[31m[!test-msg error] ' + e.message + '\x1b[0m\r\n'); } catch(_) {}
                 }
                 continue;
             }
@@ -4776,149 +4676,6 @@ function openPrintSession() {
                 continue;
             }
 
-            if (line.startsWith('!test-agent')) {
-                const tag = 'NEXUS_AGENT_OK_' + Date.now().toString(36);
-                const agentsDir = path.join(FILES_DIR, '.claude', 'agents');
-                const agentFile = path.join(agentsDir, 'nexus_probe.md');
-                // Sentinel file: the sub-agent writes the tag here. This proves the
-                // sub-agent actually executed even when claude-code (print mode)
-                // doesn't surface the sub-agent's internal reply into parent stdout
-                // — so the tag-in-stdout check alone can miss a successful run.
-                const sentinelFile = path.join(FILES_DIR, 'nexus_probe_result.txt');
-                try { fs.unlinkSync(sentinelFile); } catch(_) {}
-                const probePrompt =
-                    'You are a diagnostic sub-agent. When invoked, do exactly these two steps:\n' +
-                    '1. Use the Write tool to create the file ' + sentinelFile + ' whose entire contents are exactly this string and nothing else: ' + tag + '\n' +
-                    '2. Then reply with exactly this string and nothing else: ' + tag + '\n';
-                // Inject the agent via the --agents flag (inline JSON) instead of a
-                // ~/.claude/agents/*.md file. File discovery is broken in 2.1.112 print
-                // mode (CLAUDE.md known gaps); --agents has HIGHER precedence and no file
-                // dependency — the same move that rescued MCP (--mcp-config, inv 65a).
-                // This probe verifies whether 2.1.112 actually accepts the flag.
-                const agentsJson = JSON.stringify({
-                    nexus_probe: {
-                        description: 'Internal connectivity probe — confirms sub-agent dispatch via --agents.',
-                        prompt: probePrompt,
-                        tools: ['Write'],
-                    }
-                });
-                const testText = 'Use the Task tool (it may also be named Agent) to dispatch a sub-agent with subagent_type "nexus_probe". ' +
-                    'Do NOT use the Bash tool and do NOT run any shell command — "nexus_probe" is a sub-agent, not an executable. ' +
-                    'After the sub-agent replies, tell me the exact string it returned.';
-                const readSentinel = () => { try { return fs.readFileSync(sentinelFile, 'utf8'); } catch(_) { return ''; } };
-                // Pull the Task tool's tool_result (the sub-agent's returned text/error)
-                // out of the parent stream-json. This disambiguates a "ran: no": empty =
-                // the sub-agent never returned to the parent; "[ERROR] …" = it dispatched
-                // but failed (bad subagent_type, Write blocked, etc.); plain text without
-                // the tag = it ran but ignored the Write/reply instructions.
-                const extractTaskResult = (out) => {
-                    let taskId = null, txt = '';
-                    for (const ln of out.split('\n')) {
-                        const s = ln.trim(); if (!s) continue;
-                        let obj; try { obj = JSON.parse(s); } catch(_) { continue; }
-                        const content = obj && obj.message && obj.message.content;
-                        if (!Array.isArray(content)) continue;
-                        for (const b of content) {
-                            if (!b) continue;
-                            if (!taskId && b.type === 'tool_use' && (b.name === 'Task' || b.name === 'Agent')) {
-                                taskId = b.id;
-                            } else if (taskId && b.type === 'tool_result' && b.tool_use_id === taskId) {
-                                const c = b.content;
-                                txt = (typeof c === 'string') ? c
-                                    : Array.isArray(c) ? c.map(x => (x && x.text) || '').join('') : '';
-                                if (b.is_error) txt = '[ERROR] ' + txt;
-                            }
-                        }
-                    }
-                    return txt;
-                };
-                const cleanup = () => {
-                    try { fs.unlinkSync(agentFile); } catch(_) {}
-                    try { fs.unlinkSync(sentinelFile); } catch(_) {}
-                };
-                try {
-                    const tcfg = readConfig();
-                    patchSettings(tcfg);
-                    const tEnv  = buildEnv();
-                    const tCliUrl = 'file://' + CLAUDE_CLI;
-                    // --agents <json> injected before the message; --verbose kept LAST
-                    // before the positional message (inv 65b — a boolean flag must
-                    // terminate any preceding value-taking option so the message isn't
-                    // swallowed, the bug that bit --mcp-config).
-                    const tArgv =
-                        'process.argv[2]="--output-format";process.argv[3]="stream-json";' +
-                        'process.argv[4]="--print";' +
-                        'process.argv[5]="--agents";process.argv[6]=' + JSON.stringify(agentsJson) + ';' +
-                        'process.argv[7]="--verbose";' +
-                        'process.argv[8]=' + JSON.stringify(testText) + ';process.argv.length=9;';
-                    const tEval =
-                        'process.stderr.write("[eval-ok]\\n");' +
-                        regexpShim + intlShim +
-                        'process.argv[1]=' + JSON.stringify(CLAUDE_CLI) + ';' +
-                        tArgv +
-                        'import(' + JSON.stringify(tCliUrl) + ')' +
-                        '.catch(function(e){process.stderr.write("ERR:"+String(e)+"\\n");process.exit(1);});';
-                    try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[33m!test-agent: injecting nexus_probe via --agents flag, spawning claude (90s timeout)…\x1b[0m\r\n'); } catch(_) {}
-                    const tch = spawn(LAUNCHER, ['-e', tEval], { env: tEnv, cwd: FILES_DIR });
-                    try { tch.stdin.end(); } catch(_) {}
-                    let tOut = '', tErr = '', tDone = false;
-                    tch.stdout.on('data', d => { tOut += d.toString(); });
-                    tch.stderr.on('data', d => { tErr += d.toString(); });
-                    const tTid = setTimeout(() => {
-                        if (tDone) return;
-                        tDone = true;
-                        try { tch.kill(); } catch(_) {}
-                        cleanup();
-                        try { if (state.socket) state.socket.write(SYS_FENCE +
-                            '\x1b[31m✗ !test-agent: TIMEOUT 90s\x1b[0m\r\n' +
-                            '\x1b[2mstdout (first 400): ' + tOut.slice(0, 400) + '\x1b[0m\r\n' +
-                            '\x1b[2mstderr (first 200): ' + tErr.slice(0, 200) + '\x1b[0m\r\n'); } catch(_) {}
-                    }, 90000);
-                    tch.on('close', code => {
-                        if (tDone) return;
-                        tDone = true;
-                        clearTimeout(tTid);
-                        // Probe markers: did Task fire? did the sub-agent actually run?
-                        // The sentinel file is the authoritative signal — it can only
-                        // exist if the sub-agent executed and used its Write tool, even
-                        // when the tag never bubbles up into the parent's stdout.
-                        const fileTag   = readSentinel().includes(tag);
-                        const taskFired = /"type"\s*:\s*"tool_use"[^}]*"name"\s*:\s*"(Task|Agent)"/.test(tOut);
-                        const tagSeen   = tOut.includes(tag);
-                        const gotResult = tOut.includes('"type":"result"');
-                        cleanup();
-                        const ran = tagSeen || fileTag;   // sub-agent definitively executed
-                        const mark = (taskFired && ran) ? '\x1b[32m✓' : (taskFired ? '\x1b[33m~' : '\x1b[31m✗');
-                        let report = mark + ' !test-agent exit=' + code + '\x1b[0m\r\n';
-                        // Go/no-go for the --agents flag itself (commander prints
-                        // "error: unknown option '--agents'" + exits non-zero if absent).
-                        const flagRejected = /unknown option/.test(tErr) || /unknown option[^\n]*--agents/.test(tOut);
-                        report += '  --agents flag:      ' + (flagRejected
-                            ? '\x1b[31mREJECTED — not supported by 2.1.112\x1b[0m'
-                            : '\x1b[32maccepted\x1b[0m') + '\r\n';
-                        report += '  Task tool fired:    ' + (taskFired ? '\x1b[32myes\x1b[0m' : '\x1b[31mno\x1b[0m') + '\r\n';
-                        report += '  Sub-agent ran:      ' + (ran ? '\x1b[32myes' + (fileTag ? ' (sentinel file)' : ' (stdout tag)') + '\x1b[0m' : '\x1b[31mno\x1b[0m') + '\r\n';
-                        report += '  Tag in stdout:      ' + (tagSeen   ? '\x1b[32myes\x1b[0m' : '\x1b[2mno\x1b[0m') + '\r\n';
-                        report += '  Got final result:   ' + (gotResult ? '\x1b[32myes\x1b[0m' : '\x1b[31mno\x1b[0m') + '\r\n';
-                        if (taskFired) {
-                            const taskResult = extractTaskResult(tOut);
-                            report += '  Task returned:      ' + (taskResult
-                                ? '\x1b[2m' + taskResult.slice(0, 300).replace(/\r?\n/g, ' ') + '\x1b[0m'
-                                : '\x1b[31m(nothing — sub-agent never returned to parent)\x1b[0m') + '\r\n';
-                        }
-                        if (!taskFired || !ran) {
-                            report += '\x1b[2mstdout (last 400): ' + tOut.slice(-400) + '\x1b[0m\r\n';
-                            if (tErr) report += '\x1b[2mstderr (first 200): ' + tErr.slice(0, 200) + '\x1b[0m\r\n';
-                        }
-                        try { if (state.socket) state.socket.write(SYS_FENCE + report); } catch(_) {}
-                    });
-                } catch(e) {
-                    cleanup();
-                    try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[31m[!test-agent error] ' + e.message + '\x1b[0m\r\n'); } catch(_) {}
-                }
-                continue;
-            }
-
             // ── !test-slash — re-probe custom slash-command loading on 2.1.160 ──
             // Invariant re-audit probe #2 (②). On 2.1.112 print mode, custom
             // ~/.claude/commands/*.md were NOT expanded — claude passed "/foo"
@@ -5382,65 +5139,6 @@ function openPrintSession() {
                         if (!wasBusy) state.busy = false;
                     });
                 }
-                continue;
-            }
-
-            if (line.startsWith('!test-cli')) {
-                const sock2 = state.socket;
-                try { if (sock2) sock2.write(SYS_FENCE + '\r\n\x1b[33mRunning module-loader diagnostic (4 steps)…\x1b[0m\r\n'); } catch(_) {}
-                const env2 = buildEnv();
-                const cliUrl2 = 'file://' + CLAUDE_CLI;
-                const exitLog2 = JSON.stringify(SETUP_LOG);
-
-                function runEvalStep2(label, evalCode2, cb) {
-                    let out = '', err = '';
-                    let cbCalled = false;
-                    function onceCb() { if (!cbCalled) { cbCalled = true; cb(); } }
-                    let ch;
-                    try { ch = spawn(LAUNCHER, ['-e', evalCode2], { env: env2, cwd: FILES_DIR }); ch.stdin.end(); }
-                    catch(e) { try { if (sock2) sock2.write(SYS_FENCE + '\x1b[31m  ' + label + ': spawn-err ' + e.message + '\x1b[0m\r\n'); } catch(_) {} onceCb(); return; }
-                    ch.stdout.on('data', d => { out += d.toString(); });
-                    ch.stderr.on('data', d => { err += d.toString(); });
-                    const tid = setTimeout(() => { try { ch.kill(); } catch(_) {} try { if (sock2) sock2.write(SYS_FENCE + '\x1b[31m  ' + label + ': TIMEOUT\x1b[0m\r\n'); } catch(_) {} onceCb(); }, 30000);
-                    ch.on('close', code => {
-                        clearTimeout(tid);
-                        log('[test-cli] ' + label + ' exit=' + code + ' out=' + JSON.stringify(out.slice(0,200)) + ' err=' + JSON.stringify(err.slice(0,300)) + '\n');
-                        if (!cbCalled) {
-                            const mark = code === 0 ? '\x1b[32m✓' : '\x1b[31m✗';
-                            let msg2 = mark + ' ' + label + ' exit=' + code + '\x1b[0m';
-                            if (out.trim()) msg2 += '  out:' + out.trim().slice(0,80);
-                            if (err.trim()) msg2 += '\r\n    \x1b[31merr:' + err.trim().slice(0,200) + '\x1b[0m';
-                            try { if (sock2) sock2.write(SYS_FENCE + '  ' + msg2 + '\r\n'); } catch(_) {}
-                        }
-                        onceCb();
-                    });
-                }
-
-                const netTestCode =
-                    'var net=require("net");var c=net.connect(' + PROXY_PORT + ',"' + HOST + '",function(){' +
-                    'process.stdout.write("net-ok\\n");c.destroy();process.exit(0);});' +
-                    'c.on("error",function(e){process.stdout.write("net-fail:"+e.message+"\\n");process.exit(1);});' +
-                    'setTimeout(function(){process.stdout.write("net-timeout\\n");process.exit(1);},5000);';
-
-                runEvalStep2('[1] node launcher self-test',
-                    "process.stdout.write('ok\\n');",
-                runEvalStep2.bind(null, '[2] import cli.js --version',
-                    'process.argv[1]=' + JSON.stringify(CLAUDE_CLI) + ';process.argv[2]="--version";process.argv.length=3;' +
-                    'import(' + JSON.stringify(cliUrl2) + ').catch(function(e){process.stderr.write("ERR:"+String(e)+"\\n");process.exit(1)});',
-                runEvalStep2.bind(null, '[3] cli.js --print hello',
-                    'process.stderr.write("[eval-ok]\\n");' +
-                    'process.on("unhandledRejection",function(r){try{require("fs").appendFileSync(' + exitLog2 + ',"[unhandledRejection] "+String(r&&(r.stack||r.message)||r).slice(0,600)+"\\n");}catch(_){}});' +
-                    regexpShim + intlShim +
-                    'process.argv[1]=' + JSON.stringify(CLAUDE_CLI) + ';' +
-                    'process.argv[2]="--output-format";process.argv[3]="stream-json";' +
-                    'process.argv[4]="--print";process.argv[5]="--verbose";' +
-                    'process.argv[6]="hello";process.argv.length=7;' +
-                    'import(' + JSON.stringify(cliUrl2) + ')' +
-                    '.then(function(){try{require("fs").appendFileSync(' + exitLog2 + ',"[import-resolved]\\n");}catch(_){}})' +
-                    '.catch(function(e){process.stderr.write("ERR:"+String(e)+"\\n");process.exit(1)});',
-                runEvalStep2.bind(null, '[4] net: connect to proxy port ' + PROXY_PORT,
-                    netTestCode,
-                () => { try { if (sock2) sock2.write(SYS_FENCE + '\x1b[33mDone. Type !log for details.\x1b[0m\r\n'); } catch(_) {} }))));
                 continue;
             }
 
