@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b40-interactive-apikey';
+const BRIDGE_BUILD = 'b41-gateway-auth-token';
 
 const net   = require('net');
 const http  = require('http');
@@ -3310,13 +3310,10 @@ function openPrintSession() {
                 if (!s.permissions.additionalDirectories.includes(d)) s.permissions.additionalDirectories.push(d);
             }
             if (!Array.isArray(s.permissions.deny)) s.permissions.deny = [];
-            // --print doesn't need customApiKeyResponses (b24), but the INTERACTIVE
-            // `claude` TUI in the 🐧 Ubuntu tab does: without an approved entry it shows
-            // "Not logged in · Run /login" and won't use the env key. Both modes read
-            // THIS file (FILES_DIR/.claude, bound to the guest's /root/.claude), so set
-            // (not delete) the approved proxy key here + clear any rejected entry left
-            // by a user pressing "No" on the interactive prompt. Harmless for --print.
-            s.customApiKeyResponses = { approved: ['sk-ant-proxy000'], rejected: [] };
+            // --print doesn't need customApiKeyResponses (b24). The interactive TUI
+            // doesn't use it either — it auths via ANTHROPIC_AUTH_TOKEN (gateway mode,
+            // set in attachPtySession), NOT a custom API key. So keep deleting it.
+            delete s.customApiKeyResponses;
             delete s.permissions.allow;       // bypassPermissions makes it moot
             // MCP-9: tools the user disabled per-server become explicit deny entries.
             // claude-code still sees them in tools/list (no way to hide upstream),
@@ -5074,54 +5071,25 @@ function openPrintSession() {
             let workspace = FILES_DIR;
             try { const c = fs.readFileSync(CWD_FILE, 'utf8').trim(); if (c && fs.existsSync(c)) workspace = c; } catch(_) {}
             if (cfg.projectPath && fs.existsSync(cfg.projectPath)) workspace = cfg.projectPath;
-            // Suppress the interactive TUI's "Detected a custom API key in your
-            // environment — use it?" prompt + the trust/onboarding prompts. Print mode
-            // shares FILES_DIR/.claude via a bind and patchSettings DELETES
-            // customApiKeyResponses (b24, not needed with --print), but the interactive
-            // `claude` reads the rootfs's OWN /root/.claude (no such bind here). Seed it
-            // with the approved proxy key (legacy format, inv 25) + onboarding/trust so
-            // the guest TUI starts straight into a usable session.
-            try {
-                // NOTE: the interactive claude reads /root/.claude, which is BOUND to
-                // FILES_DIR/.claude (bridge.js prootGuestArgv), NOT the rootfs's own
-                // /root/.claude. Seed the BOUND path or the bind shadows it (b40 fix).
-                const gcDir = path.join(FILES_DIR, '.claude');
-                fs.mkdirSync(gcDir, { recursive: true });
-                const gsp = path.join(gcDir, 'settings.json');
-                let gs = {};
-                try { gs = JSON.parse(fs.readFileSync(gsp, 'utf8')) || {}; } catch(_) {}
-                gs.customApiKeyResponses = { approved: ['sk-ant-proxy000'], rejected: [] };
-                gs.hasCompletedOnboarding = true;
-                gs.hasShownWelcome = true;
-                gs.theme = gs.theme || 'dark';
-                gs.autoUpdaterStatus = 'disabled';
-                fs.writeFileSync(gsp, JSON.stringify(gs, null, 2));
-                const gcjp = path.join(FILES_DIR, '.claude.json');
-                let cj = {};
-                try { cj = JSON.parse(fs.readFileSync(gcjp, 'utf8')) || {}; } catch(_) {}
-                cj.hasCompletedOnboarding = true;
-                cj.bypassPermissionsModeAccepted = true;
-                if (!cj.projects || typeof cj.projects !== 'object') cj.projects = {};
-                for (const dir of ['/root', '/root/.nexus', '/sdcard']) {
-                    const p = cj.projects[dir] || {};
-                    p.hasTrustDialogAccepted = true;
-                    p.hasCompletedProjectOnboarding = true;
-                    cj.projects[dir] = p;
-                }
-                fs.writeFileSync(gcjp, JSON.stringify(cj));
-            } catch (e) { log('[ubuntu-pty] seed guest .claude failed: ' + e.message + '\n'); }
-            // Inject the proxy env so the FULL interactive `claude` (real 2.1.160 TUI)
-            // works inside the Ubuntu shell against the user's chosen provider/model:
-            // proot shares the host netns, so ANTHROPIC_BASE_URL=127.0.0.1:8082 reaches
-            // the bridge proxy and ANTHROPIC_API_KEY=sk-ant-proxy000 is accepted. Only
-            // set keys that exist (no provider yet → bash still works, `claude` just
-            // can't connect until one is configured). IS_SANDBOX=1 lets root run
-            // --dangerously-skip-permissions (the guest is root via --root-id).
+            // Interactive TUI auth — GATEWAY MODE (ref: Alishahryar1/free-claude-code).
+            // The b38/b40 customApiKeyResponses seeding was the WRONG approach: setting
+            // ANTHROPIC_API_KEY makes the interactive `claude` treat it as a "custom API
+            // key" → "Detected a custom API key…" prompt → "Not logged in · Run /login"
+            // and it refuses to send (the seed also EACCES'd). The fix: set
+            // ANTHROPIC_AUTH_TOKEN instead — claude then runs in GATEWAY mode, just
+            // sends `Authorization: Bearer <token>` to ANTHROPIC_BASE_URL and considers
+            // itself authed, no login wall, no key prompt. Our proxy already accepts
+            // `Bearer sk-ant-proxy000` (handleProxyRequest authHeader check). Do NOT set
+            // ANTHROPIC_API_KEY here (it re-triggers the custom-key path).
+            // CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY makes /model list via the gateway.
             const benv = buildEnv();
             const ptyEnv = { IS_SANDBOX: '1', DISABLE_AUTOUPDATER: '1', MCP_TIMEOUT: '30000', MCP_TOOL_TIMEOUT: '30000' };
-            if (benv.ANTHROPIC_API_KEY)  ptyEnv.ANTHROPIC_API_KEY  = benv.ANTHROPIC_API_KEY;
-            if (benv.ANTHROPIC_MODEL)    ptyEnv.ANTHROPIC_MODEL    = benv.ANTHROPIC_MODEL;
-            if (benv.ANTHROPIC_BASE_URL) ptyEnv.ANTHROPIC_BASE_URL = benv.ANTHROPIC_BASE_URL;
+            if (benv.ANTHROPIC_BASE_URL) {
+                ptyEnv.ANTHROPIC_BASE_URL  = benv.ANTHROPIC_BASE_URL;
+                ptyEnv.ANTHROPIC_AUTH_TOKEN = 'sk-ant-proxy000';
+                ptyEnv.CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY = '1';
+            }
+            if (benv.ANTHROPIC_MODEL) ptyEnv.ANTHROPIC_MODEL = benv.ANTHROPIC_MODEL;
             let proc;
             try {
                 proc = prootChild(['/bin/bash', '-li'], { pty: true, workspace, extraEnv: ptyEnv });
