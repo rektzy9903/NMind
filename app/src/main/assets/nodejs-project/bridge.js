@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b39-reject-diag';
+const BRIDGE_BUILD = 'b40-interactive-apikey';
 
 const net   = require('net');
 const http  = require('http');
@@ -3310,7 +3310,13 @@ function openPrintSession() {
                 if (!s.permissions.additionalDirectories.includes(d)) s.permissions.additionalDirectories.push(d);
             }
             if (!Array.isArray(s.permissions.deny)) s.permissions.deny = [];
-            delete s.customApiKeyResponses;   // retired with the permission apparatus
+            // --print doesn't need customApiKeyResponses (b24), but the INTERACTIVE
+            // `claude` TUI in the 🐧 Ubuntu tab does: without an approved entry it shows
+            // "Not logged in · Run /login" and won't use the env key. Both modes read
+            // THIS file (FILES_DIR/.claude, bound to the guest's /root/.claude), so set
+            // (not delete) the approved proxy key here + clear any rejected entry left
+            // by a user pressing "No" on the interactive prompt. Harmless for --print.
+            s.customApiKeyResponses = { approved: ['sk-ant-proxy000'], rejected: [] };
             delete s.permissions.allow;       // bypassPermissions makes it moot
             // MCP-9: tools the user disabled per-server become explicit deny entries.
             // claude-code still sees them in tools/list (no way to hide upstream),
@@ -5076,7 +5082,10 @@ function openPrintSession() {
             // with the approved proxy key (legacy format, inv 25) + onboarding/trust so
             // the guest TUI starts straight into a usable session.
             try {
-                const gcDir = path.join(FILES_DIR, 'ubuntu', 'root', '.claude');
+                // NOTE: the interactive claude reads /root/.claude, which is BOUND to
+                // FILES_DIR/.claude (bridge.js prootGuestArgv), NOT the rootfs's own
+                // /root/.claude. Seed the BOUND path or the bind shadows it (b40 fix).
+                const gcDir = path.join(FILES_DIR, '.claude');
                 fs.mkdirSync(gcDir, { recursive: true });
                 const gsp = path.join(gcDir, 'settings.json');
                 let gs = {};
@@ -5087,7 +5096,7 @@ function openPrintSession() {
                 gs.theme = gs.theme || 'dark';
                 gs.autoUpdaterStatus = 'disabled';
                 fs.writeFileSync(gsp, JSON.stringify(gs, null, 2));
-                const gcjp = path.join(FILES_DIR, 'ubuntu', 'root', '.claude.json');
+                const gcjp = path.join(FILES_DIR, '.claude.json');
                 let cj = {};
                 try { cj = JSON.parse(fs.readFileSync(gcjp, 'utf8')) || {}; } catch(_) {}
                 cj.hasCompletedOnboarding = true;
