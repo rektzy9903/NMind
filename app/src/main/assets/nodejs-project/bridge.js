@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b34-p4-tier2-startup';
+const BRIDGE_BUILD = 'b35-p6-pty-bridge';
 
 const net   = require('net');
 const http  = require('http');
@@ -225,6 +225,12 @@ let on429CountdownNotify = null;
 // Sessions survive socket disconnects for PTY_IDLE_MS before the proc is killed.
 const activeSessions = new Map();
 const PTY_IDLE_MS    = 30 * 60 * 1000; // 30 minutes idle before killing proc
+
+// P6: live Ubuntu PTY shells, keyed by session id (the 🐧 Ubuntu tab). Separate
+// from activeSessions (the 💬 Claude print-mode chat). Each entry = { proc, socket,
+// idleTimer }. The shell proc survives a socket disconnect (tab switch / brief drop)
+// for PTY_IDLE_MS so the shell state (cwd, env, running job) persists on reattach.
+const ubuntuPtys = new Map();
 
 // ─── Logging ──────────────────────────────────────────────────────────────────
 
@@ -556,7 +562,13 @@ function prootChild(command, opts) {
         // launch proot through libfdexec.so, a tiny native PIE exe that close(2)s
         // every fd >2 (bad fds are a harmless EBADF) then execv's proot. env is
         // inherited across the execv (LD_LIBRARY_PATH, PROOT_LOADER, …).
-        const FDEXEC = path.join(NATIVE_DIR, 'libfdexec.so');
+        // Launcher: normally libfdexec.so (close fds → execv proot). For the P6
+        // dual-mode Ubuntu terminal (opts.pty), use libpty.so instead — it ALSO
+        // closes inherited fds, but first allocates a controlling TTY via forkpty so
+        // the guest bash gets a real terminal (vim/htop/line-editing). Same argv
+        // contract: launcher then [prootBin, ...prootArgs]. node's pipe to libpty's
+        // stdin/stdout is relayed to the PTY master (+ ESC 0xFE resize).
+        const FDEXEC = path.join(NATIVE_DIR, (opts && opts.pty) ? 'libpty.so' : 'libfdexec.so');
         const prootBin = path.join(NATIVE_DIR, 'libproot.so');
         // cwd = rootfs dir: proot reads the HOST cwd at startup to seed its
         // virtual cwd. If the bridge's inherited host cwd ("/" or the app dir)
@@ -4972,12 +4984,72 @@ function openPrintSession() {
         socket.on('error', () => { try { socket.destroy(); } catch(_) {} });
     }
 
+    // ── Attach a socket to a live Ubuntu PTY shell (P6) ───────────────────────
+    // Raw byte relay — NO chat parsing, NO print mode. socket bytes → bash stdin
+    // (incl. the ESC 0xFE resize sequence, which libpty strips + applies via
+    // TIOCSWINSZ); bash output (via the PTY master) → socket → xterm.js. The shell
+    // proc persists across socket disconnects (tab switch) for PTY_IDLE_MS.
+    function attachPtySession(sid, socket, leftover) {
+        let entry = ubuntuPtys.get(sid);
+        const alive = entry && entry.proc && !entry.proc.killed && entry.proc.exitCode === null;
+        if (alive) {
+            // Reattach to the existing shell — detach the old socket, keep the proc.
+            if (entry.idleTimer) { clearTimeout(entry.idleTimer); entry.idleTimer = null; }
+            entry.socket = socket;
+        } else {
+            // Spawn a fresh interactive login shell inside the proot guest.
+            const cfg = readConfig();
+            let workspace = FILES_DIR;
+            try { const c = fs.readFileSync(CWD_FILE, 'utf8').trim(); if (c && fs.existsSync(c)) workspace = c; } catch(_) {}
+            if (cfg.projectPath && fs.existsSync(cfg.projectPath)) workspace = cfg.projectPath;
+            let proc;
+            try {
+                proc = prootChild(['/bin/bash', '-li'], { pty: true, workspace });
+            } catch (e) {
+                log('[ubuntu-pty] spawn failed: ' + e.message + '\n');
+                try { socket.write('\r\n\x1b[31m[ubuntu shell spawn failed: ' + e.message + ']\x1b[0m\r\n'); } catch(_) {}
+                return;
+            }
+            entry = { proc, socket, idleTimer: null };
+            ubuntuPtys.set(sid, entry);
+            proc.stdout.on('data', d => {
+                const e2 = ubuntuPtys.get(sid);
+                if (e2 && e2.socket) { try { e2.socket.write(d); } catch(_) {} }
+            });
+            proc.stderr.on('data', d => log('[ubuntu-pty] ' + d.toString().slice(0, 200)));
+            proc.on('close', code => {
+                const e2 = ubuntuPtys.get(sid);
+                if (e2 && e2.socket) {
+                    try { e2.socket.write('\r\n\x1b[2m[ubuntu shell exited (' + code + ') — switch back to start a new one]\x1b[0m\r\n'); } catch(_) {}
+                }
+                ubuntuPtys.delete(sid);
+            });
+            log('[ubuntu-pty] started sid=' + sid + ' cwd=' + workspace + '\n');
+        }
+        // Raw input relay: socket → bash stdin (libpty intercepts ESC 0xFE resize).
+        socket.on('data', d => {
+            const e2 = ubuntuPtys.get(sid);
+            if (e2 && e2.proc && e2.proc.stdin.writable) { try { e2.proc.stdin.write(d); } catch(_) {} }
+        });
+        if (leftover && leftover.length) {
+            try { if (entry.proc.stdin.writable) entry.proc.stdin.write(Buffer.from(leftover, 'binary')); } catch(_) {}
+        }
+        socket.on('close', () => {
+            const e2 = ubuntuPtys.get(sid);
+            if (e2 && e2.socket === socket) {
+                e2.socket = null;
+                // Keep the shell alive briefly for reattach; kill it if idle too long.
+                e2.idleTimer = setTimeout(() => {
+                    const e3 = ubuntuPtys.get(sid);
+                    if (e3 && !e3.socket) { try { e3.proc.kill('SIGHUP'); } catch(_) {} ubuntuPtys.delete(sid); }
+                }, PTY_IDLE_MS);
+            }
+        });
+        socket.on('error', () => { try { socket.destroy(); } catch(_) {} });
+    }
+
     // ── TCP server ────────────────────────────────────────────────────────────
     const server = net.createServer(rawSocket => {
-        if (!isClaudeInstalled()) {
-            try { rawSocket.write('\r\n\x1b[31mClaude Code not installed — run Setup from the app.\x1b[0m\r\n'); rawSocket.end(); } catch(_) {}
-            return;
-        }
         let hdrBuf = '';
         function onHeader(d) {
             hdrBuf += d.toString();
@@ -4987,7 +5059,8 @@ function openPrintSession() {
             const leftover  = hdrBuf.slice(nl + 1);
             hdrBuf = '';
             rawSocket.removeListener('data', onHeader);
-            // Require SESSION:<sid>:<token> header — reject anything else.
+            // Require SESSION:<sid>:<token>[:<mode>] header — reject anything else.
+            // mode (optional, P6): 'ubuntu' → live PTY shell; default/absent → chat.
             if (!firstLine.startsWith('SESSION:')) {
                 try { rawSocket.write('\r\n\x1b[31mUnauthorized connection rejected.\x1b[0m\r\n'); rawSocket.end(); } catch(_) {}
                 return;
@@ -4995,6 +5068,7 @@ function openPrintSession() {
             const parts = firstLine.slice(8).split(':');
             const sid   = parts[0] || '0';
             const token = parts[1] || '';
+            const mode  = parts[2] || 'chat';
             let expectedToken = '';
             try { expectedToken = fs.readFileSync(path.join(FILES_DIR, 'local_token'), 'utf8').trim().slice(0, 200); } catch(_) {}
             // Reject if token missing/empty OR if presented token does not match.
@@ -5003,7 +5077,8 @@ function openPrintSession() {
                 try { rawSocket.write('\r\n\x1b[31mUnauthorized connection rejected.\x1b[0m\r\n'); rawSocket.end(); } catch(_) {}
                 return;
             }
-            attachSession(sid, rawSocket, leftover);
+            if (mode === 'ubuntu') attachPtySession(sid, rawSocket, leftover);
+            else                   attachSession(sid, rawSocket, leftover);
         }
         rawSocket.once('data', onHeader);
     });
