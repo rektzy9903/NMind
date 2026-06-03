@@ -700,7 +700,7 @@ html, body {
 #mode-toggle button{display:flex;align-items:center;gap:5px;padding:5px 12px;background:transparent;border:none;color:#9090A0;font-size:11px;font-weight:700;cursor:pointer;letter-spacing:.5px;}
 #mode-toggle button.active{background:#22E8834A;color:#E8834A;}
 #mode-toggle svg{width:13px;height:13px;display:block;flex-shrink:0;}
-#ubuntu-view{position:fixed;top:38px;left:0;right:0;bottom:0;display:none;flex-direction:column;background:#0C0C0F;z-index:80;}
+#ubuntu-view{position:fixed;top:0;left:0;right:0;bottom:0;display:none;flex-direction:column;background:#0C0C0F;z-index:80;padding-top:40px;}
 #ubuntu-view.show{display:flex;}
 #xterm{flex:1;min-height:0;padding:4px 2px 0 6px;overflow:hidden;}
 #xterm .xterm{height:100%;}
@@ -2981,7 +2981,16 @@ reportTermSize();
               black:'#151518', brightBlack:'#60606E' }
     });
     try { fit = new FitAddon.FitAddon(); term.loadAddon(fit); } catch(_){}
-    term.open(document.getElementById('xterm'));
+    var mount=document.getElementById('xterm');
+    term.open(mount);
+    // Diagnostic: proves xterm renders locally. If you SEE this line but no bash
+    // prompt → the Kotlin byte-relay (sendPty/onPtyOutput) is the problem (rebuild).
+    // If you DON'T see it → xterm render/layout (this file, hotload-able).
+    try { term.write('\x1b[2m[ubuntu terminal ready — connecting shell…]\x1b[0m\r\n'); } catch(_){}
+    // Android: a tap inside the terminal is the user-gesture that focuses xterm's
+    // hidden textarea and raises the soft keyboard (programmatic focus alone often
+    // won't show the IME in a WebView).
+    mount.addEventListener('click', function(){ try{ term.focus(); }catch(_){} });
     term.onData(function(d){
       // Ctrl chord: convert the next typed letter to its control code.
       if(ctrlArmed && d.length===1){
@@ -3020,7 +3029,16 @@ reportTermSize();
     document.getElementById('ubuntu-view').classList.toggle('show', ub);
     document.getElementById('mode-ubuntu').classList.toggle('active', ub);
     document.getElementById('mode-claude').classList.toggle('active', !ub);
-    if(ub){ initTerm(); setTimeout(function(){ doFit(); try{term.focus();}catch(_){} }, 60); }
+    if(ub){
+      initTerm();
+      // Robust fit: xterm mis-measures cell size if it runs before the view is laid
+      // out or the webfont has loaded (→ the "WWWW" measurement-row artifact + a
+      // dead-looking grid). Fit across rAF, a couple of delays, and font-ready.
+      var fitNow=function(){ doFit(); try{ term.focus(); }catch(_){} };
+      requestAnimationFrame(function(){ requestAnimationFrame(fitNow); });
+      setTimeout(fitNow, 120); setTimeout(fitNow, 450);
+      try { if(document.fonts && document.fonts.ready) document.fonts.ready.then(fitNow); } catch(_){}
+    }
   };
 
   // ── Toggle + toolbar wiring ──
