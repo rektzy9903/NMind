@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b29-p3b-mcp-wired';
+const BRIDGE_BUILD = 'b30-mcp-log-cleanup';
 
 const net   = require('net');
 const http  = require('http');
@@ -3923,9 +3923,16 @@ function openPrintSession() {
         // STDIO entries: real stdio servers + the lazy `mcp_http_proxy.js` shim for
         // each HTTP server. No raw HTTP/SSE servers → no remote connect at spawn →
         // no invariant-51 hang (the shim connects upstream lazily on first tool call).
-        const spawnMcpCfg = writeSpawnMcpConfig();
+        // MCP config differs by engine: legacy uses the stdio-shim spawn config
+        // (writeSpawnMcpConfig); proot uses a native HTTP config (writeProotMcpConfig,
+        // P3b). Compute ONLY the one for the active engine so the other doesn't run
+        // and write its file wastefully on every turn.
+        const engineMode = getEngineMode();
+        const legacyMcpCfg = engineMode === 'proot' ? null : writeSpawnMcpConfig();
+        const prootMcpCfg  = engineMode === 'proot' ? writeProotMcpConfig() : null;
+        const spawnMcpCfg  = legacyMcpCfg; // consumed by the legacy argvCode below
         log('[runMessage] mcp_config exists=' + fs.existsSync(MCP_CONFIG_FILE) +
-            ' spawn-mcp=' + (spawnMcpCfg ? 'yes' : 'no') + '\n');
+            ' engine=' + engineMode + ' mcp=' + ((legacyMcpCfg || prootMcpCfg) ? 'yes' : 'no') + '\n');
         let argvCode =
             'process.argv[2]="--output-format";' +
             'process.argv[3]="stream-json";' +
@@ -3973,9 +3980,9 @@ function openPrintSession() {
         // Pre-trust this cwd so claude-code skips the "do you trust this folder?" prompt
         // now that CLAUDE_CODE_SANDBOXED is gone (which also un-sandboxes the Bash tool).
         ensureProjectTrusted(spawnCwd);
-        const engineMode = getEngineMode();
         log('[runMessage] engine=' + engineMode + ' spawn claude-code, model=' + (cfg.modelId || '?') + ' provider=' + (cfg.providerId || '?') + ' mode=' + (cfg.mode || '?') + ' baseUrl=' + (cfg.baseUrl || '?') + (engineMode === 'proot' ? ' guestCwd=' + spawnCwd : '') + '\n');
-        log('[runMessage] argv: --output-format stream-json --print' + (spawnMcpCfg ? ' --mcp-config ' + spawnMcpCfg : '') + (state.hasHistory ? ' --continue' : '') + ' --verbose <msg>' + '\n');
+        const loggedMcp = engineMode === 'proot' ? prootMcpCfg : spawnMcpCfg;
+        log('[runMessage] argv: --output-format stream-json --print' + (loggedMcp ? ' --mcp-config ' + loggedMcp : '') + (engineMode === 'proot' && prootMcpCfg ? ' --append-system-prompt <mcp-nudge>' : '') + (state.hasHistory ? ' --continue' : '') + ' --verbose <msg>' + '\n');
         let proc;
         if (engineMode === 'proot') {
             // ── P2: PROOT ENGINE (claude-code 2.1.160 on glibc) ─────────────────
@@ -4019,9 +4026,8 @@ function openPrintSession() {
             // Bionic scar, confirmed b26–b28). --mcp-config is variadic, so a flag
             // (--append-system-prompt / --continue / --verbose) must follow its value
             // before the positional message (inv 65b).
-            const guestMcp = writeProotMcpConfig();
-            if (guestMcp) {
-                guestArgv.push('--mcp-config', guestMcp);
+            if (prootMcpCfg) {
+                guestArgv.push('--mcp-config', prootMcpCfg);
                 guestArgv.push('--append-system-prompt', PROOT_MCP_SYS_NUDGE);
             }
             if (state.hasHistory) guestArgv.push('--continue');
