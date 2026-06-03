@@ -11,6 +11,10 @@ local.properties
 app/release/
 *.jks
 *.keystore
+# …except the fixed debug keystore (non-secret android/android creds): committing
+# it gives every debug build one stable signature → in-place updates, no uninstall,
+# Ubuntu rootfs preserved. See app/build.gradle signingConfigs.debug.
+!app/debug.keystore
 
 # nodejs-mobile native libraries (downloaded by CI / scripts/download-libnode.sh)
 app/src/main/jniLibs/arm64-v8a/libnode.so
