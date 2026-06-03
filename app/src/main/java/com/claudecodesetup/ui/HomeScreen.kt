@@ -42,7 +42,6 @@ fun HomeScreen(
     onChatBox: () -> Unit,
     onTesting: () -> Unit,
     onSettings: () -> Unit,
-    onProjects: () -> Unit = {},
     onDiscussion: () -> Unit = {},
     onQuickAsk: () -> Unit = {},
 ) {
@@ -59,14 +58,12 @@ fun HomeScreen(
     var cardDiscussionVisible by remember { mutableStateOf(false) }
     var card2Visible by remember { mutableStateOf(false) }
     var card3Visible by remember { mutableStateOf(false) }
-    var card4Visible by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         delay(250L); card1Visible = true
         delay(110L); cardQuickAskVisible = true
         delay(110L); cardDiscussionVisible = true
         delay(110L); card2Visible = true
         delay(110L); card3Visible = true
-        delay(110L); card4Visible = true
     }
 
     AppBackground {
@@ -237,22 +234,6 @@ fun HomeScreen(
                     accentColor = Color(0xFF9575CD),
                     onClick = onSettings,
                     iconContent = { SettingsIcon() }
-                )
-            }
-
-            Spacer(Modifier.height(12.dp))
-
-            // Card 4 — Projects
-            AnimatedVisibility(
-                visible = card4Visible,
-                enter = fadeIn(tween(400)) + slideInVertically(tween(400, easing = EaseOutCubic)) { it / 3 }
-            ) {
-                MenuCard(
-                    title = "Projects",
-                    subtitle = "Switch between saved project workspaces",
-                    accentColor = NexusGreen,
-                    onClick = onProjects,
-                    iconContent = { ProjectsIcon() }
                 )
             }
 
@@ -451,54 +432,6 @@ private fun BoxScope.SettingsIcon() {
             drawCircle(NexusText2, 2f * scx, center = Offset(6f * scx, 5f * scy), style = circleStroke)
             // Open circle 2: cx=11 cy=12 r=2 (stroke only)
             drawCircle(NexusText2, 2f * scx, center = Offset(11f * scx, 12f * scy), style = circleStroke)
-        }
-    }
-}
-
-@Composable
-private fun BoxScope.ProjectsIcon() {
-    IconBox {
-        androidx.compose.foundation.Canvas(modifier = Modifier.size(22.dp)) {
-            val s = size
-            val scx = s.width / 17f
-            val scy = s.height / 17f
-            val stroke = androidx.compose.ui.graphics.drawscope.Stroke(
-                width = 1.6f * scx,
-                cap = androidx.compose.ui.graphics.StrokeCap.Round,
-                join = androidx.compose.ui.graphics.StrokeJoin.Round
-            )
-            // Folder: M1.5,4.5 C1.5,3.7 2.2,3 3,3 H6.5 L8,4.5 H13 C13.8,4.5 14.5,5.2 14.5,6 V12
-            //         C14.5,12.8 13.8,13.5 13,13.5 H3 C2.2,13.5 1.5,12.8 1.5,12 Z
-            val folder = Path().apply {
-                moveTo(1.5f * scx, 4.5f * scy)
-                cubicTo(
-                    1.5f * scx, 3.7f * scy,
-                    2.2f * scx, 3f * scy,
-                    3f * scx, 3f * scy
-                )
-                lineTo(6.5f * scx, 3f * scy)
-                lineTo(8f * scx, 4.5f * scy)
-                lineTo(13f * scx, 4.5f * scy)
-                cubicTo(
-                    13.8f * scx, 4.5f * scy,
-                    14.5f * scx, 5.2f * scy,
-                    14.5f * scx, 6f * scy
-                )
-                lineTo(14.5f * scx, 12f * scy)
-                cubicTo(
-                    14.5f * scx, 12.8f * scy,
-                    13.8f * scx, 13.5f * scy,
-                    13f * scx, 13.5f * scy
-                )
-                lineTo(3f * scx, 13.5f * scy)
-                cubicTo(
-                    2.2f * scx, 13.5f * scy,
-                    1.5f * scx, 12.8f * scy,
-                    1.5f * scx, 12f * scy
-                )
-                close()
-            }
-            drawPath(folder, NexusText2, style = stroke)
         }
     }
 }
