@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b42-version-autodetect';
+const BRIDGE_BUILD = 'b43-pty-cosmetics';
 
 const net   = require('net');
 const http  = require('http');
@@ -5071,6 +5071,22 @@ function openPrintSession() {
             let workspace = FILES_DIR;
             try { const c = fs.readFileSync(CWD_FILE, 'utf8').trim(); if (c && fs.existsSync(c)) workspace = c; } catch(_) {}
             if (cfg.projectPath && fs.existsSync(cfg.projectPath)) workspace = cfg.projectPath;
+            // Cosmetic: kill the "groups: cannot find name for group ID <N>" spam at
+            // shell login. Android runs us with supplementary GIDs (3003=inet, etc.)
+            // the guest's /etc/group has no names for → glibc warns. Seed entries for
+            // OUR actual GIDs (process.getgroups()) so the lookup resolves silently.
+            try {
+                const gids = (typeof process.getgroups === 'function') ? process.getgroups() : [];
+                if (gids.length) {
+                    const groupPath = path.join(FILES_DIR, 'ubuntu', 'etc', 'group');
+                    let gtxt = ''; try { gtxt = fs.readFileSync(groupPath, 'utf8'); } catch(_) {}
+                    let add = '';
+                    for (const gid of gids) {
+                        if (!new RegExp('^[^:]*:[^:]*:' + gid + ':', 'm').test(gtxt)) add += 'aid_' + gid + ':x:' + gid + ':\n';
+                    }
+                    if (add) fs.appendFileSync(groupPath, add);
+                }
+            } catch (e) { log('[ubuntu-pty] /etc/group seed: ' + e.message + '\n'); }
             // Interactive TUI auth — GATEWAY MODE (ref: Alishahryar1/free-claude-code).
             // The b38/b40 customApiKeyResponses seeding was the WRONG approach: setting
             // ANTHROPIC_API_KEY makes the interactive `claude` treat it as a "custom API
@@ -5102,7 +5118,12 @@ function openPrintSession() {
             ubuntuPtys.set(sid, entry);
             proc.stdout.on('data', d => {
                 const e2 = ubuntuPtys.get(sid);
-                if (e2 && e2.socket) { try { e2.socket.write(d); } catch(_) {} }
+                if (!e2 || !e2.socket) return;
+                // Strip NUL bytes — meaningless in terminal output (xterm ignores them)
+                // but the PTY/proot startup emits a few (the "^@" junk before the first
+                // prompt). Cheap: only rebuild the buffer when a NUL is actually present.
+                const out = (d.indexOf(0) !== -1) ? Buffer.from(d.filter(b => b !== 0)) : d;
+                try { e2.socket.write(out); } catch(_) {}
             });
             proc.stderr.on('data', d => log('[ubuntu-pty] ' + d.toString().slice(0, 200)));
             proc.on('close', code => {
