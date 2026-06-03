@@ -700,18 +700,20 @@ html, body {
 #mode-toggle button{display:flex;align-items:center;gap:5px;padding:5px 12px;background:transparent;border:none;color:#9090A0;font-size:11px;font-weight:700;cursor:pointer;letter-spacing:.5px;}
 #mode-toggle button.active{background:#22E8834A;color:#E8834A;}
 #mode-toggle svg{width:13px;height:13px;display:block;flex-shrink:0;}
-#ubuntu-view{position:fixed;top:0;left:0;right:0;bottom:0;display:none;flex-direction:column;background:#0C0C0F;z-index:80;padding-top:40px;}
+#ubuntu-view{position:fixed;top:0;left:0;right:0;bottom:0;display:none;flex-direction:column;background:#0C0C0F;z-index:80;padding-top:40px;padding-bottom:42px;}
 #ubuntu-view.show{display:flex;}
 #xterm{flex:1;min-height:0;padding:4px 2px 0 6px;overflow:hidden;}
 #xterm .xterm{height:100%;}
 .xterm-viewport::-webkit-scrollbar{width:6px;}
 .xterm-viewport::-webkit-scrollbar-thumb{background:#2A2A30;border-radius:3px;}
-#ubuntu-toolbar{display:flex;gap:5px;padding:6px 8px;background:#111114;border-top:1px solid #2A2A30;overflow-x:auto;flex-shrink:0;}
-#ubuntu-toolbar button{flex-shrink:0;min-width:36px;height:32px;padding:0 9px;border-radius:7px;background:#1E1E22;border:1px solid #2A2A30;color:#C8C8D0;font-family:'Space Mono','Courier New',monospace;font-size:13px;cursor:pointer;}
-#ubuntu-toolbar button:active{background:#2A2A30;}
-#ubuntu-toolbar button.on{background:#22E8834A;border-color:#E8834A;color:#E8834A;}
+/* Unified toolbar (P6.7): one #toolbar for both tabs. Buttons that don't apply to
+   the active tab are locked (greyed, unclickable). Ctrl glows amber when armed. */
+.tb-btn.tb-locked{opacity:.3;pointer-events:none;filter:grayscale(1);}
+.tb-btn.armed{background:#22E8834A;border-color:#E8834A;color:#E8834A;box-shadow:0 0 8px rgba(232,131,74,.6);}
 /* When in Ubuntu mode, hide the chat-only chrome (the opaque #ubuntu-view covers #msgs). */
-body.ubuntu-mode #input-bar,body.ubuntu-mode #toolbar,body.ubuntu-mode #token-counter,body.ubuntu-mode #ctx-bar-wrap,body.ubuntu-mode #mcp-chip,body.ubuntu-mode #mcp-popover,body.ubuntu-mode #agent-chip,body.ubuntu-mode #cwd-bar,body.ubuntu-mode #img-preview{display:none !important;}
+body.ubuntu-mode #input-bar,body.ubuntu-mode #token-counter,body.ubuntu-mode #ctx-bar-wrap,body.ubuntu-mode #mcp-chip,body.ubuntu-mode #mcp-popover,body.ubuntu-mode #agent-chip,body.ubuntu-mode #cwd-bar,body.ubuntu-mode #img-preview{display:none !important;}
+/* The unified toolbar stays visible in Ubuntu mode (it carries the terminal keys). */
+body.ubuntu-mode #toolbar{display:flex !important;}
 </style>
 </head>
 <body>
@@ -772,16 +774,21 @@ body.ubuntu-mode #input-bar,body.ubuntu-mode #toolbar,body.ubuntu-mode #token-co
 
 <!-- Keyboard toolbar -->
 <div id="toolbar">
-  <button class="tb-btn tb-accent" id="btn-shell">$ </button>
-  <button class="tb-btn" id="btn-ctrl">^C</button>
+  <button class="tb-btn" id="btn-ctrl" type="button">Ctrl</button>
+  <button class="tb-btn tb-term" data-key="esc"  data-mode="ubuntu" type="button">Esc</button>
+  <button class="tb-btn tb-term" data-key="tab"  data-mode="ubuntu" type="button">Tab</button>
+  <button class="tb-btn tb-term" data-key="pipe" data-mode="ubuntu" type="button">|</button>
   <button class="tb-btn" id="btn-up">↑</button>
   <button class="tb-btn" id="btn-down">↓</button>
-  <button class="tb-btn" id="btn-help" style="color:#f9a8d4">?</button>
+  <button class="tb-btn tb-term" data-key="left"  data-mode="ubuntu" type="button">←</button>
+  <button class="tb-btn tb-term" data-key="right" data-mode="ubuntu" type="button">→</button>
+  <button class="tb-btn tb-accent" id="btn-shell" data-mode="chat">$ </button>
+  <button class="tb-btn" id="btn-help" data-mode="chat" style="color:#f9a8d4">?</button>
   <button class="tb-btn" id="btn-font-dec" style="color:#94a3b8">A-</button>
   <button class="tb-btn" id="btn-font-inc" style="color:#94a3b8">A+</button>
-  <button class="tb-btn" id="btn-export" style="color:#86efac">⇪ Export</button>
-  <button class="tb-btn" id="btn-files" style="color:#7dd3fc">Files</button>
-  <button class="tb-btn" id="btn-preview" style="color:#7dd3fc">Preview</button>
+  <button class="tb-btn" id="btn-export" data-mode="chat" style="color:#86efac">⇪ Export</button>
+  <button class="tb-btn" id="btn-files" data-mode="chat" style="color:#7dd3fc">Files</button>
+  <button class="tb-btn" id="btn-preview" data-mode="chat" style="color:#7dd3fc">Preview</button>
 </div>
 
 <!-- P6: dual-mode toggle (💬 Claude chat | 🐧 Ubuntu shell) — inline SVG, not emoji -->
@@ -799,16 +806,6 @@ body.ubuntu-mode #input-bar,body.ubuntu-mode #toolbar,body.ubuntu-mode #token-co
 <!-- P6: Ubuntu live PTY view (xterm.js) — hidden until the toggle switches to it -->
 <div id="ubuntu-view">
   <div id="xterm"></div>
-  <div id="ubuntu-toolbar">
-    <button data-key="esc" type="button">Esc</button>
-    <button data-key="tab" type="button">Tab</button>
-    <button id="ub-ctrl" data-key="ctrl" type="button">Ctrl</button>
-    <button data-key="pipe" type="button">|</button>
-    <button data-key="up" type="button">↑</button>
-    <button data-key="down" type="button">↓</button>
-    <button data-key="left" type="button">←</button>
-    <button data-key="right" type="button">→</button>
-  </div>
 </div>
 
 <link rel="stylesheet" href="xterm.css">
@@ -2816,20 +2813,63 @@ document.getElementById('btn-shell').addEventListener('click',function(){
   if(!inputBuffer.startsWith('$ ')){inputBuffer='$ '+inputBuffer;}
   ghost.value=inputBuffer;updateInputDisp();ghost.focus();
 });
-// ^C — interrupt the in-flight claude spawn (print mode has no live TUI, so this
-// is a one-tap Ctrl+C rather than a sticky modifier; bridge.js handleInput maps
-// \x03 to SIGTERM of the current process).
+// ── Unified-toolbar (P6.7): Ctrl modifier shared across both tabs ──────────────
+// Ctrl is now a glowing modifier (chord), not a one-tap ^C. Armed state + glow are
+// shared with the Ubuntu xterm via window.__ctrlArmed / window.__updateCtrlGlow.
+window.__ctrlArmed = false;
+window.__nexusMode = 'chat';
+window.__updateCtrlGlow = function(){
+  var b=document.getElementById('btn-ctrl');
+  if(b) b.classList.toggle('armed', !!window.__ctrlArmed);
+};
 document.getElementById('btn-ctrl').addEventListener('click', function(){
-  tbRaw('\x03');
-  ghost.focus();
+  window.__ctrlArmed = !window.__ctrlArmed;
+  window.__updateCtrlGlow();
+  if(window.__nexusMode==='ubuntu'){ if(window.__focusTerm) window.__focusTerm(); }
+  else ghost.focus();
 });
-// ↑/↓ recall local input history (raw-arrow / TUI path removed with !pty).
+// Nexus-mode chord: capture the next keystroke on the chat input while Ctrl is armed.
+// Chat has no live TTY, so only Ctrl+C is meaningful (cancel the spawn); any letter
+// disarms. Capture phase so it runs before the main keydown handler.
+ghost.addEventListener('keydown', function(e){
+  if(!window.__ctrlArmed) return;
+  if(e.key && e.key.length===1){
+    e.preventDefault(); e.stopImmediatePropagation();
+    if(e.key.toLowerCase()==='c') tbRaw('\x03');
+    window.__ctrlArmed=false; window.__updateCtrlGlow();
+  }
+}, true);
+// ↑/↓ — Nexus: recall input history. Ubuntu: arrow keys to the PTY.
 document.getElementById('btn-up').addEventListener('click',function(){
-  historyUp();
+  if(window.__nexusMode==='ubuntu'){ if(window.ptyKey) window.ptyKey('\x1b[A'); } else historyUp();
 });
 document.getElementById('btn-down').addEventListener('click',function(){
-  historyDown();
+  if(window.__nexusMode==='ubuntu'){ if(window.ptyKey) window.ptyKey('\x1b[B'); } else historyDown();
 });
+// Terminal keys (Esc/Tab/|/←/→) — Ubuntu only (locked+grey in Nexus, so these never
+// fire there). Delegated off #toolbar; route the mapped sequence to the PTY.
+(function(){
+  var TB_KEYMAP={esc:'\x1b', tab:'\t', pipe:'|', left:'\x1b[D', right:'\x1b[C'};
+  var bar=document.getElementById('toolbar');
+  if(bar) bar.addEventListener('click', function(e){
+    var b=e.target.closest('button[data-key]'); if(!b) return;
+    var seq=TB_KEYMAP[b.getAttribute('data-key')]; if(seq==null) return;
+    if(window.ptyKey) window.ptyKey(seq);
+  });
+})();
+// Lock (grey + disable) the buttons that don't apply to the active tab.
+window.updateToolbarMode = function(ub){
+  var bar=document.getElementById('toolbar'); if(!bar) return;
+  var btns=bar.querySelectorAll('[data-mode]');
+  for(var i=0;i<btns.length;i++){
+    var only=btns[i].getAttribute('data-mode');
+    var locked=(only==='chat'&&ub)||(only==='ubuntu'&&!ub);
+    btns[i].disabled=locked;
+    btns[i].classList.toggle('tb-locked',locked);
+  }
+};
+// Initialise to chat mode locks on load.
+try { window.updateToolbarMode(false); } catch(_){}
 
 // ── Font size ─────────────────────────────────────────────────────────────────
 // M9: parse, validate and clamp on load; NaN or out-of-range falls back to 14.
@@ -2964,12 +3004,10 @@ reportTermSize();
 // ── P6: Ubuntu dual-mode (xterm.js live PTY) ──────────────────────────────
 (function(){
   if (typeof Terminal === 'undefined') return;   // xterm failed to load — stay chat-only
-  var term=null, fit=null, ptyMode=false, ctrlArmed=false;
-
-  function updateCtrlBtn(){
-    var b=document.getElementById('ub-ctrl');
-    if(b) b.classList.toggle('on', ctrlArmed);
-  }
+  var term=null, fit=null, ptyMode=false;
+  // Ctrl-chord armed state is SHARED with the unified toolbar via window.__ctrlArmed,
+  // so the #btn-ctrl button (outside this IIFE) and the xterm see the same flag and
+  // the same amber glow (window.__updateCtrlGlow, defined in the main script).
 
   function initTerm(){
     if (term) return;
@@ -2992,12 +3030,12 @@ reportTermSize();
     // won't show the IME in a WebView).
     mount.addEventListener('click', function(){ try{ term.focus(); }catch(_){} });
     term.onData(function(d){
-      // Ctrl chord: convert the next typed letter to its control code.
-      if(ctrlArmed && d.length===1){
+      // Ctrl chord (shared armed flag): convert the next typed letter to its control code.
+      if(window.__ctrlArmed && d.length===1){
         var c=d.charCodeAt(0);
         if(c>=97&&c<=122) d=String.fromCharCode(c-96);        // a-z → ^A..^Z
         else if(c>=64&&c<=95) d=String.fromCharCode(c-64);    // @[\]^_ and A-Z
-        ctrlArmed=false; updateCtrlBtn();
+        window.__ctrlArmed=false; if(window.__updateCtrlGlow) window.__updateCtrlGlow();
       }
       if(typeof Android!=='undefined'&&Android.sendPty) Android.sendPty(d);
     });
@@ -3027,10 +3065,16 @@ reportTermSize();
     if(!term) return;
     try { term.options.fontSize = Math.max(7, Math.min(20, (term.options.fontSize||11)+d)); doFit(); } catch(_){}
   };
+  // Send a raw key sequence to the PTY (used by the unified toolbar's terminal keys
+  // + the shared ↑/↓ when in Ubuntu mode), then keep focus on the terminal.
+  window.ptyKey = function(seq){ if(typeof Android!=='undefined'&&Android.sendPty) Android.sendPty(seq); if(term){ try{term.focus();}catch(_){} } };
+  window.__focusTerm = function(){ if(term){ try{term.focus();}catch(_){} } };
 
   window.setMode = function(mode){
     var ub=(mode==='ubuntu');
     ptyMode=ub;
+    window.__nexusMode = ub ? 'ubuntu' : 'chat';
+    if(window.updateToolbarMode) window.updateToolbarMode(ub);
     document.body.classList.toggle('ubuntu-mode', ub);
     document.getElementById('ubuntu-view').classList.toggle('show', ub);
     document.getElementById('mode-ubuntu').classList.toggle('active', ub);
@@ -3056,16 +3100,7 @@ reportTermSize();
   if(mc) mc.addEventListener('click', function(){ switchTo('chat'); });
   if(mu) mu.addEventListener('click', function(){ switchTo('ubuntu'); });
 
-  var KEYMAP={esc:'\x1b', tab:'\t', pipe:'|', up:'\x1b[A', down:'\x1b[B', left:'\x1b[D', right:'\x1b[C'};
-  var tb=document.getElementById('ubuntu-toolbar');
-  if(tb) tb.addEventListener('click', function(e){
-    var b=e.target.closest('button'); if(!b) return;
-    var k=b.getAttribute('data-key');
-    if(k==='ctrl'){ ctrlArmed=!ctrlArmed; updateCtrlBtn(); if(term) term.focus(); return; }
-    var seq=KEYMAP[k]; if(seq==null) return;
-    if(typeof Android!=='undefined'&&Android.sendPty) Android.sendPty(seq);
-    if(term) term.focus();
-  });
+  // (Terminal-key + Ctrl wiring moved to the unified #toolbar in the main script.)
 
   // Re-fit on viewport changes (soft keyboard show/hide, rotation).
   window.addEventListener('resize', function(){ if(ptyMode) doFit(); });
