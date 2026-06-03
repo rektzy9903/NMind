@@ -240,43 +240,78 @@ class ClaudeService : LifecycleService() {
         lifecycleScope.launch(Dispatchers.IO) { connectPty(sessionId) }
     }
 
-    private fun connectPty(sessionId: Int) {
+    private suspend fun connectPty(sessionId: Int) {
         // Don't open a shell for a session that no longer exists.
         if (!sessions.containsKey(sessionId)) return
         // Guard against a racing second open.
         if (ptyConns[sessionId]?.alive == true) return
 
-        val sock = bridge.openSession() ?: run {
-            val err = "\r\n[31m[ubuntu] could not connect to bridge (port ${NodeBridgeManager.BRIDGE_PORT})[0m\r\n"
-            onPtyOutput?.invoke(sessionId, Base64.encodeToString(err.toByteArray(Charsets.UTF_8), Base64.NO_WRAP))
-            return
+        // Wait for the bridge to be reachable before connecting — mirrors the chat
+        // path (connectSession's waitForBridge). On a fresh app launch the bridge
+        // (proot/node) is still booting; a fast switch to the Ubuntu tab otherwise
+        // races it and the socket is rejected ("Unauthorized") with no recovery —
+        // the reason "send a chat first" used to be needed.
+        var waited = 0
+        while (!bridge.isBridgeReachable() && waited < 30) {
+            delay(1000); waited++
+            if (!sessions.containsKey(sessionId)) return
         }
-        val conn = PtyConn(sock)
-        ptyConns[sessionId] = conn
 
-        val localToken = try {
-            java.io.File(filesDir, "local_token").readText().trim()
-        } catch (_: Exception) { "" }
-        try {
-            conn.out.write("SESSION:$sessionId:$localToken:ubuntu\n".toByteArray(Charsets.UTF_8))
-            conn.out.flush()
-        } catch (_: Exception) {}
+        // Retry the connect: even once reachable, the auth token can be momentarily
+        // unsettled during startup -> the bridge rejects with "Unauthorized
+        // connection rejected." Detect that on the first bytes and retry instead of
+        // leaving a dead terminal.
+        val maxAttempts = 4
+        for (attempt in 1..maxAttempts) {
+            if (!sessions.containsKey(sessionId)) return
+            if (ptyConns[sessionId]?.alive == true) return
 
-        try {
-            val buf = ByteArray(8192)
-            val input = sock.inputStream
-            var n: Int
-            while (input.read(buf).also { n = it } != -1) {
-                if (n == 0) continue
-                val b64 = Base64.encodeToString(buf, 0, n, Base64.NO_WRAP)
-                onPtyOutput?.invoke(sessionId, b64)
+            val sock = bridge.openSession()
+            if (sock == null) {
+                if (attempt < maxAttempts) { delay(700); continue }
+                val err = "\r\n[31m[ubuntu] could not connect to bridge (port ${NodeBridgeManager.BRIDGE_PORT})[0m\r\n"
+                onPtyOutput?.invoke(sessionId, Base64.encodeToString(err.toByteArray(Charsets.UTF_8), Base64.NO_WRAP))
+                return
             }
-        } catch (_: IOException) {
-            // Normal socket close (tab switch / shell exit).
-        } finally {
-            runCatching { sock.close() }
-            conn.alive = false
-            ptyConns.remove(sessionId, conn)
+            val conn = PtyConn(sock)
+            ptyConns[sessionId] = conn
+
+            val localToken = try {
+                java.io.File(filesDir, "local_token").readText().trim()
+            } catch (_: Exception) { "" }
+            try {
+                conn.out.write("SESSION:$sessionId:$localToken:ubuntu\n".toByteArray(Charsets.UTF_8))
+                conn.out.flush()
+            } catch (_: Exception) {}
+
+            var rejected = false
+            var sawData = false
+            try {
+                val buf = ByteArray(8192)
+                val input = sock.inputStream
+                var n: Int
+                while (input.read(buf).also { n = it } != -1) {
+                    if (n == 0) continue
+                    // Detect the bridge's auth rejection on the first bytes -> retry,
+                    // and do NOT render it (avoids flashing "Unauthorized" mid-retry).
+                    if (!sawData) {
+                        val head = String(buf, 0, n, Charsets.UTF_8)
+                        if (head.contains("Unauthorized connection rejected")) { rejected = true; break }
+                    }
+                    sawData = true
+                    val b64 = Base64.encodeToString(buf, 0, n, Base64.NO_WRAP)
+                    onPtyOutput?.invoke(sessionId, b64)
+                }
+            } catch (_: IOException) {
+                // Normal socket close (tab switch / shell exit).
+            } finally {
+                runCatching { sock.close() }
+                conn.alive = false
+                ptyConns.remove(sessionId, conn)
+            }
+
+            if (rejected && attempt < maxAttempts) { delay(800); continue }  // token unsettled — wait + retry
+            return  // streamed normally, or gave up after maxAttempts
         }
     }
 
