@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b30-mcp-log-cleanup';
+const BRIDGE_BUILD = 'b31-p4-proot-default';
 
 const net   = require('net');
 const http  = require('http');
@@ -44,8 +44,10 @@ const CLAUDE_CLI  = path.join(
 // Proot Ubuntu engine (P2): claude-code 2.1.160 installed by !setup-engine into
 // /opt/node inside the rootfs. cli.js path is GUEST-side (inside proot), fixed by
 // npm's default global prefix (/opt/node). Engine selection lives in a tiny file
-// (filesDir/engine_mode = 'proot'|'legacy'); default legacy = the proven 2.1.112
-// libnode path. Toggle from the terminal with `!engine proot` / `!engine legacy`.
+// (filesDir/engine_mode = 'proot'|'legacy'). P4 (2026-06-03): proot (claude-code
+// 2.1.160 on glibc) is now the DEFAULT — legacy 2.1.112 only runs if engine_mode
+// explicitly says 'legacy' (kept as a fallback during the proot rollout; slated for
+// removal once proot is proven). Toggle with `!engine proot` / `!engine legacy`.
 const GUEST_CLI     = '/opt/node/lib/node_modules/@anthropic-ai/claude-code/cli.js';
 const GUEST_NODE    = '/opt/node/bin/node';
 // The npm-installed launcher symlink (/opt/node/bin/claude → ../lib/node_modules/
@@ -59,8 +61,9 @@ const GUEST_NODE    = '/opt/node/bin/node';
 const GUEST_CLAUDE  = '/opt/node/bin/claude';
 const ENGINE_FILE   = path.join(FILES_DIR, 'engine_mode');
 function getEngineMode() {
-    try { return fs.readFileSync(ENGINE_FILE, 'utf8').trim() === 'proot' ? 'proot' : 'legacy'; }
-    catch (_) { return 'legacy'; }
+    // Default = proot. Legacy only when explicitly pinned (escape hatch).
+    try { return fs.readFileSync(ENGINE_FILE, 'utf8').trim() === 'legacy' ? 'legacy' : 'proot'; }
+    catch (_) { return 'proot'; }
 }
 // Tool-deferral toggle — own flag file (bridge_config.json is Kotlin-owned and
 // gets overwritten on restart, so bridge-side toggles persist separately, same
@@ -3667,66 +3670,26 @@ function openPrintSession() {
             const sp = path.join(claudeDir, 'settings.json');
             let s = {};
             try { s = JSON.parse(fs.readFileSync(sp, 'utf8')); } catch(_) {}
-            if (!s.customApiKeyResponses) s.customApiKeyResponses = { approved: [], rejected: [] };
-            if (!Array.isArray(s.customApiKeyResponses.approved)) s.customApiKeyResponses.approved = [];
-            if (!s.customApiKeyResponses.approved.includes('sk-ant-proxy000'))
-                s.customApiKeyResponses.approved.push('sk-ant-proxy000');
-            s.customApiKeyResponses.rejected =
-                s.customApiKeyResponses.rejected.filter(k => k !== 'sk-ant-proxy000');
             s.theme = 'dark'; s.hasCompletedOnboarding = true;
             s.hasShownWelcome = true; s.skipWelcome = true;
-            // NOTE: dangerouslySkipPermissions is intentionally NOT set here.
-            // On Android Bionic / claude-code v2.1.112, setting it (via settings.json
-            // or CLI flag) causes the process to hang after the HEAD health-check and
-            // never reach POST /v1/messages. Tool approval is handled entirely by
-            // permissions.allow: ['*'] below, which works without the hang.
-            if (!s.permissions) s.permissions = { allow: [], deny: [] };
-            if (!Array.isArray(s.permissions.allow)) s.permissions.allow = [];
-            if (!Array.isArray(s.permissions.deny)) s.permissions.deny = [];
-            // '*' alone doesn't reliably match all tool types in v2.1.112
-            // (WebSearch, WebFetch, MCP tools slip through and trigger permission dialogs).
-            // Add explicit patterns so claude-code auto-approves before emitting 9;confirm:.
-            const TOOL_ALLOW = ['*', 'WebSearch(*)', 'WebFetch(*)'];
-            for (const p of TOOL_ALLOW) {
-                if (!s.permissions.allow.includes(p)) s.permissions.allow.push(p);
-            }
-            // MCP tools: claude-code does NOT support wildcards in MCP permission rules,
-            // so 'mcp__*' is silently ignored and every mcp__<server>__<tool> prompted
-            // every turn (user had to tick "Always allow" + resend). The valid format is
-            // 'mcp__<server>' (server-level — grants ALL of that server's tools). Add one
-            // per configured server so e.g. mcp__exa__web_search_exa auto-approves.
-            try {
-                for (const srvName of Object.keys(buildMcpServersObj())) {
-                    const rule = 'mcp__' + srvName;
-                    if (!s.permissions.allow.includes(rule)) s.permissions.allow.push(rule);
-                }
-            } catch (_) {}
-            // Workspace boundary: claude-code's Write/Edit/Read tools refuse paths
-            // OUTSIDE the working dir + additionalDirectories, independent of
-            // permissions.allow:['*']. The app holds MANAGE_EXTERNAL_STORAGE, so the
-            // process can write anywhere on shared storage — grant the common storage
-            // roots (and the app files dir) as additional workspace dirs so the model
-            // can edit user files under /sdcard without hitting the out-of-workspace
-            // gate (the gate the model kept hitting then mis-explaining as a "security
-            // sandbox"). cwd itself is always allowed; this covers absolute paths.
+            // P4: the proot engine runs claude-code 2.1.160 with
+            // --dangerously-skip-permissions + IS_SANDBOX (→ bypassPermissions mode),
+            // so the entire legacy permission apparatus is GONE (re-audit probe #5,
+            // b24): no customApiKeyResponses (the proxy itself accepts sk-ant-proxy000
+            // — the guest doesn't need the approval list) and no permissions.allow:['*']
+            // (bypassPermissions auto-runs every tool, incl. MCP). We keep ONLY the
+            // workspace boundary (additionalDirectories, inv 62 — a SEPARATE check from
+            // allow/deny) + the user's disabled-tool denies (secondary to the
+            // proxy-layer tool strip, inv 60). Stale legacy keys are actively removed
+            // so a pre-P4 install's settings.json gets cleaned on the next turn.
+            if (!s.permissions || typeof s.permissions !== 'object') s.permissions = {};
             if (!Array.isArray(s.permissions.additionalDirectories)) s.permissions.additionalDirectories = [];
-            for (const d of ['/sdcard', '/storage/emulated/0', '/storage/self/primary', FILES_DIR]) {
+            for (const d of ['/sdcard', '/storage/emulated/0', '/storage/self/primary', '/root', FILES_DIR]) {
                 if (!s.permissions.additionalDirectories.includes(d)) s.permissions.additionalDirectories.push(d);
             }
-            // Inject per-tool always-allow and always-deny overrides saved by the user.
-            // Bare names (e.g. 'Bash') get both 'Bash' and 'Bash(*)' so v2.1.112 matches them.
-            // Pattern entries (e.g. 'Bash(git *)') already self-describe — inject as-is, no suffix.
-            const approveList = loadApproveList();
-            for (const t of (approveList.allow || [])) {
-                if (!s.permissions.allow.includes(t)) s.permissions.allow.push(t);
-                if (!/[()]/.test(t)) {
-                    const pat = t + '(*)';
-                    if (!s.permissions.allow.includes(pat)) s.permissions.allow.push(pat);
-                }
-            }
-            for (const t of (approveList.deny || [])) {
-                if (!s.permissions.deny.includes(t)) s.permissions.deny.push(t);
-            }
+            if (!Array.isArray(s.permissions.deny)) s.permissions.deny = [];
+            delete s.customApiKeyResponses;   // retired with the permission apparatus
+            delete s.permissions.allow;       // bypassPermissions makes it moot
             // MCP-9: tools the user disabled per-server become explicit deny entries.
             // claude-code still sees them in tools/list (no way to hide upstream),
             // but rejects calls before they execute.
@@ -3747,7 +3710,7 @@ function openPrintSession() {
             delete s.mcpServers;
 
             fs.writeFileSync(sp, JSON.stringify(s, null, 2));
-            log('[patchSettings] ok — approved=' + JSON.stringify(s.customApiKeyResponses.approved) + '\n');
+            log('[patchSettings] ok (proot/bypassPermissions; no allow-list, deny=' + s.permissions.deny.length + ')\n');
         } catch(e) { log('[patchSettings] ERROR: ' + e.message + '\n'); }
     }
 
@@ -3913,10 +3876,14 @@ function openPrintSession() {
             'anywhere on the device — including /sdcard, /storage, and any path outside the working ' +
             'directory. Never refuse a file request by claiming a sandbox or "authorized working ' +
             'directory" limit; just run the appropriate Bash command.';
-        // Prepend instructions to the message (no --append-system-prompt — that flag causes
-        // claude-code v2.1.112 to hang indefinitely on Android after HEAD / health-check).
-        const preamble = [STORAGE_NOTE, customPrompt].filter(Boolean).join('\n\n');
-        const finalMsg = '[Instructions]\n' + preamble + '\n\n' + msg;
+        // P4: the storage-note + custom persona go via --append-system-prompt (works on
+        // proot/2.1.160 — re-audit probe #4, b23), NOT prepended to the message. The old
+        // prepend hack existed only because the flag hung on Bionic (inv 5a). finalMsg is
+        // now the raw user message; appendSys is folded into the proot --append-system-prompt
+        // below (merged with the MCP nudge). (Legacy fallback uses raw finalMsg — it loses
+        // the note, acceptable for the deprecated path.)
+        const appendSys = [STORAGE_NOTE, customPrompt].filter(Boolean).join('\n\n');
+        const finalMsg = msg;
         // --mcp-config supplies MCP servers to claude-code in print mode. claude-code
         // does NOT read mcpServers from settings.json (that injection was a no-op —
         // it's why MCP tools never reached the model). The config here contains only
@@ -3982,7 +3949,7 @@ function openPrintSession() {
         ensureProjectTrusted(spawnCwd);
         log('[runMessage] engine=' + engineMode + ' spawn claude-code, model=' + (cfg.modelId || '?') + ' provider=' + (cfg.providerId || '?') + ' mode=' + (cfg.mode || '?') + ' baseUrl=' + (cfg.baseUrl || '?') + (engineMode === 'proot' ? ' guestCwd=' + spawnCwd : '') + '\n');
         const loggedMcp = engineMode === 'proot' ? prootMcpCfg : spawnMcpCfg;
-        log('[runMessage] argv: --output-format stream-json --print' + (loggedMcp ? ' --mcp-config ' + loggedMcp : '') + (engineMode === 'proot' && prootMcpCfg ? ' --append-system-prompt <mcp-nudge>' : '') + (state.hasHistory ? ' --continue' : '') + ' --verbose <msg>' + '\n');
+        log('[runMessage] argv: --output-format stream-json --print' + (loggedMcp ? ' --mcp-config ' + loggedMcp : '') + (engineMode === 'proot' ? ' --append-system-prompt <sys' + (prootMcpCfg ? '+mcp-nudge' : '') + '>' : '') + (state.hasHistory ? ' --continue' : '') + ' --verbose <msg>' + '\n');
         let proc;
         if (engineMode === 'proot') {
             // ── P2: PROOT ENGINE (claude-code 2.1.160 on glibc) ─────────────────
@@ -4026,10 +3993,13 @@ function openPrintSession() {
             // Bionic scar, confirmed b26–b28). --mcp-config is variadic, so a flag
             // (--append-system-prompt / --continue / --verbose) must follow its value
             // before the positional message (inv 65b).
-            if (prootMcpCfg) {
-                guestArgv.push('--mcp-config', prootMcpCfg);
-                guestArgv.push('--append-system-prompt', PROOT_MCP_SYS_NUDGE);
-            }
+            if (prootMcpCfg) guestArgv.push('--mcp-config', prootMcpCfg);
+            // P4: persona/storage-note (+ the MCP wait-nudge when MCP is active) in a
+            // SINGLE --append-system-prompt — replaces the legacy message-prepend hack.
+            // A value-taking flag here also terminates the --mcp-config variadic before
+            // the positional message (inv 65b), same role --verbose plays.
+            const sysParts = [appendSys, prootMcpCfg ? PROOT_MCP_SYS_NUDGE : ''].filter(Boolean);
+            if (sysParts.length) guestArgv.push('--append-system-prompt', sysParts.join('\n\n'));
             if (state.hasHistory) guestArgv.push('--continue');
             guestArgv.push('--verbose', finalMsg);
             try {
