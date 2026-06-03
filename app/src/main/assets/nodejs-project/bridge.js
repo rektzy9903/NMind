@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b35-p6-pty-bridge';
+const BRIDGE_BUILD = 'b36-p6-pty-proxyenv';
 
 const net   = require('net');
 const http  = require('http');
@@ -5002,9 +5002,21 @@ function openPrintSession() {
             let workspace = FILES_DIR;
             try { const c = fs.readFileSync(CWD_FILE, 'utf8').trim(); if (c && fs.existsSync(c)) workspace = c; } catch(_) {}
             if (cfg.projectPath && fs.existsSync(cfg.projectPath)) workspace = cfg.projectPath;
+            // Inject the proxy env so the FULL interactive `claude` (real 2.1.160 TUI)
+            // works inside the Ubuntu shell against the user's chosen provider/model:
+            // proot shares the host netns, so ANTHROPIC_BASE_URL=127.0.0.1:8082 reaches
+            // the bridge proxy and ANTHROPIC_API_KEY=sk-ant-proxy000 is accepted. Only
+            // set keys that exist (no provider yet → bash still works, `claude` just
+            // can't connect until one is configured). IS_SANDBOX=1 lets root run
+            // --dangerously-skip-permissions (the guest is root via --root-id).
+            const benv = buildEnv();
+            const ptyEnv = { IS_SANDBOX: '1', DISABLE_AUTOUPDATER: '1', MCP_TIMEOUT: '30000', MCP_TOOL_TIMEOUT: '30000' };
+            if (benv.ANTHROPIC_API_KEY)  ptyEnv.ANTHROPIC_API_KEY  = benv.ANTHROPIC_API_KEY;
+            if (benv.ANTHROPIC_MODEL)    ptyEnv.ANTHROPIC_MODEL    = benv.ANTHROPIC_MODEL;
+            if (benv.ANTHROPIC_BASE_URL) ptyEnv.ANTHROPIC_BASE_URL = benv.ANTHROPIC_BASE_URL;
             let proc;
             try {
-                proc = prootChild(['/bin/bash', '-li'], { pty: true, workspace });
+                proc = prootChild(['/bin/bash', '-li'], { pty: true, workspace, extraEnv: ptyEnv });
             } catch (e) {
                 log('[ubuntu-pty] spawn failed: ' + e.message + '\n');
                 try { socket.write('\r\n\x1b[31m[ubuntu shell spawn failed: ' + e.message + ']\x1b[0m\r\n'); } catch(_) {}
