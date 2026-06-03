@@ -38,6 +38,13 @@ class AppPreferences(context: Context) {
     fun setNodeSetupComplete(done: Boolean) =
         prefs.edit().putBoolean(KEY_NODE_SETUP_DONE, done).apply()
 
+    /** True once the proot Ubuntu engine (rootfs + Node + claude-code) is
+     *  installed. Gated by SetupActivity's first-run auto-provisioning; survives
+     *  in-place APK updates (filesDir persists), so provisioning runs once. */
+    fun isEngineProvisioned(): Boolean = prefs.getBoolean(KEY_ENGINE_PROVISIONED, false)
+    fun setEngineProvisioned(done: Boolean) =
+        prefs.edit().putBoolean(KEY_ENGINE_PROVISIONED, done).apply()
+
     // ─── Provider config ─────────────────────────────────────────────────────
 
     fun isProviderConfigured(): Boolean = prefs.getBoolean(KEY_PROVIDER_SET, false)
@@ -172,6 +179,7 @@ class AppPreferences(context: Context) {
 
     companion object {
         private const val KEY_NODE_SETUP_DONE     = "node_setup_done"
+        private const val KEY_ENGINE_PROVISIONED  = "engine_provisioned"
         private const val KEY_PROVIDER_SET        = "provider_set"
         private const val KEY_LOGIN_MODE          = "login_mode"
         private const val KEY_PROVIDER_ID         = "provider_id"

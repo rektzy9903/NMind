@@ -256,6 +256,26 @@ class NodeBridgeManager(private val context: Context) {
         startNodeEngine()
     }
 
+    // ─── First-run engine provisioning (bridge runEngineSetup, file-triggered) ──
+    // SetupActivity extracts the rootfs, then drops `provision_requested`; the
+    // bridge's watcher runs the Node 22 + claude-code install and writes
+    // `engine_provisioned` (= version) or `provision_failed` (= error). Progress
+    // streams to setup.log as "[provision] pct=NN TAG msg" (readSetupLog()).
+    fun requestProvision() {
+        try { File(context.filesDir, "provision_requested").createNewFile() } catch (_: Exception) {}
+    }
+    fun clearProvisionMarkers() {
+        for (n in listOf("engine_provisioned", "provision_failed", "provision_requested"))
+            try { File(context.filesDir, n).delete() } catch (_: Exception) {}
+    }
+    fun isEngineProvisioned(): Boolean = File(context.filesDir, "engine_provisioned").exists()
+    fun isProvisionFailed(): Boolean   = File(context.filesDir, "provision_failed").exists()
+    /** The claude-code version the bridge detected post-install (empty if absent). */
+    fun readClaudeVersion(): String = try {
+        File(context.filesDir, "claude_version").readText().trim()
+            .ifEmpty { File(context.filesDir, "engine_provisioned").readText().trim() }
+    } catch (_: Exception) { "" }
+
     // ─── Private ──────────────────────────────────────────────────────────────
 
     private fun startNodeEngine() {

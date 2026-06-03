@@ -43,6 +43,13 @@ class UbuntuRootfsManager(private val context: Context) {
     fun isInstalled(): Boolean =
         marker.exists() && marker.readText().trim() == rootfsVersion
 
+    /** True if filesDir has enough free space for the download + extraction.
+     *  Download is ~60-80MB but extraction inflates to ~150-200MB on disk; we
+     *  require ~280MB headroom so a low-storage device fails fast (with a clear
+     *  message) instead of dying mid-extract. */
+    fun hasEnoughStorage(minBytes: Long = 280L * 1024 * 1024): Boolean =
+        try { context.filesDir.usableSpace >= minBytes } catch (_: Exception) { true }
+
     /** Phase callback for UI: (human-readable phase, 0..100 percent or -1 if indeterminate). */
     data class Step(val phase: String, val pct: Int)
     data class Result(val success: Boolean, val message: String)
