@@ -130,8 +130,11 @@ html, body {
   padding: 10px 13px;
   font-size: calc(13px * var(--cfs, 1));
   line-height: 1.7;
-  overflow-wrap: anywhere;
-  word-break: break-word;
+  /* break-word breaks only long unbreakable runs (URLs, hashes) when they'd
+     overflow — not normal words mid-character like the old anywhere+break-word
+     combo did, which caused the ragged/weird wrapping. */
+  overflow-wrap: break-word;
+  word-break: normal;
   font-family: 'Space Mono', 'Courier New', monospace;
 }
 .user-bubble {
