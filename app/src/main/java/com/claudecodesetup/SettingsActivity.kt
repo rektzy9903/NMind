@@ -252,7 +252,6 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun populateFields() {
-        binding.etProviderRemoteUrl.setText(prefs.getProviderRemoteUrl())
         val mode       = prefs.getLoginMode()
         val providerId = prefs.getProviderId()
         val provider   = Providers.byId(providerId)
@@ -279,7 +278,6 @@ class SettingsActivity : AppCompatActivity() {
 
     override fun onPause() {
         super.onPause()
-        prefs.setProviderRemoteUrl(binding.etProviderRemoteUrl.text.toString().trim())
         bridgeManager.refreshConfig(prefs)
     }
 

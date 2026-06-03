@@ -20,6 +20,7 @@ import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
 import android.util.Base64
+import android.util.Log
 import android.view.View
 import android.webkit.JavascriptInterface
 import android.webkit.WebSettings
@@ -258,7 +259,24 @@ class TerminalActivity : AppCompatActivity() {
             }
         }
 
-        wv.loadUrl("file:///android_asset/terminal/index.html")
+        // DEBUG hot-load (P6.6): prefer a valid index_dev.html downloaded by the
+        // `!hotload-ui` terminal command. Loaded with the bundled asset dir as the
+        // base URL so the relative xterm.css/js refs still resolve against the
+        // vendored assets — only index.html itself comes from the dev copy.
+        // Release always uses the audited bundled asset.
+        val devHtml = File(filesDir, "index_dev.html")
+        val useDevHtml = com.claudecodesetup.BuildConfig.DEBUG && devHtml.exists() &&
+            devHtml.length() > 5000 && runCatching { devHtml.readText().contains("termWrite") }.getOrDefault(false)
+        if (useDevHtml) {
+            Log.i("TerminalActivity", "index.html hot-loaded from index_dev.html (${devHtml.length()} bytes)")
+            wv.loadDataWithBaseURL(
+                "file:///android_asset/terminal/",
+                devHtml.readText(),
+                "text/html", "UTF-8", null
+            )
+        } else {
+            wv.loadUrl("file:///android_asset/terminal/index.html")
+        }
     }
 
     private fun writeToTerminal(data: String) {

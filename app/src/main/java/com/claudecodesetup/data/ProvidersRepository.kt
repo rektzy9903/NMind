@@ -60,8 +60,22 @@ object ProvidersRepository {
         }
     }
 
-    private fun loadAsset(context: Context): String =
-        context.assets.open(ASSET_PATH).bufferedReader().readText()
+    private fun loadAsset(context: Context): String {
+        // DEBUG hot-load (P6.6): prefer a valid providers_dev.json downloaded by the
+        // `!hotload-ui` terminal command. Release always uses the bundled asset.
+        if (com.claudecodesetup.BuildConfig.DEBUG) {
+            val dev = java.io.File(context.filesDir, "providers_dev.json")
+            if (dev.exists() && dev.length() > 100) {
+                val txt = runCatching { dev.readText() }.getOrNull()
+                val ok = txt != null && runCatching { JSONObject(txt).has("providers") }.getOrDefault(false)
+                if (ok) {
+                    Log.i(TAG, "providers.json hot-loaded from providers_dev.json (${dev.length()} bytes)")
+                    return txt!!
+                }
+            }
+        }
+        return context.assets.open(ASSET_PATH).bufferedReader().readText()
+    }
 
     private fun parseProviders(json: String): List<Provider> {
         val root = JSONObject(json)

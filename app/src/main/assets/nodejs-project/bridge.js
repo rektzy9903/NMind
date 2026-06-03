@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b36-p6-pty-proxyenv';
+const BRIDGE_BUILD = 'b37-p6.6-hotload-ui';
 
 const net   = require('net');
 const http  = require('http');
@@ -3916,7 +3916,7 @@ function openPrintSession() {
             // ensureBridgeJs() prefers a valid bridge_dev.js over the bundled asset
             // (DEBUG only). So a JS change = git push → !hotload → force-stop/reopen,
             // NO rebuild. `!hotload reset` removes the dev copy (back to bundled).
-            if (line.startsWith('!hotload')) {
+            if (line.startsWith('!hotload') && !line.startsWith('!hotload-ui')) {
                 const w = (s) => { try { if (state.socket) state.socket.write(SYS_FENCE + s); } catch(_) {} };
                 const arg = line.slice('!hotload'.length).trim();
                 const devPath = path.join(FILES_DIR, 'bridge_dev.js');
@@ -3956,6 +3956,63 @@ function openPrintSession() {
                         w('\x1b[31m✗ download invalid (size=' + txt.length + ') — kept current\x1b[0m\r\n');
                     }
                 })().catch(e => w('\x1b[31m✗ hotload failed: ' + (e && e.message) + '\x1b[0m\r\n'));
+                continue;
+            }
+
+            // ── !hotload-ui — DEBUG: pull the latest terminal UI assets (no APK) ─
+            // Sibling of !hotload, but for the WebView UI instead of the engine.
+            // Fetches the branch's terminal/index.html → filesDir/index_dev.html and
+            // providers.json → filesDir/providers_dev.json. TerminalActivity prefers a
+            // valid index_dev.html (loaded with the asset dir as base URL so the
+            // relative xterm.* refs still resolve), and ProvidersRepository prefers a
+            // valid providers_dev.json — both DEBUG-only. So a UI/provider-list change =
+            // git push → !hotload-ui → force-stop/reopen, NO rebuild.
+            // `!hotload-ui reset` removes both dev copies (back to bundled assets).
+            if (line.startsWith('!hotload-ui')) {
+                const w = (s) => { try { if (state.socket) state.socket.write(SYS_FENCE + s); } catch(_) {} };
+                const arg = line.slice('!hotload-ui'.length).trim();
+                const htmlDev = path.join(FILES_DIR, 'index_dev.html');
+                const provDev = path.join(FILES_DIR, 'providers_dev.json');
+                if (arg === 'reset') {
+                    let n = 0;
+                    for (const p of [htmlDev, provDev]) { try { fs.unlinkSync(p); n++; } catch(_) {} }
+                    w(n ? '\x1b[32m✓ UI hot-load reset (' + n + ' file' + (n > 1 ? 's' : '') + ')\x1b[0m\r\n'
+                        : '\x1b[33m(no dev UI assets to reset)\x1b[0m\r\n');
+                    w('\x1b[2mForce-stop + reopen the app to apply (bundled assets).\x1b[0m\r\n');
+                    continue;
+                }
+                const REF = 'feat/custom-agents';
+                const api = (p) => 'https://api.github.com/repos/fahmi304/Nexus-Mind/contents/' + p + '?ref=' + REF;
+                // [remote path, dest, minBytes, validator(text)]
+                const targets = [
+                    ['app/src/main/assets/terminal/index.html', htmlDev, 5000, t => t.includes('termWrite')],
+                    ['app/src/main/assets/providers.json',      provDev, 100,  t => { try { return Array.isArray(JSON.parse(t).providers); } catch(_) { return false; } }],
+                ];
+                w('\x1b[33m!hotload-ui: fetching index.html + providers.json (GitHub API)…\x1b[0m\r\n');
+                (async () => {
+                    for (const [remote, dest, min, valid] of targets) {
+                        const label = remote.split('/').pop();
+                        try {
+                            const res = await httpsGet(api(remote), { headers: {
+                                'Accept': 'application/vnd.github.raw',
+                                'User-Agent': 'nexus-hotload',
+                                'Cache-Control': 'no-cache',
+                            }});
+                            if (res.statusCode !== 200) { res.resume(); throw new Error('HTTP ' + res.statusCode); }
+                            let txt = ''; res.setEncoding('utf8');
+                            await new Promise((rs, rj) => { res.on('data', c => txt += c); res.on('end', rs); res.on('error', rj); });
+                            if (txt.length > min && valid(txt)) {
+                                fs.writeFileSync(dest, txt);
+                                w('\x1b[32m✓ ' + label + ' → ' + txt.length + ' bytes\x1b[0m\r\n');
+                            } else {
+                                w('\x1b[31m✗ ' + label + ' invalid (size=' + txt.length + ') — kept current\x1b[0m\r\n');
+                            }
+                        } catch (e) {
+                            w('\x1b[31m✗ ' + label + ' failed: ' + (e && e.message) + '\x1b[0m\r\n');
+                        }
+                    }
+                    w('\x1b[36mNow FORCE-STOP the app and reopen it to load the new UI.\x1b[0m\r\n');
+                })();
                 continue;
             }
 
