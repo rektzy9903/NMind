@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b46-cleanup-host-tarball';
+const BRIDGE_BUILD = 'b47-test-persistent';
 
 const net   = require('net');
 const http  = require('http');
@@ -3797,6 +3797,7 @@ function openPrintSession() {
                     '  \x1b[33m!mcp-reload\x1b[0m         Apply Settings toggles without restarting the session\r\n' +
                     '  \x1b[33m!test-agent\x1b[0m         Probe sub-agent dispatch (writes ~/.claude/agents/nexus_probe.md, runs it)\r\n' +
                     '  \x1b[33m!test-mcp\x1b[0m           Probe native HTTP MCP in the proot guest\r\n' +
+                    '  \x1b[33m!test-persistent\x1b[0m    Probe: ONE warm stream-json proc answers 2 msgs (kill cold start)\r\n' +
                     '  \x1b[33m!test-proot\x1b[0m         Probe: does bundled proot exec from nativeLibDir (Ubuntu engine)\r\n' +
                     '  \x1b[33m!test-rootfs\x1b[0m        Probe: run extracted Ubuntu rootfs via proot (cat /etc/os-release)\r\n' +
                     '  \x1b[33m!setup-engine\x1b[0m       Batched P1: boot rootfs → install Node 22 + claude-code → claude --version\r\n' +
@@ -4734,6 +4735,129 @@ function openPrintSession() {
                     w(rep);
                   })
                   .catch(e => { w(R + '[!test-shell proot error] ' + (e && e.message) + X + '\r\n'); });
+                continue;
+            }
+
+            // ── !test-persistent — probe ONE warm stream-json proc (kill cold start) ──
+            // Step 1 of the persistent-session rollout (see CLAUDE.md TODO / memory
+            // project-persistent-session). The 💬 chat spawns a FRESH `claude --print`
+            // per message → 30–40s cold start (proot boot + node + claude init). The
+            // 🐧 Ubuntu tab proves a single warm proc is ~10× faster. This probe answers
+            // the open questions BEFORE touching runMessage:
+            //   (a) does `claude --print --input-format stream-json` STAY ALIVE after the
+            //       first `result`, or exit like single-shot? (THE pivotal unknown.)
+            //   (b) the EXACT stdin NDJSON user-message schema (one line per turn).
+            //   (c) does in-proc history carry (turn 2 recalls turn 1 with NO --continue)?
+            //   (d) warm turn-2 latency vs cold turn-1 (the whole point).
+            // Mechanism = the OPPOSITE of single-shot inv 5c: keep stdin OPEN, write one
+            // NDJSON user line per turn, parse stream-json out, send turn 2 only AFTER
+            // turn 1's `result`. If proc 'close' fires with resultCount<2 → still
+            // single-shot (persistent not viable on this CLI). Nothing in runMessage is
+            // touched — pure hotloadable probe.
+            if (line.startsWith('!test-persistent') && getEngineMode() === 'proot') {
+                const w = (s) => { try { if (state.socket) state.socket.write(SYS_FENCE + s); } catch(_) {} };
+                const G='\x1b[32m', Y='\x1b[33m', R='\x1b[31m', D='\x1b[2m', X='\x1b[0m';
+                const pBenv = buildEnv();
+                try { patchSettings(readConfig()); } catch(_) {}
+                const ppEnv = {
+                    ANTHROPIC_API_KEY:   pBenv.ANTHROPIC_API_KEY,
+                    ANTHROPIC_MODEL:     pBenv.ANTHROPIC_MODEL,
+                    DISABLE_AUTOUPDATER: '1',
+                    SHELL:               '/bin/bash',
+                    IS_SANDBOX:          '1',
+                };
+                if (pBenv.ANTHROPIC_BASE_URL) ppEnv.ANTHROPIC_BASE_URL = pBenv.ANTHROPIC_BASE_URL;
+                // Persistent argv: keep stdin OPEN (no stdin.end), feed NDJSON. --verbose
+                // ends any variadic flag before there is no positional message (input
+                // comes from stdin in stream-json mode, not argv).
+                const ppArgv = [GUEST_CLAUDE,
+                    '--input-format', 'stream-json',
+                    '--output-format', 'stream-json',
+                    '--print',
+                    '--dangerously-skip-permissions',
+                    '--verbose'];
+                // Two probe turns. q1 asks for a sentinel; q2 asks the model to recall it
+                // WITHOUT us resending — proves in-proc history (no --continue).
+                const q1 = 'Reply with exactly this token and nothing else: PERSIST_ONE';
+                const q2 = 'Without me repeating it, what was the exact token I asked you to reply with a moment ago? Answer on one line as: PERSIST_TWO=<that token>';
+                const mkMsg = (text) => JSON.stringify({
+                    type: 'user',
+                    message: { role: 'user', content: [{ type: 'text', text: text }] }
+                }) + '\n';
+
+                w(Y + '!test-persistent (proot/2.1.160): ONE warm proc, 2 msgs over stdin (180s)…' + X + '\r\n');
+                let pproc;
+                try { pproc = prootChild(ppArgv, { extraEnv: ppEnv, workspace: FILES_DIR }); }
+                catch (e) { w(R + '[!test-persistent spawn error] ' + e.message + X + '\r\n'); continue; }
+
+                const t0 = Date.now();
+                let lineBuf = '', curTurn = '', allErr = '';
+                let resultCount = 0, t1 = 0, tg = 0, t2 = 0;
+                let sawOne = false, sawTwo = false, carried = false;
+                let concluded = false, exitedEarly = false, tid = null;
+
+                const conclude = (reason) => {
+                    if (concluded) return; concluded = true;
+                    if (tid) clearTimeout(tid);
+                    try { pproc.stdin.end(); } catch(_) {}
+                    try { pproc.kill('SIGKILL'); } catch(_) {}
+                    const stayedAlive = (resultCount >= 2);
+                    const mark = stayedAlive && sawOne && sawTwo ? (G+'✓')
+                               : stayedAlive ? (Y+'~') : (R+'✗');
+                    let rep = mark + ' !test-persistent (proot) — ' + reason + X + '\r\n';
+                    rep += '  Proc stayed alive for 2 turns: ' + (stayedAlive ? G+'YES — persistent session is VIABLE'+X : R+'NO — exited after turn '+resultCount+' (still single-shot)'+X) + '\r\n';
+                    rep += '  Turn 1 reply (PERSIST_ONE):    ' + (sawOne ? G+'yes'+X : R+'no'+X) + (t1 ? D+'  ('+(t1/1000).toFixed(1)+'s, cold)'+X : '') + '\r\n';
+                    rep += '  Turn 2 reply (PERSIST_TWO):    ' + (sawTwo ? G+'yes'+X : R+'no'+X) + (t2 ? D+'  ('+(t2/1000).toFixed(1)+'s, warm)'+X : '') + '\r\n';
+                    rep += '  History carried (no --continue): ' + (carried ? G+'yes — recalled the token'+X : Y+'no/unclear'+X) + '\r\n';
+                    if (t1 && t2) rep += '  Warm vs cold: ' + (t2 < t1 ? G+((t1/t2).toFixed(1)+'× faster ('+((t1-t2)/1000).toFixed(1)+'s saved)')+X : Y+'no speedup measured'+X) + '\r\n';
+                    if (allErr.trim()) rep += D + '  stderr (last 300): ' + allErr.slice(-300).replace(/\r?\n/g,' ') + X + '\r\n';
+                    w(rep);
+                };
+
+                const onResult = () => {
+                    if (resultCount === 0) {
+                        // turn 1 done
+                        resultCount = 1;
+                        t1 = Date.now() - t0;
+                        sawOne = curTurn.includes('PERSIST_ONE');
+                        curTurn = '';
+                        // fire turn 2 over the SAME stdin — the persistence test
+                        tg = Date.now();
+                        try { pproc.stdin.write(mkMsg(q2)); }
+                        catch (e) { conclude('stdin write of turn 2 failed: ' + e.message); }
+                    } else if (resultCount === 1) {
+                        resultCount = 2;
+                        t2 = Date.now() - tg;
+                        sawTwo = curTurn.includes('PERSIST_TWO');
+                        carried = curTurn.includes('PERSIST_ONE'); // recalled from turn 1
+                        conclude('completed 2 turns on one process');
+                    }
+                };
+
+                pproc.stdout.on('data', d => {
+                    const s = d.toString(); curTurn += s; lineBuf += s;
+                    const lines = lineBuf.split('\n'); lineBuf = lines.pop();
+                    for (const ln of lines) {
+                        const t = ln.trim();
+                        if (!t.startsWith('{')) continue;
+                        let evt; try { evt = JSON.parse(t); } catch(_) { continue; }
+                        if (evt.type === 'result') onResult();
+                    }
+                });
+                pproc.stderr.on('data', d => { allErr += d.toString(); });
+                pproc.on('error', e => conclude('spawn error: ' + (e && e.message)));
+                pproc.on('close', c => {
+                    if (concluded) return;
+                    exitedEarly = true;
+                    conclude(resultCount < 2
+                        ? 'process EXITED early (code=' + c + ') after ' + resultCount + ' turn(s)'
+                        : 'process closed (code=' + c + ')');
+                });
+                tid = setTimeout(() => conclude('timeout 180s'), 180000);
+
+                // Kick off turn 1.
+                try { pproc.stdin.write(mkMsg(q1)); }
+                catch (e) { conclude('stdin write of turn 1 failed: ' + e.message); }
                 continue;
             }
 
