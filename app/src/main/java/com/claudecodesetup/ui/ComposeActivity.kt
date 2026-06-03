@@ -29,9 +29,18 @@ import com.claudecodesetup.data.Provider
 import com.claudecodesetup.data.Providers
 
 class ComposeActivity : ComponentActivity() {
+    /** Apply FLAG_SECURE only on screens that show secrets (API-key entry, OAuth login).
+     *  The provider list and model picker stay non-secure so users can screenshot them. */
+    fun setScreenSecure(secure: Boolean) {
+        if (secure) {
+            window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
+        } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
         val prefs = AppPreferences(this)
         val startAt = intent.getStringExtra("start_at") ?: "subscription"
         setContent {
@@ -94,6 +103,12 @@ private fun AppRoot(
             screen = "picker"
         }
         // On cancel, stay on "claude_auth" so user can try again or switch to API key
+    }
+
+    // Secure only the screens that display secrets; leave provider list + picker
+    // screenshottable.
+    LaunchedEffect(screen) {
+        (context as? ComposeActivity)?.setScreenSecure(screen == "key" || screen == "claude_auth")
     }
 
     when (screen) {
