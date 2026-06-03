@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b37-p6.6-hotload-ui';
+const BRIDGE_BUILD = 'b38-pty-claude-apikey';
 
 const net   = require('net');
 const http  = require('http');
@@ -5068,6 +5068,39 @@ function openPrintSession() {
             let workspace = FILES_DIR;
             try { const c = fs.readFileSync(CWD_FILE, 'utf8').trim(); if (c && fs.existsSync(c)) workspace = c; } catch(_) {}
             if (cfg.projectPath && fs.existsSync(cfg.projectPath)) workspace = cfg.projectPath;
+            // Suppress the interactive TUI's "Detected a custom API key in your
+            // environment — use it?" prompt + the trust/onboarding prompts. Print mode
+            // shares FILES_DIR/.claude via a bind and patchSettings DELETES
+            // customApiKeyResponses (b24, not needed with --print), but the interactive
+            // `claude` reads the rootfs's OWN /root/.claude (no such bind here). Seed it
+            // with the approved proxy key (legacy format, inv 25) + onboarding/trust so
+            // the guest TUI starts straight into a usable session.
+            try {
+                const gcDir = path.join(FILES_DIR, 'ubuntu', 'root', '.claude');
+                fs.mkdirSync(gcDir, { recursive: true });
+                const gsp = path.join(gcDir, 'settings.json');
+                let gs = {};
+                try { gs = JSON.parse(fs.readFileSync(gsp, 'utf8')) || {}; } catch(_) {}
+                gs.customApiKeyResponses = { approved: ['sk-ant-proxy000'], rejected: [] };
+                gs.hasCompletedOnboarding = true;
+                gs.hasShownWelcome = true;
+                gs.theme = gs.theme || 'dark';
+                gs.autoUpdaterStatus = 'disabled';
+                fs.writeFileSync(gsp, JSON.stringify(gs, null, 2));
+                const gcjp = path.join(FILES_DIR, 'ubuntu', 'root', '.claude.json');
+                let cj = {};
+                try { cj = JSON.parse(fs.readFileSync(gcjp, 'utf8')) || {}; } catch(_) {}
+                cj.hasCompletedOnboarding = true;
+                cj.bypassPermissionsModeAccepted = true;
+                if (!cj.projects || typeof cj.projects !== 'object') cj.projects = {};
+                for (const dir of ['/root', '/root/.nexus', '/sdcard']) {
+                    const p = cj.projects[dir] || {};
+                    p.hasTrustDialogAccepted = true;
+                    p.hasCompletedProjectOnboarding = true;
+                    cj.projects[dir] = p;
+                }
+                fs.writeFileSync(gcjp, JSON.stringify(cj));
+            } catch (e) { log('[ubuntu-pty] seed guest .claude failed: ' + e.message + '\n'); }
             // Inject the proxy env so the FULL interactive `claude` (real 2.1.160 TUI)
             // works inside the Ubuntu shell against the user's chosen provider/model:
             // proot shares the host netns, so ANTHROPIC_BASE_URL=127.0.0.1:8082 reaches
