@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b48-warm-session';
+const BRIDGE_BUILD = 'b49-runEngineSetup';
 
 const net   = require('net');
 const http  = require('http');
@@ -627,6 +627,107 @@ function uploadDiag(text) {
             req.write(body); req.end();
         } catch (_) { resolve(''); }
     });
+}
+
+// ─── Shared Ubuntu-engine install chain ──────────────────────────────────────
+// The Node 22 + claude-code install/verify chain, factored out of !setup-engine so
+// BOTH the terminal command AND the first-run auto-provisioner (SetupActivity) run
+// the SAME debugged steps. `emit({level,msg,stage,pct})` reports progress:
+//   level: 'stage'|'info'|'ok'|'warn'|'err'|'done'   pct: 0-100 (or null)
+// Resolves {ok, version, error}. Idempotent (skips Node download if /opt/node works).
+// Assumes the rootfs is ALREADY extracted (Kotlin UbuntuRootfsManager does that —
+// node can't xz/tar); fails fast with error:'no-rootfs' if it isn't.
+async function runEngineSetup(emit, seEnv) {
+    seEnv = seEnv || {};
+    const ge = (cmd, t, onData) => runProotGuest(cmd, t, onData, { extraEnv: seEnv });
+    const E = (level, msg, stage, pct) => { try { emit({ level, msg, stage, pct }); } catch (_) {} };
+    const rp = path.join(FILES_DIR, 'ubuntu');
+    if (!fs.existsSync(path.join(rp, 'etc', 'os-release'))) {
+        E('err', 'No Ubuntu rootfs found — extract it first.', 'rootfs', 0);
+        return { ok: false, error: 'no-rootfs' };
+    }
+    // DNS for npm: base rootfs resolv.conf is often a dangling symlink.
+    try { fs.unlinkSync(path.join(rp, 'etc', 'resolv.conf')); } catch (_) {}
+    try { fs.writeFileSync(path.join(rp, 'etc', 'resolv.conf'), 'nameserver 8.8.8.8\nnameserver 1.1.1.1\n'); } catch (_) {}
+    const fail = (label, r) => E('err', label + ' (code=' + r.code + ')\n' + (String(r.out || '').trim().slice(-700) || '(no output)'), label, null);
+
+    // 1) boot
+    E('stage', 'Booting Ubuntu…', 'boot', 10);
+    let r = await ge(['/usr/bin/cat', '/etc/os-release'], 60000);
+    if (!/Ubuntu/i.test(r.out)) { fail('Boot failed', r); return { ok: false, error: 'boot' }; }
+    const pretty = (r.out.match(/PRETTY_NAME="?([^"\n]+)/) || [])[1] || 'Ubuntu';
+    E('ok', 'Booted: ' + pretty, 'boot', 15);
+
+    // 2) write test
+    E('stage', 'Checking filesystem…', 'write', 20);
+    r = await ge(['/bin/sh', '-c', 'echo ok > /root/.wtest && echo ok > /tmp/.wtest && cat /root/.wtest /tmp/.wtest && rm -f /root/.wtest /tmp/.wtest'], 30000);
+    if (r.code !== 0) { fail('Write test failed', r); return { ok: false, error: 'write' }; }
+    E('ok', 'Filesystem writable', 'write', 25);
+
+    // 3) Node 22 — reuse if present, else download .tar.gz + gunzip-in-node + extract
+    E('stage', 'Installing Node…', 'node', 30);
+    r = await ge(['/opt/node/bin/node', '--version'], 30000);
+    if (r.code !== 0) {
+        const nodeUrl = 'https://nodejs.org/dist/v22.22.3/node-v22.22.3-linux-arm64.tar.gz';
+        const dest = path.join(FILES_DIR, 'node22.tar.gz');
+        E('info', 'Downloading Node 22 (~30 MB)…', 'node', 35);
+        try { await downloadFile(nodeUrl, dest); }
+        catch (e) { E('err', 'Node download failed: ' + e.message, 'node', null); return { ok: false, error: 'node-dl' }; }
+        E('info', 'Decompressing Node…', 'node', 45);
+        const tarPath = path.join(FILES_DIR, 'node22.tar');
+        try {
+            const zlib = require('zlib');
+            await new Promise((res, rej) => {
+                fs.createReadStream(dest).pipe(zlib.createGunzip()).pipe(fs.createWriteStream(tarPath))
+                  .on('finish', res).on('error', rej);
+            });
+        } catch (e) { E('err', 'Decompress failed: ' + e.message, 'node', null); try { fs.unlinkSync(dest); } catch (_) {} return { ok: false, error: 'gunzip' }; }
+        try { fs.unlinkSync(dest); } catch (_) {}
+        E('info', 'Extracting Node…', 'node', 50);
+        r = await ge(['/bin/sh', '-c',
+            'mkdir -p /opt && tar -xf /root/.nexus/node22.tar -C /opt && ' +
+            'rm -rf /opt/node && mv /opt/node-v22.22.3-linux-arm64 /opt/node && ' +
+            '/opt/node/bin/node --version'], 180000);
+        try { fs.unlinkSync(tarPath); } catch (_) {}
+        if (r.code !== 0) { fail('Node extract failed', r); return { ok: false, error: 'node' }; }
+    }
+    E('ok', 'Node ' + r.out.trim(), 'node', 55);
+
+    // 3b) getcwd probe (diagnostic — npm aborts uv_cwd ENOSYS if cwd fails under proot)
+    await ge(['/bin/sh', '-c', 'cd /root; /opt/node/bin/node -e "try{process.stdout.write(\'ok\')}catch(e){process.stdout.write(\'ERR \'+e.code)}"'], 30000);
+
+    // 4) npm
+    E('stage', 'Preparing installer…', 'npm', 60);
+    r = await ge(['/bin/sh', '-c', 'npm --version'], 60000);
+    if (r.code !== 0) { fail('npm failed', r); return { ok: false, error: 'npm' }; }
+    E('ok', 'npm ' + r.out.trim(), 'npm', 62);
+
+    // 5) install claude-code (stream tail so it doesn't look hung)
+    E('stage', 'Installing Claude Code… (this can take a few minutes)', 'claude', 65);
+    let lastMark = Date.now();
+    r = await ge(['/bin/sh', '-c', 'npm i -g @anthropic-ai/claude-code 2>&1'], 600000,
+        () => { const now = Date.now(); if (now - lastMark > 15000) { lastMark = now; E('info', '…still installing…', 'claude', null); } });
+    if (r.code !== 0) { fail('Claude Code install failed', r); return { ok: false, error: 'claude-install' }; }
+    E('ok', 'Claude Code installed', 'claude', 90);
+
+    // 6) claude --version  (real acceptance) — persist the REAL guest version so
+    // Settings → About shows it instead of the hardcoded constant (closes that TODO).
+    E('stage', 'Verifying…', 'verify', 95);
+    r = await ge(['/bin/sh', '-c', 'claude --version'], 60000);
+    if (r.code !== 0) { fail('claude --version failed', r); return { ok: false, error: 'verify' }; }
+    const versionRaw = r.out.trim();
+    const version = (versionRaw.match(/[0-9]+\.[0-9]+\.[0-9]+/) || [versionRaw])[0];
+    try { fs.writeFileSync(path.join(FILES_DIR, 'claude_version'), version); } catch (_) {}
+    E('ok', 'Engine ready — ' + versionRaw, 'verify', 98);
+
+    // 7) reclaim install caches (~400MB of npm/apt downloads + leftover tarballs)
+    E('stage', 'Cleaning up…', 'cleanup', 99);
+    await ge(['/bin/sh', '-c',
+        'npm cache clean --force >/dev/null 2>&1 || true; ' +
+        'apt-get clean >/dev/null 2>&1 || true; ' +
+        'rm -rf /var/lib/apt/lists/* /tmp/*.tar.* /opt/*.tar.* 2>/dev/null || true'], 120000);
+    E('done', 'Engine ready — ' + versionRaw, 'done', 100);
+    return { ok: true, version: versionRaw };
 }
 
 // ─── Package install helpers ─────────────────────────────────────────────────
@@ -4472,118 +4573,26 @@ function openPrintSession() {
                 const w = (s) => { try { if (state.socket) state.socket.write(SYS_FENCE + s); } catch(_) {} };
                 const G = '\x1b[32m', R = '\x1b[31m', Y = '\x1b[33m', D = '\x1b[2m', X = '\x1b[0m';
                 // !setup-engine [ENV=K=V…] — same proot env overrides as !test-rootfs,
-                // so the seccomp combo that !fix-seccomp found can be applied to the
-                // WHOLE install chain WITHOUT a rebuild. ge() threads it into every
-                // guest call. (Once confirmed, the winning combo is baked into the
-                // runProotGuest base env permanently.)
+                // so a diagnostic seccomp combo can be applied to the WHOLE install
+                // chain WITHOUT a rebuild. Threaded into runEngineSetup's guest calls.
                 const seEnv = {};
                 for (const t of line.slice('!setup-engine'.length).trim().split(/\s+/).filter(Boolean)) {
                     if (t.startsWith('ENV=')) { const kv = t.slice(4); const i = kv.indexOf('='); if (i > 0) seEnv[kv.slice(0, i)] = kv.slice(i + 1); }
                 }
-                const ge = (cmd, t, onData) => runProotGuest(cmd, t, onData, { extraEnv: seEnv });
                 if (Object.keys(seEnv).length) w(D + 'env: ' + Object.entries(seEnv).map(([k, v]) => k + '=' + v).join(' ') + X + '\r\n');
-                (async () => {
-                    const rp = path.join(FILES_DIR, 'ubuntu');
-                    if (!fs.existsSync(path.join(rp, 'etc', 'os-release'))) {
-                        w(R + '✗ no rootfs at ' + rp + X + '\r\n' +
-                          D + 'Extract it first: Settings → 🐞 Ubuntu engine → Install + probe.' + X + '\r\n');
-                        return;
-                    }
-                    // DNS for npm: base rootfs resolv.conf is often a dangling symlink.
-                    try { fs.unlinkSync(path.join(rp, 'etc', 'resolv.conf')); } catch(_) {}
-                    try { fs.writeFileSync(path.join(rp, 'etc', 'resolv.conf'), 'nameserver 8.8.8.8\nnameserver 1.1.1.1\n'); } catch(_) {}
-                    const fail = (label, r) => w(R + '✗ ' + label + ' (code=' + r.code + ')' + X + '\r\n' +
-                        D + (r.out.trim().slice(-700) || '(no output)') + X + '\r\n');
-
-                    // 1) boot
-                    w(D + '(build ' + BRIDGE_BUILD + ')' + X + '\r\n');
-                    w(Y + '[1/6] proot boot…' + X + '\r\n');
-                    let r = await ge(['/usr/bin/cat', '/etc/os-release'], 60000);
-                    if (!/Ubuntu/i.test(r.out)) { fail('boot failed', r); return; }
-                    const pretty = (r.out.match(/PRETTY_NAME="?([^"\n]+)/) || [])[1] || 'Ubuntu';
-                    w(G + '✓ booted: ' + pretty + X + '\r\n');
-
-                    // 2) write test
-                    w(Y + '[2/6] write test (/root, /tmp)…' + X + '\r\n');
-                    r = await ge(['/bin/sh', '-c', 'echo ok > /root/.wtest && echo ok > /tmp/.wtest && cat /root/.wtest /tmp/.wtest && rm -f /root/.wtest /tmp/.wtest'], 30000);
-                    if (r.code !== 0) { fail('write test failed', r); return; }
-                    w(G + '✓ guest filesystem writable' + X + '\r\n');
-
-                    // 3) Node 22 — reuse if present
-                    w(Y + '[3/6] node…' + X + '\r\n');
-                    r = await ge(['/opt/node/bin/node', '--version'], 30000);
-                    if (r.code !== 0) {
-                        const nodeUrl = 'https://nodejs.org/dist/v22.22.3/node-v22.22.3-linux-arm64.tar.gz';
-                        const dest = path.join(FILES_DIR, 'node22.tar.gz');
-                        w(D + '  downloading Node 22 (.tar.gz ~30 MB)…' + X + '\r\n');
-                        try { await downloadFile(nodeUrl, dest); }
-                        catch (e) { w(R + '✗ node download failed: ' + e.message + X + '\r\n'); return; }
-                        // Decompress the .gz HERE in node (zlib), not in the guest:
-                        // `tar -xzf` forks the external `gzip` binary, and that exec
-                        // ENOSYS'd on-device. Producing a plain .tar lets the guest
-                        // use `tar -xf` (no compression filter, no forked gzip).
-                        w(D + '  decompressing (node zlib)…' + X + '\r\n');
-                        const tarPath = path.join(FILES_DIR, 'node22.tar');
-                        try {
-                            const zlib = require('zlib');
-                            await new Promise((res, rej) => {
-                                fs.createReadStream(dest)
-                                  .pipe(zlib.createGunzip())
-                                  .pipe(fs.createWriteStream(tarPath))
-                                  .on('finish', res).on('error', rej);
-                            });
-                        } catch (e) { w(R + '✗ gunzip failed: ' + e.message + X + '\r\n'); try { fs.unlinkSync(dest); } catch(_){} return; }
-                        try { fs.unlinkSync(dest); } catch(_) {}
-                        w(D + '  extracting into /opt/node (tar -xf, no gzip fork)…' + X + '\r\n');
-                        r = await ge(['/bin/sh', '-c',
-                            'mkdir -p /opt && tar -xf /root/.nexus/node22.tar -C /opt && ' +
-                            'rm -rf /opt/node && mv /opt/node-v22.22.3-linux-arm64 /opt/node && ' +
-                            '/opt/node/bin/node --version'], 180000);
-                        try { fs.unlinkSync(tarPath); } catch(_) {}
-                        if (r.code !== 0) { fail('node extract/run failed', r); return; }
-                    }
-                    w(G + '✓ node ' + r.out.trim() + X + '\r\n');
-
-                    // 3b) getcwd probe — npm aborts with uv_cwd ENOSYS if process.cwd()
-                    // fails under proot. Isolate it: pwd (shell) + node process.cwd().
-                    w(Y + '[3b/6] getcwd probe…' + X + '\r\n');
-                    r = await ge(['/bin/sh', '-c',
-                        'echo "pwd=$(pwd 2>&1)"; cd /root; echo "pwd2=$(pwd 2>&1)"; ' +
-                        '/opt/node/bin/node -e "try{process.stdout.write(\'node.cwd=\'+process.cwd())}catch(e){process.stdout.write(\'node.cwd ERR \'+e.code+\' \'+e.syscall)}"'], 30000);
-                    w(D + '  ' + r.out.trim().replace(/\n/g, ' | ') + X + '\r\n');
-
-                    // 4) npm
-                    w(Y + '[4/6] npm…' + X + '\r\n');
-                    r = await ge(['/bin/sh', '-c', 'npm --version'], 60000);
-                    if (r.code !== 0) { fail('npm failed', r); return; }
-                    w(G + '✓ npm ' + r.out.trim() + X + '\r\n');
-
-                    // 5) install claude-code (stream tail so it doesn't look hung)
-                    w(Y + '[5/6] npm i -g @anthropic-ai/claude-code (network; can take a few min)…' + X + '\r\n');
-                    let lastMark = Date.now();
-                    r = await ge(['/bin/sh', '-c',
-                        'npm i -g @anthropic-ai/claude-code 2>&1'], 600000,
-                        () => { const now = Date.now(); if (now - lastMark > 15000) { lastMark = now; w(D + '  …still installing…' + X + '\r\n'); } });
-                    if (r.code !== 0) { fail('npm install failed', r); return; }
-                    w(G + '✓ claude-code installed' + X + '\r\n');
-
-                    // 6) claude --version  (the real acceptance)
-                    w(Y + '[6/6] claude --version…' + X + '\r\n');
-                    r = await ge(['/bin/sh', '-c', 'claude --version'], 60000);
-                    if (r.code !== 0) { fail('claude --version failed', r); return; }
-                    w(G + '✅ ENGINE READY — ' + r.out.trim() + X + '\r\n' +
-                      G + '   P1 COMPLETE: latest claude-code runs on glibc via proot.' + X + '\r\n');
-
-                    // 7) reclaim install caches — npm/apt keep their downloaded copies
-                    // after installing (~400MB of dead weight on a phone). Safe to drop;
-                    // a future re-install just re-downloads. Also delete leftover tarballs.
-                    w(Y + '[7] reclaiming install caches (npm/apt/tarballs)…' + X + '\r\n');
-                    await ge(['/bin/sh', '-c',
-                        'npm cache clean --force >/dev/null 2>&1 || true; ' +
-                        'apt-get clean >/dev/null 2>&1 || true; ' +
-                        'rm -rf /var/lib/apt/lists/* /tmp/*.tar.* /opt/*.tar.* 2>/dev/null || true'], 120000);
-                    w(G + '✓ caches cleared — run \x1b[33m!cleanup\x1b[0m\x1b[32m anytime to reclaim again' + X + '\r\n');
-                })().catch(e => w(R + '[!setup-engine error] ' + (e && e.message) + X + '\r\n'));
+                w(D + '(build ' + BRIDGE_BUILD + ')' + X + '\r\n');
+                // Run the SHARED install chain; map its progress events to the terminal's
+                // colored ✓/✗/» output (the auto-provisioner maps the same events to
+                // setup.log instead). Identical steps either way.
+                const emit = ({ level, msg, stage, pct }) => {
+                    if (level === 'ok')        w(G + '✓ ' + msg + X + '\r\n');
+                    else if (level === 'done') w(G + '✅ ' + msg + X + '\r\n' + G + '   latest claude-code runs on glibc via proot.' + X + '\r\n');
+                    else if (level === 'err')  w(R + '✗ ' + msg + X + '\r\n');
+                    else if (level === 'warn') w(Y + '⚠ ' + msg + X + '\r\n');
+                    else if (level === 'stage') w(Y + '» ' + msg + (pct != null ? D + '  (' + pct + '%)' + X : '') + X + '\r\n');
+                    else                       w(D + '  ' + msg + X + '\r\n');
+                };
+                runEngineSetup(emit, seEnv).catch(e => w(R + '[!setup-engine error] ' + (e && e.message) + X + '\r\n'));
                 continue;
             }
 
