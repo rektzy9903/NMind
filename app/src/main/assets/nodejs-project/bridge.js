@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b31-p4-proot-default';
+const BRIDGE_BUILD = 'b32-p4-legacy-deleted';
 
 const net   = require('net');
 const http  = require('http');
@@ -61,9 +61,10 @@ const GUEST_NODE    = '/opt/node/bin/node';
 const GUEST_CLAUDE  = '/opt/node/bin/claude';
 const ENGINE_FILE   = path.join(FILES_DIR, 'engine_mode');
 function getEngineMode() {
-    // Default = proot. Legacy only when explicitly pinned (escape hatch).
-    try { return fs.readFileSync(ENGINE_FILE, 'utf8').trim() === 'legacy' ? 'legacy' : 'proot'; }
-    catch (_) { return 'proot'; }
+    // P4 (2026-06-03): the legacy 2.1.112/libnode engine is DELETED. proot
+    // (claude-code 2.1.160 on glibc) is the ONLY engine. Kept as a function (many
+    // call sites) but it's now a constant; ENGINE_FILE is no longer consulted.
+    return 'proot';
 }
 // Tool-deferral toggle — own flag file (bridge_config.json is Kotlin-owned and
 // gets overwritten on restart, so bridge-side toggles persist separately, same
@@ -81,7 +82,8 @@ const SESSION_FILE  = path.join(FILES_DIR, 'last_session.json');
 const SESSIONS_DIR  = path.join(FILES_DIR, 'sessions');
 const CWD_FILE      = path.join(FILES_DIR, 'last_cwd');
 const BIN_DIR       = path.join(FILES_DIR, 'bin');
-const CONFIRM_FILE  = path.join(FILES_DIR, 'auto_approve.json');
+// CONFIRM_FILE (auto_approve.json) removed in P4 — the always-allow list was the
+// legacy permission apparatus; proot runs bypassPermissions, no list needed.
 
 // ─── Package catalog ──────────────────────────────────────────────────────────
 // Static ARM64 Android binaries and npm packages installable via !install.
@@ -3620,44 +3622,10 @@ function openPrintSession() {
         }
     };
 
-    // ── Always-allow list (persisted to auto_approve.json) ───────────────────
-    function loadApproveList() {
-        try { return JSON.parse(fs.readFileSync(CONFIRM_FILE, 'utf8')); } catch(_) {}
-        return { allow: [], deny: [] };
-    }
-    function saveApproveList(list) {
-        try {
-            fs.writeFileSync(CONFIRM_FILE, JSON.stringify(list, null, 2));
-            try { fs.chmodSync(CONFIRM_FILE, 0o600); } catch(_) {}
-        } catch(_) {}
-    }
-
-    // T2: simple glob (* only) → regex pattern match for Bash command auto-approve.
-    // Entries in approveList.allow may be bare tool names ('Bash') OR
-    // 'ToolName(pattern)' (e.g. 'Bash(git *)'). Pattern only supports '*' wildcard.
-    function patternMatchesCmd(pat, cmd) {
-        try {
-            const escaped = pat.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
-            return new RegExp('^' + escaped + '$').test(cmd);
-        } catch(_) { return false; }
-    }
-    function isToolAlreadyAllowed(toolName, toolInput, allowList) {
-        // '*' sentinel (set by !approve-tools) = approve every tool silently, no
-        // permission card. The Agent/Task carve-out in the callers still forces the
-        // sub-agent panel to render, so agent activity stays visible.
-        if ((allowList || []).includes('*')) return true;
-        if ((allowList || []).includes(toolName)) return true;
-        if (toolName === 'Bash') {
-            const cmd = ((toolInput && toolInput.command) || '').toString().trim();
-            if (cmd) {
-                for (const entry of (allowList || [])) {
-                    const m = /^Bash\((.*)\)$/.exec(entry);
-                    if (m && patternMatchesCmd(m[1], cmd)) return true;
-                }
-            }
-        }
-        return false;
-    }
+    // P4: the always-allow list (auto_approve.json) + Bash pattern matcher were the
+    // legacy permission apparatus — DELETED. proot runs with
+    // --dangerously-skip-permissions + IS_SANDBOX (bypassPermissions), so every tool
+    // auto-runs and there is no card to suppress. (Re-audit probe #5, b24.)
 
     // ── Patch settings.json ───────────────────────────────────────────────────
     function patchSettings(cfg) {
@@ -3739,58 +3707,32 @@ function openPrintSession() {
                     if (state.lastAiText.length > 2000) state.lastAiText = state.lastAiText.slice(-2000);
                     try { if (state.socket) state.socket.write(block.text); } catch(_) {}
                 }
-                // tool_use blocks are handled by the isPermEvent check below
+                // tool_use blocks are handled by the isToolEvent check below
             }
-            // If this assistant event contains tool_use, fall through to isPermEvent check
+            // If this assistant event contains tool_use, fall through to isToolEvent check
             if (!content.some(b => b.type === 'tool_use')) return;
         }
 
-        // claude-code emits a permission_request event for tool calls needing approval.
-        // v2.1.112 stream-json may use several field layouts — cover all known variants.
-        const isPermEvent =
+        // Tool-use detection. P4: proot auto-runs every tool
+        // (--dangerously-skip-permissions + IS_SANDBOX) so there is NO permission card
+        // and no y\n stdin dance — both were legacy 2.1.112 scars. The ONLY thing we
+        // still surface is the Agent/Task sub-agent panel (inv 44), which renders from
+        // the `permission:` OSC. Every other tool just runs silently.
+        const isToolEvent =
             evt.type === 'permission_request' ||
             (evt.type === 'tool' && (evt.status === 'pending' || evt.status === 'awaiting_approval')) ||
             evt.type === 'tool_approval_request' ||
             (evt.type === 'assistant' && evt.message && (evt.message.content || []).some(b => b.type === 'tool_use'));
-        if (isPermEvent) {
-            // Extract tool name + input from whichever field layout is present
+        if (isToolEvent) {
             let toolName = evt.tool_name || evt.tool || evt.name || 'tool';
             let toolInput = evt.tool_input || evt.input || {};
-            let aiText = '';
-            // assistant event: grab text + first tool_use block
             if (evt.type === 'assistant' && evt.message) {
-                const blocks = evt.message.content || [];
-                const tb = blocks.find(b => b.type === 'tool_use');
+                const tb = (evt.message.content || []).find(b => b.type === 'tool_use');
                 if (tb) { toolName = tb.name || toolName; toolInput = tb.input || toolInput; }
-                aiText = blocks.filter(b => b.type === 'text').map(b => b.text || '').join(' ');
             }
-            // Extract backtick-quoted commands/paths from surrounding AI text as suggestions
-            const suggestions = [];
-            const btre = /`([^`\n]{2,80})`/g;
-            let m;
-            while ((m = btre.exec(aiText + ' ' + (state.lastAiText || ''))) !== null) {
-                const s = m[1].trim();
-                if (s && !suggestions.includes(s)) suggestions.push(s);
-                if (suggestions.length >= 4) break;
-            }
+            if (toolName !== 'Agent' && toolName !== 'Task') return;
             const permId = evt.id || (Date.now() + '-' + Math.random().toString(36).slice(2));
-            // Always write y\n immediately — the tool runs regardless of whether dialog shows.
-            try { if (proc && proc.stdin && !proc.stdin.destroyed) proc.stdin.write('y\n'); } catch(_) {}
-            // Skip the dialog entirely if the user has already said Always Allow for this tool
-            // (or a matching Bash pattern, e.g. saved 'Bash(git *)' covers a new 'git push').
-            // EXCEPTION: Agent/Task tool always emits the OSC so the sub-agent panel
-            // can render. permissions.allow:['*'] matches Task → without this carve-out
-            // the panel would never appear because we'd return before sending the OSC.
-            const savedApprove = loadApproveList();
-            const isAgentTool = (toolName === 'Agent' || toolName === 'Task');
-            // Proot engine auto-runs every tool (--dangerously-skip-permissions +
-            // IS_SANDBOX=1), so the permission card is pure cosmetic noise — the tool
-            // already ran by the time it'd show. Suppress it. Keep Agent/Task so the
-            // sub-agent panel still renders. Legacy engine keeps the card (it relies on
-            // the y\n + permissions.allow auto-approve and the "Always allow" button).
-            if (!isAgentTool && getEngineMode() === 'proot') return;
-            if (!isAgentTool && isToolAlreadyAllowed(toolName, toolInput, savedApprove.allow)) return;
-            const perm = { toolName, toolInput, id: permId, suggestions, autoApproved: true };
+            const perm = { toolName, toolInput, id: permId, autoApproved: true };
             state.pendingPerm = perm;
             const permB64 = Buffer.from(JSON.stringify(perm)).toString('base64');
             try { if (state.socket) state.socket.write('\x1b]9;permission:' + permB64 + '\x07'); } catch(_) {}
@@ -3816,35 +3758,18 @@ function openPrintSession() {
         }
     }
 
-    // ── Handle a plain-text permission prompt written to stdout ───────────────
-    // claude-code may write "Do you want to run bash? [y/n/a]" to stdout when
-    // it cannot emit a structured event. Parse it, surface the dialog, wait.
+    // ── Plain-text permission prompt fallback ─────────────────────────────────
+    // P4: proot runs bypassPermissions, so claude-code 2.1.160 never emits a
+    // plain-text "Do you want to run …? [y/n]" prompt. If one ever appears it's
+    // unexpected — just log it (the tool already ran or will run).
     function handlePermissionText(line, state, proc) {
-        // Extract tool name heuristically
-        const toolMatch = line.match(/\b(?:run|execute|use|allow)\s+(\w[\w-]*)/i);
-        const toolName  = toolMatch ? toolMatch[1] : 'tool';
-        try { if (proc && proc.stdin && !proc.stdin.destroyed) proc.stdin.write('y\n'); } catch(_) {}
-        // Skip dialog if user already said Always Allow for this tool (incl. Bash patterns).
-        // Same Agent/Task carve-out as the structured path — the sub-agent panel needs
-        // the OSC even when permissions.allow:['*'] would otherwise suppress it.
-        const savedApprove = loadApproveList();
-        const isAgentTool = (toolName === 'Agent' || toolName === 'Task');
-        // Proot engine: tools auto-run, card is noise — suppress (keep Agent/Task panel).
-        if (!isAgentTool && getEngineMode() === 'proot') return;
-        if (!isAgentTool && isToolAlreadyAllowed(toolName, { prompt: line }, savedApprove.allow)) return;
-        const perm = { toolName, toolInput: { prompt: line }, id: Date.now() + '-txt', autoApproved: true };
-        state.pendingPerm = perm;
-        const permB64 = Buffer.from(JSON.stringify(perm)).toString('base64');
-        try { if (state.socket) state.socket.write('\x1b]9;permission:' + permB64 + '\x07'); } catch(_) {}
+        log('[perm-text] unexpected on proot: ' + line.slice(0, 120) + '\n');
     }
 
     // ── Spawn one claude --print process for a single user message ────────────
     function runMessage(msg, state) {
         const cfg = readConfig();
         patchSettings(cfg);
-        const env = buildEnv();
-        const cliUrl  = 'file://' + CLAUDE_CLI;
-        const exitLog = JSON.stringify(SETUP_LOG);
 
         // If model/provider changed since last session, clear history so the new
         // model doesn't receive context it never produced.
@@ -3857,15 +3782,6 @@ function openPrintSession() {
             try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[33m[Model changed — history cleared for clean start]\x1b[0m\r\n'); } catch(_) {}
         }
 
-        // argv for print mode — order matters for claude-code v2.1.112 arg parser:
-        //   --output-format stream-json       → structured NDJSON output (must come first)
-        //   --print                           → non-interactive, exits after response
-        //   --verbose                         → required alongside --output-format=stream-json
-        //   --continue                        → resume last session (preserves history)
-        //   <message>                         → the user's message
-        // NOTE: --append-system-prompt is intentionally omitted. It causes claude-code
-        // v2.1.112 to hang indefinitely after the HEAD / health-check, never reaching the
-        // POST /v1/messages call. Custom instructions are prepended to the message instead.
         const customPrompt = (cfg.customSystemPrompt || '').trim();
         // The app holds MANAGE_EXTERNAL_STORAGE, so Bash can reach the whole device.
         // claude-code's system prompt advertises the sandbox cwd, which makes weaker
@@ -3876,93 +3792,34 @@ function openPrintSession() {
             'anywhere on the device — including /sdcard, /storage, and any path outside the working ' +
             'directory. Never refuse a file request by claiming a sandbox or "authorized working ' +
             'directory" limit; just run the appropriate Bash command.';
-        // P4: the storage-note + custom persona go via --append-system-prompt (works on
-        // proot/2.1.160 — re-audit probe #4, b23), NOT prepended to the message. The old
-        // prepend hack existed only because the flag hung on Bionic (inv 5a). finalMsg is
-        // now the raw user message; appendSys is folded into the proot --append-system-prompt
-        // below (merged with the MCP nudge). (Legacy fallback uses raw finalMsg — it loses
-        // the note, acceptable for the deprecated path.)
+        // P4: storage-note + custom persona go via --append-system-prompt on the proot
+        // guest (works on 2.1.160 — re-audit probe #4, b23), NOT prepended to the message.
+        // The old prepend hack existed only because the flag hung on Bionic (inv 5a).
         const appendSys = [STORAGE_NOTE, customPrompt].filter(Boolean).join('\n\n');
         const finalMsg = msg;
-        // --mcp-config supplies MCP servers to claude-code in print mode. claude-code
-        // does NOT read mcpServers from settings.json (that injection was a no-op —
-        // it's why MCP tools never reached the model). The config here contains only
-        // STDIO entries: real stdio servers + the lazy `mcp_http_proxy.js` shim for
-        // each HTTP server. No raw HTTP/SSE servers → no remote connect at spawn →
-        // no invariant-51 hang (the shim connects upstream lazily on first tool call).
-        // MCP config differs by engine: legacy uses the stdio-shim spawn config
-        // (writeSpawnMcpConfig); proot uses a native HTTP config (writeProotMcpConfig,
-        // P3b). Compute ONLY the one for the active engine so the other doesn't run
-        // and write its file wastefully on every turn.
-        const engineMode = getEngineMode();
-        const legacyMcpCfg = engineMode === 'proot' ? null : writeSpawnMcpConfig();
-        const prootMcpCfg  = engineMode === 'proot' ? writeProotMcpConfig() : null;
-        const spawnMcpCfg  = legacyMcpCfg; // consumed by the legacy argvCode below
+        // Native HTTP MCP config for the guest (P3b). claude-code does NOT read mcpServers
+        // from settings.json — servers are supplied at spawn via --mcp-config. Written
+        // fresh each turn from the current server set; null when no MCP servers configured.
+        const prootMcpCfg = writeProotMcpConfig();
         log('[runMessage] mcp_config exists=' + fs.existsSync(MCP_CONFIG_FILE) +
-            ' engine=' + engineMode + ' mcp=' + ((legacyMcpCfg || prootMcpCfg) ? 'yes' : 'no') + '\n');
-        let argvCode =
-            'process.argv[2]="--output-format";' +
-            'process.argv[3]="stream-json";' +
-            'process.argv[4]="--print";';
-        let argvLen = 5;
-        if (spawnMcpCfg) {
-            argvCode += 'process.argv[' + argvLen + ']="--mcp-config";';
-            argvLen++;
-            argvCode += 'process.argv[' + argvLen + ']=' + JSON.stringify(spawnMcpCfg) + ';';
-            argvLen++;
-        }
-        if (state.hasHistory) {
-            argvCode += 'process.argv[' + argvLen + ']="--continue";';
-            argvLen++;
-        }
-        // --verbose MUST be the LAST flag before the positional message. claude-code's
-        // --mcp-config is a VARIADIC option: commander keeps consuming every following
-        // argv element as an additional config path until it hits the next option-looking
-        // token. With --mcp-config <path> directly before the message, the message was
-        // swallowed as a 2nd config path → "MCP config file not found: .../[Instructions]"
-        // → exit 1 on every MCP-enabled turn. A boolean flag (--verbose) between the
-        // variadic and the message terminates the variadic so the message stays positional.
-        argvCode += 'process.argv[' + argvLen + ']="--verbose";';
-        argvLen++;
-        argvCode += 'process.argv[' + argvLen + ']=' + JSON.stringify(finalMsg) + ';';
-        argvLen++;
-        argvCode += 'process.argv.length=' + argvLen + ';';
-
-        const evalCode =
-            'process.stderr.write("[eval-ok]\\n");' +
-            'process.on("exit",function(c){' +
-            'try{require("fs").appendFileSync(' + exitLog + ',"[print-exit] "+c+"\\n");}catch(_){}});' +
-            'process.on("unhandledRejection",function(r){' +
-            'try{require("fs").appendFileSync(' + exitLog + ',' +
-            '"[unhandledRejection] "+String(r&&(r.stack||r.message)||r).slice(0,400)+"\\n");}catch(_){}});' +
-            regexpShim + intlShim +
-            'process.argv[1]=' + JSON.stringify(CLAUDE_CLI) + ';' +
-            argvCode +
-            'import(' + JSON.stringify(cliUrl) + ')' +
-            '.then(function(){try{require("fs").appendFileSync(' + exitLog + ',"[import-resolved]\\n");}catch(_){}})' +
-            '.catch(function(e){process.stderr.write("import-err:"+String(e)+"\\n");process.exit(1);});';
+            ' mcp=' + (prootMcpCfg ? 'yes' : 'no') + '\n');
 
         // Verify cwd exists — spawn throws synchronously (ENOENT) if cwd is missing.
         const spawnCwd = (state.cwd && fs.existsSync(state.cwd)) ? state.cwd : FILES_DIR;
         // Pre-trust this cwd so claude-code skips the "do you trust this folder?" prompt
         // now that CLAUDE_CODE_SANDBOXED is gone (which also un-sandboxes the Bash tool).
         ensureProjectTrusted(spawnCwd);
-        log('[runMessage] engine=' + engineMode + ' spawn claude-code, model=' + (cfg.modelId || '?') + ' provider=' + (cfg.providerId || '?') + ' mode=' + (cfg.mode || '?') + ' baseUrl=' + (cfg.baseUrl || '?') + (engineMode === 'proot' ? ' guestCwd=' + spawnCwd : '') + '\n');
-        const loggedMcp = engineMode === 'proot' ? prootMcpCfg : spawnMcpCfg;
-        log('[runMessage] argv: --output-format stream-json --print' + (loggedMcp ? ' --mcp-config ' + loggedMcp : '') + (engineMode === 'proot' ? ' --append-system-prompt <sys' + (prootMcpCfg ? '+mcp-nudge' : '') + '>' : '') + (state.hasHistory ? ' --continue' : '') + ' --verbose <msg>' + '\n');
+        log('[runMessage] spawn claude-code (proot/2.1.160), model=' + (cfg.modelId || '?') + ' provider=' + (cfg.providerId || '?') + ' mode=' + (cfg.mode || '?') + ' baseUrl=' + (cfg.baseUrl || '?') + ' guestCwd=' + spawnCwd + '\n');
+        log('[runMessage] argv: --output-format stream-json --print' + (prootMcpCfg ? ' --mcp-config ' + prootMcpCfg : '') + ' --append-system-prompt <sys' + (prootMcpCfg ? '+mcp-nudge' : '') + '>' + (state.hasHistory ? ' --continue' : '') + ' --verbose <msg>' + '\n');
         let proc;
-        if (engineMode === 'proot') {
-            // ── P2: PROOT ENGINE (claude-code 2.1.160 on glibc) ─────────────────
-            // Spawn `node cli.js --print …` INSIDE the Ubuntu rootfs. No regexpShim/
-            // intlShim/patchCliJsForAndroid here — real glibc node 22 has ICU + full
-            // Unicode regex. The proxy bypass survives unchanged: proot shares the
-            // host netns so ANTHROPIC_BASE_URL=127.0.0.1:8082 reaches the bridge proxy,
+        {
+            // ── PROOT ENGINE (claude-code 2.1.160 on glibc) — the only engine (P4) ──
+            // Spawn `claude --print …` INSIDE the Ubuntu rootfs. Real glibc node 22 has
+            // ICU + full Unicode regex (no shims). The proxy bypass survives: proot shares
+            // the host netns so ANTHROPIC_BASE_URL=127.0.0.1:8082 reaches the bridge proxy,
             // and the guest claude sends x-api-key:sk-ant-proxy000 which the proxy
-            // auth-gate accepts (no x-local-token needed). settings.json + session
-            // files are the SAME on-disk files via the /root/.claude bind.
-            // NOTE: --mcp-config is intentionally omitted in the proot path for P2
-            // (the spawn-mcp config references Android-side shim paths that don't
-            //  exist in the guest) — MCP wiring is a P3 task.
+            // auth-gate accepts (no x-local-token needed). settings.json + session files
+            // are the SAME on-disk files via the /root/.claude bind.
             const benv = buildEnv();
             const guestEnv = {
                 ANTHROPIC_API_KEY:   benv.ANTHROPIC_API_KEY,
@@ -4009,20 +3866,11 @@ function openPrintSession() {
                 try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[31m[proot engine spawn error] ' + e.message + '\x1b[0m\r\n'); } catch(_) {}
                 return;
             }
-        } else {
-            // ── LEGACY ENGINE (claude-code 2.1.112 via libnode launcher) ────────
-            try {
-                proc = spawn(LAUNCHER, ['-e', evalCode], { env, cwd: spawnCwd });
-            } catch(e) {
-                log('[runMessage] spawn failed: ' + e.message + '\n');
-                try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[31m[spawn error] ' + e.message + '\x1b[0m\r\n'); } catch(_) {}
-                return;
-            }
         }
         // Close stdin immediately — claude-code --print reads from stdin when it is a pipe
-        // and blocks waiting for EOF if stdin stays open. Closing it tells claude-code stdin
-        // is empty so it uses the argv message. Tool approval is handled by
-        // permissions.allow:['*'] in settings.json; no y/n stdin input is needed.
+        // and blocks waiting for EOF if stdin stays open. Closing it tells claude-code the
+        // input is empty so it uses the argv message. (proot bypassPermissions auto-runs
+        // tools, so there's no y/n stdin prompt to answer.)
         try { proc.stdin.end(); } catch(_) {}
         state.currentProc = proc;
         state.busy = true;
@@ -4244,62 +4092,13 @@ function openPrintSession() {
                 line = (sp === -1 ? line : line.slice(0, sp)).toLowerCase() + (sp === -1 ? '' : line.slice(sp));
             }
 
-            // ── Permission responses — bypass busy guard ──────────────────────────
-            // Tool already ran (auto-approved on detection to beat claude-code's 3s
-            // stdin timeout). These buttons configure FUTURE spawns only.
+            // ── Permission responses — vestigial (bypass busy guard) ──────────────
+            // P4: proot auto-runs every tool (bypassPermissions), so non-agent
+            // permission cards no longer appear and the always-allow list (auto_approve)
+            // was deleted. These commands only ever arrive if an old WebView UI still has
+            // a card open — just dismiss any pending state.
             if (line.startsWith('!perm-allow') || line.startsWith('!perm-always') || line.startsWith('!perm-deny')) {
-                const perm = state.pendingPerm;
-                if (!perm) continue;
-                if (line.startsWith('!perm-always')) {
-                    const list = loadApproveList();
-                    // T2: optional ':<pattern>' suffix saves a pattern entry like 'Bash(git *)'.
-                    // No suffix → legacy behavior: save the bare tool name.
-                    let entry = perm.toolName;
-                    const colonIdx = line.indexOf(':');
-                    if (colonIdx > -1) {
-                        const pat = line.slice(colonIdx + 1).trim();
-                        if (pat) entry = pat;
-                    }
-                    if (!list.allow.includes(entry)) {
-                        list.allow.push(entry);
-                        saveApproveList(list);
-                    }
-                } else if (line.startsWith('!perm-deny')) {
-                    // "Block future" — add to deny list so next spawn never prompts
-                    const list = loadApproveList();
-                    if (!list.deny.includes(perm.toolName)) {
-                        list.deny.push(perm.toolName);
-                        saveApproveList(list);
-                    }
-                    try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[33m[' + perm.toolName + ' blocked for future sessions]\x1b[0m\r\n'); } catch(_) {}
-                }
-                // !perm-allow = dismiss dialog — tool already ran, no list change
                 state.pendingPerm = null;
-                continue;
-            }
-
-            // ── !approve-tools — pre-approve ALL tools, silence permission cards ──
-            // Adds a '*' sentinel to auto_approve.json. From then on every tool runs
-            // without a permission card (isToolAlreadyAllowed short-circuits on '*').
-            // Persists across spawns. `!approve-tools off` reverts to per-tool cards.
-            if (line.startsWith('!approve-tools')) {
-                const arg = line.slice('!approve-tools'.length).trim().toLowerCase();
-                const list = loadApproveList();
-                if (arg === 'off') {
-                    list.allow = (list.allow || []).filter(e => e !== '*');
-                    saveApproveList(list);
-                    try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[33m[approve-tools OFF — permission cards will show again]\x1b[0m\r\n'); } catch(_) {}
-                } else if (arg === 'status') {
-                    const on = (list.allow || []).includes('*');
-                    try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[2m[approve-tools is ' + (on ? 'ON' : 'OFF') + ']\x1b[0m\r\n'); } catch(_) {}
-                } else {
-                    if (!(list.allow || []).includes('*')) {
-                        list.allow = list.allow || [];
-                        list.allow.push('*');
-                        saveApproveList(list);
-                    }
-                    try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[32m[approve-tools ON — all tools auto-approved, no permission cards (sub-agent panel still shows). Use !approve-tools off to revert]\x1b[0m\r\n'); } catch(_) {}
-                }
                 continue;
             }
 
@@ -4334,7 +4133,6 @@ function openPrintSession() {
                     '  \x1b[33m!clear\x1b[0m              Start a new conversation\r\n' +
                     '  \x1b[33m!context [path]\x1b[0m     Load file/dir as context\r\n' +
                     '  \x1b[33m!attach <file>\x1b[0m      Attach file to next message\r\n' +
-                    '  \x1b[33m!approve-tools [off]\x1b[0m Auto-approve all tools, hide permission cards\r\n' +
                     '  \x1b[33m!install [pkg]\x1b[0m      Install binary/npm (no arg = list available)\r\n' +
                     '  \x1b[33m!log [n|all|clear]\x1b[0m   Show last n lines (default 100); !log all = full; !log clear = wipe\r\n' +
                     '  \x1b[33m!mcp\x1b[0m                List connected (and failed) MCP servers and tools\r\n' +
@@ -4346,7 +4144,6 @@ function openPrintSession() {
                     '  \x1b[33m!test-proot\x1b[0m         Probe: does bundled proot exec from nativeLibDir (Ubuntu engine)\r\n' +
                     '  \x1b[33m!test-rootfs\x1b[0m        Probe: run extracted Ubuntu rootfs via proot (cat /etc/os-release)\r\n' +
                     '  \x1b[33m!setup-engine\x1b[0m       Batched P1: boot rootfs → install Node 22 + claude-code → claude --version\r\n' +
-                    '  \x1b[33m!engine\x1b[0m             Switch message engine: !engine proot (2.1.160) | !engine legacy (2.1.112)\r\n' +
                     '  \x1b[33m!defer\x1b[0m              Proxy tool deferral (lazy-load) for OAI providers: !defer on | off\r\n' +
                     '  \x1b[33m!debug\x1b[0m              Dump model/provider/settings/mcp state for remote debugging\r\n' +
                     '  \x1b[33m!help\x1b[0m               Show this help\r\n' +
@@ -4741,24 +4538,9 @@ function openPrintSession() {
                 continue;
             }
 
-            // ── !engine — toggle the message engine (proot 2.1.160 vs legacy 2.1.112) ─
-            // Writes filesDir/engine_mode. Takes effect on the NEXT message (runMessage
-            // reads it fresh per turn). `!engine` / `!engine status` reports current.
+            // ── !engine — removed (P4). proot (claude-code 2.1.160) is the only engine. ─
             if (line.startsWith('!engine')) {
-                const w = (s) => { try { if (state.socket) state.socket.write(SYS_FENCE + s); } catch(_) {} };
-                const arg = line.slice('!engine'.length).trim().toLowerCase();
-                const cur = getEngineMode();
-                if (arg === 'proot' || arg === 'legacy') {
-                    try { fs.writeFileSync(ENGINE_FILE, arg); } catch(_) {}
-                    // Switching engines means a different claude-code version writes the
-                    // session files; clear history so --continue can't cross engines.
-                    try { fs.writeFileSync(path.join(FILES_DIR, 'history_clear_requested'), '1'); } catch(_) {}
-                    w('\x1b[32m✓ engine → ' + arg + (arg === 'proot' ? ' (claude-code 2.1.160, glibc/proot)' : ' (claude-code 2.1.112, libnode)') + '\x1b[0m\r\n' +
-                      '\x1b[2mTakes effect on your next message. History cleared (engines don’t share sessions).\x1b[0m\r\n');
-                } else {
-                    w('\x1b[33mengine = ' + cur + '\x1b[0m\r\n' +
-                      '\x1b[2mUsage: !engine proot | !engine legacy   (build ' + BRIDGE_BUILD + ')\x1b[0m\r\n');
-                }
+                try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[2m[engine = proot (claude-code 2.1.160). The legacy 2.1.112 engine was removed in P4.]\x1b[0m\r\n'); } catch(_) {}
                 continue;
             }
 
