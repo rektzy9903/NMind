@@ -43,6 +43,17 @@ class UbuntuRootfsManager(private val context: Context) {
     fun isInstalled(): Boolean =
         marker.exists() && marker.readText().trim() == rootfsVersion
 
+    /** True if the rootfs already has claude-code installed (Node + npm package).
+     *  Used to skip first-run provisioning for users who already have a working
+     *  engine (e.g. after an in-place APK update, or a session-provisioned device).
+     *  Reads the guest package.json directly — no bridge/spawn needed. */
+    fun isClaudeInstalled(): Boolean =
+        isInstalled() && listOf(
+            "opt/node/lib/node_modules/@anthropic-ai/claude-code/package.json",
+            "usr/lib/node_modules/@anthropic-ai/claude-code/package.json",
+            "usr/local/lib/node_modules/@anthropic-ai/claude-code/package.json",
+        ).any { File(rootfs, it).exists() }
+
     /** True if filesDir has enough free space for the download + extraction.
      *  Download is ~60-80MB but extraction inflates to ~150-200MB on disk; we
      *  require ~280MB headroom so a low-storage device fails fast (with a clear

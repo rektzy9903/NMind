@@ -114,6 +114,16 @@ class SetupActivity : AppCompatActivity() {
         job?.cancel()
         job = lifecycleScope.launch {
             try {
+                // Already provisioned (e.g. in-place update over a working engine)?
+                // Skip the whole flow — no re-download, no re-install. SplashActivity
+                // normally catches this first, but guard here too in case the user
+                // already landed on this screen.
+                if (withContext(Dispatchers.IO) { rootfs.isClaudeInstalled() }) {
+                    setStep("Engine already installed", 100)
+                    onProvisioned()
+                    return@launch
+                }
+
                 // Boot the bridge (libnode) so its provision watcher polls for the
                 // request marker and runEngineSetup can call into the proot guest.
                 withContext(Dispatchers.IO) { bridge.startSetup() }
