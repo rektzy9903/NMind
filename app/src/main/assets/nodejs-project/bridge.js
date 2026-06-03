@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b43-pty-cosmetics';
+const BRIDGE_BUILD = 'b44-cleanup';
 
 const net   = require('net');
 const http  = require('http');
@@ -3800,6 +3800,7 @@ function openPrintSession() {
                     '  \x1b[33m!test-proot\x1b[0m         Probe: does bundled proot exec from nativeLibDir (Ubuntu engine)\r\n' +
                     '  \x1b[33m!test-rootfs\x1b[0m        Probe: run extracted Ubuntu rootfs via proot (cat /etc/os-release)\r\n' +
                     '  \x1b[33m!setup-engine\x1b[0m       Batched P1: boot rootfs → install Node 22 + claude-code → claude --version\r\n' +
+                    '  \x1b[33m!cleanup\x1b[0m            Reclaim install caches (npm/apt/tarballs, ~400MB) without re-provisioning\r\n' +
                     '  \x1b[33m!defer\x1b[0m              Proxy tool deferral (lazy-load) for OAI providers: !defer on | off\r\n' +
                     '  \x1b[33m!debug\x1b[0m              Dump model/provider/settings/mcp state for remote debugging\r\n' +
                     '  \x1b[33m!help\x1b[0m               Show this help\r\n' +
@@ -4335,7 +4336,43 @@ function openPrintSession() {
                     if (r.code !== 0) { fail('claude --version failed', r); return; }
                     w(G + '✅ ENGINE READY — ' + r.out.trim() + X + '\r\n' +
                       G + '   P1 COMPLETE: latest claude-code runs on glibc via proot.' + X + '\r\n');
+
+                    // 7) reclaim install caches — npm/apt keep their downloaded copies
+                    // after installing (~400MB of dead weight on a phone). Safe to drop;
+                    // a future re-install just re-downloads. Also delete leftover tarballs.
+                    w(Y + '[7] reclaiming install caches (npm/apt/tarballs)…' + X + '\r\n');
+                    await ge(['/bin/sh', '-c',
+                        'npm cache clean --force >/dev/null 2>&1 || true; ' +
+                        'apt-get clean >/dev/null 2>&1 || true; ' +
+                        'rm -rf /var/lib/apt/lists/* /tmp/*.tar.* /opt/*.tar.* 2>/dev/null || true'], 120000);
+                    w(G + '✓ caches cleared — run \x1b[33m!cleanup\x1b[0m\x1b[32m anytime to reclaim again' + X + '\r\n');
                 })().catch(e => w(R + '[!setup-engine error] ' + (e && e.message) + X + '\r\n'));
+                continue;
+            }
+
+            // ── !cleanup — reclaim install caches without re-provisioning ────
+            // npm/apt keep their downloaded package copies after install (npm
+            // ~/.npm/_cacache, apt /var/cache + lists) + leftover .tar.* — ~400MB of
+            // dead weight on a phone. Dropping them is safe (a re-install re-downloads).
+            if (line.startsWith('!cleanup')) {
+                const w = (s) => { try { if (state.socket) state.socket.write(SYS_FENCE + s); } catch(_) {} };
+                const rp = path.join(FILES_DIR, 'ubuntu');
+                if (!fs.existsSync(path.join(rp, 'etc', 'os-release'))) {
+                    w('\x1b[31m✗ no Ubuntu rootfs — nothing to clean\x1b[0m\r\n'); continue;
+                }
+                w('\x1b[33m[cleanup] freeing npm + apt caches + leftover tarballs… (~30s)\x1b[0m\r\n');
+                (async () => {
+                    const script =
+                        'echo "freeing (current sizes):"; ' +
+                        'du -sh /root/.npm /var/cache/apt /var/lib/apt/lists 2>/dev/null; ' +
+                        'npm cache clean --force >/dev/null 2>&1 || true; ' +
+                        'apt-get clean >/dev/null 2>&1 || true; ' +
+                        'rm -rf /var/lib/apt/lists/* /tmp/*.tar.* /opt/*.tar.* 2>/dev/null || true';
+                    const r = await runProotGuest(['/bin/sh', '-c', script], 180000);
+                    w('\x1b[2m' + ((r.out || '').trim() || '(no output)') + '\x1b[0m\r\n');
+                    w(r.code === 0 ? '\x1b[32m✓ cleanup done — those caches are now freed\x1b[0m\r\n'
+                                   : '\x1b[31m✗ cleanup exit ' + r.code + '\x1b[0m\r\n');
+                })().catch(e => w('\x1b[31m[cleanup error] ' + e.message + '\x1b[0m\r\n'));
                 continue;
             }
 
