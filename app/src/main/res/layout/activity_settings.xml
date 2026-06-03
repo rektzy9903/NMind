@@ -418,7 +418,7 @@
                         android:textColor="@color/text_secondary"
                         android:textSize="13sp" />
                     <TextView
-                        android:id="@+id/tvClaudeVersion"
+                        android:id="@+id/tvAppVersion"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
@@ -447,7 +447,7 @@
                         android:textColor="@color/text_secondary"
                         android:textSize="13sp" />
                     <TextView
-                        android:id="@+id/tvAppVersion"
+                        android:id="@+id/tvClaudeVersion"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"

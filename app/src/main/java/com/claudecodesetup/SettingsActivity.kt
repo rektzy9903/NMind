@@ -269,10 +269,14 @@ class SettingsActivity : AppCompatActivity() {
         // Always show Change model (visibility controlled by XML, not code)
         binding.btnChangeModel.visibility = View.VISIBLE
 
-        val installedVersion = prefs.getInstalledClaudeVersion()
-            .ifEmpty { com.claudecodesetup.managers.DownloadManager.PINNED_CLAUDE_VERSION }
-        binding.tvClaudeVersion.text = "Nexus Mind v$installedVersion"
-        binding.tvAppVersion.text    = "App v${BuildConfig.VERSION_NAME}"
+        // App version = the bumped-every-patch debug build (versionName).
+        binding.tvAppVersion.text = "v${BuildConfig.VERSION_NAME}"
+        // Claude Code = the version running in the app. Prefer a live-recorded value
+        // (none yet — setInstalledClaudeVersion is unused), else the proot engine
+        // baseline. NOT the legacy 2.1.112 pin (that engine was deleted in P4).
+        val claudeVersion = prefs.getInstalledClaudeVersion()
+            .ifEmpty { com.claudecodesetup.managers.DownloadManager.ENGINE_CLAUDE_VERSION }
+        binding.tvClaudeVersion.text = "v$claudeVersion"
 
     }
 
