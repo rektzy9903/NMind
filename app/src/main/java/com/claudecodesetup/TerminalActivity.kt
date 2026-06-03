@@ -54,6 +54,8 @@ class TerminalActivity : AppCompatActivity() {
 
     private var activeSessionId: Int = -1
     private val tabButtons = LinkedHashMap<Int, Button>()
+    // P6.5: whether the WebView is currently showing the 🐧 Ubuntu PTY view (vs 💬 chat).
+    @Volatile private var ubuntuMode = false
 
     companion object {
         private const val REQUEST_IMAGE = 1002
@@ -203,6 +205,7 @@ class TerminalActivity : AppCompatActivity() {
         // Null all callbacks unconditionally before unbinding to prevent callbacks
         // firing on a partially-destroyed activity if the binder delivers one last event.
         claudeService?.onOutput = null
+        claudeService?.onPtyOutput = null
         claudeService?.onSessionAdded = null
         claudeService?.onSessionEnded = null
         if (serviceBound) {
@@ -304,6 +307,15 @@ class TerminalActivity : AppCompatActivity() {
                 claudeService?.getSession(sessionId)?.cwd = newCwd
                 if (sessionId == activeSessionId) {
                     runOnUiThread { updateCwdPill(newCwd) }
+                }
+            }
+        }
+
+        // P6.5: raw Ubuntu-PTY bytes (base64) → xterm.js, gated to the active tab.
+        claudeService!!.onPtyOutput = { sessionId, b64 ->
+            if (sessionId == activeSessionId) {
+                runOnUiThread {
+                    binding.webViewTerminal.evaluateJavascript("window.ptyWrite('$b64')", null)
                 }
             }
         }
@@ -412,6 +424,13 @@ class TerminalActivity : AppCompatActivity() {
 
         activeSessionId = id
         claudeService?.switchToSession(id)
+
+        // P6.5: the Ubuntu view is a single shared xterm. When switching tabs while
+        // in 🐧 mode, reset it and (re)attach to the new tab's own guest shell.
+        if (ubuntuMode) {
+            binding.webViewTerminal.evaluateJavascript("window.ptyClear&&window.ptyClear()", null)
+            claudeService?.openPty(id)
+        }
 
         binding.btnRestart.visibility = View.GONE
         updateTabActive(id)
@@ -976,6 +995,30 @@ class TerminalActivity : AppCompatActivity() {
             prefs.setPtyCols(cols)
             prefs.setPtyRows(rows)
             // NOTE: do NOT call sendResizeAll — see comment above.
+        }
+
+        // ─── Ubuntu dual-mode PTY (P6.5) ──────────────────────────────────────
+        /** xterm.js keystrokes/control sequences → the active session's Ubuntu shell. */
+        @JavascriptInterface
+        fun sendPty(data: String) {
+            claudeService?.sendPty(activeSessionId, data.toByteArray(Charsets.UTF_8))
+        }
+
+        /** xterm.js fit-addon reported new dimensions. */
+        @JavascriptInterface
+        fun resizePty(cols: Int, rows: Int) {
+            if (cols !in 1..999 || rows !in 1..500) return
+            claudeService?.resizePty(activeSessionId, cols, rows)
+        }
+
+        /** Terminal toggled between 💬 chat (print mode) and 🐧 Ubuntu (live PTY).
+         *  Opening the Ubuntu view lazily connects the second socket + spawns bash. */
+        @JavascriptInterface
+        fun setMode(mode: String) {
+            ubuntuMode = (mode == "ubuntu")
+            if (ubuntuMode) {
+                claudeService?.openPty(activeSessionId)
+            }
         }
 
         @JavascriptInterface

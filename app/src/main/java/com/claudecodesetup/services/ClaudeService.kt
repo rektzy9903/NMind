@@ -9,6 +9,7 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
+import android.util.Base64
 import android.util.Log
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
@@ -38,6 +39,17 @@ class ClaudeService : LifecycleService() {
 
     private val sessions = ConcurrentHashMap<Int, ClaudeSession>()
     private var nextSessionId = 0
+
+    // P6.5: per-session Ubuntu PTY shell connections (the 🐧 tab). A second socket
+    // per session, opened lazily on the first setMode('ubuntu'), connects with the
+    // ":ubuntu" mode header so bridge.js routes it to attachPtySession (raw byte
+    // relay to a live `bash -li` in the guest). Separate from the chat socket.
+    private val ptyConns = ConcurrentHashMap<Int, PtyConn>()
+
+    private class PtyConn(val socket: Socket) {
+        val out: OutputStream = socket.outputStream
+        @Volatile var alive: Boolean = true
+    }
     var activeSessionId: Int = -1
         private set
 
@@ -58,6 +70,8 @@ class ClaudeService : LifecycleService() {
 
     var onOutput: ((sessionId: Int, data: String) -> Unit)? = null
     var onSessionEnded: ((sessionId: Int) -> Unit)? = null
+    // P6.5: raw Ubuntu-PTY output for a session, already base64-encoded for window.ptyWrite().
+    var onPtyOutput: ((sessionId: Int, b64: String) -> Unit)? = null
     var onSessionAdded: ((ClaudeSession) -> Unit)? = null
 
     // ─── Session model ────────────────────────────────────────────────────────
@@ -172,6 +186,7 @@ class ClaudeService : LifecycleService() {
         val session = sessions.remove(sessionId) ?: return
         runCatching { session.socket?.close() }
         session.alive = false
+        ptyConns.remove(sessionId)?.let { it.alive = false; runCatching { it.socket.close() } }
 
         if (activeSessionId == sessionId) {
             activeSessionId = sessions.keys.firstOrNull() ?: -1
@@ -214,7 +229,94 @@ class ClaudeService : LifecycleService() {
         }
     }
 
+    // ─── Ubuntu PTY (P6.5) ──────────────────────────────────────────────────────
+
+    /** Open the live Ubuntu shell socket for [sessionId] if not already open.
+     *  Idempotent: a reconnect re-attaches to the same guest shell (kept alive by
+     *  bridge.js for PTY_IDLE_MS), so shell state survives tab/mode switches. */
+    fun openPty(sessionId: Int) {
+        if (sessionId < 0) return
+        if (ptyConns[sessionId]?.alive == true) return
+        lifecycleScope.launch(Dispatchers.IO) { connectPty(sessionId) }
+    }
+
+    private fun connectPty(sessionId: Int) {
+        // Don't open a shell for a session that no longer exists.
+        if (!sessions.containsKey(sessionId)) return
+        // Guard against a racing second open.
+        if (ptyConns[sessionId]?.alive == true) return
+
+        val sock = bridge.openSession() ?: run {
+            val err = "\r\n[31m[ubuntu] could not connect to bridge (port ${NodeBridgeManager.BRIDGE_PORT})[0m\r\n"
+            onPtyOutput?.invoke(sessionId, Base64.encodeToString(err.toByteArray(Charsets.UTF_8), Base64.NO_WRAP))
+            return
+        }
+        val conn = PtyConn(sock)
+        ptyConns[sessionId] = conn
+
+        val localToken = try {
+            java.io.File(filesDir, "local_token").readText().trim()
+        } catch (_: Exception) { "" }
+        try {
+            conn.out.write("SESSION:$sessionId:$localToken:ubuntu\n".toByteArray(Charsets.UTF_8))
+            conn.out.flush()
+        } catch (_: Exception) {}
+
+        try {
+            val buf = ByteArray(8192)
+            val input = sock.inputStream
+            var n: Int
+            while (input.read(buf).also { n = it } != -1) {
+                if (n == 0) continue
+                val b64 = Base64.encodeToString(buf, 0, n, Base64.NO_WRAP)
+                onPtyOutput?.invoke(sessionId, b64)
+            }
+        } catch (_: IOException) {
+            // Normal socket close (tab switch / shell exit).
+        } finally {
+            runCatching { sock.close() }
+            conn.alive = false
+            ptyConns.remove(sessionId, conn)
+        }
+    }
+
+    /** Write raw bytes from xterm.js to the active session's Ubuntu shell. */
+    fun sendPty(sessionId: Int, data: ByteArray) {
+        val conn = ptyConns[sessionId] ?: return
+        try {
+            conn.out.write(data)
+            conn.out.flush()
+        } catch (e: Exception) {
+            Log.e(TAG, "sendPty failed for session $sessionId", e)
+        }
+    }
+
+    /** Resize the Ubuntu PTY. libpty.so parses the ESC 0xFE control sequence off
+     *  the input stream (never forwarded to the shell) and applies TIOCSWINSZ. */
+    fun resizePty(sessionId: Int, cols: Int, rows: Int) {
+        val conn = ptyConns[sessionId] ?: return
+        val resize = byteArrayOf(
+            0x1b, 0xfe.toByte(),
+            ((cols shr 8) and 0xff).toByte(), (cols and 0xff).toByte(),
+            ((rows shr 8) and 0xff).toByte(), (rows and 0xff).toByte()
+        )
+        try {
+            conn.out.write(resize)
+            conn.out.flush()
+        } catch (_: Exception) {}
+    }
+
+    /** Close the local PTY socket. The guest shell stays alive in bridge.js for
+     *  PTY_IDLE_MS, so re-opening reattaches to the same session. */
+    fun closePty(sessionId: Int) {
+        val conn = ptyConns.remove(sessionId) ?: return
+        conn.alive = false
+        runCatching { conn.socket.close() }
+    }
+
     fun stopAllSessions() {
+        ptyConns.values.forEach { runCatching { it.socket.close() }; it.alive = false }
+        ptyConns.clear()
         sessions.values.forEach { s -> runCatching { s.socket?.close() }; s.alive = false }
         sessions.clear()
         activeSessionId = -1
