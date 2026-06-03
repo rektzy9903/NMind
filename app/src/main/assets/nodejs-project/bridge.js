@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b45-pty-mcp';
+const BRIDGE_BUILD = 'b46-cleanup-host-tarball';
 
 const net   = require('net');
 const http  = require('http');
@@ -4361,16 +4361,31 @@ function openPrintSession() {
                     w('\x1b[31m✗ no Ubuntu rootfs — nothing to clean\x1b[0m\r\n'); continue;
                 }
                 w('\x1b[33m[cleanup] freeing npm + apt caches + leftover tarballs… (~30s)\x1b[0m\r\n');
+                // HOST-side: the Ubuntu rootfs .tar.xz lives in the app cacheDir (a
+                // sibling of FILES_DIR, OUTSIDE the guest, so the guest cleanup below
+                // can't reach it) + any stray node tarball in FILES_DIR. Delete here.
+                try {
+                    const hostJunk = [
+                        path.join(FILES_DIR, '..', 'cache', 'ubuntu-rootfs.tar.xz'),
+                        path.join(FILES_DIR, 'node22.tar'),
+                    ];
+                    let hostFreed = 0;
+                    for (const f of hostJunk) {
+                        try { const st = fs.statSync(f); fs.unlinkSync(f); hostFreed += st.size; } catch(_) {}
+                    }
+                    if (hostFreed) w('\x1b[2mhost tarballs: freed ' + (hostFreed / 1048576 | 0) + 'M\x1b[0m\r\n');
+                } catch(_) {}
                 (async () => {
                     const script =
                         'echo "freeing (current sizes):"; ' +
                         'du -sh /root/.npm /var/cache/apt /var/lib/apt/lists 2>/dev/null; ' +
                         'npm cache clean --force >/dev/null 2>&1 || true; ' +
                         'apt-get clean >/dev/null 2>&1 || true; ' +
-                        'rm -rf /var/lib/apt/lists/* /tmp/*.tar.* /opt/*.tar.* 2>/dev/null || true';
+                        'rm -rf /var/lib/apt/lists/* /tmp/*.tar.* /opt/*.tar.* 2>/dev/null || true; ' +
+                        'echo "biggest dirs:"; du -sh /opt /usr /root /var 2>/dev/null | sort -rh | head -6';
                     const r = await runProotGuest(['/bin/sh', '-c', script], 180000);
                     w('\x1b[2m' + ((r.out || '').trim() || '(no output)') + '\x1b[0m\r\n');
-                    w(r.code === 0 ? '\x1b[32m✓ cleanup done — those caches are now freed\x1b[0m\r\n'
+                    w(r.code === 0 ? '\x1b[32m✓ cleanup done. The rest is the real engine (rootfs+node+claude), not junk.\x1b[0m\r\n'
                                    : '\x1b[31m✗ cleanup exit ' + r.code + '\x1b[0m\r\n');
                 })().catch(e => w('\x1b[31m[cleanup error] ' + e.message + '\x1b[0m\r\n'));
                 continue;
