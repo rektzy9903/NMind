@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b33-p4-tier1-deadcode';
+const BRIDGE_BUILD = 'b34-p4-tier2-startup';
 
 const net   = require('net');
 const http  = require('http');
@@ -208,52 +208,9 @@ const HOST               = '127.0.0.1';
 // Must NOT be used on OSC protocol messages (thinking-start, thinking-done, etc.).
 const SYS_FENCE = '\x1b]9;sys-fence\x07';
 
-// ─── Eval bootstrap shims ─────────────────────────────────────────────────────
-// These are injected as strings into every LAUNCHER -e evalCode bootstrap,
-// before import(cli.js). Defined at module scope so all session types can
-// reference them without a ReferenceError.
-
-// Runtime RegExp shim: catches dynamic new RegExp(p,'u') with \p{} patterns
-// that nodejs-mobile v18 V8 doesn't support. Logs pattern, falls back to /(?:)/.
-const regexpShim =
-    '(function(){' +
-    'var _R=RegExp,_lp=' + JSON.stringify(SETUP_LOG) + ';' +
-    'function Rc(p,f){' +
-    'try{return new _R(p,f);}' +
-    'catch(e){' +
-    'if(typeof f==="string"&&f.indexOf("u")>-1&&' +
-    '/Invalid|property/i.test(String(e.message||e))){' +
-    'try{require("fs").appendFileSync(_lp,"[regex-compat] "+String(p).slice(0,120)+"\\n");}catch(_){}' +
-    'var ff=String(f).replace(/u/g,"");' +
-    'try{return new _R("(?:)",ff);}catch(_){return new _R("(?:)");}' +
-    '}throw e;}' +
-    '}' +
-    'Rc.prototype=_R.prototype;' +
-    'try{Rc[Symbol.hasInstance]=function(v){return _R[Symbol.hasInstance](v);};}catch(_){}' +
-    'global.RegExp=Rc;' +
-    '})();';
-
-// Intl shim: nodejs-mobile v18.20.4 is built without ICU so global.Intl is
-// undefined. cli.js uses Intl.NumberFormat, DateTimeFormat, Collator, etc.
-// All constructors share one stub; new Intl.X() and bare Intl.X() both work.
-const intlShim =
-    '(function(){' +
-    'if(typeof Intl!=="undefined"&&Intl.NumberFormat)return;' +
-    'try{require("fs").appendFileSync(' + JSON.stringify(SETUP_LOG) + ',"[intl-shim] installing\\n");}catch(_){}' +
-    'var s={format:function(n){return""+n;},resolvedOptions:function(){return{locale:"en-US",timeZone:"UTC"};},formatToParts:function(){return[];},compare:function(a,b){return a<b?-1:a>b?1:0;},select:function(n){return n===1?"one":"other";},segment:function(t){var a=[],i=0;for(var c of(""+t)){a.push({segment:c,index:i++,isWordLike:/[a-zA-Z0-9_]/.test(c)});}return{[Symbol.iterator]:function(){var j=0;return{next:function(){return j<a.length?{value:a[j++],done:false}:{done:true};}};}};},toString:function(){return"[object Intl]";},valueOf:function(){return"[object Intl]";}};' +
-    'function mk(){return s;}mk.prototype=s;mk.supportedLocalesOf=function(){return[];};' +
-    'if(!global.Intl)global.Intl={};' +
-    'var I=global.Intl;' +
-    'I.NumberFormat=I.NumberFormat||mk;' +
-    'I.DateTimeFormat=I.DateTimeFormat||mk;' +
-    'I.Collator=I.Collator||mk;' +
-    'I.PluralRules=I.PluralRules||mk;' +
-    'I.ListFormat=I.ListFormat||mk;' +
-    'I.RelativeTimeFormat=I.RelativeTimeFormat||mk;' +
-    'I.Segmenter=I.Segmenter||mk;' +
-    'I.getCanonicalLocales=I.getCanonicalLocales||function(l){return[].concat(l||[]);};' +
-    'I.supportedValuesOf=I.supportedValuesOf||function(){return[];};' +
-    '})();';
+// P4: regexpShim + intlShim (the \p{} RegExp compat + no-ICU Intl stubs injected
+// into the legacy libnode eval bootstrap) are DELETED. The proot guest runs real
+// glibc node 22, which has full Unicode property-escape regex + ICU — no shims.
 
 // Tracks last provider HTTP 429 timestamp so the TCP close handler can show
 // a rate-limit notification even when cli.js exits silently with code 0.
@@ -772,243 +729,6 @@ async function extractDeb(debPath, destDir, bb, env) {
     } finally {
         try { fs.rmSync(tmpDir, { recursive: true }); } catch(_) {}
     }
-}
-
-// ─── Patch cli.js for Android (no Unicode property escape support) ───────────
-
-// Called on startup when cli.js is already installed: re-patches if any known
-// unpatched \p{} literal is still present (happens when bridge.js is updated
-// with new patches but cli.js was installed with an older bridge version).
-function ensureCliJsPatched() {
-    try {
-        const src = fs.readFileSync(CLAUDE_CLI, 'utf8');
-        if (src.includes('/^\\p{Default_Ignorable_Code_Point}$/u') ||
-            src.includes('/\\p{L}/u') ||
-            src.includes('/[\\p{L}\\p{N}]/u')) {
-            log('cli.js has unpatched \\p{} patterns — re-applying Android patches...\n');
-            patchCliJsForAndroid(CLAUDE_CLI);
-        }
-    } catch (_) {}
-}
-
-function patchCliJsForAndroid(cliPath) {
-    log('Patching cli.js for Android (removing \\p{} regex property escapes)...\n');
-    let src;
-    try { src = fs.readFileSync(cliPath, 'utf8'); } catch (e) {
-        log('Patch skipped: could not read cli.js — ' + e.message + '\n');
-        return;
-    }
-    let n = 0;
-
-    function rep(from, to) {
-        // M22: log failures so they appear in !log output
-        if (!src.includes(from)) {
-            console.error('[patch] FAILED to find pattern: ' + String(from).slice(0, 80));
-            return;
-        }
-        const parts = src.split(from);
-        if (parts.length === 1) return;
-        n += parts.length - 1;
-        src = parts.join(to);
-    }
-
-    // Markdown text-processor (U54 block)
-    rep('/^\\p{Default_Ignorable_Code_Point}$/u',
-        '/^[\\u00AD\\u034F\\u061C\\u115F\\u1160\\u17B4\\u17B5\\u180B-\\u180F\\u200B-\\u200F\\u202A-\\u202E\\u2060-\\u206F\\u3164\\uFFA0\\uFFF0-\\uFFFB]$/');
-    rep('/^[\\p{L}\\p{N}\\p{M}_]$/u',
-        '/^[a-zA-Z0-9\\xC0-\\u024F\\u0300-\\u036F\\u0370-\\u03FF\\u0400-\\u04FF\\u4E00-\\u9FFF_]$/');
-    rep('/[\\p{L}\\p{N}]/u',
-        '/[a-zA-Z0-9\\xC0-\\u024F\\u0370-\\u03FF\\u0400-\\u04FF\\u4E00-\\u9FFF]/');
-    var PS = '!"#$%&\'()*+,\\-./:;<=>?@\\[\\\\\\]^_`{|}~\\xA2-\\xBF';
-    rep('/[\\p{P}\\p{S}]/u',           '/[' + PS + ']/');
-    rep('/[\\s\\p{P}\\p{S}]/u',        '/[\\s' + PS + ']/');
-    rep('/[^\\s\\p{P}\\p{S}]/u',       '/[^\\s' + PS + ']/');
-    rep('/(?!~)[\\p{P}\\p{S}]/u',      '/(?!~)[' + PS + ']/');
-    rep('/(?!~)[\\s\\p{P}\\p{S}]/u',   '/(?!~)[\\s' + PS + ']/');
-    rep('/(?:[^\\s\\p{P}\\p{S}]|~)/u', '/(?:[^\\s' + PS + ']|~)/');
-    rep('/\\p{L}/u',
-        '/[a-zA-Z\\xC0-\\u024F\\u0370-\\u03FF\\u0400-\\u04FF\\u4E00-\\u9FFF]/');
-    rep('/[\\p{L}\\p{N}_]/u',
-        '/[a-zA-Z0-9\\xC0-\\u024F\\u0370-\\u03FF\\u0400-\\u04FF\\u4E00-\\u9FFF_]/');
-    rep('/[\\p{Cf}\\p{Co}\\p{Cn}]/gu',
-        '/[\\u00AD\\u034F\\u200B-\\u200F\\u202A-\\u202E\\u2060-\\u206F\\uFEFF\\uFFFE\\uFFFF]/g');
-    rep("/^[\\p{L}\\p{M}\\p{N}_ .&'()+-]+$/u",
-        "/^[a-zA-Z0-9\\xC0-\\u024F\\u0300-\\u036F\\u0370-\\u03FF\\u0400-\\u04FF\\u4E00-\\u9FFF_ .&'()+-]+$/");
-
-    // CSS-like syntax highlighter (KE8 block) — / inside char class
-    rep('/[\\p{L}\\p{N}_/.\\-+~\\\\]/u',
-        '/[a-zA-Z0-9\\xC0-\\u024F\\u0370-\\u03FF\\u0400-\\u04FF\\u4E00-\\u9FFF_\\/+.~\\\\-]/');
-
-    // @ mention regexes (IM7 block) — / and ] inside char class
-    var M = 'a-zA-Z0-9\\xC0-\\u024F\\u0300-\\u036F\\u0370-\\u03FF\\u0400-\\u04FF\\u4E00-\\u9FFF_\\-.\\/\\\\()[\\]~:';
-    rep('/^@[\\p{L}\\p{N}\\p{M}_\\-./\\\\()[\\]~:]*/u',  '/^@[' + M + ']*/');
-    rep('/^[\\p{L}\\p{N}\\p{M}_\\-./\\\\()[\\]~:]+/u',   '/^[' + M + ']+/');
-    rep('/(@[\\p{L}\\p{N}\\p{M}_\\-./\\\\()[\\]~:]*|[\\p{L}\\p{N}\\p{M}_\\-./\\\\()[\\]~:]+)$/u',
-        '/(@[' + M + ']*|[' + M + ']+)$/');
-    rep('/[\\p{L}\\p{N}\\p{M}_\\-./\\\\()[\\]~:]+$/u',   '/[' + M + ']+$/');
-    rep('/(^|[\\s。、？！])@([\\p{L}\\p{N}\\p{M}_\\-./\\\\()[\\]~:]*|"[^"]*"?)$/u',
-        '/(^|[\\s。、？！])@([' + M + ']*|"[^"]*"?)$/');
-
-    // Emoji detection — new RegExp at runtime, wrap in try-catch
-    rep('function Tq1(){return new RegExp("^(\\\\p{Extended_Pictographic}|\\\\p{Emoji_Component})+$","u")}',
-        'function Tq1(){try{return new RegExp("^(\\\\p{Extended_Pictographic}|\\\\p{Emoji_Component})+$","u")}' +
-        'catch(_e){return /[\\uD83C-\\uDBFF\\uDC00-\\uDFFF\\u2600-\\u27BF\\u2300-\\u23FF]/}}');
-
-    // Remove the "Welcome to Claude Code" banner that is rendered unconditionally
-    // at the top of every TUI layout. The function is unique (s(35) hook, Zq() theme).
-    // Replacing it with a no-op removes the banner from all sessions and reconnects.
-    rep('function Cm6(){', 'function Cm6(){return null;}function _Cm6_orig(){');
-
-    // Remove "Welcome back!" (shown to returning users instead of the first-run banner)
-    rep('"Welcome back!"', '"         "');
-    rep("'Welcome back!'", "'         '");
-
-    try { fs.writeFileSync(cliPath, src); } catch (e) {
-        log('Patch write failed: ' + e.message + '\n'); return;
-    }
-    log('Patch complete: ' + n + ' replacements applied to cli.js\n');
-}
-
-// ─── Install claude-code directly from npm registry ──────────────────────────
-
-function installClaudeCode(onDone) {
-    fs.mkdirSync(NPM_PREFIX, { recursive: true });
-
-    (async () => {
-        log('Fetching @anthropic-ai/claude-code package info from npm registry...\n');
-
-        // Pinned to the last Node.js-native version (v2.1.112).
-        // v2.1.113+ switched to pre-compiled native binaries that require glibc
-        // and are not compatible with Android's Bionic runtime + libnode.so.
-        const meta = await fetchJson(
-            'https://registry.npmjs.org/@anthropic-ai%2Fclaude-code/2.1.112'
-        );
-
-        const tarball = meta.dist && meta.dist.tarball;
-        if (!tarball) throw new Error('No tarball URL in registry response');
-
-        const sizeMB = Math.round((meta.dist.unpackedSize || 0) / 1e6);
-        log(`Package: v${meta.version}  Size: ~${sizeMB || '?'} MB\n`);
-        log(`Downloading from: ${tarball}\n`);
-
-        const tgzPath = path.join(FILES_DIR, 'claude-code.tgz');
-        try { fs.unlinkSync(tgzPath); } catch (_) {}
-
-        await downloadFile(tarball, tgzPath);
-        log('Download complete. Extracting...\n');
-
-        const destDir = path.join(
-            NPM_PREFIX, 'lib', 'node_modules', '@anthropic-ai', 'claude-code'
-        );
-        // tmpDir sits next to destDir on the same filesystem so renameSync works
-        const tmpDir = destDir + '.tmp';
-
-        // Clean up any leftovers from a previous failed attempt
-        try { fs.rmSync(destDir, { recursive: true, force: true }); } catch (_) {}
-        try { fs.rmSync(tmpDir,  { recursive: true, force: true }); } catch (_) {}
-        fs.mkdirSync(tmpDir, { recursive: true });
-        fs.mkdirSync(path.dirname(destDir), { recursive: true });
-
-        // Step 1: decompress .tgz → .tar with Node.js zlib.
-        // Toybox tar on some Android versions lacks gzip support (-z), so we
-        // handle decompression in JS and only use tar for the actual unpack.
-        const tarPath = path.join(FILES_DIR, 'claude-code.tar');
-        try { fs.unlinkSync(tarPath); } catch (_) {}
-
-        await new Promise((res, rej) => {
-            const zlib = require('zlib');
-            const src  = fs.createReadStream(tgzPath);
-            const gz   = zlib.createGunzip();
-            const dst  = fs.createWriteStream(tarPath);
-            src.on('error', rej);
-            gz.on('error',  rej);
-            dst.on('error', rej);
-            dst.on('finish', res);
-            src.pipe(gz).pipe(dst);
-        });
-
-        try { fs.unlinkSync(tgzPath); } catch (_) {}
-
-        // Step 2: unpack the plain .tar (no -z; gzip already done above).
-        // npm tarballs always place files under a 'package/' prefix, so we
-        // extract to tmpDir then rename that subdirectory to destDir.
-        await new Promise((res, rej) => {
-            const tar = spawn('/system/bin/tar', ['-xf', tarPath, '-C', tmpDir], {
-                env: { PATH: '/system/bin:/system/xbin' }
-            });
-            tar.stderr.on('data', d => log('tar: ' + d.toString()));
-            tar.on('error', err => rej(new Error('tar: ' + err.message)));
-            tar.on('close', code => code === 0 ? res() : rej(new Error('tar exit ' + code)));
-        });
-
-        try { fs.unlinkSync(tarPath); } catch (_) {}
-
-        const pkgDir = path.join(tmpDir, 'package');
-        if (!fs.existsSync(pkgDir)) {
-            const found = fs.readdirSync(tmpDir).join(', ');
-            throw new Error('package/ not found in tarball; found: [' + found + ']');
-        }
-        fs.renameSync(pkgDir, destDir);
-        try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (_) {}
-
-        if (!isClaudeInstalled()) {
-            throw new Error('cli.js not found after extraction — package layout may have changed');
-        }
-
-        // Android's nodejs-mobile v18 build has no Unicode property escape
-        // support (\p{...} in regex with /u flag). cli.js uses them throughout
-        // its markdown parser, text normalizer, and @ mention detector.
-        // Patch every occurrence with equivalent explicit character ranges.
-        patchCliJsForAndroid(CLAUDE_CLI);
-        log('\n✓ Claude Code installed successfully!\n');
-        try { fs.writeFileSync(SETUP_DONE, 'true'); } catch (_) {}
-        onDone(true);
-    })().catch(err => {
-        log('\n✗ Installation failed: ' + err.message + '\n');
-        const isNetworkErr = /ECONNREFUSED|ENOTFOUND|ETIMEDOUT|EHOSTUNREACH|ENETUNREACH|HTTP [45]/.test(err.message);
-        if (isNetworkErr) {
-            log('Network error — check your internet connection and tap "Try again".\n');
-        } else {
-            log('Tap "Try again" to retry.\n');
-        }
-        try { fs.writeFileSync(SETUP_FAILED, 'true'); } catch (_) {}
-        onDone(false);
-    });
-}
-
-// ─── Retry loop ───────────────────────────────────────────────────────────────
-// Node.js can only be started once per process, so bridge.js must stay alive
-// and retry internally. After a failure it polls every 2 s; when Kotlin clears
-// the "setup_failed" file (user tapped "Try again") it re-runs the install.
-
-function installLoop() {
-    // Fresh log for each attempt so the user sees current progress
-    try { fs.writeFileSync(SETUP_LOG, ''); } catch (_) {}
-    log('Starting installation (launcher: ' + LAUNCHER + ')\n');
-
-    installClaudeCode(ok => {
-        if (ok) {
-            writeSubagentWrappers();
-            startBridgeServer();
-        } else {
-            // Kotlin clears setup_failed when the user taps "Try again"
-            waitForRetry(installLoop);
-        }
-    });
-}
-
-function waitForRetry(callback) {
-    const tick = () => {
-        let gone = false;
-        try { gone = !fs.existsSync(SETUP_FAILED); } catch (_) {}
-        if (gone) {
-            log('Retry signal received — starting installation...\n');
-            callback();
-        } else {
-            setTimeout(tick, 2000);
-        }
-    };
-    setTimeout(tick, 2000);
 }
 
 // ─── Anthropic → OpenAI proxy (port 8082) ────────────────────────────────────
@@ -2479,18 +2199,11 @@ function buildEnv() {
     const env = {
         HOME: FILES_DIR,
         TERM: 'xterm-256color',
-        // claude-code's Bash TOOL aborts with "No suitable shell found … set the
-        // SHELL environment variable" when SHELL is unset (Android has no default).
-        // /system/bin/sh is a valid POSIX shell (the bridge's own `$` commands use
-        // it). Without this, Write/Edit/Read tools work but the Bash tool is dead.
+        // The bridge's own `$ cmd` shell commands run via /system/bin/sh. (P4: the
+        // CLAUDE_CODE_SHELL → BIN_DIR/bash symlink dance was a legacy 2.1.112/Bionic
+        // hack for claude-code's Bash tool; the proot guest sets its own SHELL=/bin/bash,
+        // so this value is host-side only now.)
         SHELL: '/system/bin/sh',
-        // claude-code v2.1.112 only accepts a shell whose PATH contains "bash"/"zsh"
-        // (cli.js NzY filters $SHELL on includes("bash")||includes("zsh")), so plain
-        // SHELL=/system/bin/sh is silently dropped → "No suitable shell found". The
-        // CLAUDE_CODE_SHELL override is checked first and must also contain "bash";
-        // point it at the BIN_DIR/bash symlink (→ /system/bin/sh) written by
-        // writeSubagentWrappers(). This is what actually makes the Bash TOOL work.
-        CLAUDE_CODE_SHELL: path.join(BIN_DIR, 'bash'),
         LANG: 'en_US.UTF-8',
         LINES: '50',
         COLUMNS: '160',
@@ -2647,65 +2360,10 @@ function lineDiff(oldText, newText) {
 
 const MCP_STDIO_CONFIG  = path.join(FILES_DIR, 'mcp_stdio.json');
 const MCP_CONFIG_FILE   = path.join(FILES_DIR, 'mcp_config.json');
-const MCP_SPAWN_CONFIG  = path.join(FILES_DIR, 'mcp_spawn_config.json');
 
-// Build the mcpServers object claude-code consumes via `--mcp-config`. Merges
-// real stdio servers (from mcp_config.json) + one stdio shim per HTTP server
-// (from mcp_http.json). HTTP servers go through the lazy `mcp_http_proxy.js`
-// stdio shim — claude-code only ever spawns a LOCAL stdio process and speaks
-// stdio MCP, so there is NO remote SSE connect at spawn time (that was the
-// invariant-51 hang). Returns {} when nothing is configured.
-//
-// NOTE: claude-code does NOT read `mcpServers` from settings.json — MCP must be
-// supplied via --mcp-config (or .mcp.json). The old settings.json injection was
-// a silent no-op, which is why `[proxy] mcp tools in request: 0` on every turn.
-function buildMcpServersObj() {
-    const servers = {};
-    try {
-        if (fs.existsSync(MCP_CONFIG_FILE)) {
-            const cfg = JSON.parse(fs.readFileSync(MCP_CONFIG_FILE, 'utf8'));
-            for (const [name, srv] of Object.entries((cfg && cfg.mcpServers) || {})) {
-                if (srv && srv.type === 'stdio') servers[name] = srv; // raw HTTP/SSE excluded
-            }
-        }
-    } catch (e) { log('[mcp-spawn] stdio read error: ' + e.message + '\n'); }
-    try {
-        const shimPath = path.join(FILES_DIR, 'mcp_http_proxy.js');
-        if (fs.existsSync(MCP_HTTP_CONFIG) && fs.existsSync(shimPath)) {
-            const httpCfg = JSON.parse(fs.readFileSync(MCP_HTTP_CONFIG, 'utf8'));
-            for (const up of (Array.isArray(httpCfg) ? httpCfg : [])) {
-                if (!up || !up.name || !up.url) continue;
-                const safeName = String(up.name).replace(/[^a-zA-Z0-9_-]/g, '_');
-                servers[safeName] = {
-                    type: 'stdio',
-                    command: LAUNCHER,
-                    args: ['-e',
-                        "import('file://" + shimPath + "').catch(function(e){" +
-                        "process.stderr.write('[mcp-http-proxy] import failed: '+e.message+'\\n');" +
-                        "process.exit(1);" +
-                        "});"
-                    ],
-                    // Full runtime env — NOT just the MCP_HTTP_* vars. claude-code's
-                    // MCP SDK (StdioClientTransport) spawns with `env: params.env ??
-                    // getDefaultEnvironment()`: when env is supplied it is used VERBATIM
-                    // (no parent-env inheritance), and the default set omits
-                    // LD_LIBRARY_PATH anyway. Without LD_LIBRARY_PATH=NATIVE_DIR the
-                    // shim's libnode-launcher.so can't find libnode.so and dies at exec,
-                    // so the server never initializes and 0 tools register. buildEnv()
-                    // supplies PATH/HOME/LD_LIBRARY_PATH; the shim ignores the ANTHROPIC_*
-                    // vars it doesn't read. (The bridge's own client already does this —
-                    // line ~2251 — which is why its [mcp-http:exa] launch succeeds.)
-                    env: Object.assign({}, buildEnv(), {
-                        MCP_HTTP_NAME: String(up.name),
-                        MCP_HTTP_URL: String(up.url),
-                        MCP_HTTP_HEADERS: JSON.stringify(up.headers || {}),
-                    }),
-                };
-            }
-        }
-    } catch (e) { log('[mcp-spawn] http read error: ' + e.message + '\n'); }
-    return servers;
-}
+// P4: buildMcpServersObj() + MCP_SPAWN_CONFIG (the legacy stdio-shim --mcp-config
+// builder for the libnode engine) DELETED — proot uses native HTTP MCP
+// (writeProotMcpConfig). Keeping it would have wired the inv-51 Bionic shim path.
 
 // Write the --mcp-config file for a spawn; returns its path, or null if no
 // servers are configured (so the caller omits the flag entirely).
@@ -5388,64 +5046,6 @@ function ensureProjectTrusted(cwd) {
     }
 }
 
-// Write FILES_DIR/bin/claude and FILES_DIR/bin/node wrappers so that
-// sub-agents spawned by claude (via the Task tool) can find and run claude.
-// The claude wrapper injects the regexp/intl shims the same way the PTY session does.
-function writeSubagentWrappers() {
-    try {
-        fs.mkdirSync(BIN_DIR, { recursive: true });
-
-        // bash symlink → /system/bin/sh. claude-code v2.1.112's shell detection
-        // REJECTS any shell whose path does not contain "bash"/"zsh" (it filters
-        // $SHELL on `K.includes("bash")||K.includes("zsh")` and only probes the
-        // hardcoded /bin/bash, /usr/bin/zsh … which don't exist on Android). So
-        // SHELL=/system/bin/sh alone never registers — Bash tool dies with "No
-        // suitable shell found". A symlink NAMED bash satisfies the includes()
-        // check; it resolves to /system/bin/sh on the /system mount (NOT noexec),
-        // so execve succeeds — unlike the wrapper *scripts* below, which live on
-        // /data (noexec) and can't be exec'd. CLAUDE_CODE_SHELL (buildEnv) points
-        // here. See claude-code cli.js NzY()/o47().
-        try {
-            const bashLink = path.join(BIN_DIR, 'bash');
-            try { fs.unlinkSync(bashLink); } catch(_) {}
-            fs.symlinkSync('/system/bin/sh', bashLink);
-            log('[shell] bash symlink → /system/bin/sh at ' + bashLink + '\n');
-        } catch(e) { log('[shell] bash symlink failed: ' + e.message + '\n'); }
-
-        // node wrapper — lets npm bin scripts find Node.js via our launcher
-        const nodePath = path.join(BIN_DIR, 'node');
-        const nodeScript = '#!/system/bin/sh\nexec ' + LAUNCHER + ' "$@"\n';
-        fs.writeFileSync(nodePath, nodeScript, 'utf8');
-        try { fs.chmodSync(nodePath, 0o755); } catch(_) {}
-
-        // claude_eval.js — CJS bootstrap loaded by the claude wrapper via require()
-        const evalFilePath = path.join(BIN_DIR, 'claude_eval.js');
-        const evalContent =
-            '// Auto-generated by bridge.js — do not edit.\n' +
-            'process.argv[0] = "node";\n' +
-            'process.argv[1] = ' + JSON.stringify(CLAUDE_CLI) + ';\n' +
-            // regexpShim and intlShim are module-level constants in bridge.js
-            regexpShim + '\n' +
-            intlShim + '\n' +
-            'import(' + JSON.stringify('file://' + CLAUDE_CLI) + ')\n' +
-            '  .catch(function(e) { process.stderr.write("sub-agent-err:" + String(e) + "\\n"); process.exit(1); });\n';
-        fs.writeFileSync(evalFilePath, evalContent, 'utf8');
-
-        // claude wrapper — uses LAUNCHER + require(claude_eval.js) to run cli.js
-        // The 'dummy' placeholder becomes argv[1] which claude_eval.js overwrites with CLI path.
-        const claudePath = path.join(BIN_DIR, 'claude');
-        const claudeScript =
-            '#!/system/bin/sh\n' +
-            'exec ' + LAUNCHER + ' -e "require(' + "'" + evalFilePath + "'" + ')" dummy "$@"\n';
-        fs.writeFileSync(claudePath, claudeScript, 'utf8');
-        try { fs.chmodSync(claudePath, 0o755); } catch(_) {}
-
-        log('[sub-agents] wrappers written to ' + BIN_DIR + '\n');
-    } catch(e) {
-        log('[sub-agents] failed to write wrappers: ' + e.message + '\n');
-    }
-}
-
 function startBridgeServer() {
     // Start proxy first — port 8082 must be listening before Claude Code spawns,
     // otherwise its first API call gets ECONNREFUSED and it exits immediately.
@@ -5463,8 +5063,10 @@ function startBridgeServer() {
 // reads commands from FILES_DIR/.claude/commands/*.md on every run).
 try { fs.mkdirSync(path.join(FILES_DIR, '.claude', 'commands'), { recursive: true }); } catch(_) {}
 
-// Pre-create/patch claude settings so the theme/onboarding picker never appears
-// and the proxy dummy key is always in the approved list.
+// Pre-create/patch claude settings so the theme/onboarding picker never appears.
+// P4: the customApiKeyResponses approved-list seeding is GONE — it was the legacy
+// interactive-login workaround, and patchSettings() now actively deletes the key
+// every turn (the proxy itself accepts sk-ant-proxy000; the guest never logs in).
 const claudeSettingsPath = path.join(FILES_DIR, '.claude', 'settings.json');
 try {
     fs.mkdirSync(path.join(FILES_DIR, '.claude'), { recursive: true });
@@ -5476,27 +5078,13 @@ try {
     s.skipWelcome            = true;
     s.autoUpdaterStatus      = 'disabled';
     s.preferredNotifChannel  = s.preferredNotifChannel || 'none';
-    // Approve the proxy dummy key so claude-code accepts it silently in interactive
-    // mode without showing the login selector (VE(key) = key.slice(-20)).
-    // Also purge it from rejected — if it ended up there from a previous failed
-    // auth attempt or the user dismissed the confirmation dialog, it stays rejected
-    // forever unless we explicitly remove it, and rejected takes priority over approved.
-    if (!s.customApiKeyResponses) s.customApiKeyResponses = { approved: [], rejected: [] };
-    if (!Array.isArray(s.customApiKeyResponses.approved)) s.customApiKeyResponses.approved = [];
-    if (!Array.isArray(s.customApiKeyResponses.rejected)) s.customApiKeyResponses.rejected = [];
-    if (!s.customApiKeyResponses.approved.includes('sk-ant-proxy000'))
-        s.customApiKeyResponses.approved.push('sk-ant-proxy000');
-    s.customApiKeyResponses.rejected =
-        s.customApiKeyResponses.rejected.filter(k => k !== 'sk-ant-proxy000');
     fs.writeFileSync(claudeSettingsPath, JSON.stringify(s, null, 2));
 } catch (_) {}
 
-if (isClaudeInstalled()) {
-    log('Claude Code already installed — starting bridge server.\n');
-    try { fs.writeFileSync(SETUP_DONE, 'true'); } catch (_) {}
-    ensureCliJsPatched();
-    writeSubagentWrappers();
-    startBridgeServer();
-} else {
-    installLoop();
-}
+// P4: the legacy 2.1.112 libnode install path is DELETED. The proot engine ships
+// its own claude-code in the Ubuntu rootfs (provisioned by !setup-engine /
+// UbuntuRootfsManager), so the bridge always just starts its servers — no
+// libnode-side cli.js install check, no \p{} patching, no sub-agent wrappers.
+log('Starting bridge server (proot engine).\n');
+try { fs.writeFileSync(SETUP_DONE, 'true'); } catch (_) {}
+startBridgeServer();
