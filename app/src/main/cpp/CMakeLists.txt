@@ -37,3 +37,14 @@ set_target_properties(fdexec PROPERTIES
     SUFFIX                   ".so"
     PREFIX                   ""
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}")
+
+# ── PTY helper for the P6 dual-mode Ubuntu terminal (Option 1) ────────────────
+# forkpty() a controlling TTY, close inherited fds, exec proot→bash under it, and
+# relay master<->stdin/stdout (stripping the ESC 0xFE resize sequence). Shipped as
+# libpty.so so it lands in nativeLibraryDir (exec-capable). See pty.cpp.
+add_executable(pty pty.cpp)
+set_target_properties(pty PROPERTIES
+    OUTPUT_NAME              "libpty"
+    SUFFIX                   ".so"
+    PREFIX                   ""
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}")
