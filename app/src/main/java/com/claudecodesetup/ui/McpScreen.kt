@@ -662,12 +662,12 @@ fun McpScreen(
                                 // MCP-2: parse headers input into compact JSON for storage.
                                 val hdrsJson = parseHeadersInput(newHeaders).toString()
                                 val updated = servers + McpServer(newName.trim(), newUrl.trim(), hdrsJson)
-                                saveMcpServers(prefs, updated)
+                                saveMcpServers(ctx, prefs, updated)
                                 servers = updated
                                 showAddDialog = false
                             } else if (isStdio && newCommand.isNotBlank()) {
                                 val updated = stdioServers + McpStdioServer(newName.trim(), newCommand.trim(), newArgs.trim())
-                                saveMcpStdioServers(prefs, updated)
+                                saveMcpStdioServers(ctx, prefs, updated)
                                 stdioServers = updated
                                 showAddDialog = false
                             }
@@ -694,7 +694,7 @@ fun McpScreen(
                 confirmButton = {
                     TextButton(onClick = {
                         val updated = servers.toMutableList().also { it.removeAt(confirmDeleteIndex) }
-                        saveMcpServers(prefs, updated)
+                        saveMcpServers(ctx, prefs, updated)
                         servers = updated
                         confirmDeleteIndex = -1
                     }) { Text("Remove", color = Color(0xFFEF4444)) }
@@ -806,7 +806,7 @@ fun McpScreen(
                 confirmButton = {
                     TextButton(onClick = {
                         val updated = stdioServers.toMutableList().also { it.removeAt(confirmDeleteStdioIndex) }
-                        saveMcpStdioServers(prefs, updated)
+                        saveMcpStdioServers(ctx, prefs, updated)
                         stdioServers = updated
                         confirmDeleteStdioIndex = -1
                     }) { Text("Remove", color = Color(0xFFEF4444)) }
@@ -927,7 +927,7 @@ private fun loadMcpServers(prefs: AppPreferences): List<McpServer> {
     } catch (_: Exception) { emptyList() }
 }
 
-private fun saveMcpServers(prefs: AppPreferences, list: List<McpServer>) {
+private fun saveMcpServers(ctx: android.content.Context, prefs: AppPreferences, list: List<McpServer>) {
     val arr = JSONArray()
     list.forEach { s ->
         arr.put(JSONObject().apply {
@@ -940,6 +940,17 @@ private fun saveMcpServers(prefs: AppPreferences, list: List<McpServer>) {
         })
     }
     prefs.saveMcpServersJson(arr.toString())
+    flushMcpConfig(ctx, prefs)
+}
+
+// Flush the saved MCP prefs to the on-disk files claude-code reads per-turn
+// (mcp_http.json / mcp_stdio.json) AND touch the mcp_reload_requested marker the
+// bridge watches. Without this, an add/edit/delete here only updated the pref —
+// the bridge kept serving the stale set until a full force-close restarted it
+// (writeMcpConfig only ran on bridge start), so !mcp-reload re-read stale files
+// and appeared to do nothing.
+private fun flushMcpConfig(ctx: android.content.Context, prefs: AppPreferences) {
+    try { com.claudecodesetup.managers.NodeBridgeManager(ctx).writeMcpConfig(prefs) } catch (_: Exception) {}
 }
 
 // MCP-2: parse "Key: Value" lines from the headers input field into a JSON object.
@@ -985,7 +996,7 @@ private fun loadMcpStdioServers(prefs: AppPreferences): List<McpStdioServer> {
     } catch (_: Exception) { emptyList() }
 }
 
-private fun saveMcpStdioServers(prefs: AppPreferences, list: List<McpStdioServer>) {
+private fun saveMcpStdioServers(ctx: android.content.Context, prefs: AppPreferences, list: List<McpStdioServer>) {
     val arr = JSONArray()
     list.forEach { s ->
         arr.put(JSONObject().apply {
@@ -995,4 +1006,5 @@ private fun saveMcpStdioServers(prefs: AppPreferences, list: List<McpStdioServer
         })
     }
     prefs.saveMcpStdioServersJson(arr.toString())
+    flushMcpConfig(ctx, prefs)
 }

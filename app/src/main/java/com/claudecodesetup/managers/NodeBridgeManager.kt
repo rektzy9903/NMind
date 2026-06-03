@@ -166,6 +166,9 @@ class NodeBridgeManager(private val context: Context) {
                 mcpFile.delete()
                 mcpHttpFile.delete()
                 mcpStdioFile.delete()
+                // Still signal a reload — removing the LAST server must take effect
+                // live too, not only after a force-close.
+                try { File(context.filesDir, "mcp_reload_requested").createNewFile() } catch (_: Exception) {}
                 return
             }
             val mcpTmpFile = File(context.filesDir, "mcp_config.json.tmp")

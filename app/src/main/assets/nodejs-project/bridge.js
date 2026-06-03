@@ -2840,6 +2840,30 @@ async function reloadMcpServers() {
     return summary;
 }
 
+// Render the connected/failed MCP server + tool listing (shared by !mcp and the
+// post-reload report of !mcp-reload, so a reload visibly shows what it loaded).
+function buildMcpListing() {
+    let out = '\x1b[1m[MCP servers]\x1b[0m\r\n';
+    let total = 0;
+    for (const [name, srv] of mcpHttpServers.entries()) {
+        out += '  \x1b[32m●\x1b[0m \x1b[33m' + name + '\x1b[0m \x1b[2m(http, ' + srv.tools.length + ' tools)\x1b[0m\r\n';
+        for (const t of srv.tools) out += '    \x1b[2m· ' + t._mcpTool + '\x1b[0m\r\n';
+        total += srv.tools.length;
+    }
+    for (const [name, srv] of mcpStdioServers.entries()) {
+        out += '  \x1b[32m●\x1b[0m \x1b[33m' + name + '\x1b[0m \x1b[2m(stdio, ' + srv.tools.length + ' tools)\x1b[0m\r\n';
+        for (const t of srv.tools) out += '    \x1b[2m· ' + t._mcpTool + '\x1b[0m\r\n';
+        total += srv.tools.length;
+    }
+    for (const [name, info] of mcpFailed.entries()) {
+        out += '  \x1b[31m✗\x1b[0m \x1b[33m' + name + '\x1b[0m \x1b[2m(' + info.type + ', failed)\x1b[0m\r\n';
+        out += '    \x1b[31m' + (info.error || '').slice(0, 200) + '\x1b[0m\r\n';
+    }
+    if (total === 0 && mcpFailed.size === 0) out += '  \x1b[2m(no MCP servers connected)\x1b[0m\r\n';
+    if (mcpFailed.size > 0) out += '\r\n  \x1b[2muse !mcp-log to see captured stderr\x1b[0m\r\n';
+    return out;
+}
+
 // MCP-9: per-server tool whitelist. The UI writes
 //   filesDir/mcp_disabled_tools.json → { "<serverName>": ["tool1","tool2", …] }
 // listing tools the user has switched OFF. We filter these out of the
@@ -4776,7 +4800,11 @@ function openPrintSession() {
                 try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[2m[mcp-reload] reloading…\x1b[0m\r\n'); } catch(_) {}
                 reloadMcpServers().then(s => {
                     const msg = '[mcp-reload] started ' + s.startedStdio + ' stdio + ' + s.startedHttp + ' http, stopped ' + s.stoppedStdio + ' stdio + ' + s.stoppedHttp + ' http\r\n';
-                    try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[32m' + msg + '\x1b[0m'); } catch(_) {}
+                    // Show the resulting server/tool set so the user SEES what's now live
+                    // (the old handler printed only counts → looked like nothing happened).
+                    // claude-code picks these up on the next message — no force-close needed.
+                    try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[32m' + msg + '\x1b[0m' + buildMcpListing() +
+                        '\x1b[2mActive on your next message — no restart needed.\x1b[0m\r\n'); } catch(_) {}
                 }).catch(e => {
                     try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[31m[mcp-reload] error: ' + e.message + '\x1b[0m\r\n'); } catch(_) {}
                 });
@@ -4813,26 +4841,7 @@ function openPrintSession() {
             }
 
             if (line.startsWith('!mcp')) {
-                let out = '\x1b[1m[MCP servers]\x1b[0m\r\n';
-                let total = 0;
-                for (const [name, srv] of mcpHttpServers.entries()) {
-                    out += '  \x1b[32m●\x1b[0m \x1b[33m' + name + '\x1b[0m \x1b[2m(http, ' + srv.tools.length + ' tools)\x1b[0m\r\n';
-                    for (const t of srv.tools) out += '    \x1b[2m· ' + t._mcpTool + '\x1b[0m\r\n';
-                    total += srv.tools.length;
-                }
-                for (const [name, srv] of mcpStdioServers.entries()) {
-                    out += '  \x1b[32m●\x1b[0m \x1b[33m' + name + '\x1b[0m \x1b[2m(stdio, ' + srv.tools.length + ' tools)\x1b[0m\r\n';
-                    for (const t of srv.tools) out += '    \x1b[2m· ' + t._mcpTool + '\x1b[0m\r\n';
-                    total += srv.tools.length;
-                }
-                // MCP-5: include failed servers so users see what's misconfigured.
-                for (const [name, info] of mcpFailed.entries()) {
-                    out += '  \x1b[31m✗\x1b[0m \x1b[33m' + name + '\x1b[0m \x1b[2m(' + info.type + ', failed)\x1b[0m\r\n';
-                    out += '    \x1b[31m' + (info.error || '').slice(0, 200) + '\x1b[0m\r\n';
-                }
-                if (total === 0 && mcpFailed.size === 0) out += '  \x1b[2m(no MCP servers connected)\x1b[0m\r\n';
-                if (mcpFailed.size > 0) out += '\r\n  \x1b[2muse !mcp-log to see captured stderr\x1b[0m\r\n';
-                try { if (state.socket) state.socket.write(SYS_FENCE + out); } catch(_) {}
+                try { if (state.socket) state.socket.write(SYS_FENCE + buildMcpListing()); } catch(_) {}
                 continue;
             }
 
