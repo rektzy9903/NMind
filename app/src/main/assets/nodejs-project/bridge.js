@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b38-pty-claude-apikey';
+const BRIDGE_BUILD = 'b39-reject-diag';
 
 const net   = require('net');
 const http  = require('http');
@@ -5173,6 +5173,7 @@ function openPrintSession() {
             // Require SESSION:<sid>:<token>[:<mode>] header — reject anything else.
             // mode (optional, P6): 'ubuntu' → live PTY shell; default/absent → chat.
             if (!firstLine.startsWith('SESSION:')) {
+                log('[reject] no SESSION: prefix; firstLine="' + firstLine.slice(0, 40) + '"\n');
                 try { rawSocket.write('\r\n\x1b[31mUnauthorized connection rejected.\x1b[0m\r\n'); rawSocket.end(); } catch(_) {}
                 return;
             }
@@ -5181,10 +5182,18 @@ function openPrintSession() {
             const token = parts[1] || '';
             const mode  = parts[2] || 'chat';
             let expectedToken = '';
-            try { expectedToken = fs.readFileSync(path.join(FILES_DIR, 'local_token'), 'utf8').trim().slice(0, 200); } catch(_) {}
+            let tokenErr = '';
+            try { expectedToken = fs.readFileSync(path.join(FILES_DIR, 'local_token'), 'utf8').trim().slice(0, 200); } catch(e) { tokenErr = e.message; }
             // Reject if token missing/empty OR if presented token does not match.
             // An empty expectedToken must never match anything — reject all.
             if (!expectedToken || token !== expectedToken) {
+                // Diagnostic (b38): pinpoint WHY a PTY/chat socket is rejected — empty
+                // expected (read race/perm), empty received (Kotlin read fail), or true
+                // mismatch. Logs lengths + 6-char prefixes only (never the full secret).
+                log('[reject] mode=' + mode + ' sid=' + sid +
+                    ' recvLen=' + token.length + ' recv6=' + token.slice(0, 6) +
+                    ' expLen=' + expectedToken.length + ' exp6=' + expectedToken.slice(0, 6) +
+                    (tokenErr ? ' readErr=' + tokenErr : '') + '\n');
                 try { rawSocket.write('\r\n\x1b[31mUnauthorized connection rejected.\x1b[0m\r\n'); rawSocket.end(); } catch(_) {}
                 return;
             }
