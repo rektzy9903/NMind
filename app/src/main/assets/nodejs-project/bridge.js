@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b53-deadcode-clean';
+const BRIDGE_BUILD = 'b54-loop-probe';
 
 const net   = require('net');
 const http  = require('http');
@@ -82,6 +82,17 @@ const WARM_FILE     = path.join(FILES_DIR, 'warm_session');
 function getWarmMode() {
     try { return fs.readFileSync(WARM_FILE, 'utf8').trim() !== 'off'; }
     catch (_) { return true; }
+}
+// inv-68 loop-driver re-probe (temporary). When ON, the proxy STOPS pruning the
+// suspected loop-driver tools (PROBE_UNPRUNE below) so they reach the model — to
+// test on proot/2.1.160 whether a weak OAI model (e.g. gpt-oss-120b) still spirals
+// on Skill/AskUserQuestion now that the permission friction that fuelled the loop
+// (b24/P4) is gone. DEFAULT OFF — opt-in via `!probe-loop on`. Watch !log for the
+// [proxy] tool-result diagnostic (inv 68) + repeated AskUserQuestion/Skill calls.
+const LOOP_PROBE_FILE = path.join(FILES_DIR, 'loop_probe');
+function getLoopProbe() {
+    try { return fs.readFileSync(LOOP_PROBE_FILE, 'utf8').trim() === 'on'; }
+    catch (_) { return false; }
 }
 const CONFIG_FILE   = path.join(FILES_DIR, 'bridge_config.json');
 const SETUP_LOG     = path.join(FILES_DIR, 'setup.log');
@@ -1238,6 +1249,12 @@ const PRUNED_TOOLS = new Set([
     'Skill', 'Monitor', 'PushNotification', 'RemoteTrigger', 'AskUserQuestion',
 ]);
 
+// inv-68 re-probe: the subset of PRUNED_TOOLS suspected to be *behavior*-driven
+// (weak-model loop drivers) rather than platform-useless. When `!probe-loop on`,
+// these are NOT pruned, so we can test whether the loop still reproduces on proot.
+// (Cron/Worktree/Monitor etc. stay pruned — those are platform-useless regardless.)
+const PROBE_UNPRUNE = new Set(['Skill', 'AskUserQuestion']);
+
 // ── Tool deferral (proxy-side "lazy load" for OAI providers) ──────────────────
 // Anthropic's real tool-search is a SERVER-side feature of api.anthropic.com
 // (defer_loading + tool_search_tool); OAI providers (Gemini/OpenRouter/…) have
@@ -1378,8 +1395,12 @@ function handleProxyRequest(anthReq, res) {
         const mcpNames = anthReq.tools.filter(t => /^mcp__/.test(t.name || '')).map(t => t.name);
         log('[proxy] mcp tools in request: ' + mcpNames.length +
             (mcpNames.length ? ' [' + mcpNames.join(',') + ']' : '') + '\n');
+        const loopProbe = getLoopProbe();
         anthReq.tools = anthReq.tools.filter(t =>
-            !PRUNED_TOOLS.has(t.name) && userOff.indexOf(t.name) === -1);
+            (!PRUNED_TOOLS.has(t.name) || (loopProbe && PROBE_UNPRUNE.has(t.name)))
+            && userOff.indexOf(t.name) === -1);
+        if (loopProbe) log('[proxy] loop-probe ON — keeping ' +
+            Array.from(PROBE_UNPRUNE).join('/') + ' un-pruned (inv 68 test)\n');
         const dropped = before - anthReq.tools.length;
         if (dropped) log('[proxy] pruned ' + dropped + ' tool(s)' +
             (userOff.length ? ' (' + userOff.length + ' user-disabled)' : '') + '\n');
@@ -4596,6 +4617,27 @@ function openPrintSession() {
                 } else {
                     w('\x1b[33mtool deferral = ' + (getDeferTools() ? 'on' : 'off') + '\x1b[0m\r\n' +
                       '\x1b[2mUsage: !defer on | !defer off   core=' + Array.from(CORE_TOOLS).join(',') + '\x1b[0m\r\n');
+                }
+                continue;
+            }
+
+            // ── !probe-loop — inv-68 re-probe toggle (temporary diagnostic) ──
+            // ON = stop pruning Skill/AskUserQuestion so they reach the model;
+            // hand a weak model a permission-y / "ask me" task and watch !log for
+            // a loop (repeated AskUserQuestion/Skill + [proxy] tool-result lines).
+            if (line.startsWith('!probe-loop')) {
+                const w = (s) => { try { if (state.socket) state.socket.write(SYS_FENCE + s); } catch(_) {} };
+                const arg = line.slice('!probe-loop'.length).trim().toLowerCase();
+                if (arg === 'on' || arg === 'off') {
+                    try { fs.writeFileSync(LOOP_PROBE_FILE, arg); } catch(_) {}
+                    w('\x1b[32m✓ inv-68 loop-probe → ' + arg + '\x1b[0m\r\n' +
+                      '\x1b[2m' + (arg === 'on'
+                        ? 'Skill + AskUserQuestion are now UN-pruned (reach the model). ALSO run `!defer off` so they\'re sent up front, then give a weak model a task like "create a file, ask me which name" and watch !log. A loop = re-audit says keep them pruned; clean run = safe to relax.'
+                        : 'Back to normal — Skill/AskUserQuestion pruned again.') +
+                      ' Takes effect on your next message.\x1b[0m\r\n');
+                } else {
+                    w('\x1b[33minv-68 loop-probe = ' + (getLoopProbe() ? 'on' : 'off') + '\x1b[0m\r\n' +
+                      '\x1b[2mUsage: !probe-loop on | off   (un-prunes ' + Array.from(PROBE_UNPRUNE).join('/') + ')\x1b[0m\r\n');
                 }
                 continue;
             }
