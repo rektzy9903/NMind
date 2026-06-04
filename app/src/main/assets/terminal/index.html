@@ -3035,7 +3035,11 @@ reportTermSize();
     if (term) return;
     term = new Terminal({
       fontFamily:"'Space Mono','Courier New',monospace",
-      fontSize:11, cursorBlink:true, scrollback:5000, convertEol:false, letterSpacing:0,
+      fontSize:11, cursorBlink:true, scrollback:2000, convertEol:false, letterSpacing:0,
+      // The default DOM renderer is the only one bundled (no WebGL/Canvas addon),
+      // so keep the buffer modest — a huge scrollback makes scroll + reflow heavy
+      // on a mobile WebView. fastScrollModifier helps flick-scrolling feel lighter.
+      fastScrollModifier:'shift', scrollSensitivity:3,
       theme:{ background:'#0C0C0F', foreground:'#F0F0F2', cursor:'#E8834A',
               selectionBackground:'rgba(232,131,74,0.30)',
               black:'#151518', brightBlack:'#60606E' }
@@ -3043,6 +3047,20 @@ reportTermSize();
     try { fit = new FitAddon.FitAddon(); term.loadAddon(fit); } catch(_){}
     var mount=document.getElementById('xterm');
     term.open(mount);
+    // Harden xterm's hidden input box against the Android IME. Autocorrect /
+    // prediction / autocapitalize make the keyboard batch + rewrite keystrokes,
+    // which surfaces as "skipped letters" and "types by itself" in the terminal.
+    // Turn them all off so each key reaches term.onData cleanly.
+    try {
+      var ta=mount.querySelector('.xterm-helper-textarea');
+      if(ta){
+        ta.setAttribute('autocorrect','off');
+        ta.setAttribute('autocapitalize','off');
+        ta.setAttribute('autocomplete','off');
+        ta.setAttribute('spellcheck','false');
+        ta.setAttribute('inputmode','text');
+      }
+    } catch(_){}
     // Diagnostic: proves xterm renders locally. If you SEE this line but no bash
     // prompt → the Kotlin byte-relay (sendPty/onPtyOutput) is the problem (rebuild).
     // If you DON'T see it → xterm render/layout (this file, hotload-able).
@@ -3063,12 +3081,26 @@ reportTermSize();
     });
   }
 
+  // Debounced fit: entering Ubuntu mode + the soft keyboard fire doFit() several
+  // times in a burst (rAF + 120ms + 450ms + fonts.ready + every resize event).
+  // Each one used to send resizePty immediately → a SIGWINCH storm that made
+  // Claude's TUI repaint its whole startup banner over and over (the stacked
+  // "Welcome back!" banners) and churned the slow DOM renderer (stutter). Now we
+  // coalesce to ONE resize after the layout settles, and skip it when cols/rows
+  // didn't actually change.
+  var fitT=null, lastCols=0, lastRows=0;
   function doFit(){
     if(!fit||!term) return;
-    try {
-      fit.fit();
-      if(typeof Android!=='undefined'&&Android.resizePty) Android.resizePty(term.cols, term.rows);
-    } catch(_){}
+    if(fitT) clearTimeout(fitT);
+    fitT=setTimeout(function(){
+      fitT=null;
+      try {
+        fit.fit();
+        if(term.cols===lastCols && term.rows===lastRows) return;  // no real change → no SIGWINCH
+        lastCols=term.cols; lastRows=term.rows;
+        if(typeof Android!=='undefined'&&Android.resizePty) Android.resizePty(term.cols, term.rows);
+      } catch(_){}
+    }, 140);
   }
 
   // ── Globals called from Kotlin (TerminalActivity) ──
