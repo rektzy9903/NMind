@@ -68,11 +68,14 @@ function getEngineMode() {
 }
 // Tool-deferral toggle — own flag file (bridge_config.json is Kotlin-owned and
 // gets overwritten on restart, so bridge-side toggles persist separately, same
-// as engine_mode). Default OFF until Phase-2 reactive search lands.
+// as engine_mode). DEFAULT ON as of defer v2 — proactive pre-selection
+// (proactiveToolPick) makes it weak-model-safe, so it saves tokens out of the box
+// for every OAI provider (Anthropic passthrough is excluded regardless). Only an
+// explicit `!defer off` disables it.
 const DEFER_FILE    = path.join(FILES_DIR, 'defer_tools');
 function getDeferTools() {
-    try { return fs.readFileSync(DEFER_FILE, 'utf8').trim() === 'on'; }
-    catch (_) { return false; }
+    try { return fs.readFileSync(DEFER_FILE, 'utf8').trim() !== 'off'; }  // file present → on unless 'off'
+    catch (_) { return true; }                                            // no file (fresh install) → default ON
 }
 // Warm-session toggle — ONE long-lived `claude --print --input-format stream-json`
 // per chat tab, fed NDJSON over a kept-open stdin, instead of a fresh spawn per
