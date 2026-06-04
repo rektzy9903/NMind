@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b57-defer-websearch-redirect';
+const BRIDGE_BUILD = 'b58-strip-reminder-intent';
 
 const net   = require('net');
 const http  = require('http');
@@ -1351,6 +1351,16 @@ const TOOL_INTENT_KW = {
     KillShell:    ['kill', 'stop the process', 'terminate', 'cancel the job'],
 };
 
+// claude-code/the harness staples <system-reminder> blocks onto user turns (the
+// "task tools haven't been used… consider TaskCreate/TaskUpdate… track progress"
+// nudge, env context, etc.). These are NOT user intent and are dense with trigger
+// words ("TaskCreate", "task list", "track progress", "plan") that poison
+// proactiveToolPick — surfacing ~10 Task/Todo tools the user never asked for and
+// burying the tool they DID ask for (e.g. exa) in noise. Strip them before reading.
+function stripInjectedReminders(s) {
+    return String(s || '').replace(/<system-reminder>[\s\S]*?<\/system-reminder>/gi, ' ').trim();
+}
+
 // Most-recent USER intent text (skips tool_result-only turns, which carry no new
 // intent). Used to drive proactive tool selection.
 function latestUserText(anthReq) {
@@ -1358,10 +1368,14 @@ function latestUserText(anthReq) {
     for (let i = msgs.length - 1; i >= 0; i--) {
         const m = msgs[i];
         if (!m || m.role !== 'user') continue;
-        if (typeof m.content === 'string') { if (m.content.trim()) return m.content; continue; }
+        if (typeof m.content === 'string') {
+            const s = stripInjectedReminders(m.content);
+            if (s) return s; continue;   // reminder-only → keep looking back
+        }
         if (Array.isArray(m.content)) {
-            const t = m.content.filter(b => b && b.type === 'text' && b.text).map(b => b.text).join(' ');
-            if (t.trim()) return t;   // empty → tool_result-only turn, keep looking back
+            const t = stripInjectedReminders(
+                m.content.filter(b => b && b.type === 'text' && b.text).map(b => b.text).join(' '));
+            if (t) return t;   // empty after strip → reminder/tool_result-only turn, keep looking back
         }
     }
     return '';
