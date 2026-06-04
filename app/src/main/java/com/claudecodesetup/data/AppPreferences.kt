@@ -123,12 +123,6 @@ class AppPreferences(context: Context) {
     fun getProviderRemoteUrl(): String = prefs.getString(KEY_PROVIDER_REMOTE_URL, "") ?: ""
     fun setProviderRemoteUrl(url: String) = prefs.edit().putString(KEY_PROVIDER_REMOTE_URL, url).apply()
 
-    fun getPtyCols(): Int = prefs.getInt("pty_cols", 220)
-    fun setPtyCols(cols: Int) = prefs.edit().putInt("pty_cols", cols).apply()
-
-    fun getPtyRows(): Int = prefs.getInt("pty_rows", 50)
-    fun setPtyRows(rows: Int) = prefs.edit().putInt("pty_rows", rows).apply()
-
     // ─── Per-provider custom server URL (URL-configurable providers like Ollama) ─
 
     /** Saved URL entered by the user for a URL-configurable provider. */

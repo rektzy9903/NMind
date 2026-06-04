@@ -378,8 +378,6 @@ class NodeBridgeManager(private val context: Context) {
             put("modelList",          modelList)
             put("projectPath",        projectPath)
             put("customSystemPrompt", customSystemPrompt)
-            put("ptyCols",            prefs?.getPtyCols() ?: 220)
-            put("ptyRows",            prefs?.getPtyRows() ?: 50)
             put("localToken",         localToken)
             put("disabledTools",      disabledTools)
         }

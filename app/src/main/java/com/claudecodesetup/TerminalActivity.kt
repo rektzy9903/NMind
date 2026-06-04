@@ -1002,17 +1002,14 @@ class TerminalActivity : AppCompatActivity() {
             claudeService?.sendInput(text)
         }
 
-        /** Called by JS when the terminal dimensions change. Records the size only.
-         *  The in-band resize sequence (ESC 0xFE …) was REMOVED with !pty: it had no
-         *  consumer left and leaked into the bridge input buffer, self-sending a
-         *  gibberish message on resize/resume (the cols/rows low-bytes are printable
-         *  punctuation). Print mode has no TTY to resize. */
+        /** Called by JS when the print-mode terminal dimensions change. No-op now:
+         *  print mode has no TTY to resize, and the old ptyCols/ptyRows it recorded
+         *  were never read by bridge.js (the Ubuntu 🐧 tab resizes via resizePty/
+         *  TIOCSWINSZ instead). Kept as a stable JS bridge method so the WebView's
+         *  guarded Android.notifyResize(...) call still resolves. */
         @JavascriptInterface
         fun notifyResize(cols: Int, rows: Int) {
-            if (cols !in 10..999 || rows !in 5..500) return
-            prefs.setPtyCols(cols)
-            prefs.setPtyRows(rows)
-            // NOTE: do NOT call sendResizeAll — see comment above.
+            // intentionally empty
         }
 
         // ─── Ubuntu dual-mode PTY (P6.5) ──────────────────────────────────────

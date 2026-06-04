@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Nexus Mind</string>
-    <string name="accessibility_service_description">Allows Claude to take silent screenshots and control your device when Device Control is enabled.</string>
 
     <!-- Setup -->
     <string name="setup_title">Setting up Nexus Mind for you…</string>

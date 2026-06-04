@@ -893,14 +893,6 @@ private fun ModelRowList(
     }
 }
 
-// Keep ModelSubGrid for backwards compatibility (unused but avoids break if referenced elsewhere)
-@Composable
-private fun ModelSubGrid(
-    models: List<ModelDisplay>,
-    selectedModel: AiModel?,
-    onSelect: (AiModel) -> Unit
-) = ModelRowList(models, selectedModel, onSelect)
-
 @Composable
 private fun SectionHeader(label: String, color: Color) {
     ModelSectionHeader(label.removePrefix("🆓 ").removePrefix("💳 "), color, 0)

@@ -121,8 +121,6 @@ class ClaudeService : LifecycleService() {
         return binder
     }
 
-    private val deviceControlServer = DeviceControlHttpServer()
-
     override fun onCreate() {
         super.onCreate()
         instance = this
@@ -131,7 +129,6 @@ class ClaudeService : LifecycleService() {
         val pm = getSystemService(PowerManager::class.java)
         wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "ClaudeCode:WakeLock")
         startForeground(NOTIF_ID, buildNotification("Nexus Mind is ready"))
-        deviceControlServer.start(this)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -146,7 +143,6 @@ class ClaudeService : LifecycleService() {
     override fun onDestroy() {
         super.onDestroy()
         instance = null
-        deviceControlServer.stop()
         stopAllSessions()
         releaseWakeLock()
         LlamaServerManager.get(this).stopServer()
@@ -220,17 +216,6 @@ class ClaudeService : LifecycleService() {
             session.outputStream?.flush()
         } catch (e: Exception) {
             Log.e(TAG, "sendInput failed for session $activeSessionId", e)
-        }
-    }
-
-    fun sendResizeAll(cols: Int, rows: Int) {
-        val hiC = (cols shr 8) and 0xff
-        val loC = cols and 0xff
-        val hiR = (rows shr 8) and 0xff
-        val loR = rows and 0xff
-        val resize = byteArrayOf(0x1b, 0xfe.toByte(), hiC.toByte(), loC.toByte(), hiR.toByte(), loR.toByte())
-        sessions.values.forEach { s ->
-            try { s.outputStream?.write(resize); s.outputStream?.flush() } catch (_: Exception) {}
         }
     }
 
