@@ -193,7 +193,7 @@ private fun toDisplay(model: AiModel): ModelDisplay {
     return ModelDisplay(model, caps, iconUrl, iconResId, color, speed, badge, tokens, description)
 }
 
-private const val PAGE_SIZE = 9
+private const val PAGE_SIZE = 8
 
 // ── Screen ────────────────────────────────────────────────────────────────────
 
