@@ -169,8 +169,7 @@ object Providers {
     val KIMI = Provider(
         id = "kimi",
         name = "Kimi (Moonshot AI)",
-        // No CC0 brand mark available — falls back to stylized tile.
-        // Run scripts/add-brand-icon.sh with Moonshot's official SVG URL to populate.
+        iconResId = R.drawable.ic_brand_kimi,
         supportsLiveFetch = true,
         signupUrl = "https://platform.moonshot.ai",
         rateLimit = "Paid credits required",
@@ -258,8 +257,7 @@ object Providers {
     val GROQ = Provider(
         id = "groq",
         name = "Groq",
-        // No CC0 brand mark available — falls back to stylized tile.
-        // Run scripts/add-brand-icon.sh with Groq's official SVG URL to populate.
+        iconResId = R.drawable.ic_brand_groq,
         supportsLiveFetch = true,
         signupUrl = "https://console.groq.com/keys",
         rateLimit = "Free · 14,400 req/day · Ultra-fast",

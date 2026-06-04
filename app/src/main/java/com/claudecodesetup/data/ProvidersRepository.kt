@@ -129,7 +129,9 @@ object ProvidersRepository {
         "ollama"        -> com.claudecodesetup.R.drawable.ic_brand_ollama
         "anthropic"     -> com.claudecodesetup.R.drawable.ic_brand_claude
         "anthropic_api" -> com.claudecodesetup.R.drawable.ic_brand_claude
-        else            -> 0   // groq, kimi, etc. — no CC0 mark bundled
+        "groq"          -> com.claudecodesetup.R.drawable.ic_brand_groq
+        "kimi"          -> com.claudecodesetup.R.drawable.ic_brand_kimi
+        else            -> 0   // providers without a bundled CC0 mark
     }
 
     private fun parseMalaysiaStatus(s: String) = when (s) {

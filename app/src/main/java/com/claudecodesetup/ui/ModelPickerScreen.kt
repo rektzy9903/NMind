@@ -108,6 +108,7 @@ internal fun brandIconForModel(modelId: String): Int {
         "metall" in org || "meta" == org || "llama" in id -> R.drawable.ic_brand_meta
         "openai" in org || "gpt" in id                    -> R.drawable.ic_brand_openai
         "deepseek" in id || "deepseek" in org             -> R.drawable.ic_brand_deepseek
+        "moonshotai" in org || "moonshot" in id || "kimi" in id -> R.drawable.ic_brand_kimi
         "mistralai" in org || "mistral" in id || "mixtral" in id -> R.drawable.ic_brand_mistral
         "qwen" in id || "qwen" in org                     -> R.drawable.ic_brand_qwen
         "nvidia" in org || "nvidia" in id || "nemotron" in id -> R.drawable.ic_brand_nvidia
