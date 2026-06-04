@@ -193,7 +193,7 @@ private fun toDisplay(model: AiModel): ModelDisplay {
     return ModelDisplay(model, caps, iconUrl, iconResId, color, speed, badge, tokens, description)
 }
 
-private const val PAGE_SIZE = 8
+private const val PAGE_SIZE = 6
 
 // ── Screen ────────────────────────────────────────────────────────────────────
 
@@ -657,11 +657,13 @@ private fun ModelCard(display: ModelDisplay, isSelected: Boolean, onSelect: () -
     Box(
         modifier = Modifier
             .graphicsLayer { scaleX = cardScale; scaleY = cardScale }
-            .fillMaxHeight()
+            .fillMaxWidth()
+            // Fixed height so every card is the same size regardless of how many
+            // capability tags it has (tag FlowRow is capped at 2 rows below).
+            .height(132.dp)
             .background(cardBg, RoundedCornerShape(12.dp))
             .border(1.dp, cardBorderColor, RoundedCornerShape(12.dp))
             .clickable(interactionSource = interaction, indication = null) { onSelect() }
-            .heightIn(min = 90.dp)
             .padding(12.dp)
     ) {
         Column(
@@ -695,6 +697,7 @@ private fun ModelCard(display: ModelDisplay, isSelected: Boolean, onSelect: () -
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(3.dp),
                 verticalArrangement = Arrangement.spacedBy(3.dp),
+                maxLines = 2,
                 modifier = Modifier.padding(top = 2.dp)
             ) {
                 CAP_PILL_ORDER.forEach { (cap, label) ->
@@ -879,6 +882,7 @@ private fun ModelRowList(
                     Box(
                         modifier = Modifier
                             .weight(1f)
+                            .height(132.dp)
                             .background(Color(0x03FFFFFF), RoundedCornerShape(12.dp))
                             .border(1.dp, Color(0x08FFFFFF), RoundedCornerShape(12.dp))
                     )
