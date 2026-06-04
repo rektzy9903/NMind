@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b54-loop-probe';
+const BRIDGE_BUILD = 'b55-prune-finalize';
 
 const net   = require('net');
 const http  = require('http');
@@ -82,17 +82,6 @@ const WARM_FILE     = path.join(FILES_DIR, 'warm_session');
 function getWarmMode() {
     try { return fs.readFileSync(WARM_FILE, 'utf8').trim() !== 'off'; }
     catch (_) { return true; }
-}
-// inv-68 loop-driver re-probe (temporary). When ON, the proxy STOPS pruning the
-// suspected loop-driver tools (PROBE_UNPRUNE below) so they reach the model — to
-// test on proot/2.1.160 whether a weak OAI model (e.g. gpt-oss-120b) still spirals
-// on Skill/AskUserQuestion now that the permission friction that fuelled the loop
-// (b24/P4) is gone. DEFAULT OFF — opt-in via `!probe-loop on`. Watch !log for the
-// [proxy] tool-result diagnostic (inv 68) + repeated AskUserQuestion/Skill calls.
-const LOOP_PROBE_FILE = path.join(FILES_DIR, 'loop_probe');
-function getLoopProbe() {
-    try { return fs.readFileSync(LOOP_PROBE_FILE, 'utf8').trim() === 'on'; }
-    catch (_) { return false; }
 }
 const CONFIG_FILE   = path.join(FILES_DIR, 'bridge_config.json');
 const SETUP_LOG     = path.join(FILES_DIR, 'setup.log');
@@ -1241,19 +1230,20 @@ const PRUNED_TOOLS = new Set([
     'CronCreate', 'CronDelete', 'CronList',
     'EnterWorktree', 'ExitWorktree',
     'ScheduleWakeup', 'NotebookEdit',
-    // Orchestration/harness tools with no function on a phone terminal — and
-    // they are loop drivers for weak OAI models (inv 68). Observed on-device:
-    // gpt-oss-120b spiralled on Skill("update-config") ~10x trying to self-grant
-    // a Write permission, then timed out (exit 143). AskUserQuestion is the other
-    // prime loop driver (weak models "ask permission" for things they can do).
+    // Harness/orchestration tools that don't function on this build:
+    //   Skill          — no skills configured in the guest → calling it does nothing
+    //   Monitor        — watches a backgrounded job; print mode has none across turns
+    //   PushNotification / RemoteTrigger — harness APIs with no counterpart here
+    //   AskUserQuestion — claude-code --print auto-resolves it with an is_error
+    //     ("please choose…"); there's no TTY to collect the answer, so it's
+    //     non-functional in headless chat (it WOULD work in the 🐧 interactive tab).
+    // NOTE: the old "weak models loop on Skill/AskUserQuestion" (inv 68) fear was an
+    // OLD-ENGINE artifact (permission friction). Re-probed on proot 2.1.161 (b54
+    // !probe-loop) across kimi-k2.6 / gpt-oss-20b / gpt-oss-120b: NO loop — all ask
+    // in plain text, none even call the tools. So these stay pruned for uselessness,
+    // NOT loop danger. Interactive ask→answer already works via natural text + warm.
     'Skill', 'Monitor', 'PushNotification', 'RemoteTrigger', 'AskUserQuestion',
 ]);
-
-// inv-68 re-probe: the subset of PRUNED_TOOLS suspected to be *behavior*-driven
-// (weak-model loop drivers) rather than platform-useless. When `!probe-loop on`,
-// these are NOT pruned, so we can test whether the loop still reproduces on proot.
-// (Cron/Worktree/Monitor etc. stay pruned — those are platform-useless regardless.)
-const PROBE_UNPRUNE = new Set(['Skill', 'AskUserQuestion']);
 
 // ── Tool deferral (proxy-side "lazy load" for OAI providers) ──────────────────
 // Anthropic's real tool-search is a SERVER-side feature of api.anthropic.com
@@ -1395,12 +1385,8 @@ function handleProxyRequest(anthReq, res) {
         const mcpNames = anthReq.tools.filter(t => /^mcp__/.test(t.name || '')).map(t => t.name);
         log('[proxy] mcp tools in request: ' + mcpNames.length +
             (mcpNames.length ? ' [' + mcpNames.join(',') + ']' : '') + '\n');
-        const loopProbe = getLoopProbe();
         anthReq.tools = anthReq.tools.filter(t =>
-            (!PRUNED_TOOLS.has(t.name) || (loopProbe && PROBE_UNPRUNE.has(t.name)))
-            && userOff.indexOf(t.name) === -1);
-        if (loopProbe) log('[proxy] loop-probe ON — keeping ' +
-            Array.from(PROBE_UNPRUNE).join('/') + ' un-pruned (inv 68 test)\n');
+            !PRUNED_TOOLS.has(t.name) && userOff.indexOf(t.name) === -1);
         const dropped = before - anthReq.tools.length;
         if (dropped) log('[proxy] pruned ' + dropped + ' tool(s)' +
             (userOff.length ? ' (' + userOff.length + ' user-disabled)' : '') + '\n');
@@ -4617,27 +4603,6 @@ function openPrintSession() {
                 } else {
                     w('\x1b[33mtool deferral = ' + (getDeferTools() ? 'on' : 'off') + '\x1b[0m\r\n' +
                       '\x1b[2mUsage: !defer on | !defer off   core=' + Array.from(CORE_TOOLS).join(',') + '\x1b[0m\r\n');
-                }
-                continue;
-            }
-
-            // ── !probe-loop — inv-68 re-probe toggle (temporary diagnostic) ──
-            // ON = stop pruning Skill/AskUserQuestion so they reach the model;
-            // hand a weak model a permission-y / "ask me" task and watch !log for
-            // a loop (repeated AskUserQuestion/Skill + [proxy] tool-result lines).
-            if (line.startsWith('!probe-loop')) {
-                const w = (s) => { try { if (state.socket) state.socket.write(SYS_FENCE + s); } catch(_) {} };
-                const arg = line.slice('!probe-loop'.length).trim().toLowerCase();
-                if (arg === 'on' || arg === 'off') {
-                    try { fs.writeFileSync(LOOP_PROBE_FILE, arg); } catch(_) {}
-                    w('\x1b[32m✓ inv-68 loop-probe → ' + arg + '\x1b[0m\r\n' +
-                      '\x1b[2m' + (arg === 'on'
-                        ? 'Skill + AskUserQuestion are now UN-pruned (reach the model). ALSO run `!defer off` so they\'re sent up front, then give a weak model a task like "create a file, ask me which name" and watch !log. A loop = re-audit says keep them pruned; clean run = safe to relax.'
-                        : 'Back to normal — Skill/AskUserQuestion pruned again.') +
-                      ' Takes effect on your next message.\x1b[0m\r\n');
-                } else {
-                    w('\x1b[33minv-68 loop-probe = ' + (getLoopProbe() ? 'on' : 'off') + '\x1b[0m\r\n' +
-                      '\x1b[2mUsage: !probe-loop on | off   (un-prunes ' + Array.from(PROBE_UNPRUNE).join('/') + ')\x1b[0m\r\n');
                 }
                 continue;
             }
