@@ -458,6 +458,7 @@ internal fun providerDisplayInfo(id: String): Pair<Color, String> = when (id) {
     "anthropic"     -> NexusAccent          to "Subscription"
     "anthropic_api" -> NexusAccent          to "API Key"
     "groq"          -> Color(0xFFF97316)    to "14,400/day"
+    "cerebras"      -> Color(0xFFF15A29)    to "Fastest · Free"
     else            -> NexusAccent          to "AI Provider"
 }
 

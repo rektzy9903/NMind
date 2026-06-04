@@ -137,6 +137,10 @@ private fun buildRequest(provider: Provider, key: String): Request? {
             .url("https://api.groq.com/openai/v1/models")
             .header("Authorization", "Bearer $key")
             .build()
+        "cerebras" -> builder
+            .url("https://api.cerebras.ai/v1/models")
+            .header("Authorization", "Bearer $key")
+            .build()
         "qwen" -> builder
             .url("https://dashscope-intl.aliyuncs.com/compatible-mode/v1/models")
             .header("Authorization", "Bearer $key")

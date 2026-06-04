@@ -277,6 +277,25 @@ object Providers {
         )
     )
 
+    val CEREBRAS = Provider(
+        id = "cerebras",
+        name = "Cerebras",
+        iconResId = R.drawable.ic_brand_cerebras,
+        supportsLiveFetch = true,
+        signupUrl = "https://cloud.cerebras.ai",
+        rateLimit = "Free · 60K tok/min · 14,400 req/day · fastest",
+        malaysiaStatus = MalaysiaStatus.GREEN,
+        malaysiaNote = "Works everywhere — no credit card",
+        baseUrl = "https://api.cerebras.ai/v1",
+        requiresProxy = true,
+        models = listOf(
+            AiModel("GPT-OSS 120B",        "gpt-oss-120b",                   setOf(Cap.TOOLS, Cap.REASONING, Cap.FREE),    "Open frontier · ~3000 tok/s"),
+            AiModel("Qwen3 235B Instruct", "qwen-3-235b-a22b-instruct-2507", setOf(Cap.TOOLS, Cap.LONG_CTX, Cap.FREE),     "Large · instant speed"),
+            AiModel("GLM 4.7",             "zai-glm-4.7",                    setOf(Cap.TOOLS, Cap.REASONING, Cap.FREE),    "Reasoning · thinking tokens"),
+            AiModel("Llama 3.1 8B",        "llama3.1-8b",                    setOf(Cap.TOOLS, Cap.FAST, Cap.FREE),         "Compact · fastest")
+        )
+    )
+
     val ANTHROPIC = Provider(
         id = "anthropic",
         name = "Anthropic (Claude.ai)",
@@ -333,7 +352,7 @@ object Providers {
         models = emptyList()
     )
 
-    val ALL = listOf(GROQ, GEMINI, OPENROUTER, ANTHROPIC_API, DEEPSEEK, KIMI, QWEN, MISTRAL, NVIDIA_NIM, META_LLAMA, OLLAMA)
+    val ALL = listOf(GROQ, GEMINI, CEREBRAS, OPENROUTER, ANTHROPIC_API, DEEPSEEK, KIMI, QWEN, MISTRAL, NVIDIA_NIM, META_LLAMA, OLLAMA)
 
     fun byId(id: String): Provider? = when (id) {
         "anthropic"     -> ANTHROPIC

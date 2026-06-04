@@ -131,6 +131,7 @@ object ProvidersRepository {
         "anthropic_api" -> com.claudecodesetup.R.drawable.ic_brand_claude
         "groq"          -> com.claudecodesetup.R.drawable.ic_brand_groq
         "kimi"          -> com.claudecodesetup.R.drawable.ic_brand_kimi
+        "cerebras"      -> com.claudecodesetup.R.drawable.ic_brand_cerebras
         else            -> 0   // providers without a bundled CC0 mark
     }
 
@@ -183,6 +184,7 @@ object ProvidersRepository {
         "nvidia_nim"  -> fetchNvidiaFreeModels(apiKey)
         "gemini"      -> fetchGeminiModels(apiKey)
         "groq"        -> fetchOpenAiStyleModels("https://api.groq.com/openai/v1/models", apiKey, provider, isAlwaysFree = true)
+        "cerebras"    -> fetchOpenAiStyleModels("https://api.cerebras.ai/v1/models", apiKey, provider, isAlwaysFree = true)
         "deepseek"    -> fetchOpenAiStyleModels("https://api.deepseek.com/models", apiKey, provider)
         "kimi"        -> fetchOpenAiStyleModels("https://api.moonshot.ai/v1/models", apiKey, provider)
         "qwen"        -> fetchOpenAiStyleModels("https://dashscope-intl.aliyuncs.com/compatible-mode/v1/models", apiKey, provider)

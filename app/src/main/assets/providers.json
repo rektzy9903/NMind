@@ -79,6 +79,35 @@
       ]
     },
     {
+      "id": "cerebras",
+      "name": "Cerebras",
+      "signupUrl": "https://cloud.cerebras.ai",
+      "rateLimit": "Free · 60K tok/min · 14,400 req/day · fastest",
+      "malaysiaStatus": "GREEN",
+      "malaysiaNote": "Works everywhere — no credit card",
+      "baseUrl": "https://api.cerebras.ai/v1",
+      "requiresProxy": true,
+      "requiresApiKey": true,
+      "models": [
+        {
+          "name": "GPT-OSS 120B",
+          "modelId": "gpt-oss-120b"
+        },
+        {
+          "name": "Qwen3 235B Instruct",
+          "modelId": "qwen-3-235b-a22b-instruct-2507"
+        },
+        {
+          "name": "GLM 4.7",
+          "modelId": "zai-glm-4.7"
+        },
+        {
+          "name": "Llama 3.1 8B",
+          "modelId": "llama3.1-8b"
+        }
+      ]
+    },
+    {
       "id": "openrouter",
       "name": "OpenRouter",
       "signupUrl": "https://openrouter.ai",
