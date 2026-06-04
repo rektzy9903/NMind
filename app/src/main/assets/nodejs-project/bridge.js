@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b52-defer-v2';
+const BRIDGE_BUILD = 'b53-deadcode-clean';
 
 const net   = require('net');
 const http  = require('http');
@@ -43,11 +43,9 @@ const CLAUDE_CLI  = path.join(
 );
 // Proot Ubuntu engine (P2): claude-code 2.1.160 installed by !setup-engine into
 // /opt/node inside the rootfs. cli.js path is GUEST-side (inside proot), fixed by
-// npm's default global prefix (/opt/node). Engine selection lives in a tiny file
-// (filesDir/engine_mode = 'proot'|'legacy'). P4 (2026-06-03): proot (claude-code
-// 2.1.160 on glibc) is now the DEFAULT — legacy 2.1.112 only runs if engine_mode
-// explicitly says 'legacy' (kept as a fallback during the proot rollout; slated for
-// removal once proot is proven). Toggle with `!engine proot` / `!engine legacy`.
+// npm's default global prefix (/opt/node). proot (claude-code 2.1.160 on glibc) is
+// the only engine — the legacy 2.1.112/libnode engine + the engine_mode dev flag
+// were deleted in P4 (2026-06-03).
 const GUEST_CLI     = '/opt/node/lib/node_modules/@anthropic-ai/claude-code/cli.js';
 const GUEST_NODE    = '/opt/node/bin/node';
 // The npm-installed launcher symlink (/opt/node/bin/claude → ../lib/node_modules/
@@ -59,13 +57,9 @@ const GUEST_NODE    = '/opt/node/bin/node';
 // /opt/node/bin) resolves node. Absolute argv[0] needs no shell, so the user message
 // stays a separate argv element with zero quoting risk.
 const GUEST_CLAUDE  = '/opt/node/bin/claude';
-const ENGINE_FILE   = path.join(FILES_DIR, 'engine_mode');
-function getEngineMode() {
-    // P4 (2026-06-03): the legacy 2.1.112/libnode engine is DELETED. proot
-    // (claude-code 2.1.160 on glibc) is the ONLY engine. Kept as a function (many
-    // call sites) but it's now a constant; ENGINE_FILE is no longer consulted.
-    return 'proot';
-}
+// Engine is always proot (claude-code 2.1.160 on glibc). The legacy 2.1.112/libnode
+// engine + the engine_mode dev flag were deleted in P4; the no-op getEngineMode()
+// shim and its always-true call-site guards were removed 2026-06-04 (dead-code clean).
 // Tool-deferral toggle — own flag file (bridge_config.json is Kotlin-owned and
 // gets overwritten on restart, so bridge-side toggles persist separately, same
 // as engine_mode). DEFAULT ON as of defer v2 — proactive pre-selection
@@ -4584,12 +4578,6 @@ function openPrintSession() {
                 continue;
             }
 
-            // ── !engine — removed (P4). proot (claude-code 2.1.160) is the only engine. ─
-            if (line.startsWith('!engine')) {
-                try { if (state.socket) state.socket.write(SYS_FENCE + '\x1b[2m[engine = proot (claude-code 2.1.160). The legacy 2.1.112 engine was removed in P4.]\x1b[0m\r\n'); } catch(_) {}
-                continue;
-            }
-
             // ── !defer — proxy-side tool deferral toggle (lazy-load for OAI) ──
             // Writes filesDir/defer_tools. Read fresh per proxy request. OAI
             // providers only (Anthropic passthrough gets native search free).
@@ -4780,7 +4768,7 @@ function openPrintSession() {
             //   (b) Sub-agent returned a unique tag we embedded in its prompt
             // 90s timeout — sub-agents dispatch a child claude session, which
             // means a second API call cycle on top of the parent's.
-            if (line.startsWith('!test-agent') && getEngineMode() === 'proot') {
+            if (line.startsWith('!test-agent')) {
                 // ── PROOT branch — re-probe FILE-based custom-agent discovery on
                 // claude-code 2.1.160 (the feat/custom-agents premise). On 2.1.112
                 // print mode this returned "Agent type 'nexus_probe' not found.
@@ -4872,7 +4860,7 @@ function openPrintSession() {
             // the FILES_DIR/.claude bind) whose body asks the model to emit a unique
             // tag, then send "/nexustest". If 2.1.160 expands it, the tag comes back;
             // if not, the model treats "/nexustest" as a literal path.
-            if (line.startsWith('!test-slash') && getEngineMode() === 'proot') {
+            if (line.startsWith('!test-slash')) {
                 const w = (s) => { try { if (state.socket) state.socket.write(SYS_FENCE + s); } catch(_) {} };
                 const G='\x1b[32m', Y='\x1b[33m', R='\x1b[31m', D='\x1b[2m', X='\x1b[0m';
                 const sTag = 'NEXUS_SLASH_OK_' + Date.now().toString(36);
@@ -4932,7 +4920,7 @@ function openPrintSession() {
             // text instead. Re-test on glibc/2.1.160: spawn the guest with
             // --append-system-prompt and a trivial message; if it returns promptly
             // (not a timeout) the flag works → drop the prepend hack on the proot path.
-            if (line.startsWith('!test-append') && getEngineMode() === 'proot') {
+            if (line.startsWith('!test-append')) {
                 const w = (s) => { try { if (state.socket) state.socket.write(SYS_FENCE + s); } catch(_) {} };
                 const G='\x1b[32m', Y='\x1b[33m', R='\x1b[31m', D='\x1b[2m', X='\x1b[0m';
                 const aBenv = buildEnv();
@@ -4989,7 +4977,7 @@ function openPrintSession() {
             // workspace boundary, inv 62), spawn a Write-tool task relying solely on
             // --dangerously-skip-permissions + IS_SANDBOX, then RESTORE settings.
             //   tool ran + no login hang → the apparatus is deletable scar (P4).
-            if (line.startsWith('!test-noperms') && getEngineMode() === 'proot') {
+            if (line.startsWith('!test-noperms')) {
                 const w = (s) => { try { if (state.socket) state.socket.write(SYS_FENCE + s); } catch(_) {} };
                 const G='\x1b[32m', Y='\x1b[33m', R='\x1b[31m', D='\x1b[2m', X='\x1b[0m';
                 const claudeDir = path.join(FILES_DIR, '.claude');
@@ -5073,7 +5061,7 @@ function openPrintSession() {
             // /bin/bash, so the symlink + CLAUDE_CODE_SHELL dance should be unnecessary.
             // Test: spawn the guest WITHOUT CLAUDE_CODE_SHELL, run a Bash-tool task; if
             // the command's output comes back (no "No suitable shell"), drop the hack on proot.
-            if (line.startsWith('!test-shell') && getEngineMode() === 'proot') {
+            if (line.startsWith('!test-shell')) {
                 const w = (s) => { try { if (state.socket) state.socket.write(SYS_FENCE + s); } catch(_) {} };
                 const G='\x1b[32m', Y='\x1b[33m', R='\x1b[31m', D='\x1b[2m', X='\x1b[0m';
                 const shTag = 'SHELLOK_' + Date.now().toString(36);
@@ -5132,7 +5120,7 @@ function openPrintSession() {
             // 2.1.160. Test: write a NATIVE {type:"http",url,headers} mcp-config into
             // the guest (/root/.claude via bind), spawn with --mcp-config, and check
             // (a) no spawn hang (inv 51 gone) (b) mcp__<server>__* tools register.
-            if (line.startsWith('!test-mcp') && getEngineMode() === 'proot') {
+            if (line.startsWith('!test-mcp')) {
                 const w = (s) => { try { if (state.socket) state.socket.write(SYS_FENCE + s); } catch(_) {} };
                 const G='\x1b[32m', Y='\x1b[33m', R='\x1b[31m', D='\x1b[2m', X='\x1b[0m';
                 let httpEntries = [];
