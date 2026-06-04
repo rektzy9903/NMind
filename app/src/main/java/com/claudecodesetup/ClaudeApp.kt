@@ -4,13 +4,25 @@ import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import com.claudecodesetup.data.AppPreferences
+import com.claudecodesetup.data.ProvidersRepository
 import com.claudecodesetup.managers.NodeBridgeManager
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class ClaudeApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
         createNotificationChannels()
+        // Warm the provider-list cache (parses providers.json / a hotloaded
+        // providers_dev.json) so Quick Ask / Discussion / Model Test read the SAME
+        // list as the Setup picker — even on a cold launch that skips the picker.
+        // Fire-and-forget; ProvidersRepository.currentList() falls back to
+        // Providers.ALL until this completes (a fast local file read).
+        CoroutineScope(Dispatchers.IO).launch {
+            runCatching { ProvidersRepository.load(this@ClaudeApp) }
+        }
         // Start Node.js engine as early as possible so the bridge is warm
         // by the time the user reaches the terminal. NodeEngine guards
         // against duplicate starts via its started flag.

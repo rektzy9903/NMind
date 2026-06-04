@@ -19,6 +19,14 @@ object ProvidersRepository {
     // Empty string means always use the bundled asset.
     var remoteUrl: String = ""
 
+    // Last successfully loaded provider list (includes a hotloaded providers_dev.json
+    // in DEBUG). Synchronous accessor so Quick Ask / Discussion / Model Test can read
+    // the SAME list the Setup picker shows — instead of the hardcoded Providers.ALL,
+    // which can't see a JSON-only hotload. Warmed by every load() and by SplashActivity
+    // at startup; falls back to Providers.ALL until the first load() completes.
+    @Volatile private var cached: List<Provider>? = null
+    fun currentList(): List<Provider> = cached ?: Providers.ALL
+
     private val http = OkHttpClient.Builder()
         .connectTimeout(8, TimeUnit.SECONDS)
         .readTimeout(8, TimeUnit.SECONDS)
@@ -36,7 +44,7 @@ object ProvidersRepository {
             try {
                 val json = fetchRemote(url)
                 val providers = parseProviders(json)
-                if (providers.isNotEmpty()) return@withContext Result(providers, fromRemote = true)
+                if (providers.isNotEmpty()) { cached = providers; return@withContext Result(providers, fromRemote = true) }
             } catch (e: Exception) {
                 Log.w(TAG, "Remote fetch failed, using bundled: ${e.message}")
             }
@@ -46,6 +54,7 @@ object ProvidersRepository {
             Log.e(TAG, "Asset parse failed, using hardcoded list", e)
             Providers.ALL
         }
+        cached = providers
         Result(providers, fromRemote = false)
     }
 
@@ -106,6 +115,10 @@ object ProvidersRepository {
             // back to the bundled brand drawable here. Without this, every provider
             // loaded from assets/providers.json falls through to the letter fallback.
             iconResId       = brandResIdForProvider(id),
+            // Optional web logo URL — lets a HOTLOADED provider (no bundled drawable,
+            // so iconResId=0) still show a real icon instead of the letter tile. The
+            // tile renders iconResId first, then iconUrl, then the letter fallback.
+            iconUrl         = obj.optString("iconUrl"),
             // These two gate live model fetch (↻ Refresh) and the URL-config field.
             // Default to true so JSON-loaded providers don't silently lose live fetch
             // (only Ollama overrides isUrlConfigurable). Without reading them here the
@@ -193,7 +206,13 @@ object ProvidersRepository {
         "anthropic_api" -> fetchAnthropicModels(apiKey)
         "meta_llama"  -> fetchOpenAiStyleModels("https://api.llama.com/v1/models", apiKey, provider)
         "ollama"      -> fetchOllamaModels(provider.baseUrl.ifEmpty { "http://localhost:11434" }, apiKey)
-        else          -> provider.models
+        // Generic fallback for HOTLOADED providers not named above: if the JSON entry
+        // says it supports live fetch and has an OpenAI-style baseUrl, hit the standard
+        // <baseUrl>/models endpoint. Makes a new OAI-compatible provider get live fetch
+        // with ZERO Kotlin per provider. Caller keeps the static list on failure (inv 56).
+        else          -> if (provider.supportsLiveFetch && provider.baseUrl.isNotBlank())
+                             fetchOpenAiStyleModels(provider.baseUrl.trimEnd('/') + "/models", apiKey, provider)
+                         else provider.models
     }
 
     /** Fetch models from Gemini's own /v1beta/models endpoint. */

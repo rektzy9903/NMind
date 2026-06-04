@@ -49,7 +49,7 @@ fun DiscussionModelPickerSheet(
     // Stable for the lifetime of the sheet.
     data class Configured(val provider: Provider, val apiKey: String, val baseUrl: String)
     val configured = remember {
-        Providers.ALL.mapNotNull { p ->
+        ProvidersRepository.currentList().mapNotNull { p ->
             val key = prefs.getApiKeyForProvider(p.id)
             if (key.isEmpty()) return@mapNotNull null
             val custom = prefs.getCustomBaseUrlForProvider(p.id)

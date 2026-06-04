@@ -173,9 +173,10 @@ fun ModelTestScreen(
     currentProviderId: String,
     onBack: () -> Unit,
 ) {
-    // Build tab list from Providers.ALL order, only providers with a key configured.
+    // Build tab list from the loaded provider list (incl. hotloaded), only providers
+    // with a key configured.
     val tabs = remember(keys) {
-        Providers.ALL
+        ProvidersRepository.currentList()
             .filter { it.supportsLiveFetch && keys[it.id].orEmpty().isNotEmpty() }
             .map { provider ->
                 ProviderTab(

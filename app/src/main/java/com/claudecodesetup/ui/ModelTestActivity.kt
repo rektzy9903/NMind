@@ -5,6 +5,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import com.claudecodesetup.data.AppPreferences
 import com.claudecodesetup.data.Providers
+import com.claudecodesetup.data.ProvidersRepository
 
 class ModelTestActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -19,7 +20,7 @@ class ModelTestActivity : ComponentActivity() {
         // storage was added.
         val keys = mutableMapOf<String, String>()
         val urls = mutableMapOf<String, String>()
-        for (provider in Providers.ALL.filter { it.supportsLiveFetch }) {
+        for (provider in ProvidersRepository.currentList().filter { it.supportsLiveFetch }) {
             val key = prefs.getApiKeyForProvider(provider.id)
                 .ifEmpty { if (currentProviderId == provider.id) currentKey else "" }
             if (key.isNotEmpty()) {

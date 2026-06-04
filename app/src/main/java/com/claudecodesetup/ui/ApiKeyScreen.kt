@@ -149,7 +149,16 @@ private fun buildRequest(provider: Provider, key: String): Request? {
             .url("https://api.mistral.ai/v1/models")
             .header("Authorization", "Bearer $key")
             .build()
-        else -> null
+        // Generic fallback for HOTLOADED providers not named above: validate against the
+        // standard OpenAI-style <baseUrl>/models with a Bearer token. Works for any normal
+        // OAI-compatible provider added by providers.json alone — no Kotlin per provider.
+        // A provider with non-standard auth (e.g. ?key= like Gemini) should still get its
+        // own named case above; returning null here would mean "accept the key untested".
+        else -> if (provider.requiresApiKey && provider.baseUrl.isNotBlank())
+            builder.url(provider.baseUrl.trimEnd('/') + "/models")
+                .header("Authorization", "Bearer $key")
+                .build()
+        else null
     }
 }
 
