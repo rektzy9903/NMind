@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b55-prune-finalize';
+const BRIDGE_BUILD = 'b56-proxy-bugfix-batch';
 
 const net   = require('net');
 const http  = require('http');
@@ -209,7 +209,6 @@ const PACKAGE_CATALOG = {
 
 const PORT               = 8083;
 const PROXY_PORT         = 8082;
-const DEVICE_CONTROL_PORT = 8081;
 const HOST               = '127.0.0.1';
 
 // Prefix written before any diagnostic text sent from bridge to socket so that
@@ -303,14 +302,25 @@ function fetchDdgHtml(query, maxResults, cwd, resolve) {
             res.on('data', c => { if (body.length < 200000) body += c; });
             res.on('end', () => {
                 const results = [];
-                const titleRe   = /<a[^>]+class="result__a"[^>]*>([^<]+)<\/a>/g;
-                const snippetRe = /<a[^>]+class="result__snippet"[^>]*>([^<]+)<\/a>/g;
-                const urlRe     = /<a[^>]+class="result__url"[^>]*>([^<]+)<\/a>/g;
-                let tm, sm, um;
+                // #9: capture the REAL href from result__a (DDG wraps it as
+                // /l/?uddg=<encoded-real-url>) instead of the truncated display URL.
+                const linkRe    = /<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g;
+                const snippetRe = /<a[^>]+class="result__snippet"[^>]*>([\s\S]*?)<\/a>/g;
+                const decode = s => s.replace(/&amp;/g,'&').replace(/&#x27;/g,"'").replace(/<[^>]+>/g,'').trim();
+                const realUrl = href => {
+                    try {
+                        if (href.indexOf('uddg=') !== -1) {
+                            const u = new URL(href, 'https://duckduckgo.com');
+                            const dec = u.searchParams.get('uddg');
+                            if (dec) return dec;
+                        }
+                    } catch (_) {}
+                    return href.startsWith('//') ? 'https:' + href : href;
+                };
+                let lm, sm;
                 const titles = [], snippets = [], urls = [];
-                while ((tm = titleRe.exec(body)) && titles.length < maxResults) titles.push(tm[1].replace(/&amp;/g,'&').replace(/&#x27;/g,"'").trim());
-                while ((sm = snippetRe.exec(body)) && snippets.length < maxResults) snippets.push(sm[1].replace(/&amp;/g,'&').replace(/&#x27;/g,"'").trim());
-                while ((um = urlRe.exec(body)) && urls.length < maxResults) urls.push(um[1].trim());
+                while ((lm = linkRe.exec(body)) && titles.length < maxResults) { urls.push(realUrl(lm[1])); titles.push(decode(lm[2])); }
+                while ((sm = snippetRe.exec(body)) && snippets.length < maxResults) snippets.push(decode(sm[1]));
                 for (let i = 0; i < Math.min(titles.length, maxResults); i++) {
                     results.push((titles[i] ? '**' + titles[i] + '**' : '') +
                         (urls[i] ? '\n' + urls[i] : '') +
@@ -346,7 +356,19 @@ function httpsGet(url, opts, redirectCount) {
             if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
                 if (redirectCount > 5) return reject(new Error('Too many redirects'));
                 res.resume(); // discard body
-                return httpsGet(res.headers.location, opts, redirectCount + 1)
+                // #10: don't forward Authorization/Cookie to a DIFFERENT host on redirect.
+                let nextOpts = opts;
+                try {
+                    const cur = new URL(url);
+                    const nxt = new URL(res.headers.location, url);
+                    if (nxt.host !== cur.host && opts && opts.headers) {
+                        const h = Object.assign({}, opts.headers);
+                        delete h.Authorization; delete h.authorization;
+                        delete h.Cookie; delete h.cookie;
+                        nextOpts = Object.assign({}, opts, { headers: h });
+                    }
+                } catch (_) {}
+                return httpsGet(res.headers.location, nextOpts, redirectCount + 1)
                     .then(resolve).catch(reject);
             }
             resolve(res);
@@ -1037,10 +1059,16 @@ function maybeInjectPendingImage(anthReq) {
     try { fs.unlinkSync(mimePath); } catch(_) {}
 
     if (!b64 || !Array.isArray(anthReq.messages) || anthReq.messages.length === 0) return;
-    // Find the last user message and rewrite its content.
+    // Find the last PLAIN user message and rewrite its content.
+    // #3: skip tool_result turns — prepending an image onto a tool_result message is
+    // (a) dropped by anthToOai (the toolResults branch wins) and (b) an invalid mixed
+    // Anthropic block. Fall back to the most recent normal user message instead.
     let idx = -1;
     for (let i = anthReq.messages.length - 1; i >= 0; i--) {
-        if (anthReq.messages[i].role === 'user') { idx = i; break; }
+        const mm = anthReq.messages[i];
+        if (mm.role !== 'user') continue;
+        if (Array.isArray(mm.content) && mm.content.some(b => b && b.type === 'tool_result')) continue;
+        idx = i; break;
     }
     if (idx === -1) return;
     const msg = anthReq.messages[idx];
@@ -1638,9 +1666,19 @@ function anthToOai(a, model) {
                     : String(tr.content || '');
                 msgs.push({ role: 'tool', tool_call_id: tr.tool_use_id, content });
             }
-            // Any accompanying text in the same user block (rare)
-            if (textBlocks.length > 0)
+            // #4: preserve any text/image that rode along in the same user block
+            // instead of dropping it (was: text-only, images silently lost).
+            if (imageBlocks.length > 0) {
+                const extra = [];
+                for (const ib of imageBlocks) {
+                    if (ib.source && ib.source.type === 'base64')
+                        extra.push({ type: 'image_url', image_url: { url: 'data:' + ib.source.media_type + ';base64,' + ib.source.data } });
+                }
+                for (const tb of textBlocks) extra.push({ type: 'text', text: tb.text });
+                if (extra.length) msgs.push({ role: 'user', content: extra });
+            } else if (textBlocks.length > 0) {
                 msgs.push({ role: 'user', content: textBlocks.map(b => b.text).join('') });
+            }
         } else if (toolUseBlocks.length > 0 && m.role === 'assistant') {
             // Anthropic assistant tool_use → OpenAI tool_calls
             msgs.push({
@@ -1680,7 +1718,7 @@ function anthToOai(a, model) {
         }
     }
 
-    const req = { model, messages: msgs, max_tokens: a.max_tokens || 8096, stream: !!a.stream };
+    const req = { model, messages: msgs, max_tokens: a.max_tokens || 8192, stream: !!a.stream };
     if (a.temperature !== undefined) req.temperature = a.temperature;
     if (a.stop_sequences && a.stop_sequences.length) req.stop = a.stop_sequences;
 
@@ -1893,6 +1931,12 @@ function sendToProvider(baseUrl, apiKey, oaiReq, stream, res, onBadRequest, on42
                     proxyError(res, 500, 'Parse error: ' + e.message);
                 }
             });
+            // #2: close res if the provider disconnects mid-body, instead of letting
+            // claude-code wait out the 120 s request timeout.
+            provRes.on('error', err => {
+                log('[proxy] provider response error (non-stream): ' + err.message + '\n');
+                proxyError(res, 502, 'Provider disconnected: ' + err.message);
+            });
         } else {
             // Streaming: surface non-200 errors before writing any headers
             if (provRes.statusCode !== 200) {
@@ -1957,6 +2001,7 @@ function sendToProvider(baseUrl, apiKey, oaiReq, stream, res, onBadRequest, on42
 
             const msgId = 'msg_' + Date.now();
             let outTokens   = 0;
+            let providerUsage = null; // #7: real token usage from the final SSE chunk, if sent
             let buffer      = '';
             let headersSent = false;
             // tool_call index → {id, name, blockIdx} — tracks streaming tool call blocks
@@ -2002,15 +2047,22 @@ function sendToProvider(baseUrl, apiKey, oaiReq, stream, res, onBadRequest, on42
             function finishStream(stopReason) {
                 if (finished) return;
                 finished = true;
+                // #8: stop all timers so a stale 30 s idle / 120 s request timeout can't
+                // fire on an already-finished stream.
+                clearTimeout(streamIdleTimer);
+                try { provReq.setTimeout(0); } catch (_) {}
                 sendEvent('content_block_stop', { type: 'content_block_stop', index: 0 });
                 for (const tb of Object.values(tcBlocks)) {
                     if (tb.suppressed) continue; // tool_search was never opened — no stop
                     sendEvent('content_block_stop', { type: 'content_block_stop', index: tb.blockIdx });
                 }
+                // #7: report the provider's real output token count when it sent one;
+                // fall back to the streamed-chunk estimate otherwise.
+                const outTok = (providerUsage && (providerUsage.completion_tokens || providerUsage.output_tokens)) || outTokens;
                 sendEvent('message_delta', {
                     type: 'message_delta',
                     delta: { stop_reason: stopReason || 'end_turn', stop_sequence: null },
-                    usage: { output_tokens: outTokens },
+                    usage: { output_tokens: outTok },
                 });
                 sendEvent('message_stop', { type: 'message_stop' });
                 try { res.end(); } catch (_) {}
@@ -2066,6 +2118,10 @@ function sendToProvider(baseUrl, apiKey, oaiReq, stream, res, onBadRequest, on42
                     }
 
                     ensureOpened();
+
+                    // #7: many OAI providers send a final usage block (often with an
+                    // empty choices array when stream_options.include_usage is on).
+                    if (event.usage) providerUsage = event.usage;
 
                     const choice     = (event.choices || [])[0] || {};
                     const delta      = choice.delta || {};
@@ -2229,10 +2285,13 @@ function sendToProvider(baseUrl, apiKey, oaiReq, stream, res, onBadRequest, on42
                                             const r = await webSearch(query, 5, FILES_DIR);
                                             return { id: tb.id, content: r.content };
                                         }));
+                                        // #5: echo ONLY the WebSearch calls — including
+                                        // other tool calls here leaves them without a
+                                        // matching tool result → strict OAI endpoints 400.
                                         const assistantMsg = {
                                             role: 'assistant',
                                             content: null,
-                                            tool_calls: Object.values(tcBlocks).map(tb => ({
+                                            tool_calls: wsCalls.map(tb => ({
                                                 id: tb.id, type: 'function',
                                                 function: { name: tb.name, arguments: tb.argsAccum || '{}' }
                                             }))
@@ -2374,8 +2433,8 @@ function sendToProvider(baseUrl, apiKey, oaiReq, stream, res, onBadRequest, on42
                 }
             });
         }
-
-        provRes.on('error', err => log('[proxy] provider response error (non-stream): ' + err.message + '\n'));
+        // (#6: the duplicate catch-all provRes.on('error') was removed — each branch
+        //  now registers its own handler that actually closes res.)
     });
 
     provReq.on('error', err => {
@@ -3995,6 +4054,21 @@ function openPrintSession() {
 
         proc.on('close', code => {
             clearTimeout(finishTid);
+            // #11: flush any trailing partial line. A final stream-json event that
+            // isn't newline-terminated would otherwise be dropped. Mirrors the
+            // stdout 'data' handler's parse/route logic exactly.
+            const tail = lineBuf.trim(); lineBuf = '';
+            if (tail) {
+                if (tail.startsWith('{')) {
+                    try {
+                        handleStreamEvent(JSON.parse(tail), state, proc, firstContent, (fc) => { firstContent = fc; }, resultReceived, (rr) => { resultReceived = rr; });
+                    } catch (_) {
+                        try { if (state.socket) state.socket.write(SYS_FENCE + tail + '\n'); } catch (_) {}
+                    }
+                } else {
+                    try { if (state.socket) state.socket.write(SYS_FENCE + tail + '\n'); } catch (_) {}
+                }
+            }
             // Only update state if this proc is still the active one.
             // Ctrl+C clears state.currentProc immediately so a new message can start
             // without waiting for this close event — guard against clobbering the new proc.
