@@ -63,6 +63,11 @@ class ClaudeService : LifecycleService() {
     private val responseNotifHandler = Handler(Looper.getMainLooper())
     private val responseNotifRunnable = Runnable { fireResponseNotification() }
     private var responseNotifPending = false
+    // True only while a REAL AI turn is in flight (between a `thinking-start`
+    // marker and the end of that turn). Gates background notifications so idle
+    // bridge chatter / SYS_FENCE diagnostics / the startup `cd` echo never fire
+    // one. Set on thinking-start, cleared when the turn's debounce timer fires.
+    private var aiResponseInFlight = false
     // Accumulates the first 200 chars of response text (ANSI stripped) for notification body.
     private val responsePreviewBuf = StringBuilder()
 
@@ -478,18 +483,40 @@ class ClaudeService : LifecycleService() {
                 val chunk = String(buf, 0, n, Charsets.UTF_8)
                 session.appendOutput(chunk)
                 onOutput?.invoke(session.id, chunk)
-                // Schedule a background notification if the user isn't watching.
-                // Accumulate a preview snippet (ANSI stripped) for the notification body.
-                // Debounced: fires 1.5 s after the last chunk (response likely done).
-                if (!isActivityVisible) {
-                    if (responsePreviewBuf.length < 200) {
-                        val clean = chunk.replace(Regex("\\[[0-9;]*[a-zA-Z]"), "")
-                            .replace(Regex("][^]*"), "")
-                            .replace('\r', ' ')
-                        responsePreviewBuf.append(clean)
-                    }
-                    if (!responseNotifPending) {
+                // Background response notification — only for a REAL AI reply the
+                // user might miss, and only once it has actually finished.
+                //
+                // Gate 1 (fixes "notification with nothing happening"): arm only
+                //   after a `thinking-start` marker — i.e. claude genuinely began
+                //   answering a user turn. Idle bridge chatter, SYS_FENCE
+                //   diagnostics, the startup `cd` echo, MCP-reload / warm-spawn
+                //   lines carry no thinking-start, so they never notify.
+                // Gate 2 (fixes "notification before the reply shows"): a true
+                //   trailing debounce. The timer resets on every *content* chunk so
+                //   it fires 1.5 s after streaming actually STOPS — not 1.5 s after
+                //   the first byte (the old `if (!pending)` guard fired mid-stream,
+                //   and during the initial thinking pause before any text existed).
+                //   Bare protocol/thinking chunks clean to blank and must NOT
+                //   (re)arm the timer.
+                // The debounce runs regardless of visibility so aiResponseInFlight
+                // is always cleared at end-of-turn (a stale flag must never let a
+                // later idle line notify); the actual notify() is gated on
+                // !isActivityVisible inside fireResponseNotification().
+                if (chunk.contains(OSC_THINKING_START)) {
+                    aiResponseInFlight = true
+                    responsePreviewBuf.setLength(0)
+                }
+                if (aiResponseInFlight) {
+                    val clean = chunk
+                        .replace(OSC9_RE, "")          // drop OSC-9 protocol markers
+                        .replace(CSI_RE, "")           // drop CSI colour codes
+                        .replace('\r', ' ').replace('\n', ' ').trim()
+                    if (clean.isNotEmpty()) {
+                        if (!isActivityVisible && responsePreviewBuf.length < 200) {
+                            responsePreviewBuf.append(clean).append(' ')
+                        }
                         responseNotifPending = true
+                        responseNotifHandler.removeCallbacks(responseNotifRunnable)
                         responseNotifHandler.postDelayed(responseNotifRunnable, 1500)
                     }
                 }
@@ -569,12 +596,14 @@ class ClaudeService : LifecycleService() {
     fun cancelResponseNotification() {
         responseNotifHandler.removeCallbacks(responseNotifRunnable)
         responseNotifPending = false
+        aiResponseInFlight = false   // user is watching now — disarm this turn
         responsePreviewBuf.clear()
         getSystemService(NotificationManager::class.java).cancel(RESPONSE_NOTIF_ID)
     }
 
     private fun fireResponseNotification() {
         responseNotifPending = false
+        aiResponseInFlight = false   // turn ended — disarm so later idle output can't notify
         if (instance == null || isActivityVisible) return
         val preview = responsePreviewBuf.toString().take(120).trimEnd().replace('\n', ' ')
         responsePreviewBuf.clear()
@@ -612,6 +641,15 @@ class ClaudeService : LifecycleService() {
         const val ACTION_STOP           = "com.claudecodesetup.STOP"
         const val ACTION_RESTART_BRIDGE = "com.claudecodesetup.RESTART_BRIDGE"
         const val MAX_SESSIONS = 4
+
+        // bridge.js writes this OSC-9 marker (\x1b]9;thinking-start\x07) at the
+        // start of every real AI turn — the gate for background notifications.
+        const val OSC_THINKING_START = "]9;thinking-start"
+        // Strip OSC-9 protocol markers (thinking-start/done, tokens, sys-fence, …)
+        // and CSI colour codes so only genuine response text remains for the
+        // notification preview + the "has content" trailing-debounce check.
+        val OSC9_RE = Regex("\\]9;[^]*?")
+        val CSI_RE  = Regex("\\[[0-9;]*[a-zA-Z]")
 
         var instance: ClaudeService? = null
     }
