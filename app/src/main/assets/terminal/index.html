@@ -814,6 +814,12 @@ body.ubuntu-mode #toolbar{display:flex !important;}
 <link rel="stylesheet" href="xterm.css">
 <script src="xterm.js"></script>
 <script src="xterm-addon-fit.js"></script>
+<!-- GPU renderers for the Ubuntu PTY (terminal-lag fix). Loaded best-effort:
+     WebGL → Canvas → DOM fallback chain wired in initTerm(). If these assets
+     are missing (e.g. index.html hot-loaded onto an older APK) the globals are
+     simply undefined and the terminal stays on the DOM renderer as before. -->
+<script src="xterm-addon-canvas.js"></script>
+<script src="xterm-addon-webgl.js"></script>
 
 <script>
 (function(){
@@ -3057,6 +3063,38 @@ reportTermSize();
     try { fit = new FitAddon.FitAddon(); term.loadAddon(fit); } catch(_){}
     var mount=document.getElementById('xterm');
     term.open(mount);
+    // Renderer selection: prefer GPU (WebGL) → Canvas → default DOM. The DOM
+    // renderer mutates one node per cell and is the main source of interactive-
+    // TUI lag on a mobile WebView; WebGL draws the grid on the GPU like a native
+    // terminal (Termux). Some Android GPUs / WebView builds can't create a WebGL
+    // context (or lose it later on backgrounding / driver reset) — degrade
+    // gracefully so the terminal is never blank. Must run AFTER term.open().
+    (function selectRenderer(){
+      var picked='dom';
+      try {
+        if (typeof WebglAddon!=='undefined' && WebglAddon.WebglAddon){
+          var wg=new WebglAddon.WebglAddon();
+          // Context loss would leave WebGL drawing nothing — drop to Canvas.
+          try { wg.onContextLoss(function(){
+            try{ wg.dispose(); }catch(_){}
+            try{ if(typeof CanvasAddon!=='undefined'&&CanvasAddon.CanvasAddon){
+              term.loadAddon(new CanvasAddon.CanvasAddon()); window.__termRenderer='canvas';
+            } }catch(_){}
+          }); } catch(_){}
+          term.loadAddon(wg);   // throws synchronously if the GL context fails
+          picked='webgl';
+        }
+      } catch(_){ picked='dom'; }
+      if (picked==='dom'){
+        try {
+          if (typeof CanvasAddon!=='undefined' && CanvasAddon.CanvasAddon){
+            term.loadAddon(new CanvasAddon.CanvasAddon());
+            picked='canvas';
+          }
+        } catch(_){ picked='dom'; }
+      }
+      try { window.__termRenderer=picked; } catch(_){}
+    })();
     // Harden xterm's hidden input box against the Android IME. Autocorrect /
     // prediction / autocapitalize make the keyboard batch + rewrite keystrokes,
     // which surfaces as "skipped letters" and "types by itself" in the terminal.
@@ -3074,7 +3112,7 @@ reportTermSize();
     // Diagnostic: proves xterm renders locally. If you SEE this line but no bash
     // prompt → the Kotlin byte-relay (sendPty/onPtyOutput) is the problem (rebuild).
     // If you DON'T see it → xterm render/layout (this file, hotload-able).
-    try { term.write('\x1b[2m[ubuntu terminal ready — connecting shell…]\x1b[0m\r\n'); } catch(_){}
+    try { term.write('\x1b[2m[ubuntu terminal ready ('+(window.__termRenderer||'dom')+') — connecting shell…]\x1b[0m\r\n'); } catch(_){}
     // Android: a tap inside the terminal is the user-gesture that focuses xterm's
     // hidden textarea and raises the soft keyboard (programmatic focus alone often
     // won't show the IME in a WebView).

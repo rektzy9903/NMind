@@ -280,6 +280,13 @@ class ClaudeService : LifecycleService() {
                 val buf = ByteArray(8192)
                 val input = sock.inputStream
                 var n: Int
+                // Reused across iterations to coalesce a burst of TUI redraw bytes
+                // into ONE base64 chunk (terminal-lag fix): an interactive TUI
+                // repaint arrives as many small socket reads; emitting one
+                // onPtyOutput/evaluateJavascript per read floods the WebView UI
+                // thread. Draining everything already buffered (input.available())
+                // into a single chunk cuts the crossings with zero added latency.
+                val agg = java.io.ByteArrayOutputStream(16384)
                 while (input.read(buf).also { n = it } != -1) {
                     if (n == 0) continue
                     // Detect the bridge's auth rejection on the first bytes -> retry,
@@ -289,7 +296,16 @@ class ClaudeService : LifecycleService() {
                         if (head.contains("Unauthorized connection rejected")) { rejected = true; break }
                     }
                     sawData = true
-                    val b64 = Base64.encodeToString(buf, 0, n, Base64.NO_WRAP)
+                    agg.reset()
+                    agg.write(buf, 0, n)
+                    // Drain only bytes that have ALREADY arrived (non-blocking),
+                    // capped so a firehose can't starve rendering or balloon memory.
+                    while (input.available() > 0 && agg.size() < 262144) {
+                        val m = input.read(buf)
+                        if (m <= 0) break
+                        agg.write(buf, 0, m)
+                    }
+                    val b64 = Base64.encodeToString(agg.toByteArray(), Base64.NO_WRAP)
                     onPtyOutput?.invoke(sessionId, b64)
                 }
             } catch (_: IOException) {
