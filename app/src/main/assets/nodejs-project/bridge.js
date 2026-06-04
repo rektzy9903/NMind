@@ -4110,6 +4110,8 @@ function openPrintSession() {
                     '  \x1b[33m!test-proot\x1b[0m         Probe: does bundled proot exec from nativeLibDir (Ubuntu engine)\r\n' +
                     '  \x1b[33m!test-rootfs\x1b[0m        Probe: run extracted Ubuntu rootfs via proot (cat /etc/os-release)\r\n' +
                     '  \x1b[33m!setup-engine\x1b[0m       Batched P1: boot rootfs → install Node 22 + claude-code → claude --version\r\n' +
+                    '  \x1b[33m!claude-version\x1b[0m     Show installed + latest claude-code version (no change)\r\n' +
+                    '  \x1b[33m!update-claude\x1b[0m      Update claude-code to @latest if newer (force to reinstall) — skips the 6-step setup\r\n' +
                     '  \x1b[33m!cleanup\x1b[0m            Reclaim install caches (npm/apt/tarballs, ~400MB) without re-provisioning\r\n' +
                     '  \x1b[33m!defer\x1b[0m              Proxy tool deferral (lazy-load) for OAI providers: !defer on | off\r\n' +
                     '  \x1b[33m!warm\x1b[0m               Persistent session — reuse one warm proc, skip cold start: !warm on | off\r\n' +
@@ -4593,6 +4595,62 @@ function openPrintSession() {
                     else                       w(D + '  ' + msg + X + '\r\n');
                 };
                 runEngineSetup(emit, seEnv).catch(e => w(R + '[!setup-engine error] ' + (e && e.message) + X + '\r\n'));
+                continue;
+            }
+
+            // ── !claude-version / !update-claude — light engine update (no re-provision) ─
+            // !setup-engine runs all 6 stages (boot/write/node/npm/install/verify). Once
+            // the rootfs + Node + npm exist, updating claude-code only needs the last two,
+            // so these skip stages 1-4 and just talk to the already-installed npm:
+            //   !claude-version        → installed (claude --version) + latest (npm view); no change
+            //   !update-claude         → update to @latest IF newer, re-verify, persist version
+            //   !update-claude force   → reinstall @latest even if already current
+            // Requires a prior !setup-engine (needs /opt/node + npm). Hotloadable (bridge.js).
+            // (These are Nexus-chat `!` commands; in the 🐧 Ubuntu PTY tab run the raw
+            //  `npm i -g @anthropic-ai/claude-code@latest` / `claude --version` instead.)
+            if (line.startsWith('!claude-ver') || line.startsWith('!update-claude') || line.startsWith('!claude-update')) {
+                const w = (s) => { try { if (state.socket) state.socket.write(SYS_FENCE + s); } catch(_) {} };
+                const G = '\x1b[32m', R = '\x1b[31m', Y = '\x1b[33m', D = '\x1b[2m', X = '\x1b[0m';
+                const isCheckOnly = line.startsWith('!claude-ver');
+                const force = /\bforce\b/.test(line);
+                const rp = path.join(FILES_DIR, 'ubuntu');
+                if (!fs.existsSync(path.join(rp, 'etc', 'os-release'))) {
+                    w(R + '✗ no Ubuntu rootfs — run !setup-engine first.' + X + '\r\n'); continue;
+                }
+                const verRe = /[0-9]+\.[0-9]+\.[0-9]+/;
+                (async () => {
+                    w(Y + '» checking installed version…' + X + '\r\n');
+                    let r = await runProotGuest(['/bin/sh', '-c', 'claude --version 2>&1'], 60000);
+                    const cur = (String(r.out || '').match(verRe) || [])[0] || null;
+                    if (cur) w(G + '✓ installed: ' + cur + X + '\r\n');
+                    else     w(Y + '⚠ claude not installed yet — run !setup-engine.' + X + '\r\n');
+
+                    w(Y + '» checking latest on npm…' + X + '\r\n');
+                    r = await runProotGuest(['/bin/sh', '-c', 'npm view @anthropic-ai/claude-code version 2>&1'], 60000);
+                    const latest = (String(r.out || '').match(verRe) || [])[0] || null;
+                    if (!latest) { w(R + '✗ could not read latest from npm (offline?):' + X + '\r\n' + D + String(r.out || '').trim().slice(-300) + X + '\r\n'); return; }
+                    w(G + '✓ latest on npm: ' + latest + X + '\r\n');
+
+                    const upToDate = cur && cur === latest;
+                    if (isCheckOnly) {
+                        w(upToDate ? G + '✓ up to date.' + X + '\r\n'
+                                   : Y + '⇪ update available: ' + (cur || '(none)') + ' → ' + latest + '   run \x1b[1m!update-claude\x1b[0m' + Y + ' to install.' + X + '\r\n');
+                        return;
+                    }
+                    if (upToDate && !force) { w(G + '✓ already on the latest (' + latest + '). Use \x1b[1m!update-claude force\x1b[0m' + G + ' to reinstall.' + X + '\r\n'); return; }
+
+                    w(Y + '» installing @latest… (a minute or two)' + X + '\r\n');
+                    let lastMark = Date.now();
+                    r = await runProotGuest(['/bin/sh', '-c', 'npm i -g @anthropic-ai/claude-code@latest 2>&1'], 600000,
+                        () => { const now = Date.now(); if (now - lastMark > 15000) { lastMark = now; w(D + '  …still installing…' + X + '\r\n'); } });
+                    if (r.code !== 0) { w(R + '✗ install failed (code=' + r.code + ')' + X + '\r\n' + D + String(r.out || '').trim().slice(-500) + X + '\r\n'); return; }
+
+                    r = await runProotGuest(['/bin/sh', '-c', 'claude --version 2>&1'], 60000);
+                    const now = (String(r.out || '').match(verRe) || [])[0];
+                    if (!now) { w(R + '✗ installed but claude --version failed' + X + '\r\n'); return; }
+                    try { fs.writeFileSync(path.join(FILES_DIR, 'claude_version'), now); } catch (_) {}
+                    w(G + '✅ updated ' + (cur ? cur + ' →' : 'to') + ' ' + now + X + '\r\n');
+                })().catch(e => w(R + '[update-claude error] ' + (e && e.message) + X + '\r\n'));
                 continue;
             }
 
