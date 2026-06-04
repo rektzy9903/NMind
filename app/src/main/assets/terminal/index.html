@@ -2643,15 +2643,25 @@ function updateInputDisp(){
   scrollToBottom();
 }
 
+// Strip Android IME artifacts so they don't break !command / $cmd matching:
+//  (a) invisible chars the soft keyboard slips in — zero-width joiners, bidi
+//      direction marks, soft-hyphen, line/paragraph separators (a hidden char
+//      inside "!clear" makes it !== "!clear" → command silently ignored);
+//  (b) fullwidth punctuation (！ ＄ from CJK / smart-punctuation modes) → ASCII.
+// Shared by submitLine (Send button) AND sendRawInput (keyboard Enter) so both
+// input paths normalize identically. Engine-independent (Android IME quirk, not
+// a claude-code/engine thing) — keep regardless of backend.
+function stripImeArtifacts(s){
+  return (s||'')
+    .replace(/[\u200b-\u200f\u2028\u2029\u202a-\u202e\u2060-\u206f\ufeff\u00ad]/g,'')
+    .replace(/！/g,'!')   // fullwidth ！ → ASCII !
+    .replace(/＄/g,'$');  // fullwidth ＄ → ASCII $
+}
+
 function submitLine(text){
-  // Normalize BEFORE routing: strip zero-width chars and fullwidth punctuation so
-  // that Android IME artifacts (invisible chars prepended by keyboard) don't cause
-  // ! and $ commands to slip through to AI instead of the bridge.
-  let msg=(text!==undefined?text:inputBuffer)
-    .replace(/[\u200b\u200c\u200d\ufeff\u2060\u00ad\u2028\u2029]/g,'') // zero-width + soft-hyphen + line seps
-    .replace(/！/g,'!')   // fullwidth ! → ASCII !
-    .replace(/＄/g,'$')   // fullwidth $ → ASCII $
-    .trim();
+  // Normalize BEFORE routing (see stripImeArtifacts) so ! and $ commands don't
+  // slip through to the AI instead of the bridge.
+  let msg=stripImeArtifacts(text!==undefined?text:inputBuffer).trim();
   if(/^!\s+/.test(msg)) msg='!'+msg.slice(1).trimStart(); // "! cmd" → "!cmd"
   inputBuffer='';
   ghost.value='';
@@ -2748,8 +2758,8 @@ ghost.addEventListener('blur',function(){
 // interacting with Claude Code's TUI menus (theme picker, prompts, etc.).
 // The send button (→) still uses submitLine() for proper chat message behavior.
 function sendRawInput(){
-  // Strip zero-width Unicode chars that Android IME may prepend (same as submitLine)
-  const text=inputBuffer.replace(/[\u200b-\u200f\u2028\u2029\u202a-\u202e\u2060-\u206f\ufeff\u00ad]/g,'').trim();
+  // Strip Android IME artifacts (see stripImeArtifacts), same as submitLine.
+  const text=stripImeArtifacts(inputBuffer).trim();
   inputBuffer='';ghost.value='';historyIdx=-1;savedInput='';
   updateInputDisp();
   if(text.length>0){
