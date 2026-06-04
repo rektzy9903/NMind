@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b56-proxy-bugfix-batch';
+const BRIDGE_BUILD = 'b57-defer-websearch-redirect';
 
 const net   = require('net');
 const http  = require('http');
@@ -1442,21 +1442,44 @@ function handleProxyRequest(anthReq, res) {
             }
         }
         const beforeDefer = anthReq.tools.length;
+        // Web-search redirect: when the user clearly wants a WEB search/fetch AND a
+        // web tool is on hand (exa MCP or built-in WebSearch/WebFetch), DEFER the
+        // local-filesystem search tools (Grep/Glob) for THIS turn. They're in
+        // CORE_TOOLS so defer normally keeps them unconditionally — but a weak model
+        // sitting in a populated cwd then reinterprets "search how many … 2025" as
+        // grep/find the directory and never reaches the web tool (gpt-oss-20b/120b
+        // did exactly this). They stay reachable via tool_search if truly needed.
+        const uText = latestUserText(anthReq).toLowerCase();
+        const webIntent = TOOL_INTENT_KW.WebSearch.concat(TOOL_INTENT_KW.WebFetch)
+            .some(k => uText.includes(k));
+        const hasWebTool = anthReq.tools.some(t => {
+            const n = t.name || '';
+            return n === 'WebSearch' || n === 'WebFetch' ||
+                (/^mcp__/.test(n) && /(search|fetch|web)/i.test(n));
+        });
+        const demoteLocalSearch = webIntent && hasWebTool;
+        // Force Grep/Glob into the catalog this turn — overrides CORE, history AND
+        // proactive keep, so even a warm follow-up whose history already used Grep
+        // can't re-surface it while the user is asking for a web search.
+        const demoted = (n) => demoteLocalSearch && (n === 'Grep' || n === 'Glob');
         // Defer v2: PROACTIVELY surface the tools the user's own words imply, so a
         // weak model gets them up front (no tool_search dance needed). Computed over
         // only the would-be-deferred tools (core/mcp/used are kept regardless).
         const deferrableNow = anthReq.tools.filter(t => {
             const n = t.name || '';
-            return !(CORE_TOOLS.has(n) || /^mcp__/.test(n) || usedInHistory.has(n));
+            return demoted(n) || !(CORE_TOOLS.has(n) || /^mcp__/.test(n) || usedInHistory.has(n));
         });
-        const proactive = proactiveToolPick(latestUserText(anthReq), deferrableNow);
+        const proactive = proactiveToolPick(uText, deferrableNow);
         const deferredAnth = [];
         anthReq.tools = anthReq.tools.filter(t => {
             const n = t.name || '';
-            const keep = CORE_TOOLS.has(n) || /^mcp__/.test(n) || usedInHistory.has(n) || proactive.has(n);
+            const keep = !demoted(n) &&
+                (CORE_TOOLS.has(n) || /^mcp__/.test(n) || usedInHistory.has(n) || proactive.has(n));
             if (!keep) deferredAnth.push(t);
             return keep;
         });
+        if (demoteLocalSearch) log('[proxy] defer: web-search intent + web tool — ' +
+            'demoted Grep/Glob to catalog so the model uses the web tool, not local search\n');
         if (proactive.size) log('[proxy] defer: proactively surfaced ' + proactive.size +
             ' tool(s) from user intent: ' + Array.from(proactive).join(',') + '\n');
         if (deferredAnth.length) {
