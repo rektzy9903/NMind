@@ -1248,12 +1248,16 @@ const PRUNED_TOOLS = new Set([
 // file/shell tools always sent in full; everything else is "deferred" — held back
 // to cut the ~72KB/≈29.5K-tok tool payload claude-code ships every turn.
 //
-// PHASE 1 (current): when `!defer on`, send CORE ∪ {tools already used in this
-// conversation's history}; deferred tools are simply dropped. This rides the
-// EXISTING streaming path (zero new risk) and is reversible per-turn — its only
-// downside is the model can't reach a deferred tool it hasn't used yet. PHASE 2
-// adds a real `tool_search` function + an internal sub-loop so the model can
-// discover deferred tools ON DEMAND (Level-2 reactive). See CLAUDE.md / engine memory.
+// EVOLUTION:
+//   Phase 1 — send CORE ∪ {tools used in history}; drop the rest.
+//   Phase 2 — + a synthetic `tool_search` so the model can discover deferred tools
+//             ON DEMAND (model-driven, like Anthropic's — great for STRONG models).
+//   v2 (current) — + PROACTIVE intent pre-selection: the proxy reads the user's
+//             words and surfaces the implied tools UP FRONT (proactiveToolPick),
+//             so WEAK models that never call tool_search still get the right tools.
+//             keep = CORE ∪ mcp ∪ used-in-history ∪ proactively-matched; tool_search
+//             stays as the strong-model fallback for whatever proactive missed.
+// See CLAUDE.md / engine memory.
 const CORE_TOOLS = new Set([
     'Bash', 'Read', 'Edit', 'Write', 'Glob', 'Grep',
 ]);
@@ -1290,6 +1294,67 @@ function matchDeferredTools(query, catalog) {
     // steer the model to the wrong tools (e.g. query "deep-research" wouldn't token-
     // match "WebSearch", so first-5 would hand back Agent/Task and never surface it).
     return hits.length ? hits.slice(0, 5) : cat;
+}
+
+// ── Defer v2: PROACTIVE intent pre-selection (weak-model friendly) ────────────
+// Anthropic's lazy loading is model-driven (Claude calls tool_search). Weak OAI
+// models won't do that 3-step dance, so instead the PROXY picks the likely tools
+// from the user's own words and sends them UP FRONT — the model just sees a small,
+// relevant set and uses it normally, no discovery step. tool_search stays as a
+// fallback for whatever proactive selection misses (strong models can still expand).
+//
+// Curated intent → tool keyword map. Precise (hand-picked synonyms) so it beats raw
+// token-overlap on verbose descriptions, which over-matches. Tools NOT listed here
+// still get a name-token match (e.g. user literally says "todo") as a backstop.
+const TOOL_INTENT_KW = {
+    WebSearch:    ['search', 'google', 'look up', 'lookup', 'find online', 'on the web', 'web ', 'internet',
+                   'latest', 'news', 'current', 'today', 'recent', 'this year', 'who is', "what's the latest", 'price of', 'release'],
+    WebFetch:     ['fetch', 'url', 'http://', 'https://', '.com', '.org', '.io', 'link', 'website', 'web page',
+                   'webpage', 'the page', 'open the site', 'read the article', 'scrape', 'from this page'],
+    Task:         ['agent', 'subagent', 'sub-agent', 'delegate', 'dispatch', 'spawn', 'in parallel', 'background task', 'orchestrate'],
+    TodoWrite:    ['todo', 'to-do', 'task list', 'checklist', 'plan the steps', 'track progress', 'break it down', 'step by step'],
+    ExitPlanMode: ['plan mode', 'make a plan', 'planning', 'propose a plan'],
+    SlashCommand: ['slash command', '/command', 'run the command'],
+    BashOutput:   ['background output', 'job output', 'still running', 'check the output'],
+    KillShell:    ['kill', 'stop the process', 'terminate', 'cancel the job'],
+};
+
+// Most-recent USER intent text (skips tool_result-only turns, which carry no new
+// intent). Used to drive proactive tool selection.
+function latestUserText(anthReq) {
+    const msgs = (anthReq && anthReq.messages) || [];
+    for (let i = msgs.length - 1; i >= 0; i--) {
+        const m = msgs[i];
+        if (!m || m.role !== 'user') continue;
+        if (typeof m.content === 'string') { if (m.content.trim()) return m.content; continue; }
+        if (Array.isArray(m.content)) {
+            const t = m.content.filter(b => b && b.type === 'text' && b.text).map(b => b.text).join(' ');
+            if (t.trim()) return t;   // empty → tool_result-only turn, keep looking back
+        }
+    }
+    return '';
+}
+
+// Given the user's text + the tools that WOULD be deferred, return the set of tool
+// names to surface up front. Curated keyword map first (precise), then a name-token
+// backstop. Generous on purpose — over-supplying one relevant tool costs far less
+// than a weak model silently failing because it never discovered the tool it needed.
+function proactiveToolPick(userText, deferrable) {
+    const text = String(userText || '').toLowerCase();
+    const picked = new Set();
+    if (!text) return picked;
+    for (const t of (deferrable || [])) {
+        const name = t.name || '';
+        const kws = TOOL_INTENT_KW[name];
+        let hit = kws ? kws.some(k => text.includes(k)) : false;
+        if (!hit) {
+            // CamelCase → word tokens (>2 chars), match the tool's own concept words.
+            const nameToks = name.replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase().split(/[^a-z0-9]+/).filter(x => x.length > 2);
+            hit = nameToks.some(tok => text.includes(tok));
+        }
+        if (hit) picked.add(name);
+    }
+    return picked;
 }
 
 function handleProxyRequest(anthReq, res) {
@@ -1345,13 +1410,23 @@ function handleProxyRequest(anthReq, res) {
             }
         }
         const beforeDefer = anthReq.tools.length;
+        // Defer v2: PROACTIVELY surface the tools the user's own words imply, so a
+        // weak model gets them up front (no tool_search dance needed). Computed over
+        // only the would-be-deferred tools (core/mcp/used are kept regardless).
+        const deferrableNow = anthReq.tools.filter(t => {
+            const n = t.name || '';
+            return !(CORE_TOOLS.has(n) || /^mcp__/.test(n) || usedInHistory.has(n));
+        });
+        const proactive = proactiveToolPick(latestUserText(anthReq), deferrableNow);
         const deferredAnth = [];
         anthReq.tools = anthReq.tools.filter(t => {
             const n = t.name || '';
-            const keep = CORE_TOOLS.has(n) || /^mcp__/.test(n) || usedInHistory.has(n);
+            const keep = CORE_TOOLS.has(n) || /^mcp__/.test(n) || usedInHistory.has(n) || proactive.has(n);
             if (!keep) deferredAnth.push(t);
             return keep;
         });
+        if (proactive.size) log('[proxy] defer: proactively surfaced ' + proactive.size +
+            ' tool(s) from user intent: ' + Array.from(proactive).join(',') + '\n');
         if (deferredAnth.length) {
             // Build the catalog in OAI function shape (same mapping anthToOai uses)
             // so the interception can splice matched tools straight into the follow-up.
