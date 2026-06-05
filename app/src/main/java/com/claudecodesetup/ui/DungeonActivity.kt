@@ -17,6 +17,12 @@ class DungeonActivity : AppCompatActivity() {
     private lateinit var webView: WebView
     private lateinit var prefs: AppPreferences
 
+    // Open dispatch sockets keyed by sid (Scout / Dispatch / War Council)
+    private val dispatchSockets = java.util.concurrent.ConcurrentHashMap<String, java.net.Socket>()
+
+    // The agents dir the proot guest actually reads: ~/.claude is bound to filesDir/.claude
+    private fun agentsDir() = File(filesDir, ".claude/agents")
+
     // Folder picker — result calls back into JS via evaluateJavascript
     private val folderPicker = registerForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
@@ -73,6 +79,11 @@ class DungeonActivity : AppCompatActivity() {
             if (volume.equals("primary", ignoreCase = true)) "/storage/emulated/0/$rel"
             else "/storage/$volume/$rel"
         } catch (_: Exception) { null }
+    }
+
+    private fun emitEvent(sid: String, line: String) {
+        val js = "window.onDungeonEvent && window.onDungeonEvent(${JSONObject.quote(sid)}, ${JSONObject.quote(line)})"
+        webView.post { webView.evaluateJavascript(js, null) }
     }
 
     private fun dungeonsFile() = File(filesDir, "dungeons.json")
@@ -173,7 +184,7 @@ class DungeonActivity : AppCompatActivity() {
 
         @JavascriptInterface
         fun getAgents(): String {
-            val agentsDir = File(System.getProperty("user.home") ?: "/", ".claude/agents")
+            val agentsDir = agentsDir()
             if (!agentsDir.exists()) return "[]"
             val sb = StringBuilder("[")
             var first = true
@@ -192,16 +203,58 @@ class DungeonActivity : AppCompatActivity() {
             sb.append("]"); return sb.toString()
         }
 
+        // Streaming dispatch: opens a 'dungeon'-mode socket, sends one JSON request,
+        // and pumps each status line back to window.onDungeonEvent(sid, line).
+        // payloadJson: {"op":"scout|dispatch|council","cwd":...,"mode":...,"members":N,
+        //               "persona":...,"task":...}
         @JavascriptInterface
-        fun spawnAgent(agentName: String, cwd: String, task: String): String {
-            val sid = "dungeon-${System.currentTimeMillis()}"
-            try {
-                val socket = java.net.Socket("127.0.0.1", 8083)
-                val out = socket.getOutputStream()
-                out.write("SESSION:$sid:dungeon\n!dungeon-dispatch\nagent=$agentName\ncwd=$cwd\ntask=${task.replace("\n","\\n")}\nEND\n".toByteArray())
-                out.flush(); socket.close()
-            } catch (_: Exception) {}
+        fun dispatch(payloadJson: String): String {
+            val sid = "dg-${System.currentTimeMillis()}"
+            Thread {
+                try {
+                    val token = File(filesDir, "local_token").readText().trim()
+                    val sock = java.net.Socket("127.0.0.1", 8083)
+                    dispatchSockets[sid] = sock
+                    val out = sock.getOutputStream()
+                    out.write("SESSION:$sid:$token:dungeon\n".toByteArray())
+                    out.write((payloadJson + "\n").toByteArray())
+                    out.flush()
+                    val reader = java.io.BufferedReader(java.io.InputStreamReader(sock.getInputStream()))
+                    while (true) {
+                        val line = reader.readLine() ?: break
+                        emitEvent(sid, line)
+                    }
+                } catch (e: Exception) {
+                    emitEvent(sid, "{\"t\":\"error\",\"msg\":${JSONObject.quote(e.message ?: "dispatch failed")}}")
+                } finally {
+                    dispatchSockets.remove(sid)
+                    emitEvent(sid, "{\"t\":\"closed\"}")
+                }
+            }.start()
             return sid
+        }
+
+        @JavascriptInterface
+        fun stopDispatch(sid: String) {
+            dispatchSockets.remove(sid)?.let { try { it.close() } catch (_: Exception) {} }
+        }
+
+        // Agent Builder — create/edit/delete heroes in the guest's ~/.claude/agents
+        @JavascriptInterface
+        fun writeAgent(name: String, md: String): Boolean {
+            return try {
+                val dir = agentsDir(); dir.mkdirs()
+                val safe = name.replace(Regex("[^a-zA-Z0-9_-]"), "_").ifEmpty { "agent" }
+                File(dir, "$safe.md").writeText(md); true
+            } catch (_: Exception) { false }
+        }
+
+        @JavascriptInterface
+        fun deleteAgent(name: String): Boolean {
+            return try {
+                val safe = name.replace(Regex("[^a-zA-Z0-9_-]"), "_")
+                File(agentsDir(), "$safe.md").delete()
+            } catch (_: Exception) { false }
         }
 
         private fun String.esc() = replace("\\","\\\\").replace("\"","\\\"").replace("\n","\\n").replace("\r","").replace("\t","\\t")

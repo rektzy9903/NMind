@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b61-fix-hotload-dungeon-guard';
+const BRIDGE_BUILD = 'b62-dungeon-dispatch';
 
 const net   = require('net');
 const http  = require('http');
@@ -5772,6 +5772,126 @@ function openPrintSession() {
         socket.on('error', () => { try { socket.destroy(); } catch(_) {} });
     }
 
+    // ── Dungeon dispatch (Scout / Dispatch / War Council) ───────────────────────
+    // Mode 'dungeon': one JSON request line, then run claude --print spawn(s) with
+    // cwd=room + an auditor/persona --append-system-prompt. The guest writes findings
+    // into each room's library.md (the dungeon re-scans to render monsters). Status is
+    // streamed back as JSON lines → DungeonActivity → window.onDungeonEvent.
+    const DEFAULT_SCOUT_TASK =
+        'Audit this folder for REAL issues only, then write ./library.md. ' +
+        'For each genuine bug also print a line `🪲BUG <file:line> <critical|major|minor> <title>` to stdout.';
+    function scoutPersona(cwd) {
+        const today = new Date().toISOString().slice(0, 10);
+        return [
+            'You are a Dungeon Scout auditing ONE folder of a software project.',
+            'Your room (working directory): ' + cwd,
+            '',
+            'GOAL: find REAL problems only — bugs, crashes, security risks, broken logic, dead code.',
+            'Do NOT invent issues. If the room is clean, write an empty Open Bugs list and say so.',
+            'Use Read / Grep / Bash to inspect files. Be concise.',
+            '',
+            'You MUST create or update ./library.md in THIS folder, in EXACTLY this format:',
+            '',
+            '## 📖 Overview',
+            '<one paragraph: what this folder does>',
+            '',
+            '## 🐛 Open Bugs',
+            '- [ ] **<short title>** · `<file:line>` · <critical|major|minor> · logged ' + today + ' · src=scout',
+            '',
+            '## ✅ Resolved',
+            '<preserve any existing resolved items>',
+            '',
+            'If ./library.md already exists: keep its Resolved section + overview, and reconcile Open Bugs',
+            '(drop the ones that are now fixed, keep/add the ones still present).',
+            '',
+            'For EACH real bug ALSO print to stdout: `🪲BUG <file:line> <critical|major|minor> <title>`.',
+            'When the library.md is written, stop.'
+        ].join('\n');
+    }
+    function attachDungeonSession(sid, socket, leftover) {
+        let reqBuf = leftover ? Buffer.from(leftover, 'binary').toString() : '';
+        let started = false;
+        const procs = new Set();
+        function send(obj) { try { socket.write(JSON.stringify(obj) + '\n'); } catch(_) {} }
+        function killAll() { for (const p of procs) { try { p.kill('SIGTERM'); } catch(_) {} } procs.clear(); }
+        socket.on('close', killAll);
+        socket.on('error', () => { try { socket.destroy(); } catch(_) {} killAll(); });
+
+        function gotRequest(reqLine) {
+            if (started) return; started = true;
+            let r; try { r = JSON.parse(reqLine); } catch (e) { send({ t:'error', msg:'bad request' }); try{socket.end();}catch(_){} return; }
+            const op   = r.op || 'scout';
+            const cwd  = r.cwd || FILES_DIR;
+            const isCouncil = (op === 'council') || (r.mode === 'council');
+            const members = isCouncil ? Math.max(2, Math.min(4, parseInt(r.members,10) || 2)) : 1;
+            let models = [];
+            try { const cfg = JSON.parse(fs.readFileSync(path.join(FILES_DIR,'bridge_config.json'),'utf8')); models = (cfg.modelList||[]).slice(); } catch(_){}
+            const benv = buildEnv();
+            const persona = (op === 'dispatch' && r.persona) ? r.persona : scoutPersona(cwd);
+            const task = r.task || (op === 'dispatch' ? 'Do the assigned work in this folder.' : DEFAULT_SCOUT_TASK);
+            log('[dungeon] op=' + op + ' members=' + members + ' cwd=' + cwd + '\n');
+
+            let doneCount = 0;
+            function finishMember(idx, code) {
+                send({ t:'done', member:idx, code:code });
+                if (++doneCount >= members) { send({ t:'all-done' }); try { socket.end(); } catch(_){} }
+            }
+            function scanBugs(text, idx) {
+                const re = /🪲BUG\s+(\S+)\s+(critical|major|minor)\s+(.+)/gi; let m;
+                while ((m = re.exec(text))) send({ t:'bug', member:idx, file:m[1], sev:m[2].toLowerCase(), title:m[3].trim().slice(0,120) });
+            }
+            function runMember(idx) {
+                const guestEnv = {
+                    ANTHROPIC_API_KEY:   benv.ANTHROPIC_API_KEY,
+                    ANTHROPIC_MODEL:     (members > 1 && models.length) ? models[idx % models.length] : benv.ANTHROPIC_MODEL,
+                    DISABLE_AUTOUPDATER: '1', MCP_TIMEOUT: '30000', MCP_TOOL_TIMEOUT: '30000',
+                    SHELL: '/bin/bash', IS_SANDBOX: '1',
+                };
+                if (benv.ANTHROPIC_BASE_URL) guestEnv.ANTHROPIC_BASE_URL = benv.ANTHROPIC_BASE_URL;
+                const argv = [GUEST_CLAUDE, '--output-format', 'stream-json', '--print',
+                    '--dangerously-skip-permissions', '--append-system-prompt', persona, '--verbose', task];
+                let proc;
+                try { proc = prootChild(argv, { extraEnv: guestEnv, workspace: cwd }); }
+                catch (e) { send({ t:'start', member:idx, error:e.message }); finishMember(idx, -1); return; }
+                procs.add(proc);
+                try { proc.stdin.end(); } catch(_){}
+                send({ t:'start', member:idx, model: guestEnv.ANTHROPIC_MODEL || '' });
+                let lineBuf = '';
+                proc.stdout.on('data', d => {
+                    lineBuf += d.toString();
+                    let nl;
+                    while ((nl = lineBuf.indexOf('\n')) !== -1) {
+                        const line = lineBuf.slice(0, nl); lineBuf = lineBuf.slice(nl + 1);
+                        if (!line.trim()) continue;
+                        try {
+                            const ev = JSON.parse(line);
+                            if (ev.type === 'assistant' && ev.message && Array.isArray(ev.message.content)) {
+                                ev.message.content.forEach(c => {
+                                    if (c.type === 'tool_use') send({ t:'tool', member:idx, name:c.name });
+                                    if (c.type === 'text' && c.text) scanBugs(c.text, idx);
+                                });
+                            } else if (ev.type === 'result') {
+                                send({ t:'result', member:idx });
+                            }
+                        } catch(_) { scanBugs(line, idx); }
+                    }
+                });
+                proc.stderr.on('data', d => log('[dungeon] m' + idx + ' ' + d.toString().slice(0,160) + '\n'));
+                proc.on('close', code => { procs.delete(proc); finishMember(idx, code); });
+            }
+            send({ t:'dispatch-start', op:op, members:members, cwd:cwd });
+            for (let i = 0; i < members; i++) runMember(i);
+        }
+
+        const nl0 = reqBuf.indexOf('\n');
+        if (nl0 !== -1) gotRequest(reqBuf.slice(0, nl0));
+        else socket.on('data', d => {
+            reqBuf += d.toString();
+            const nl = reqBuf.indexOf('\n');
+            if (nl !== -1) gotRequest(reqBuf.slice(0, nl));
+        });
+    }
+
     // ── TCP server ────────────────────────────────────────────────────────────
     const server = net.createServer(rawSocket => {
         let hdrBuf = '';
@@ -5810,8 +5930,9 @@ function openPrintSession() {
                 try { rawSocket.write('\r\n\x1b[31mUnauthorized connection rejected.\x1b[0m\r\n'); rawSocket.end(); } catch(_) {}
                 return;
             }
-            if (mode === 'ubuntu') attachPtySession(sid, rawSocket, leftover);
-            else                   attachSession(sid, rawSocket, leftover);
+            if (mode === 'ubuntu')       attachPtySession(sid, rawSocket, leftover);
+            else if (mode === 'dungeon') attachDungeonSession(sid, rawSocket, leftover);
+            else                         attachSession(sid, rawSocket, leftover);
         }
         rawSocket.once('data', onHeader);
     });

@@ -107,6 +107,22 @@
   #name-cancel { background:var(--nsurf2); color:var(--ntext2); border:1px solid var(--nborder) !important; }
   #name-confirm { background:var(--naccent); color:var(--nbg); }
 
+  /* generic dialog (scout / agent builder) */
+  .dlg { position:fixed; inset:0; background:rgba(0,0,0,.75); z-index:95; display:none; align-items:center; justify-content:center; padding:24px; font-family:'Courier New',monospace; }
+  .dlg.show { display:flex; }
+  .dlg-box { background:var(--nsurf); border:1px solid var(--nborder); border-radius:16px; padding:20px; width:100%; max-width:340px; max-height:86vh; overflow-y:auto; }
+  .dlg-box h3 { font-size:15px; font-weight:700; color:var(--ntext); margin-bottom:6px; }
+  .dlg-sub { font-size:11px; color:var(--ntext2); margin-bottom:12px; }
+  .dlg-label { font-size:10px; color:var(--ntext3); text-transform:uppercase; letter-spacing:.5px; margin:12px 0 6px; }
+  .dlg-note { font-size:10px; color:var(--ntext2); line-height:1.5; margin-top:8px; font-style:italic; }
+  .dlg-box input { width:100%; padding:10px 12px; border-radius:10px; background:var(--nsurf2); border:1px solid var(--nborder); color:var(--ntext); font-size:12px; font-family:'Courier New',monospace; outline:none; }
+  .dlg-box input:focus, .dlg-box textarea:focus { border-color:var(--naccent); }
+  .seg { display:flex; gap:6px; }
+  .seg-btn { flex:1; padding:9px 6px; border-radius:9px; background:var(--nsurf2); border:1px solid var(--nborder); color:var(--ntext2); font-size:11px; font-weight:700; font-family:'Courier New',monospace; cursor:pointer; }
+  .seg-btn.active { background:#22E8834A; border-color:var(--naccent); color:var(--naccent); }
+  .dlg .dialog-btns button { background:var(--nsurf2); color:var(--ntext2); border:1px solid var(--nborder); }
+  #scout-begin, #ag-save { background:var(--naccent) !important; color:var(--nbg) !important; border:none !important; }
+
   /* ════════════════════════════════════════
      MAP SCREEN — parchment dungeon
   ════════════════════════════════════════ */
@@ -272,6 +288,58 @@
   </div>
 </div>
 
+<!-- Scout sheet -->
+<div id="scout-dialog" class="dlg">
+  <div class="dlg-box">
+    <h3>⚔ Send a Scout</h3>
+    <div class="dlg-sub" id="scout-target">Audit the whole dungeon</div>
+    <div class="seg" id="scout-scope">
+      <button class="seg-btn active" data-v="full">Full Dungeon</button>
+      <button class="seg-btn" data-v="room">This Room</button>
+    </div>
+    <div class="dlg-label">Mode</div>
+    <div class="seg" id="scout-mode">
+      <button class="seg-btn active" data-v="solo">🧭 Solo Scout</button>
+      <button class="seg-btn" data-v="council">⚖ War Council</button>
+    </div>
+    <div id="council-opts" style="display:none;">
+      <div class="dlg-label">Council members</div>
+      <div class="seg" id="scout-members">
+        <button class="seg-btn active" data-v="2">2</button>
+        <button class="seg-btn" data-v="3">3</button>
+        <button class="seg-btn" data-v="4">4</button>
+      </div>
+      <div class="dlg-note">Members audit in parallel, each on a different model from your provider's list. Disagreements get flagged — full tribunal voting lands next phase.</div>
+    </div>
+    <div class="dialog-btns" style="margin-top:14px;">
+      <button id="scout-cancel">Cancel</button>
+      <button id="scout-begin">Begin</button>
+    </div>
+  </div>
+</div>
+
+<!-- Agent Builder -->
+<div id="agent-dialog" class="dlg">
+  <div class="dlg-box">
+    <h3 id="agent-dlg-title">+ New Hero</h3>
+    <div class="dlg-label">Name</div>
+    <input id="ag-name" type="text" placeholder="bug-hunter" maxlength="40" />
+    <div class="dlg-label">Description</div>
+    <input id="ag-desc" type="text" placeholder="Fixes crashes and null bugs" maxlength="120" />
+    <div class="dlg-label">Model (optional)</div>
+    <input id="ag-model" type="text" placeholder="leave blank = inherit" maxlength="60" />
+    <div class="dlg-label">Tools (optional, comma-sep)</div>
+    <input id="ag-tools" type="text" placeholder="Read, Edit, Bash, Grep" maxlength="160" />
+    <div class="dlg-label">System prompt</div>
+    <textarea id="ag-body" placeholder="You are a careful bug-fixing hero..." style="width:100%;min-height:90px;padding:10px 12px;border-radius:10px;background:var(--nsurf2);border:1px solid var(--nborder);color:var(--ntext);font-size:12px;font-family:'Courier New',monospace;outline:none;resize:vertical;"></textarea>
+    <div class="dialog-btns" style="margin-top:12px;">
+      <button id="ag-delete" style="display:none;background:#3FF87171 !important;color:var(--nred) !important;">Delete</button>
+      <button id="ag-cancel">Cancel</button>
+      <button id="ag-save">Save</button>
+    </div>
+  </div>
+</div>
+
 <!-- ══ MAP SCREEN ══ -->
 <div id="map-screen" class="screen">
   <div id="stage">
@@ -309,7 +377,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd7-grid-layout';
+var DUNGEON_BUILD = 'd8-scout-council-agentbuilder';
 
 // ── Bridge ────────────────────────────────────────────────
 var A = (typeof DungeonAndroid !== 'undefined') ? DungeonAndroid : null;
@@ -320,7 +388,11 @@ function jGetAgents()     { try { return JSON.parse(A ? A.getAgents() : '[]'); }
 function jGetDungeons()   { try { return JSON.parse(A ? A.getDungeons() : '[]'); } catch(_){ return []; } }
 function jAddDungeon(n,p) { try { return A ? A.addDungeon(n,p) : false; } catch(_){ return false; } }
 function jRemoveDungeon(p){ try { return A ? A.removeDungeon(p) : false; } catch(_){ return false; } }
-function jSpawnAgent(n,c,t){ try { return A ? A.spawnAgent(n,c,t) : 'no-bridge'; } catch(_){ return 'err'; } }
+function jDispatch(p)     { try { return A ? A.dispatch(p) : 'no-bridge'; } catch(_){ return 'err'; } }
+function jStopDispatch(s) { try { if(A) A.stopDispatch(s); } catch(_){} }
+function jWriteAgent(n,m) { try { return A ? A.writeAgent(n,m) : false; } catch(_){ return false; } }
+function jDeleteAgent(n)  { try { return A ? A.deleteAgent(n) : false; } catch(_){ return false; } }
+var dispatchJobs={};
 
 function $(id){ return document.getElementById(id); }
 function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
@@ -474,10 +546,13 @@ function buildWorld(){
   });
 
   // agents from ~/.claude/agents
+  reloadAgents();
+}
+function reloadAgents(){
   var raw=jGetAgents();
   agents=raw.map(function(a,i){
     var hx=(Math.random()-0.5)*16, hy=(Math.random()-0.5)*10;
-    return { id:'ag'+i, name:a.name, body:a.body||'', model:a.model||'', desc:a.description||'',
+    return { id:'ag'+i, name:a.name, body:a.body||'', model:a.model||'', desc:a.description||'', tools:a.tools||'',
       status:'idle', x:hx, y:hy, color:colorFor(a.name), home:{x:hx,y:hy}, destRoom:null, task:null };
   });
 }
@@ -636,10 +711,11 @@ function dispatchAgent(agent,roomId){
   else wp.push({x:room.cx+(Math.random()-0.5)*(room.w*0.4), y:room.cy});
   agent._path=wp; agent._pathIdx=0; agent.status='traveling'; agent.destRoom=roomId;
   agent.task=room.bugs.length?('Hunting bug in '+room.name):('Working in '+room.name);
-  // REAL dispatch: spawn claude --print in the room
-  var task=['You are dispatched to this room.', room.bugs.length?('Fix the bug: '+room.bugs[0].title+(room.bugs[0].file?(' ('+room.bugs[0].file+')'):'')) :'Review and document this folder.',
+  // REAL dispatch: stream a claude --print spawn in the room's cwd
+  var task=['You are dispatched to this room as the hero "'+agent.name+'".', room.bugs.length?('Fix the bug: '+room.bugs[0].title+(room.bugs[0].file?(' ('+room.bugs[0].file+')'):'')) :'Review and document this folder.',
     '', '1. Read library.md here for context.', '2. Make the fix.', '3. Move the bug from ## 🐛 Open Bugs to ## ✅ Resolved in library.md.', '4. Update the parent room receptionist line.'].join('\n');
-  jSpawnAgent(agent.name, room.path, task);
+  var sid=jDispatch(JSON.stringify({ op:'dispatch', cwd:room.path, persona:agent.body||'', task:task }));
+  dispatchJobs[sid]={ roomIds:[room.id], council:false, agent:agent };
   renderAgentsPanel();
   toast('⚔ '+agent.name+' → '+room.name);
 }
@@ -702,16 +778,52 @@ var agentsPanel=$('agentsPanel');
 function renderAgentsPanel(){
   $('agentsBtn').textContent='⚔ '+agents.length;
   agentsPanel.innerHTML='<h3>⚔ Roster</h3>';
-  if(!agents.length){ agentsPanel.innerHTML+='<div class="agent-empty">No heroes.<br>Create agents in<br>~/.claude/agents/</div>'; return; }
+  if(!agents.length){ agentsPanel.innerHTML+='<div class="agent-empty">No heroes yet.</div>'; }
   agents.forEach(function(a){
     var row=document.createElement('div'); row.className='agent-row '+a.status;
     var dest=a.destRoom?(getRoom(a.destRoom)||{}).name:'Throne';
     var st=a.status==='idle'?'resting · Throne':a.status==='traveling'?('→ '+dest):a.status==='fighting'?('⚔ '+(a.task||'combat')):(a.task||dest);
-    row.innerHTML='<span class="dot"></span><div style="flex:1;min-width:0"><div class="agent-name">'+esc(a.name)+'</div><div class="agent-status">'+esc(st)+'</div></div>';
-    row.addEventListener('click', function(){ vw.x=-a.x*vw.scale; vw.y=-a.y*vw.scale; applyView(); });
+    row.innerHTML='<span class="dot"></span><div style="flex:1;min-width:0"><div class="agent-name">'+esc(a.name)+'</div><div class="agent-status">'+esc(st)+'</div></div><span style="font-size:11px;color:var(--ink-soft);">✎</span>';
+    row.addEventListener('click', function(){ openAgentDialog(a); });
     agentsPanel.appendChild(row);
   });
+  var add=document.createElement('div');
+  add.className='agent-row'; add.style.cssText='justify-content:center;color:var(--ink);font-weight:bold;border-bottom:none;margin-top:4px;';
+  add.innerHTML='+ New Hero';
+  add.addEventListener('click', function(){ openAgentDialog(null); });
+  agentsPanel.appendChild(add);
 }
+
+// ── Agent Builder ──
+var editingAgent=null;
+function openAgentDialog(a){
+  editingAgent=a||null;
+  $('agent-dlg-title').textContent=a?('Edit '+a.name):'+ New Hero';
+  $('ag-name').value=a?a.name:''; $('ag-name').disabled=!!a;
+  $('ag-desc').value=a?(a.desc||''):''; $('ag-model').value=a?(a.model||''):''; $('ag-tools').value=a?(a.tools||''):'';
+  $('ag-body').value=a?(a.body||''):'';
+  $('ag-delete').style.display=a?'block':'none';
+  $('agent-dialog').classList.add('show');
+}
+$('ag-cancel').addEventListener('click', function(){ $('agent-dialog').classList.remove('show'); });
+$('ag-save').addEventListener('click', function(){
+  var name=$('ag-name').value.trim(); if(!name){ toast('Name required'); return; }
+  var fm=['---','name: '+name];
+  var d=$('ag-desc').value.trim(); if(d) fm.push('description: '+d);
+  var m=$('ag-model').value.trim(); if(m) fm.push('model: '+m);
+  var tl=$('ag-tools').value.trim(); if(tl) fm.push('tools: '+tl);
+  fm.push('---','');
+  var md=fm.join('\n')+'\n'+($('ag-body').value.trim()||'You are a helpful hero.')+'\n';
+  if(jWriteAgent(name, md)){ toast('⚔ Saved '+name); } else { toast('⚠ Could not save'); }
+  $('agent-dialog').classList.remove('show');
+  reloadAgents(); renderAgents(); renderAgentsPanel();
+});
+$('ag-delete').addEventListener('click', function(){
+  if(!editingAgent) return;
+  if(jDeleteAgent(editingAgent.name)) toast('🗑 Removed '+editingAgent.name);
+  $('agent-dialog').classList.remove('show');
+  reloadAgents(); renderAgents(); renderAgentsPanel();
+});
 $('agentsBtn').addEventListener('click', function(){ agentsPanel.classList.toggle('open'); });
 
 // ── Room panel ──
@@ -797,7 +909,71 @@ function appendBugToLibrary(roomPath, title){
 }
 
 $('mapBackBtn').addEventListener('click', function(){ showScreen('home-screen'); renderHome(); });
-$('scoutBtn').addEventListener('click', function(){ toast('Scout (audit) — P2/P3. Use /code-review in the terminal for now.'); });
+
+// ── Scout sheet (Solo / War Council) ──
+var scoutRoom=null;
+function setSeg(id,v){ document.querySelectorAll('#'+id+' .seg-btn').forEach(function(b){ b.classList.toggle('active', b.dataset.v===v); }); }
+function segVal(id){ var a=document.querySelector('#'+id+' .seg-btn.active'); return a?a.dataset.v:''; }
+function openScout(roomId){
+  scoutRoom = roomId ? getRoom(roomId) : null;
+  setSeg('scout-scope', scoutRoom?'room':'full');
+  setSeg('scout-mode','solo'); $('council-opts').style.display='none';
+  var roomBtn=document.querySelector('#scout-scope .seg-btn[data-v="room"]');
+  roomBtn.style.opacity = scoutRoom?'1':'0.35';
+  $('scout-target').textContent = scoutRoom?('Audit room: '+scoutRoom.name):'Audit the whole dungeon';
+  $('scout-dialog').classList.add('show');
+}
+document.querySelectorAll('#scout-scope .seg-btn').forEach(function(b){
+  b.addEventListener('click', function(){
+    if(b.dataset.v==='room' && !scoutRoom){ toast('Tap a room first, then Scout'); return; }
+    setSeg('scout-scope', b.dataset.v);
+    $('scout-target').textContent = b.dataset.v==='room'?('Audit room: '+scoutRoom.name):'Audit the whole dungeon';
+  });
+});
+document.querySelectorAll('#scout-mode .seg-btn').forEach(function(b){
+  b.addEventListener('click', function(){ setSeg('scout-mode', b.dataset.v); $('council-opts').style.display = b.dataset.v==='council'?'block':'none'; });
+});
+document.querySelectorAll('#scout-members .seg-btn').forEach(function(b){
+  b.addEventListener('click', function(){ setSeg('scout-members', b.dataset.v); });
+});
+$('scout-cancel').addEventListener('click', function(){ $('scout-dialog').classList.remove('show'); });
+$('scout-begin').addEventListener('click', function(){
+  var scope=segVal('scout-scope');
+  if(scope==='room' && !scoutRoom){ toast('Tap a room first'); return; }
+  var mode=segVal('scout-mode');
+  var cwd = scope==='room' ? scoutRoom.path : activePath;
+  var ids = scope==='room' ? [scoutRoom.id] : rooms.map(function(r){ return r.id; });
+  var members = parseInt(segVal('scout-members'),10)||2;
+  var payload={ op: mode==='council'?'council':'scout', cwd:cwd, mode:mode, members:members };
+  var sid=jDispatch(JSON.stringify(payload));
+  dispatchJobs[sid]={ roomIds:ids, council:mode==='council', scout:true };
+  $('scout-dialog').classList.remove('show');
+  setScouting(mode==='council'?('⚖ Council scouting ('+members+')…'):'🧭 Scouting…');
+  toast(mode==='council'?('⚖ War Council ('+members+') dispatched'):'🧭 Scout dispatched');
+});
+$('scoutBtn').addEventListener('click', function(){ openScout(openRoomId); });
+
+function setScouting(label){ $('map-title').textContent = label ? ('⚜ '+activeName+' · '+label) : refreshTitle(); }
+function refreshTitle(){ var total=rooms.reduce(function(s,r){ return s+r.bugs.length; },0); var t=total>0?('⚜ '+activeName+' · 🐛'+total):('⚜ '+activeName); $('map-title').textContent=t; return t; }
+function rescanRooms(ids){
+  (ids||[]).forEach(function(id){ var r=getRoom(id); if(r){ r.bugs=mkBugs(parseBugs(r.path+'/library.md')); } });
+  renderMonsters(); updateRoomVisuals(); refreshTitle();
+  if(openRoomId) renderRoomPanel();
+}
+
+// ── Dispatch / Scout event stream from Kotlin ──
+window.onDungeonEvent=function(sid, line){
+  var ev; try{ ev=JSON.parse(line); }catch(_){ return; }
+  var job=dispatchJobs[sid];
+  if(ev.t==='start' && ev.error){ toast('member '+ev.member+' failed to start'); }
+  else if(ev.t==='bug'){ /* findings get rendered on rescan at all-done */ }
+  else if(ev.t==='all-done'){
+    refreshTitle(); toast('✅ '+(job&&job.council?'Council':'Scout')+' complete');
+    if(job) rescanRooms(job.roomIds);
+  }
+  else if(ev.t==='error'){ refreshTitle(); toast('⚠ '+(ev.msg||'dispatch error')); }
+  else if(ev.t==='closed'){ if(job && job.scout) refreshTitle(); delete dispatchJobs[sid]; }
+};
 
 // ── Toast ──
 var toastEl=$('toast'), toastTimer=null;
