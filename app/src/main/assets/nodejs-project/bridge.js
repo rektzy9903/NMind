@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b60-dungeon-build-stamp';
+const BRIDGE_BUILD = 'b61-fix-hotload-dungeon-guard';
 
 const net   = require('net');
 const http  = require('http');
@@ -4447,7 +4447,7 @@ function openPrintSession() {
             // ensureBridgeJs() prefers a valid bridge_dev.js over the bundled asset
             // (DEBUG only). So a JS change = git push → !hotload → force-stop/reopen,
             // NO rebuild. `!hotload reset` removes the dev copy (back to bundled).
-            if (line.startsWith('!hotload') && !line.startsWith('!hotload-ui')) {
+            if (line.startsWith('!hotload') && !line.startsWith('!hotload-ui') && !line.startsWith('!hotload-dungeon')) {
                 const w = (s) => { try { if (state.socket) state.socket.write(SYS_FENCE + s); } catch(_) {} };
                 const arg = line.slice('!hotload'.length).trim();
                 const devPath = path.join(FILES_DIR, 'bridge_dev.js');
