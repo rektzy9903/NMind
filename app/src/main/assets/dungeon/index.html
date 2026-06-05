@@ -309,7 +309,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd6-parchment-parity';
+var DUNGEON_BUILD = 'd7-grid-layout';
 
 // ── Bridge ────────────────────────────────────────────────
 var A = (typeof DungeonAndroid !== 'undefined') ? DungeonAndroid : null;
@@ -432,6 +432,7 @@ var rooms=[], agents=[];
 var svg=$('svgMap'), SVGNS='http://www.w3.org/2000/svg';
 function el(tag,attrs){ var e=document.createElementNS(SVGNS,tag); attrs=attrs||{}; for(var k in attrs) e.setAttribute(k,attrs[k]); return e; }
 function getRoom(id){ return rooms.find(function(r){ return r.id===id; }); }
+function isVisibleDir(e){ return e.isDir && e.name.charAt(0)!=='.'; }
 
 function colorFor(s){ var h=0; for(var i=0;i<s.length;i++) h=(h*31+s.charCodeAt(i))>>>0; var hues=['#4a6b3a','#5a3f7a','#7a5a2a','#3a5a6b','#6b3a4a','#5a6b3a']; return hues[h%hues.length]; }
 
@@ -441,30 +442,35 @@ function buildWorld(){
   throne.bugs=mkBugs(parseBugs(activePath+'/library.md'));
   rooms.push(throne);
 
-  var dirs=listDir(activePath).filter(function(e){ return e.isDir && e.name.charAt(0)!=='.'; });
+  var dirs=listDir(activePath).filter(isVisibleDir);
   var n=dirs.length||1;
-  var R=Math.max(95, 26*Math.min(n,8));
+  // ring radius scales with count so features never collide
+  var R=Math.max(140, n*16);
+  var MAX_SUBS=6, perCol=3, colGap=52, rowGap=44, clear=60;
   dirs.forEach(function(e,i){
     var ang=(i/n)*Math.PI*2 - Math.PI/2;
+    var ux=Math.cos(ang), uy=Math.sin(ang);   // outward (throne → feature)
+    var px=-uy, py=ux;                          // perpendicular
     var rp=activePath+'/'+e.name;
     var room={ id:e.name, name:e.name, type:'feature', parent:'throne',
-      cx:Math.cos(ang)*R, cy:Math.sin(ang)*R, w:50, h:36, path:rp };
+      cx:ux*R, cy:uy*R, w:52, h:38, path:rp };
     room.bugs=mkBugs(parseBugs(rp+'/library.md'));
     rooms.push(room);
-    // one level of sub-rooms
-    var subs=listDir(rp).filter(function(s){ return s.isDir && s.name.charAt(0)!=='.'; });
-    var sn=subs.length;
-    if(sn){
-      var subR=46;
-      subs.slice(0,6).forEach(function(s,j){
-        var sa=ang + (j-(Math.min(sn,6)-1)/2)*0.5;
-        var sp=rp+'/'+s.name;
-        var sub={ id:e.name+'/'+s.name, name:s.name, type:'subroom', parent:e.name,
-          cx:room.cx+Math.cos(sa)*subR, cy:room.cy+Math.sin(sa)*subR, w:40, h:28, path:sp };
-        sub.bugs=mkBugs(parseBugs(sp+'/library.md'));
-        rooms.push(sub);
-      });
-    }
+    // sub-rooms: neat grid fanned OUTWARD from the feature (never over the parent)
+    var subs=listDir(rp).filter(isVisibleDir);
+    if(subs.length>MAX_SUBS) room._moreSubs=subs.length-MAX_SUBS;
+    var shown=subs.slice(0,MAX_SUBS);
+    shown.forEach(function(s,j){
+      var col=j%perCol, row=Math.floor(j/perCol);
+      var inRow=Math.min(shown.length-row*perCol, perCol);
+      var colOff=(col-(inRow-1)/2)*colGap;
+      var rad=clear+row*rowGap;
+      var sp=rp+'/'+s.name;
+      var sub={ id:e.name+'/'+s.name, name:s.name, type:'subroom', parent:e.name,
+        cx:room.cx+ux*rad+px*colOff, cy:room.cy+uy*rad+py*colOff, w:42, h:30, path:sp };
+      sub.bugs=mkBugs(parseBugs(sp+'/library.md'));
+      rooms.push(sub);
+    });
   });
 
   // agents from ~/.claude/agents
@@ -506,7 +512,8 @@ function renderRooms(){
     g.appendChild(el('rect',{ x:r.cx-2.5, y:r.cy-r.h/2-1, width:5, height:2, fill:'#8b6f3f', stroke:'#3a2818','stroke-width':0.4 }));
     if(r.type==='throne'){ var crown=el('text',{x:r.cx, y:r.cy-r.h/2+7,'text-anchor':'middle','font-size':8,fill:'#8b6f3f'}); crown.textContent='♛'; g.appendChild(crown); }
     var lbl=el('text',{ x:r.cx, y:r.cy+(r.type==='throne'?4:2), 'class':'room-label '+(r.type==='throne'?'throne-label':'') });
-    lbl.textContent=r.name.length>14?r.name.slice(0,13)+'…':r.name;
+    var nm=r.name.length>14?r.name.slice(0,13)+'…':r.name;
+    lbl.textContent=r._moreSubs?(nm+' (+'+r._moreSubs+')'):nm;
     g.appendChild(lbl);
     r._gEl=g; svg.appendChild(g);
   });
