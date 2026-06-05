@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b62-dungeon-dispatch';
+const BRIDGE_BUILD = 'b63-dungeon-models';
 
 const net   = require('net');
 const http  = require('http');
@@ -989,12 +989,16 @@ function startProxyServer(onReady) {
         // In subscription mode return the real configured model.
         if (req.method === 'GET' && req.url.startsWith('/v1/models')) {
             const mcfg = readConfig();
-            const modelId = mcfg.mode === 'subscription'
+            const base = mcfg.mode === 'subscription'
                 ? (mcfg.modelId || 'claude-3-5-sonnet-20241022')
                 : 'claude-3-5-sonnet-20241022';
+            // Advertise the provider's modelList ids too, so a dungeon Scout/Council can
+            // set ANTHROPIC_MODEL to a real provider model and pass startup validation.
+            const ids = [base];
+            if (Array.isArray(mcfg.modelList)) mcfg.modelList.forEach(m => { if (m && ids.indexOf(m) === -1) ids.push(m); });
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
-                data: [{ id: modelId, display_name: modelId, created_at: '' }]
+                data: ids.map(id => ({ id, display_name: id, created_at: '' }))
             }));
             return;
         }
@@ -1516,7 +1520,16 @@ function handleProxyRequest(anthReq, res) {
         }
     }
 
-    const baseModel = cfg.modelId || anthReq.model || '';
+    // Per-spawn model override (dungeon Scout/Council): honor anthReq.model ONLY when
+    // it's explicitly one of the provider's modelList ids. Normal chat sends the fake
+    // 'claude-3-5-sonnet-20241022' (not in modelList) → falls back to cfg.modelId, so
+    // the regular path is unaffected. The dungeon sets ANTHROPIC_MODEL to a real model
+    // id per member; /v1/models advertises those ids so claude-code's startup validation
+    // accepts them.
+    const reqModel = anthReq.model || '';
+    const baseModel = (reqModel && Array.isArray(cfg.modelList) && cfg.modelList.indexOf(reqModel) !== -1)
+        ? reqModel
+        : (cfg.modelId || reqModel || '');
     log('[proxy] request: model=' + (anthReq.model||'?') +
         (baseModel && baseModel !== anthReq.model ? ' → oai:' + baseModel : '') +
         ' stream=' + stream + ' url=' + (pUrl||'MISSING') + '\n');
@@ -5821,11 +5834,24 @@ function openPrintSession() {
             if (started) return; started = true;
             let r; try { r = JSON.parse(reqLine); } catch (e) { send({ t:'error', msg:'bad request' }); try{socket.end();}catch(_){} return; }
             const op   = r.op || 'scout';
+            // Quick query: return the provider's model list for the Scout/Council picker.
+            if (op === 'models') {
+                let list = [], current = '';
+                try { const c = JSON.parse(fs.readFileSync(path.join(FILES_DIR,'bridge_config.json'),'utf8')); list = c.modelList || []; current = c.modelId || ''; } catch(_){}
+                send({ t:'models', list:list, current:current });
+                try { socket.end(); } catch(_){}
+                return;
+            }
             const cwd  = r.cwd || FILES_DIR;
             const isCouncil = (op === 'council') || (r.mode === 'council');
-            const members = isCouncil ? Math.max(2, Math.min(4, parseInt(r.members,10) || 2)) : 1;
+            // chosen models: council uses r.models[] (one per member); solo/dispatch uses r.model
+            const chosen = Array.isArray(r.models) ? r.models.filter(Boolean) : [];
             let models = [];
             try { const cfg = JSON.parse(fs.readFileSync(path.join(FILES_DIR,'bridge_config.json'),'utf8')); models = (cfg.modelList||[]).slice(); } catch(_){}
+            if (chosen.length) models = chosen.slice();
+            const members = isCouncil
+                ? (chosen.length ? Math.min(4, chosen.length) : Math.max(2, Math.min(4, parseInt(r.members,10) || 2)))
+                : 1;
             const benv = buildEnv();
             const persona = (op === 'dispatch' && r.persona) ? r.persona : scoutPersona(cwd);
             const task = r.task || (op === 'dispatch' ? 'Do the assigned work in this folder.' : DEFAULT_SCOUT_TASK);
@@ -5841,9 +5867,13 @@ function openPrintSession() {
                 while ((m = re.exec(text))) send({ t:'bug', member:idx, file:m[1], sev:m[2].toLowerCase(), title:m[3].trim().slice(0,120) });
             }
             function runMember(idx) {
+                // member model: council → models[idx]; solo/dispatch → r.model; else default
+                let memberModel = benv.ANTHROPIC_MODEL;
+                if (isCouncil && models.length) memberModel = models[idx % models.length];
+                else if (r.model) memberModel = r.model;
                 const guestEnv = {
                     ANTHROPIC_API_KEY:   benv.ANTHROPIC_API_KEY,
-                    ANTHROPIC_MODEL:     (members > 1 && models.length) ? models[idx % models.length] : benv.ANTHROPIC_MODEL,
+                    ANTHROPIC_MODEL:     memberModel,
                     DISABLE_AUTOUPDATER: '1', MCP_TIMEOUT: '30000', MCP_TOOL_TIMEOUT: '30000',
                     SHELL: '/bin/bash', IS_SANDBOX: '1',
                 };
