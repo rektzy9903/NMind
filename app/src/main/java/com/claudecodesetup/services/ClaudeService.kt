@@ -305,6 +305,29 @@ class ClaudeService : LifecycleService() {
                         if (m <= 0) break
                         agg.write(buf, 0, m)
                     }
+                    // Burst coalescing (terminal-lag fix, part 2). A heavy TUI repaint
+                    // (Claude Code's Ink renderer) arrives as a rapid SEQUENCE of frames
+                    // separated by sub-frame gaps. The drain above only catches bytes
+                    // already buffered at this instant, so each frame still becomes its
+                    // own onPtyOutput → evaluateJavascript → atob crossing on the UI
+                    // thread (20-60/sec) and competes with the WebGL draw → stutter.
+                    // When this read looks like a burst (≥2KB at once), wait up to ~24ms
+                    // for the next frame(s) and fold them into ONE chunk. Tiny/idle output
+                    // (key echo, a prompt) is well under 2KB → no wait → typing latency is
+                    // unaffected. Bounded by waits, size cap, and the agg ceiling.
+                    if (agg.size() >= 2048) {
+                        var waits = 0
+                        while (waits < 3 && agg.size() < 262144) {
+                            try { Thread.sleep(8) } catch (_: InterruptedException) { break }
+                            if (input.available() <= 0) break
+                            while (input.available() > 0 && agg.size() < 262144) {
+                                val m = input.read(buf)
+                                if (m <= 0) break
+                                agg.write(buf, 0, m)
+                            }
+                            waits++
+                        }
+                    }
                     val b64 = Base64.encodeToString(agg.toByteArray(), Base64.NO_WRAP)
                     onPtyOutput?.invoke(sessionId, b64)
                 }

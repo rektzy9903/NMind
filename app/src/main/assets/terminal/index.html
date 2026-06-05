@@ -709,6 +709,21 @@ html, body {
 #xterm .xterm{height:100%;}
 .xterm-viewport::-webkit-scrollbar{width:6px;}
 .xterm-viewport::-webkit-scrollbar-thumb{background:#2A2A30;border-radius:3px;}
+/* Touch-scroll smoothness (terminal scroll-lag fix). The WebGL renderer makes
+   drawing cheap, but the Ubuntu xterm still felt laggy WHILE SCROLLING. Causes &
+   fixes: (a) touch-action:pan-y tells the WebView the gesture is vertical-only so
+   it doesn't burn the touch-slop window disambiguating tap/zoom/scroll before the
+   scroll even starts (the main "lag to start scrolling" source); (b) momentum +
+   (c) overscroll-behavior:contain stops the gesture chaining to the page/keyboard;
+   (d) will-change/translateZ pins the viewport to its own GPU compositor layer so
+   scroll is composited, not repainted. Hotloadable (CSS) via !hotload-ui. */
+.xterm-viewport{
+  touch-action:pan-y;
+  -webkit-overflow-scrolling:touch;
+  overscroll-behavior:contain;
+  will-change:transform;
+  transform:translateZ(0);
+}
 /* Unified toolbar (P6.7): one #toolbar for both tabs. Buttons that don't apply to
    the active tab are locked (greyed, unclickable). Ctrl glows amber when armed. */
 .tb-btn.tb-locked{opacity:.3;pointer-events:none;filter:grayscale(1);}
