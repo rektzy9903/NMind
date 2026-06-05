@@ -96,6 +96,12 @@ class DungeonActivity : AppCompatActivity() {
         @JavascriptInterface
         fun getProjectPath(): String = prefs.getProjectPath()
 
+        // Close the Dungeon activity (home-screen back arrow → main menu)
+        @JavascriptInterface
+        fun finishActivity() {
+            runOnUiThread { finish() }
+        }
+
         // Launch the system folder picker; result fires window.onFolderPicked(path)
         @JavascriptInterface
         fun pickFolder() {
