@@ -5,172 +5,278 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <title>Dungeon</title>
 <style>
-* { margin: 0; padding: 0; box-sizing: border-box; }
-html, body { width: 100%; height: 100%; background: #0C0C0F; overflow: hidden; font-family: 'Courier New', monospace; }
+* { margin:0; padding:0; box-sizing:border-box; }
+html,body { width:100%; height:100%; background:#0C0C0F; overflow:hidden; font-family:'Courier New',monospace; color:#F0F0F2; }
 
-/* ── Header ── */
-#header {
-  position: fixed; top: 0; left: 0; right: 0; height: 48px; z-index: 50;
-  background: #0C0C0F; border-bottom: 1px solid #2A2A30;
-  display: flex; align-items: center; padding: 0 16px; gap: 12px;
+/* ── Screens ── */
+.screen { position:fixed; top:0; left:0; right:0; bottom:0; display:none; flex-direction:column; }
+.screen.active { display:flex; }
+
+/* ══════════════════════════════════════════════
+   HOME SCREEN — dungeon list
+══════════════════════════════════════════════ */
+#home-screen { background:#0C0C0F; }
+
+#home-header {
+  padding:16px 20px 12px;
+  border-bottom:1px solid #2A2A30;
+  display:flex; align-items:center; gap:12px;
 }
-#header-title { font-size: 15px; font-weight: 700; color: #F0F0F2; letter-spacing: 0.5px; }
-#header-project { font-size: 11px; color: #9090A0; margin-left: auto; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#back-btn {
-  width: 32px; height: 32px; border-radius: 8px; background: #151518;
-  border: 1px solid #2A2A30; color: #9090A0; font-size: 16px;
-  display: flex; align-items: center; justify-content: center; cursor: pointer;
+#home-header svg { width:22px; height:22px; flex-shrink:0; }
+#home-title { font-size:17px; font-weight:700; color:#F0F0F2; flex:1; letter-spacing:0.3px; }
+#home-header .back-btn {
+  width:32px; height:32px; border-radius:8px; background:#151518;
+  border:1px solid #2A2A30; color:#9090A0; font-size:18px;
+  display:flex; align-items:center; justify-content:center; cursor:pointer;
 }
 
-/* ── Canvas wrapper ── */
-#canvas-wrap {
-  position: fixed; top: 48px; left: 0; right: 0; bottom: 56px;
-  overflow: hidden; background: #111108;
+#dungeon-list {
+  flex:1; overflow-y:auto; padding:16px;
 }
-#dungeon-canvas { display: block; cursor: grab; }
-#dungeon-canvas:active { cursor: grabbing; }
+#dungeon-list::-webkit-scrollbar { width:3px; }
+#dungeon-list::-webkit-scrollbar-thumb { background:#2A2A30; border-radius:2px; }
 
-/* ── Bottom toolbar ── */
-#toolbar {
-  position: fixed; bottom: 0; left: 0; right: 0; height: 56px;
-  background: #0C0C0F; border-top: 1px solid #2A2A30;
-  display: flex; align-items: center; justify-content: space-around; padding: 0 8px;
+.dungeon-card {
+  background:#151518; border:1px solid #2A2A30; border-radius:14px;
+  padding:14px 16px; margin-bottom:10px; cursor:pointer;
+  display:flex; align-items:center; gap:12px;
+  transition:border-color 0.15s, background 0.15s;
+  -webkit-tap-highlight-color:transparent;
+}
+.dungeon-card:active { background:#1E1E22; border-color:#E8834A; }
+.dungeon-icon {
+  width:44px; height:44px; border-radius:10px; background:#1E1E22;
+  border:1px solid #2A2A30; display:flex; align-items:center; justify-content:center;
+  flex-shrink:0;
+}
+.dungeon-icon svg { width:22px; height:22px; }
+.dungeon-info { flex:1; min-width:0; }
+.dungeon-name { font-size:14px; font-weight:700; color:#F0F0F2; margin-bottom:3px; }
+.dungeon-path { font-size:10px; color:#9090A0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.dungeon-meta { font-size:10px; color:#60606E; margin-top:2px; }
+.dungeon-enter {
+  width:32px; height:32px; border-radius:8px; background:#22E8834A;
+  border:1px solid #E8834A; color:#E8834A; font-size:16px;
+  display:flex; align-items:center; justify-content:center; flex-shrink:0;
+}
+.dungeon-delete {
+  width:28px; height:28px; border-radius:7px; background:transparent;
+  border:1px solid #2A2A30; color:#60606E; font-size:14px;
+  display:flex; align-items:center; justify-content:center; flex-shrink:0;
+  margin-right:4px;
+}
+
+#empty-state {
+  text-align:center; padding:48px 32px; color:#60606E;
+  display:none; flex-direction:column; align-items:center; gap:12px;
+}
+#empty-state svg { width:48px; height:48px; opacity:0.3; }
+#empty-state p { font-size:13px; line-height:1.6; }
+
+#add-btn {
+  margin:0 16px 24px;
+  padding:14px; border-radius:14px;
+  background:#22E8834A; border:1px solid #E8834A;
+  color:#E8834A; font-size:14px; font-weight:700;
+  font-family:'Courier New',monospace; cursor:pointer;
+  display:flex; align-items:center; justify-content:center; gap:8px;
+  letter-spacing:0.3px; -webkit-tap-highlight-color:transparent;
+}
+#add-btn:active { background:#44E8834A; }
+#add-btn svg { width:18px; height:18px; }
+
+/* ── Name dialog (shown after folder pick) ── */
+#name-dialog {
+  position:fixed; top:0; left:0; right:0; bottom:0;
+  background:rgba(0,0,0,0.75); z-index:90;
+  display:none; align-items:center; justify-content:center; padding:24px;
+}
+#name-dialog.show { display:flex; }
+#name-box {
+  background:#151518; border:1px solid #2A2A30; border-radius:16px;
+  padding:20px; width:100%; max-width:320px;
+}
+#name-box h3 { font-size:14px; font-weight:700; color:#F0F0F2; margin-bottom:4px; }
+#name-box .sub { font-size:11px; color:#9090A0; margin-bottom:14px; }
+#name-input {
+  width:100%; padding:10px 12px; border-radius:10px;
+  background:#1E1E22; border:1px solid #2A2A30;
+  color:#F0F0F2; font-size:13px; font-family:'Courier New',monospace;
+  outline:none; margin-bottom:12px;
+}
+#name-input:focus { border-color:#E8834A; }
+.dialog-btns { display:flex; gap:8px; }
+.dialog-btns button {
+  flex:1; padding:10px; border-radius:10px; font-size:12px;
+  font-weight:700; font-family:'Courier New',monospace; cursor:pointer; border:none;
+}
+#name-cancel { background:#1E1E22; color:#9090A0; border:1px solid #2A2A30 !important; }
+#name-confirm { background:#E8834A; color:#0C0C0F; }
+
+/* ══════════════════════════════════════════════
+   MAP SCREEN — parchment dungeon map
+══════════════════════════════════════════════ */
+#map-screen { background:#111108; }
+
+#map-header {
+  position:absolute; top:0; left:0; right:0; height:48px; z-index:50;
+  background:rgba(12,12,15,0.92); border-bottom:1px solid #2A2A30;
+  display:flex; align-items:center; padding:0 12px; gap:10px;
+}
+#map-back {
+  width:32px; height:32px; border-radius:8px; background:#151518;
+  border:1px solid #2A2A30; color:#9090A0; font-size:18px;
+  display:flex; align-items:center; justify-content:center; cursor:pointer;
+}
+#map-title { font-size:14px; font-weight:700; color:#F0F0F2; flex:1; }
+#map-bug-count { font-size:11px; color:#F87171; }
+
+#canvas-wrap { position:absolute; top:48px; left:0; right:0; bottom:56px; overflow:hidden; }
+#dungeon-canvas { display:block; cursor:grab; }
+#dungeon-canvas:active { cursor:grabbing; }
+
+#map-toolbar {
+  position:absolute; bottom:0; left:0; right:0; height:56px;
+  background:rgba(12,12,15,0.92); border-top:1px solid #2A2A30;
+  display:flex; align-items:center; justify-content:space-around; padding:0 8px;
 }
 .tb-btn {
-  display: flex; flex-direction: column; align-items: center; gap: 3px;
-  padding: 6px 12px; border-radius: 10px; background: transparent;
-  border: none; color: #9090A0; font-size: 9px; font-family: 'Courier New', monospace;
-  cursor: pointer; letter-spacing: 0.5px; text-transform: uppercase;
+  display:flex; flex-direction:column; align-items:center; gap:3px;
+  padding:6px 12px; border-radius:10px; background:transparent;
+  border:none; color:#9090A0; font-size:9px; font-family:'Courier New',monospace;
+  cursor:pointer; letter-spacing:0.5px; text-transform:uppercase;
 }
-.tb-btn svg { width: 18px; height: 18px; }
-.tb-btn.active { color: #E8834A; background: #22E8834A; }
+.tb-btn svg { width:18px; height:18px; }
+.tb-btn.active { color:#E8834A; background:#22E8834A; }
 
-/* ── Room panel (slide-in) ── */
+/* ── Room panel ── */
 #room-panel {
-  position: fixed; top: 48px; right: 0; bottom: 56px; width: 280px;
-  background: #151518; border-left: 1px solid #2A2A30;
-  transform: translateX(100%); transition: transform 0.25s ease;
-  display: flex; flex-direction: column; z-index: 40; overflow: hidden;
+  position:absolute; top:48px; right:0; bottom:56px; width:280px;
+  background:#151518; border-left:1px solid #2A2A30;
+  transform:translateX(100%); transition:transform 0.25s ease;
+  display:flex; flex-direction:column; z-index:40; overflow:hidden;
 }
-#room-panel.open { transform: translateX(0); }
-#panel-header {
-  padding: 16px; border-bottom: 1px solid #2A2A30;
-  display: flex; align-items: center; gap: 8px;
-}
-#panel-title { font-size: 14px; font-weight: 700; color: #F0F0F2; flex: 1; }
-#panel-close {
-  width: 28px; height: 28px; border-radius: 6px; background: #1E1E22;
-  border: 1px solid #2A2A30; color: #9090A0; font-size: 16px;
-  display: flex; align-items: center; justify-content: center; cursor: pointer;
-}
-#panel-content { flex: 1; overflow-y: auto; padding: 12px; }
-#panel-content::-webkit-scrollbar { width: 3px; }
-#panel-content::-webkit-scrollbar-thumb { background: #2A2A30; border-radius: 2px; }
+#room-panel.open { transform:translateX(0); }
+#panel-header { padding:14px 16px; border-bottom:1px solid #2A2A30; display:flex; align-items:center; gap:8px; }
+#panel-title { font-size:14px; font-weight:700; color:#F0F0F2; flex:1; }
+#panel-close { width:28px; height:28px; border-radius:6px; background:#1E1E22; border:1px solid #2A2A30; color:#9090A0; font-size:16px; display:flex; align-items:center; justify-content:center; cursor:pointer; }
+#panel-content { flex:1; overflow-y:auto; padding:12px; }
+#panel-content::-webkit-scrollbar { width:3px; }
+#panel-content::-webkit-scrollbar-thumb { background:#2A2A30; border-radius:2px; }
 
-.bug-item {
-  background: #1E1E22; border: 1px solid #2A2A30; border-radius: 10px;
-  padding: 10px 12px; margin-bottom: 8px;
-}
-.bug-item.critical { border-color: #F87171; }
-.bug-item.major    { border-color: #FBBF24; }
-.bug-item.minor    { border-color: #60606E; }
-.bug-title { font-size: 12px; font-weight: 700; color: #F0F0F2; margin-bottom: 4px; }
-.bug-meta  { font-size: 10px; color: #9090A0; }
-.bug-sev   { display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 9px; font-weight: 700; margin-right: 4px; }
-.bug-sev.critical { background: #3FF87171; color: #F87171; }
-.bug-sev.major    { background: #3FFBBF24; color: #FBBF24; }
-.bug-sev.minor    { background: #22606060; color: #9090A0; }
-
-.dispatch-btn {
-  width: 100%; padding: 10px; border-radius: 10px; margin-top: 4px;
-  background: #22E8834A; border: 1px solid #E8834A; color: #E8834A;
-  font-size: 11px; font-weight: 700; font-family: 'Courier New', monospace;
-  cursor: pointer; letter-spacing: 0.5px;
-}
-.dispatch-btn:active { background: #44E8834A; }
+.bug-item { background:#1E1E22; border:1px solid #2A2A30; border-radius:10px; padding:10px 12px; margin-bottom:8px; }
+.bug-item.critical { border-color:#F87171; }
+.bug-item.major    { border-color:#FBBF24; }
+.bug-title { font-size:12px; font-weight:700; color:#F0F0F2; margin-bottom:4px; }
+.bug-meta  { font-size:10px; color:#9090A0; }
+.bug-sev   { display:inline-block; padding:1px 6px; border-radius:4px; font-size:9px; font-weight:700; margin-right:4px; }
+.bug-sev.critical { background:#3FF87171; color:#F87171; }
+.bug-sev.major    { background:#3FFBBF24; color:#FBBF24; }
+.bug-sev.minor    { background:#22606060; color:#9090A0; }
+.dispatch-btn { width:100%; padding:10px; border-radius:10px; margin-top:6px; background:#22E8834A; border:1px solid #E8834A; color:#E8834A; font-size:11px; font-weight:700; font-family:'Courier New',monospace; cursor:pointer; }
 
 /* ── Toast ── */
 #toast {
-  position: fixed; bottom: 72px; left: 50%; transform: translateX(-50%) translateY(20px);
-  background: #1E1E22; border: 1px solid #2A2A30; border-radius: 10px;
-  padding: 8px 16px; font-size: 12px; color: #F0F0F2;
-  opacity: 0; transition: opacity 0.2s, transform 0.2s; pointer-events: none; z-index: 99;
-  white-space: nowrap;
+  position:fixed; bottom:72px; left:50%; transform:translateX(-50%) translateY(20px);
+  background:#1E1E22; border:1px solid #2A2A30; border-radius:10px;
+  padding:8px 16px; font-size:12px; color:#F0F0F2;
+  opacity:0; transition:opacity 0.2s,transform 0.2s; pointer-events:none; z-index:99;
+  white-space:nowrap;
 }
-#toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
-
-/* ── Loading state ── */
-#loading {
-  position: fixed; top: 48px; left: 0; right: 0; bottom: 56px;
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 12px; color: #9090A0; font-size: 13px;
-}
-#loading svg { width: 32px; height: 32px; opacity: 0.4; animation: spin 1.5s linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
+#toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
 </style>
 </head>
 <body>
 
-<!-- Header -->
-<div id="header">
-  <div id="back-btn" onclick="history.back()">‹</div>
-  <span id="header-title">🏰 Dungeon</span>
-  <span id="header-project" id="project-label">No project</span>
-</div>
+<!-- ══ HOME SCREEN ══ -->
+<div id="home-screen" class="screen active">
 
-<!-- Canvas -->
-<div id="canvas-wrap">
-  <canvas id="dungeon-canvas"></canvas>
-</div>
-
-<!-- Loading -->
-<div id="loading">
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-    <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
-  </svg>
-  <span id="loading-text">Scanning project…</span>
-</div>
-
-<!-- Bottom toolbar -->
-<div id="toolbar">
-  <button class="tb-btn active" id="btn-map" onclick="setView('map')">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-      <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
-      <rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>
+  <div id="home-header">
+    <svg viewBox="0 0 24 24" fill="none" stroke="#E8834A" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M2,21 L22,21 M3,21 L3,8 L4.5,8 L4.5,10 L6,10 L6,8 L6,21 M18,21 L18,8 L19.5,8 L19.5,10 L21,10 L21,8 L21,21 M6,21 L6,13 L18,13 L18,21 M10,21 L10,17 Q12,15 14,17 L14,21 M9,13 L9,5 L10.5,5 L10.5,7 L13.5,7 L13.5,5 L15,5 L15,7 L15,13"/>
     </svg>
-    Map
-  </button>
-  <button class="tb-btn" id="btn-agents" onclick="setView('agents')">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-      <circle cx="9" cy="7" r="4"/><path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/>
-      <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-      <path d="M21 21v-2a4 4 0 0 0-3-3.85"/>
-    </svg>
-    Heroes
-  </button>
-  <button class="tb-btn" id="btn-scout" onclick="runScout()">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-      <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
-    </svg>
-    Scout
-  </button>
-  <button class="tb-btn" id="btn-bugs" onclick="setView('bugs')">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-      <path d="M8 2v2a4 4 0 0 0 8 0V2"/><path d="M12 12v4"/>
-      <path d="M8 12H4a8 8 0 0 0 16 0h-4"/><path d="M12 8a4 4 0 0 0-4 4"/>
-      <path d="M16 12a4 4 0 0 0-4-4"/>
-    </svg>
-    Bugs
-  </button>
-</div>
-
-<!-- Room panel -->
-<div id="room-panel">
-  <div id="panel-header">
-    <span id="panel-title">Room</span>
-    <div id="panel-close" onclick="closePanel()">×</div>
+    <span id="home-title">Dungeon</span>
   </div>
-  <div id="panel-content" id="panel-body"></div>
+
+  <div id="dungeon-list">
+    <div id="empty-state">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M2,21 L22,21 M3,21 L3,8 L6,8 L6,21 M18,21 L18,8 L21,8 L21,21 M6,13 L18,13 M9,13 L9,5 L15,5 L15,13" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <p>No dungeons yet.<br>Add a project folder to begin.</p>
+    </div>
+  </div>
+
+  <button id="add-btn" onclick="startAddDungeon()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+      <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+    </svg>
+    Add Dungeon
+  </button>
+</div>
+
+<!-- ── Name dialog ── -->
+<div id="name-dialog">
+  <div id="name-box">
+    <h3>Name your dungeon</h3>
+    <div class="sub" id="picked-path-label"></div>
+    <input id="name-input" type="text" placeholder="e.g. Nexus-Mind" maxlength="32" />
+    <div class="dialog-btns">
+      <button id="name-cancel" onclick="cancelAdd()">Cancel</button>
+      <button id="name-confirm" onclick="confirmAdd()">Create</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ MAP SCREEN ══ -->
+<div id="map-screen" class="screen">
+
+  <div id="map-header">
+    <div id="map-back" onclick="exitMap()">‹</div>
+    <span id="map-title">Dungeon</span>
+    <span id="map-bug-count"></span>
+  </div>
+
+  <div id="canvas-wrap">
+    <canvas id="dungeon-canvas"></canvas>
+  </div>
+
+  <div id="map-toolbar">
+    <button class="tb-btn active" id="btn-map" onclick="setView('map')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+        <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
+        <rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>
+      </svg>
+      Map
+    </button>
+    <button class="tb-btn" id="btn-agents" onclick="setView('agents')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+        <circle cx="9" cy="7" r="4"/><path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/>
+        <path d="M16 3.13a4 4 0 0 1 0 7.75M21 21v-2a4 4 0 0 0-3-3.85"/>
+      </svg>
+      Heroes
+    </button>
+    <button class="tb-btn" id="btn-scout" onclick="runScout()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+        <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+      </svg>
+      Scout
+    </button>
+    <button class="tb-btn" id="btn-bugs" onclick="setView('bugs')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+        <path d="M8 2v2a4 4 0 0 0 8 0V2M12 12v4M8 12H4a8 8 0 0 0 16 0h-4M12 8a4 4 0 0 0-4 4M16 12a4 4 0 0 0-4-4"/>
+      </svg>
+      Bugs
+    </button>
+  </div>
+
+  <div id="room-panel">
+    <div id="panel-header">
+      <span id="panel-title">Room</span>
+      <div id="panel-close" onclick="closePanel()">×</div>
+    </div>
+    <div id="panel-content"></div>
+  </div>
 </div>
 
 <!-- Toast -->
@@ -180,26 +286,158 @@ html, body { width: 100%; height: 100%; background: #0C0C0F; overflow: hidden; f
 (function(){
 'use strict';
 
-// ── Bridge ──────────────────────────────────────────────────────────────────
-const A = (typeof DungeonAndroid !== 'undefined') ? DungeonAndroid : null;
-function readFile(p)  { return A ? (A.readFile(p)||'') : ''; }
-function writeFile(p,c){ return A ? A.writeFile(p,c) : false; }
-function listDir(p)   { try { return JSON.parse(A ? A.listDir(p) : '[]'); } catch(_){ return []; } }
-function getAgents()  { try { return JSON.parse(A ? A.getAgents() : '[]'); } catch(_){ return []; } }
-function getProjectPath(){ return A ? (A.getProjectPath()||'') : ''; }
-function spawnAgent(name,cwd,task){ return A ? A.spawnAgent(name,cwd,task) : 'no-bridge'; }
+// ── Bridge ───────────────────────────────────────────────────────────────────
+var A = (typeof DungeonAndroid !== 'undefined') ? DungeonAndroid : null;
+function readFile(p)         { return A ? (A.readFile(p)||'') : ''; }
+function writeFile(p,c)      { return A ? A.writeFile(p,c) : false; }
+function listDir(p)          { try { return JSON.parse(A ? A.listDir(p) : '[]'); } catch(_){ return []; } }
+function getAgents()         { try { return JSON.parse(A ? A.getAgents() : '[]'); } catch(_){ return []; } }
+function getDungeons()       { try { return JSON.parse(A ? A.getDungeons() : '[]'); } catch(_){ return []; } }
+function addDungeon(n,p)     { return A ? A.addDungeon(n,p) : false; }
+function removeDungeon(p)    { return A ? A.removeDungeon(p) : false; }
+function getProjectPath()    { return A ? (A.getProjectPath()||'') : ''; }
+function spawnAgent(n,c,t)   { return A ? A.spawnAgent(n,c,t) : 'no-bridge'; }
+function pickFolder()        { if(A) A.pickFolder(); }
 
 // ── State ────────────────────────────────────────────────────────────────────
-var projectPath = '';
-var rooms = [];         // [{id, name, type, path, parentId, bugs[], x, y, w, h}]
-var agents = [];        // from ~/.claude/agents/*.md
+var activePath = '';
+var activeName = '';
+var rooms = [];
+var agents = [];
 var selectedRoom = null;
 var view = 'map';
-var panOffset = {x:0, y:0};
+var panOffset = {x:0,y:0};
 var panStart = null;
 var scale = 1;
 
-// ── Canvas setup ─────────────────────────────────────────────────────────────
+// pending folder pick
+var pendingPath = null;
+
+// ── Folder pick callback (called by Kotlin) ───────────────────────────────────
+window.onFolderPicked = function(path){
+  if(!path){ showToast('No folder selected'); return; }
+  pendingPath = path;
+  var name = path.split('/').pop() || 'Dungeon';
+  var inp = document.getElementById('name-input');
+  inp.value = name;
+  document.getElementById('picked-path-label').textContent = path;
+  document.getElementById('name-dialog').classList.add('show');
+  setTimeout(function(){ inp.focus(); inp.select(); }, 100);
+};
+
+// ── Home screen ───────────────────────────────────────────────────────────────
+function renderHome(){
+  var list = document.getElementById('dungeon-list');
+  var empty = document.getElementById('empty-state');
+  var dungeons = getDungeons();
+
+  // clear existing cards (keep empty-state div)
+  var cards = list.querySelectorAll('.dungeon-card');
+  cards.forEach(function(c){ c.remove(); });
+
+  if(dungeons.length === 0){
+    empty.style.display = 'flex';
+    return;
+  }
+  empty.style.display = 'none';
+
+  dungeons.forEach(function(d){
+    var card = document.createElement('div');
+    card.className = 'dungeon-card';
+    var totalBugs = countBugs(d.path);
+    card.innerHTML =
+      '<div class="dungeon-icon">' +
+        '<svg viewBox="0 0 24 24" fill="none" stroke="#E8834A" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' +
+          '<path d="M2,21 L22,21 M3,21 L3,10 L6,10 L6,21 M18,21 L18,10 L21,10 L21,21 M3,10 L3,8 L4.5,8 L4.5,10 M4.5,8 L6,8 L6,10 M18,10 L18,8 L19.5,8 L19.5,10 M19.5,8 L21,8 L21,10 M6,13 L18,13 M10,21 L10,17 Q12,15 14,17 L14,21 M9,13 L9,7 L15,7 L15,13"/>' +
+        '</svg>' +
+      '</div>' +
+      '<div class="dungeon-info">' +
+        '<div class="dungeon-name">' + esc(d.name) + '</div>' +
+        '<div class="dungeon-path">' + esc(d.path) + '</div>' +
+        (totalBugs > 0
+          ? '<div class="dungeon-meta" style="color:#F87171;">🐛 ' + totalBugs + ' monster' + (totalBugs>1?'s':'') + '</div>'
+          : '<div class="dungeon-meta" style="color:#3DD68C;">✅ clean</div>') +
+      '</div>' +
+      '<div class="dungeon-delete" data-path="' + esc(d.path) + '" title="Remove">✕</div>' +
+      '<div class="dungeon-enter">›</div>';
+
+    // enter dungeon
+    card.querySelector('.dungeon-enter').addEventListener('click', function(e){
+      e.stopPropagation();
+      enterDungeon(d.name, d.path);
+    });
+    card.addEventListener('click', function(){ enterDungeon(d.name, d.path); });
+
+    // delete
+    card.querySelector('.dungeon-delete').addEventListener('click', function(e){
+      e.stopPropagation();
+      if(removeDungeon(d.path)) renderHome();
+    });
+
+    list.insertBefore(card, list.querySelector('#empty-state'));
+  });
+}
+
+function countBugs(projectPath){
+  var count = 0;
+  try {
+    count += parseBugs(projectPath + '/library.md').length;
+    var entries = listDir(projectPath).filter(function(e){ return e.isDir && !e.name.startsWith('.'); });
+    entries.forEach(function(e){
+      count += parseBugs(projectPath + '/' + e.name + '/library.md').length;
+    });
+  } catch(_){}
+  return count;
+}
+
+// ── Add dungeon flow ──────────────────────────────────────────────────────────
+window.startAddDungeon = function(){
+  pickFolder();  // → Kotlin → OpenDocumentTree → window.onFolderPicked
+};
+
+window.cancelAdd = function(){
+  pendingPath = null;
+  document.getElementById('name-dialog').classList.remove('show');
+};
+
+window.confirmAdd = function(){
+  var name = document.getElementById('name-input').value.trim();
+  if(!name){ showToast('Enter a name'); return; }
+  if(!pendingPath){ return; }
+  addDungeon(name, pendingPath);
+  document.getElementById('name-dialog').classList.remove('show');
+  pendingPath = null;
+  renderHome();
+};
+
+// confirm on Enter key
+document.getElementById('name-input').addEventListener('keydown', function(e){
+  if(e.key === 'Enter') window.confirmAdd();
+});
+
+// ── Enter dungeon (switch to map screen) ──────────────────────────────────────
+function enterDungeon(name, path){
+  activePath = path;
+  activeName = name;
+  document.getElementById('map-title').textContent = name;
+  agents = getAgents();
+  buildRooms();
+  showScreen('map-screen');
+  resizeCanvas();
+  draw();
+}
+
+window.exitMap = function(){
+  showScreen('home-screen');
+  renderHome();  // refresh bug counts
+};
+
+function showScreen(id){
+  document.querySelectorAll('.screen').forEach(function(s){ s.classList.remove('active'); });
+  document.getElementById(id).classList.add('active');
+}
+
+// ── Canvas ────────────────────────────────────────────────────────────────────
 var wrap = document.getElementById('canvas-wrap');
 var canvas = document.getElementById('dungeon-canvas');
 var ctx = canvas.getContext('2d');
@@ -209,313 +447,198 @@ function resizeCanvas(){
   canvas.height = wrap.clientHeight;
   draw();
 }
-window.addEventListener('resize', resizeCanvas);
+window.addEventListener('resize', function(){ if(document.getElementById('map-screen').classList.contains('active')) resizeCanvas(); });
 
-// ── Init ─────────────────────────────────────────────────────────────────────
-function init(){
-  projectPath = getProjectPath();
-  var lbl = document.getElementById('project-label');
-  if(lbl) lbl.textContent = projectPath ? projectPath.split('/').pop() : 'No project';
-
-  if(!projectPath){ showLoading(false); showToast('No project selected — open Settings to set one'); return; }
-
-  agents = getAgents();
-  buildRooms();
-  showLoading(false);
-  resizeCanvas();
-  draw();
-}
-
-// ── Room building (scan folder tree) ─────────────────────────────────────────
+// ── Room building ─────────────────────────────────────────────────────────────
 function buildRooms(){
   rooms = [];
-  var cw = canvas.width  || wrap.clientWidth  || 360;
-  var ch = canvas.height || wrap.clientHeight || 600;
+  var cw = wrap.clientWidth  || 360;
+  var ch = wrap.clientHeight || 520;
 
-  // Throne Room = project root
   rooms.push({
-    id: 'throne', name: 'Throne Room', type: 'throne',
-    path: projectPath, parentId: null,
-    bugs: parseBugs(projectPath + '/library.md'),
-    x: cw/2 - 60, y: ch/2 - 50, w: 120, h: 80,
+    id:'throne', name:'Throne Room', type:'throne',
+    path:activePath, parentId:null,
+    bugs:parseBugs(activePath+'/library.md'),
+    x:cw/2-60, y:ch/2-50, w:120, h:80,
   });
 
-  // Top-level folders = main rooms
-  var entries = listDir(projectPath).filter(function(e){ return e.isDir && !e.name.startsWith('.'); });
+  var entries = listDir(activePath).filter(function(e){ return e.isDir && !e.name.startsWith('.'); });
   var count = entries.length;
-  var radius = Math.min(cw, ch) * 0.32;
-  entries.forEach(function(e, i){
-    var angle = (i / count) * Math.PI * 2 - Math.PI / 2;
-    var cx = cw/2 + Math.cos(angle) * radius;
-    var cy = ch/2 + Math.sin(angle) * radius;
-    var roomPath = projectPath + '/' + e.name;
+  var radius = Math.min(cw,ch)*0.32;
+  entries.forEach(function(e,i){
+    var angle = (i/count)*Math.PI*2 - Math.PI/2;
+    var cx = cw/2 + Math.cos(angle)*radius;
+    var cy = ch/2 + Math.sin(angle)*radius;
+    var rp = activePath+'/'+e.name;
     rooms.push({
-      id: e.name, name: e.name, type: 'feature',
-      path: roomPath, parentId: 'throne',
-      bugs: parseBugs(roomPath + '/library.md'),
-      x: cx - 55, y: cy - 35, w: 110, h: 60,
+      id:e.name, name:e.name, type:'feature',
+      path:rp, parentId:'throne',
+      bugs:parseBugs(rp+'/library.md'),
+      x:cx-55, y:cy-35, w:110, h:60,
     });
   });
+
+  // update header bug count
+  var total = rooms.reduce(function(s,r){ return s+r.bugs.length; },0);
+  document.getElementById('map-bug-count').textContent = total > 0 ? '🐛 '+total : '';
 }
 
 // ── library.md bug parser ─────────────────────────────────────────────────────
 function parseBugs(libPath){
   var text = readFile(libPath);
   if(!text) return [];
-  var bugs = [];
-  var inSection = false;
+  var bugs=[]; var inSection=false;
   text.split('\n').forEach(function(line){
-    if(/^##\s+🐛\s+Open Bugs/i.test(line)){ inSection = true; return; }
-    if(/^##\s+/.test(line) && inSection){ inSection = false; }
+    if(/^##\s+🐛\s+Open Bugs/i.test(line)){ inSection=true; return; }
+    if(/^##\s+/.test(line) && inSection){ inSection=false; }
     if(!inSection) return;
-    // Format: - [ ] **title** · `file:line` · severity · ...
-    var m = line.match(/^-\s+\[\s+\]\s+\*\*(.+?)\*\*\s*(?:·\s*`?([^`·]+)`?)?\s*(?:·\s*(critical|major|minor))?/i);
-    if(m){
-      bugs.push({
-        title: m[1].trim(),
-        file:  (m[2]||'').trim(),
-        sev:   (m[3]||'minor').toLowerCase(),
-        raw:   line,
-      });
-    }
+    var m=line.match(/^-\s+\[\s+\]\s+\*\*(.+?)\*\*\s*(?:·\s*`?([^`·]+)`?)?\s*(?:·\s*(critical|major|minor))?/i);
+    if(m) bugs.push({title:m[1].trim(),file:(m[2]||'').trim(),sev:(m[3]||'minor').toLowerCase(),raw:line});
   });
   return bugs;
 }
 
 // ── Draw ──────────────────────────────────────────────────────────────────────
-var PARCHMENT = '#1A180F';
-var PARCHMENT2 = '#221E10';
-var INK = '#5C5030';
-var INK2 = '#8B7540';
-var AMBER = '#E8834A';
-var RED = '#F87171';
-var GREEN = '#3DD68C';
-var TEXT = '#D4C49A';
-var TEXT2 = '#8B7540';
-
 function draw(){
-  if(view !== 'map'){ drawListView(); return; }
+  if(view!=='map'){ ctx.fillStyle='#0C0C0F'; ctx.fillRect(0,0,canvas.width,canvas.height); return; }
 
-  ctx.fillStyle = '#111108';
+  ctx.fillStyle='#111108';
   ctx.fillRect(0,0,canvas.width,canvas.height);
 
-  // Parchment vignette
-  var grad = ctx.createRadialGradient(canvas.width/2, canvas.height/2, 0, canvas.width/2, canvas.height/2, Math.max(canvas.width,canvas.height)*0.7);
-  grad.addColorStop(0, 'rgba(30,26,12,0.0)');
-  grad.addColorStop(1, 'rgba(0,0,0,0.55)');
-  ctx.fillStyle = grad;
-  ctx.fillRect(0,0,canvas.width,canvas.height);
+  var grad=ctx.createRadialGradient(canvas.width/2,canvas.height/2,0,canvas.width/2,canvas.height/2,Math.max(canvas.width,canvas.height)*0.7);
+  grad.addColorStop(0,'rgba(30,26,12,0)'); grad.addColorStop(1,'rgba(0,0,0,0.55)');
+  ctx.fillStyle=grad; ctx.fillRect(0,0,canvas.width,canvas.height);
 
   ctx.save();
-  ctx.translate(panOffset.x, panOffset.y);
-  ctx.scale(scale, scale);
+  ctx.translate(panOffset.x,panOffset.y);
+  ctx.scale(scale,scale);
 
-  // Draw corridors first (behind rooms)
   rooms.forEach(function(r){
     if(!r.parentId) return;
-    var parent = rooms.find(function(p){ return p.id === r.parentId; });
-    if(!parent) return;
-    drawCorridor(
-      parent.x + parent.w/2, parent.y + parent.h/2,
-      r.x + r.w/2, r.y + r.h/2
-    );
+    var p=rooms.find(function(x){ return x.id===r.parentId; });
+    if(!p) return;
+    ctx.save();
+    ctx.strokeStyle='#5C5030'; ctx.lineWidth=2; ctx.setLineDash([5,4]); ctx.globalAlpha=0.6;
+    ctx.beginPath(); ctx.moveTo(p.x+p.w/2,p.y+p.h/2); ctx.lineTo(r.x+r.w/2,r.y+r.h/2); ctx.stroke();
+    ctx.restore();
   });
 
-  // Draw rooms
-  rooms.forEach(function(r){ drawRoom(r); });
-
-  ctx.restore();
-}
-
-function drawCorridor(x1,y1,x2,y2){
-  ctx.save();
-  ctx.strokeStyle = INK;
-  ctx.lineWidth = 2;
-  ctx.setLineDash([5,4]);
-  ctx.globalAlpha = 0.6;
-  ctx.beginPath();
-  ctx.moveTo(x1,y1); ctx.lineTo(x2,y2);
-  ctx.stroke();
+  rooms.forEach(drawRoom);
   ctx.restore();
 }
 
 function drawRoom(r){
-  var hasBugs = r.bugs.length > 0;
-  var isThrone = r.type === 'throne';
-  var isSelected = selectedRoom && selectedRoom.id === r.id;
-
+  var hasBugs=r.bugs.length>0, isThrone=r.type==='throne', isSel=selectedRoom&&selectedRoom.id===r.id;
   ctx.save();
-
-  // Parchment fill
-  var bg = isThrone ? PARCHMENT2 : PARCHMENT;
-  if(hasBugs) bg = '#1F110C';
-  ctx.fillStyle = bg;
-  roundRect(ctx, r.x, r.y, r.w, r.h, 8);
-  ctx.fill();
-
-  // Border
-  ctx.strokeStyle = isSelected ? AMBER : (hasBugs ? '#5C2010' : INK);
-  ctx.lineWidth = isSelected ? 2 : 1.5;
-  if(isThrone){ ctx.strokeStyle = isSelected ? AMBER : INK2; ctx.lineWidth = 2; }
-  roundRect(ctx, r.x, r.y, r.w, r.h, 8);
-  ctx.stroke();
-
-  // Room name
-  ctx.fillStyle = isThrone ? INK2 : TEXT;
-  ctx.font = (isThrone ? 'bold ' : '') + '11px "Courier New", monospace';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  var label = r.name.length > 14 ? r.name.slice(0,13)+'…' : r.name;
-  ctx.fillText(label, r.x + r.w/2, r.y + r.h/2 - (hasBugs ? 8 : 0));
-
-  // Bug count badge
+  ctx.fillStyle = hasBugs ? '#1F110C' : (isThrone ? '#221E10' : '#1A180F');
+  rr(r.x,r.y,r.w,r.h,8); ctx.fill();
+  ctx.strokeStyle=isSel?'#E8834A':(hasBugs?'#5C2010':(isThrone?'#8B7540':'#5C5030'));
+  ctx.lineWidth=isSel?2:1.5;
+  rr(r.x,r.y,r.w,r.h,8); ctx.stroke();
+  ctx.fillStyle=isThrone?'#8B7540':'#D4C49A';
+  ctx.font=(isThrone?'bold ':'')+' 11px "Courier New",monospace';
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  var lbl=r.name.length>14?r.name.slice(0,13)+'…':r.name;
+  ctx.fillText(lbl,r.x+r.w/2,r.y+r.h/2-(hasBugs?8:0));
   if(hasBugs){
-    var hasCritical = r.bugs.some(function(b){ return b.sev === 'critical'; });
-    var hasMajor    = r.bugs.some(function(b){ return b.sev === 'major'; });
-    var badgeColor = hasCritical ? '#F87171' : (hasMajor ? '#FBBF24' : '#9090A0');
-    ctx.fillStyle = badgeColor;
-    ctx.font = '10px "Courier New", monospace';
-    ctx.fillText('🐛 ' + r.bugs.length + (r.bugs.length===1?' monster':' monsters'), r.x+r.w/2, r.y+r.h/2+9);
+    var clr=r.bugs.some(function(b){ return b.sev==='critical'; })?'#F87171':(r.bugs.some(function(b){ return b.sev==='major'; })?'#FBBF24':'#9090A0');
+    ctx.fillStyle=clr; ctx.font='10px "Courier New",monospace';
+    ctx.fillText('🐛 '+r.bugs.length+(r.bugs.length===1?' monster':' monsters'),r.x+r.w/2,r.y+r.h/2+9);
   }
-
-  // Throne crown indicator
-  if(isThrone){
-    ctx.fillStyle = INK2;
-    ctx.font = '14px serif';
-    ctx.fillText('♛', r.x+r.w/2, r.y+14);
-  }
-
+  if(isThrone){ ctx.fillStyle='#8B7540'; ctx.font='14px serif'; ctx.fillText('♛',r.x+r.w/2,r.y+14); }
   ctx.restore();
 }
 
-function roundRect(ctx,x,y,w,h,r){
+function rr(x,y,w,h,rad){
   ctx.beginPath();
-  ctx.moveTo(x+r,y); ctx.lineTo(x+w-r,y);
-  ctx.arcTo(x+w,y,x+w,y+r,r);
-  ctx.lineTo(x+w,y+h-r);
-  ctx.arcTo(x+w,y+h,x+w-r,y+h,r);
-  ctx.lineTo(x+r,y+h);
-  ctx.arcTo(x,y+h,x,y+h-r,r);
-  ctx.lineTo(x,y+r);
-  ctx.arcTo(x,y,x+r,y,r);
-  ctx.closePath();
-}
-
-// ── List views (Heroes / Bugs) ────────────────────────────────────────────────
-function drawListView(){
-  // These are rendered in the panel / DOM, not canvas — just blank canvas
-  ctx.fillStyle = '#0C0C0F';
-  ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.moveTo(x+rad,y); ctx.lineTo(x+w-rad,y); ctx.arcTo(x+w,y,x+w,y+rad,rad);
+  ctx.lineTo(x+w,y+h-rad); ctx.arcTo(x+w,y+h,x+w-rad,y+h,rad);
+  ctx.lineTo(x+rad,y+h); ctx.arcTo(x,y+h,x,y+h-rad,rad);
+  ctx.lineTo(x,y+rad); ctx.arcTo(x,y,x+rad,y,rad); ctx.closePath();
 }
 
 // ── Pan & tap ─────────────────────────────────────────────────────────────────
-var tapStart = null;
-canvas.addEventListener('touchstart', function(e){
+var tapStart=null;
+canvas.addEventListener('touchstart',function(e){
   if(e.touches.length===1){
-    panStart = {x: e.touches[0].clientX - panOffset.x, y: e.touches[0].clientY - panOffset.y};
-    tapStart = {x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now()};
+    panStart={x:e.touches[0].clientX-panOffset.x,y:e.touches[0].clientY-panOffset.y};
+    tapStart={x:e.touches[0].clientX,y:e.touches[0].clientY,t:Date.now()};
   }
-}, {passive:true});
-
-canvas.addEventListener('touchmove', function(e){
-  if(e.touches.length===1 && panStart){
-    panOffset.x = e.touches[0].clientX - panStart.x;
-    panOffset.y = e.touches[0].clientY - panStart.y;
+},{passive:true});
+canvas.addEventListener('touchmove',function(e){
+  if(e.touches.length===1&&panStart){
+    panOffset.x=e.touches[0].clientX-panStart.x;
+    panOffset.y=e.touches[0].clientY-panStart.y;
     draw();
   }
-}, {passive:true});
-
-canvas.addEventListener('touchend', function(e){
-  if(tapStart && Date.now()-tapStart.t < 300){
-    var dx = e.changedTouches[0].clientX - tapStart.x;
-    var dy = e.changedTouches[0].clientY - tapStart.y;
-    if(Math.abs(dx)<8 && Math.abs(dy)<8){
-      handleTap(e.changedTouches[0].clientX, e.changedTouches[0].clientY);
-    }
+},{passive:true});
+canvas.addEventListener('touchend',function(e){
+  if(tapStart&&Date.now()-tapStart.t<300){
+    var dx=e.changedTouches[0].clientX-tapStart.x,dy=e.changedTouches[0].clientY-tapStart.y;
+    if(Math.abs(dx)<8&&Math.abs(dy)<8) handleTap(e.changedTouches[0].clientX,e.changedTouches[0].clientY);
   }
-  tapStart = null; panStart = null;
-}, {passive:true});
-
-// Mouse fallback (for dev/desktop testing)
-canvas.addEventListener('mousedown', function(e){
-  panStart = {x: e.clientX - panOffset.x, y: e.clientY - panOffset.y};
-  tapStart = {x: e.clientX, y: e.clientY, t: Date.now()};
+  tapStart=null;panStart=null;
+},{passive:true});
+canvas.addEventListener('mousedown',function(e){
+  panStart={x:e.clientX-panOffset.x,y:e.clientY-panOffset.y};
+  tapStart={x:e.clientX,y:e.clientY,t:Date.now()};
 });
-canvas.addEventListener('mousemove', function(e){
-  if(panStart && (e.buttons&1)){
-    panOffset.x = e.clientX - panStart.x;
-    panOffset.y = e.clientY - panStart.y;
-    draw();
-  }
+canvas.addEventListener('mousemove',function(e){
+  if(panStart&&(e.buttons&1)){panOffset.x=e.clientX-panStart.x;panOffset.y=e.clientY-panStart.y;draw();}
 });
-canvas.addEventListener('mouseup', function(e){
-  if(tapStart && Date.now()-tapStart.t < 300){
-    var dx = e.clientX-tapStart.x, dy = e.clientY-tapStart.y;
-    if(Math.abs(dx)<5 && Math.abs(dy)<5) handleTap(e.clientX, e.clientY);
+canvas.addEventListener('mouseup',function(e){
+  if(tapStart&&Date.now()-tapStart.t<300){
+    var dx=e.clientX-tapStart.x,dy=e.clientY-tapStart.y;
+    if(Math.abs(dx)<5&&Math.abs(dy)<5) handleTap(e.clientX,e.clientY);
   }
-  panStart=null; tapStart=null;
+  panStart=null;tapStart=null;
 });
 
 function handleTap(cx,cy){
   if(view!=='map') return;
-  // Convert screen → canvas coords
-  var rect = canvas.getBoundingClientRect();
-  var wx = (cx - rect.left - panOffset.x) / scale;
-  var wy = (cy - rect.top  - panOffset.y) / scale;
-  var hit = rooms.find(function(r){ return wx>=r.x && wx<=r.x+r.w && wy>=r.y && wy<=r.y+r.h; });
-  if(hit){ selectedRoom = hit; openPanel(hit); draw(); }
-  else   { selectedRoom = null; closePanel(); draw(); }
+  var rect=canvas.getBoundingClientRect();
+  var wx=(cx-rect.left-panOffset.x)/scale, wy=(cy-rect.top-panOffset.y)/scale;
+  var hit=rooms.find(function(r){ return wx>=r.x&&wx<=r.x+r.w&&wy>=r.y&&wy<=r.y+r.h; });
+  if(hit){selectedRoom=hit;openPanel(hit);draw();}
+  else{selectedRoom=null;closePanel();draw();}
 }
 
 // ── Panel ─────────────────────────────────────────────────────────────────────
 function openPanel(room){
-  var panel = document.getElementById('room-panel');
-  document.getElementById('panel-title').textContent = room.name;
-  var body = document.getElementById('panel-content');
-  body.innerHTML = '';
-
-  if(room.bugs.length === 0){
-    body.innerHTML = '<p style="color:#60606E;font-size:12px;text-align:center;padding:24px 0;">No monsters here.<br>This room is clean ✅</p>';
+  document.getElementById('panel-title').textContent=room.name;
+  var body=document.getElementById('panel-content');
+  body.innerHTML='';
+  if(room.bugs.length===0){
+    body.innerHTML='<p style="color:#60606E;font-size:12px;text-align:center;padding:24px 0;">No monsters here.<br>This room is clean ✅</p>';
   } else {
     room.bugs.forEach(function(bug){
-      var div = document.createElement('div');
-      div.className = 'bug-item ' + bug.sev;
-      div.innerHTML =
-        '<div class="bug-title">' + esc(bug.title) + '</div>' +
-        '<div class="bug-meta">' +
-          '<span class="bug-sev ' + bug.sev + '">' + bug.sev.toUpperCase() + '</span>' +
-          (bug.file ? '<code style="font-size:10px;color:#9090A0;">' + esc(bug.file) + '</code>' : '') +
-        '</div>';
+      var div=document.createElement('div');
+      div.className='bug-item '+bug.sev;
+      div.innerHTML='<div class="bug-title">'+esc(bug.title)+'</div><div class="bug-meta"><span class="bug-sev '+bug.sev+'">'+bug.sev.toUpperCase()+'</span>'+(bug.file?'<code style="font-size:10px;color:#9090A0;">'+esc(bug.file)+'</code>':'')+'</div>';
       body.appendChild(div);
-
-      if(agents.length > 0){
-        var btn = document.createElement('button');
-        btn.className = 'dispatch-btn';
-        btn.textContent = '⚔ Dispatch ' + agents[0].name + ' to fix';
-        btn.onclick = (function(b, r){ return function(){ dispatchHero(agents[0], r, b); }; })(bug, room);
+      if(agents.length>0){
+        var btn=document.createElement('button');
+        btn.className='dispatch-btn';
+        btn.textContent='⚔ Dispatch '+agents[0].name+' to fix';
+        btn.onclick=(function(b,r){ return function(){ dispatchHero(agents[0],r,b); }; })(bug,room);
         body.appendChild(btn);
       }
     });
   }
-
-  // Sub-rooms section
-  var subs = rooms.filter(function(r){ return r.parentId === room.id; });
+  var subs=rooms.filter(function(r){ return r.parentId===room.id; });
   if(subs.length){
-    var hdr = document.createElement('p');
-    hdr.style.cssText = 'color:#9090A0;font-size:10px;letter-spacing:1px;margin:16px 0 8px;text-transform:uppercase;';
-    hdr.textContent = 'Sub-rooms';
-    body.appendChild(hdr);
+    var hdr=document.createElement('p');
+    hdr.style.cssText='color:#9090A0;font-size:10px;letter-spacing:1px;margin:16px 0 8px;text-transform:uppercase;';
+    hdr.textContent='Sub-rooms'; body.appendChild(hdr);
     subs.forEach(function(s){
-      var row = document.createElement('div');
-      row.style.cssText = 'padding:8px 10px;background:#1E1E22;border:1px solid #2A2A30;border-radius:8px;margin-bottom:6px;cursor:pointer;';
-      row.innerHTML = '<span style="font-size:12px;color:#F0F0F2;">' + esc(s.name) + '</span>' +
-        (s.bugs.length ? '<span style="float:right;font-size:10px;color:#F87171;">🐛 ' + s.bugs.length + '</span>' : '<span style="float:right;font-size:10px;color:#3DD68C;">✅</span>');
-      row.onclick = function(){ selectedRoom=s; openPanel(s); draw(); };
+      var row=document.createElement('div');
+      row.style.cssText='padding:8px 10px;background:#1E1E22;border:1px solid #2A2A30;border-radius:8px;margin-bottom:6px;cursor:pointer;';
+      row.innerHTML='<span style="font-size:12px;color:#F0F0F2;">'+esc(s.name)+'</span>'+(s.bugs.length?'<span style="float:right;font-size:10px;color:#F87171;">🐛 '+s.bugs.length+'</span>':'<span style="float:right;font-size:10px;color:#3DD68C;">✅</span>');
+      row.onclick=function(){selectedRoom=s;openPanel(s);draw();};
       body.appendChild(row);
     });
   }
-
-  panel.classList.add('open');
+  document.getElementById('room-panel').classList.add('open');
 }
 
 function closePanel(){
@@ -523,107 +646,75 @@ function closePanel(){
 }
 
 // ── Dispatch ──────────────────────────────────────────────────────────────────
-function dispatchHero(agent, room, bug){
-  var task = [
-    'You have been dispatched to fix a bug in this room.',
-    '',
-    'Bug: **' + bug.title + '**',
-    bug.file ? 'File: ' + bug.file : '',
-    'Severity: ' + bug.sev,
-    '',
-    'Your task:',
-    '1. Read library.md in this folder to understand the room context',
-    '2. Read and fix the file at ' + (bug.file || 'the location described above'),
-    '3. Update library.md — move the bug from ## 🐛 Open Bugs to ## ✅ Resolved',
-    '4. Update the parent room\'s library.md receptionist line to reflect this room is cleaner',
-  ].filter(Boolean).join('\n');
-
-  var sid = spawnAgent(agent.name, room.path, task);
-  showToast('⚔ ' + agent.name + ' dispatched to ' + room.name);
+function dispatchHero(agent,room,bug){
+  var task=['You have been dispatched to fix a bug in this room.','','Bug: **'+bug.title+'**',(bug.file?'File: '+bug.file:''),'Severity: '+bug.sev,'','Your task:','1. Read library.md in this folder to understand the room context','2. Read and fix the file at '+(bug.file||'the location described above'),'3. Update library.md — move the bug from ## 🐛 Open Bugs to ## ✅ Resolved','4. Update the parent room\'s library.md receptionist line'].filter(Boolean).join('\n');
+  spawnAgent(agent.name,room.path,task);
+  showToast('⚔ '+agent.name+' dispatched to '+room.name);
   closePanel();
 }
 
 // ── View switching ────────────────────────────────────────────────────────────
 function setView(v){
-  view = v;
+  view=v;
   ['map','agents','scout','bugs'].forEach(function(id){
-    var btn = document.getElementById('btn-'+id);
-    if(btn) btn.classList.toggle('active', id===v);
+    var b=document.getElementById('btn-'+id);
+    if(b) b.classList.toggle('active',id===v);
   });
   if(v==='agents') showAgentsPanel();
   else if(v==='bugs') showAllBugs();
-  else draw();
+  else { closePanel(); draw(); }
 }
 
 function showAgentsPanel(){
   draw();
+  document.getElementById('panel-title').textContent='⚔ Heroes';
+  var body=document.getElementById('panel-content');
+  body.innerHTML='';
   if(!agents.length){
-    showToast('No heroes found — create agents in ~/.claude/agents/');
-    return;
+    body.innerHTML='<p style="color:#60606E;font-size:12px;text-align:center;padding:24px 0;">No heroes found.<br>Create agents in ~/.claude/agents/</p>';
+  } else {
+    agents.forEach(function(a){
+      var div=document.createElement('div');
+      div.style.cssText='background:#1E1E22;border:1px solid #2A2A30;border-radius:10px;padding:10px 12px;margin-bottom:8px;';
+      div.innerHTML='<div style="font-size:12px;font-weight:700;color:#F0F0F2;">'+esc(a.name)+'</div>'+(a.description?'<div style="font-size:10px;color:#9090A0;margin-top:3px;">'+esc(a.description)+'</div>':'')+(a.model?'<div style="font-size:10px;color:#60A5FA;margin-top:3px;">model: '+esc(a.model)+'</div>':'');
+      body.appendChild(div);
+    });
   }
-  var panel = document.getElementById('room-panel');
-  document.getElementById('panel-title').textContent = '⚔ Heroes';
-  var body = document.getElementById('panel-content');
-  body.innerHTML = '';
-  agents.forEach(function(a){
-    var div = document.createElement('div');
-    div.style.cssText = 'background:#1E1E22;border:1px solid #2A2A30;border-radius:10px;padding:10px 12px;margin-bottom:8px;';
-    div.innerHTML =
-      '<div style="font-size:12px;font-weight:700;color:#F0F0F2;">' + esc(a.name) + '</div>' +
-      (a.description ? '<div style="font-size:10px;color:#9090A0;margin-top:3px;">' + esc(a.description) + '</div>' : '') +
-      (a.model ? '<div style="font-size:10px;color:#60A5FA;margin-top:3px;">model: ' + esc(a.model) + '</div>' : '');
-    body.appendChild(div);
-  });
-  panel.classList.add('open');
+  document.getElementById('room-panel').classList.add('open');
 }
 
 function showAllBugs(){
   draw();
-  var allBugs = [];
-  rooms.forEach(function(r){ r.bugs.forEach(function(b){ allBugs.push({room:r, bug:b}); }); });
-  var panel = document.getElementById('room-panel');
-  document.getElementById('panel-title').textContent = '🐛 All Bugs (' + allBugs.length + ')';
-  var body = document.getElementById('panel-content');
-  body.innerHTML = '';
+  var allBugs=[];
+  rooms.forEach(function(r){ r.bugs.forEach(function(b){ allBugs.push({room:r,bug:b}); }); });
+  document.getElementById('panel-title').textContent='🐛 All Bugs ('+allBugs.length+')';
+  var body=document.getElementById('panel-content'); body.innerHTML='';
   if(!allBugs.length){
-    body.innerHTML = '<p style="color:#3DD68C;font-size:12px;text-align:center;padding:24px 0;">Dungeon is clear! ✅<br>No monsters found.</p>';
+    body.innerHTML='<p style="color:#3DD68C;font-size:12px;text-align:center;padding:24px 0;">Dungeon is clear! ✅<br>No monsters found.</p>';
   } else {
     allBugs.forEach(function(item){
-      var div = document.createElement('div');
-      div.className = 'bug-item ' + item.bug.sev;
-      div.innerHTML =
-        '<div class="bug-title">' + esc(item.bug.title) + '</div>' +
-        '<div class="bug-meta" style="margin-top:3px;">' +
-          '<span class="bug-sev ' + item.bug.sev + '">' + item.bug.sev.toUpperCase() + '</span>' +
-          '<span style="color:#9090A0;">in ' + esc(item.room.name) + '</span>' +
-        '</div>';
+      var div=document.createElement('div');
+      div.className='bug-item '+item.bug.sev;
+      div.innerHTML='<div class="bug-title">'+esc(item.bug.title)+'</div><div class="bug-meta" style="margin-top:3px;"><span class="bug-sev '+item.bug.sev+'">'+item.bug.sev.toUpperCase()+'</span><span style="color:#9090A0;">in '+esc(item.room.name)+'</span></div>';
       body.appendChild(div);
     });
   }
-  panel.classList.add('open');
+  document.getElementById('room-panel').classList.add('open');
 }
 
-function runScout(){
-  showToast('Scout coming in P2 — use /code-review in the terminal for now');
-  setView('map');
-}
+function runScout(){ showToast('Scout coming in P2 — use /code-review in the terminal for now'); setView('map'); }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
 function showToast(msg){
-  var t = document.getElementById('toast');
-  t.textContent = msg; t.classList.add('show');
-  setTimeout(function(){ t.classList.remove('show'); }, 2800);
-}
-
-function showLoading(show){
-  document.getElementById('loading').style.display = show ? 'flex' : 'none';
+  var t=document.getElementById('toast');
+  t.textContent=msg; t.classList.add('show');
+  setTimeout(function(){ t.classList.remove('show'); },2800);
 }
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
-showLoading(true);
-setTimeout(init, 80);  // let the DOM paint first
+renderHome();
 
 })();
 </script>
