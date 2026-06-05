@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b58-strip-reminder-intent';
+const BRIDGE_BUILD = 'b59-hotload-dungeon';
 
 const net   = require('net');
 const http  = require('http');
@@ -4543,6 +4543,49 @@ function openPrintSession() {
                         }
                     }
                     w('\x1b[36mNow FORCE-STOP the app and reopen it to load the new UI.\x1b[0m\r\n');
+                })();
+                continue;
+            }
+
+            // ── !hotload-dungeon — DEBUG: pull the latest dungeon UI (no APK) ──
+            // Same mechanic as !hotload-ui but for assets/dungeon/index.html.
+            // Fetches branch HEAD → filesDir/dungeon_dev.html. DungeonActivity
+            // prefers this file over the bundled asset when present.
+            // `!hotload-dungeon reset` removes the dev copy (back to bundled).
+            if (line.startsWith('!hotload-dungeon')) {
+                const w = (s) => { try { if (state.socket) state.socket.write(SYS_FENCE + s); } catch(_) {} };
+                const arg = line.slice('!hotload-dungeon'.length).trim();
+                const devFile = path.join(FILES_DIR, 'dungeon_dev.html');
+                if (arg === 'reset') {
+                    try { fs.unlinkSync(devFile); w('\x1b[32m✓ dungeon hot-load reset\x1b[0m\r\n'); }
+                    catch(_) { w('\x1b[33m(no dev dungeon asset to reset)\x1b[0m\r\n'); }
+                    w('\x1b[2mForce-stop + reopen to apply (bundled asset).\x1b[0m\r\n');
+                    continue;
+                }
+                const REF = 'feat/custom-agents';
+                const remote = 'app/src/main/assets/dungeon/index.html';
+                const api = 'https://api.github.com/repos/fahmi304/Nexus-Mind/contents/' + remote + '?ref=' + REF;
+                w('\x1b[33m!hotload-dungeon: fetching dungeon/index.html…\x1b[0m\r\n');
+                (async () => {
+                    try {
+                        const res = await httpsGet(api, { headers: {
+                            'Accept': 'application/vnd.github.raw',
+                            'User-Agent': 'nexus-hotload',
+                            'Cache-Control': 'no-cache',
+                        }});
+                        if (res.statusCode !== 200) { res.resume(); throw new Error('HTTP ' + res.statusCode); }
+                        let txt = ''; res.setEncoding('utf8');
+                        await new Promise((rs, rj) => { res.on('data', c => txt += c); res.on('end', rs); res.on('error', rj); });
+                        if (txt.length > 500 && txt.includes('DungeonAndroid')) {
+                            fs.writeFileSync(devFile, txt);
+                            w('\x1b[32m✓ dungeon/index.html → ' + txt.length + ' bytes\x1b[0m\r\n');
+                        } else {
+                            w('\x1b[31m✗ dungeon/index.html invalid (size=' + txt.length + ') — kept current\x1b[0m\r\n');
+                        }
+                    } catch (e) {
+                        w('\x1b[31m✗ dungeon fetch failed: ' + (e && e.message) + '\x1b[0m\r\n');
+                    }
+                    w('\x1b[36mForce-stop the app and reopen to load the new dungeon UI.\x1b[0m\r\n');
                 })();
                 continue;
             }

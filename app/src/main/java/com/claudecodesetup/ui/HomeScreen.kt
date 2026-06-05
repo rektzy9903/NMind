@@ -44,6 +44,7 @@ fun HomeScreen(
     onSettings: () -> Unit,
     onDiscussion: () -> Unit = {},
     onQuickAsk: () -> Unit = {},
+    onDungeon: () -> Unit = {},
 ) {
     val pulseTransition = rememberInfiniteTransition(label = "pulse")
 
@@ -56,12 +57,14 @@ fun HomeScreen(
     var card1Visible by remember { mutableStateOf(false) }
     var cardQuickAskVisible by remember { mutableStateOf(false) }
     var cardDiscussionVisible by remember { mutableStateOf(false) }
+    var cardDungeonVisible by remember { mutableStateOf(false) }
     var card2Visible by remember { mutableStateOf(false) }
     var card3Visible by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         delay(250L); card1Visible = true
         delay(110L); cardQuickAskVisible = true
         delay(110L); cardDiscussionVisible = true
+        delay(110L); cardDungeonVisible = true
         delay(110L); card2Visible = true
         delay(110L); card3Visible = true
     }
@@ -202,6 +205,22 @@ fun HomeScreen(
                     accentColor = NexusAmber,
                     onClick = onDiscussion,
                     iconContent = { DiscussionIcon() }
+                )
+            }
+
+            Spacer(Modifier.height(12.dp))
+
+            // Card — Dungeon (gamified project map)
+            AnimatedVisibility(
+                visible = cardDungeonVisible,
+                enter = fadeIn(tween(400)) + slideInVertically(tween(400, easing = EaseOutCubic)) { it / 3 }
+            ) {
+                MenuCard(
+                    title = "Dungeon",
+                    subtitle = "Your project as a D&D map — hunt bugs, dispatch heroes",
+                    accentColor = Color(0xFF7C5CBF),
+                    onClick = onDungeon,
+                    iconContent = { DungeonIcon() }
                 )
             }
 
@@ -570,6 +589,78 @@ private fun BoxScope.QuickAskIcon() {
                 close()
             }
             drawPath(bolt, NexusAccent)
+        }
+    }
+}
+
+// Castle silhouette — represents the dungeon project map.
+@Composable
+private fun BoxScope.DungeonIcon() {
+    IconBox {
+        androidx.compose.foundation.Canvas(modifier = Modifier.size(22.dp)) {
+            val s = size
+            val sc = s.width / 24f
+            val stroke = androidx.compose.ui.graphics.drawscope.Stroke(
+                width = 1.5f * sc,
+                cap = androidx.compose.ui.graphics.StrokeCap.Round,
+                join = androidx.compose.ui.graphics.StrokeJoin.Round,
+            )
+            val purple = Color(0xFF7C5CBF)
+            // Ground line
+            drawLine(purple, Offset(2f * sc, 21f * sc), Offset(22f * sc, 21f * sc), 1.5f * sc)
+            // Left tower body
+            val leftTower = Path().apply {
+                moveTo(3f * sc, 21f * sc); lineTo(3f * sc, 10f * sc)
+                lineTo(6f * sc, 10f * sc); lineTo(6f * sc, 21f * sc)
+            }
+            drawPath(leftTower, purple, style = stroke)
+            // Left battlement
+            val leftBattle = Path().apply {
+                moveTo(3f * sc, 10f * sc); lineTo(3f * sc, 8f * sc)
+                lineTo(4.5f * sc, 8f * sc); lineTo(4.5f * sc, 10f * sc)
+                moveTo(4.5f * sc, 8f * sc); lineTo(6f * sc, 8f * sc); lineTo(6f * sc, 10f * sc)
+            }
+            drawPath(leftBattle, purple, style = stroke)
+            // Right tower body
+            val rightTower = Path().apply {
+                moveTo(18f * sc, 21f * sc); lineTo(18f * sc, 10f * sc)
+                lineTo(21f * sc, 10f * sc); lineTo(21f * sc, 21f * sc)
+            }
+            drawPath(rightTower, purple, style = stroke)
+            // Right battlement
+            val rightBattle = Path().apply {
+                moveTo(18f * sc, 10f * sc); lineTo(18f * sc, 8f * sc)
+                lineTo(19.5f * sc, 8f * sc); lineTo(19.5f * sc, 10f * sc)
+                moveTo(19.5f * sc, 8f * sc); lineTo(21f * sc, 8f * sc); lineTo(21f * sc, 10f * sc)
+            }
+            drawPath(rightBattle, purple, style = stroke)
+            // Main wall
+            val wall = Path().apply {
+                moveTo(6f * sc, 21f * sc); lineTo(6f * sc, 13f * sc)
+                lineTo(18f * sc, 13f * sc); lineTo(18f * sc, 21f * sc)
+            }
+            drawPath(wall, purple, style = stroke)
+            // Gate arch
+            val gate = Path().apply {
+                moveTo(10f * sc, 21f * sc); lineTo(10f * sc, 17f * sc)
+                quadraticTo(12f * sc, 15f * sc, 14f * sc, 17f * sc)
+                lineTo(14f * sc, 21f * sc)
+            }
+            drawPath(gate, purple, style = stroke)
+            // Center tower body
+            val centerTower = Path().apply {
+                moveTo(9f * sc, 13f * sc); lineTo(9f * sc, 7f * sc)
+                lineTo(15f * sc, 7f * sc); lineTo(15f * sc, 13f * sc)
+            }
+            drawPath(centerTower, purple, style = stroke)
+            // Center battlement
+            val centerBattle = Path().apply {
+                moveTo(9f * sc, 7f * sc); lineTo(9f * sc, 5f * sc)
+                lineTo(10.5f * sc, 5f * sc); lineTo(10.5f * sc, 7f * sc)
+                moveTo(10.5f * sc, 5f * sc); lineTo(13.5f * sc, 5f * sc); lineTo(13.5f * sc, 7f * sc)
+                moveTo(13.5f * sc, 5f * sc); lineTo(15f * sc, 5f * sc); lineTo(15f * sc, 7f * sc)
+            }
+            drawPath(centerBattle, purple, style = stroke)
         }
     }
 }

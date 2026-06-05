@@ -122,6 +122,12 @@
             android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.NexusMind" />
 
+        <activity
+            android:name=".ui.DungeonActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.NexusMind" />
+
         <!-- Web Preview -->
         <activity
             android:name=".ui.PreviewActivity"

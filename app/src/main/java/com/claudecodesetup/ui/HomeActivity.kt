@@ -33,6 +33,7 @@ class HomeActivity : ComponentActivity() {
                 onSettings = { startActivity(Intent(this, SettingsActivity::class.java)) },
                 onDiscussion = { startActivity(Intent(this, DiscussionActivity::class.java)) },
                 onQuickAsk   = { startActivity(Intent(this, QuickAskActivity::class.java)) },
+                onDungeon    = { startActivity(Intent(this, DungeonActivity::class.java)) },
             )
         }
     }

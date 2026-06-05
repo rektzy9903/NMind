@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- Castle tower left -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="@color/white"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M3,21 L3,10 L6,10 L6,21" />
+    <!-- Left battlement -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="@color/white"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M3,10 L3,8 L4.5,8 L4.5,10 M4.5,8 L4.5,10 M4.5,8 L6,8 L6,10" />
+    <!-- Castle tower right -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="@color/white"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M18,21 L18,10 L21,10 L21,21" />
+    <!-- Right battlement -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="@color/white"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M18,10 L18,8 L19.5,8 L19.5,10 M19.5,8 L19.5,10 M19.5,8 L21,8 L21,10" />
+    <!-- Main wall -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="@color/white"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M6,21 L6,13 L18,13 L18,21" />
+    <!-- Gate arch -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="@color/white"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M10,21 L10,17 Q12,15 14,17 L14,21" />
+    <!-- Center tower -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="@color/white"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M9,13 L9,7 L15,7 L15,13" />
+    <!-- Center battlement -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="@color/white"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M9,7 L9,5 L10.5,5 L10.5,7 M10.5,5 L10.5,7 M10.5,5 L13.5,5 L13.5,7 M13.5,5 L13.5,7 M13.5,5 L15,5 L15,7" />
+    <!-- Base ground line -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="@color/white"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:pathData="M2,21 L22,21" />
+</vector>
