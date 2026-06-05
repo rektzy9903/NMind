@@ -7,7 +7,7 @@
     <!-- Castle tower left -->
     <path
         android:fillColor="#00000000"
-        android:strokeColor="@color/white"
+        android:strokeColor="#FFFFFF"
         android:strokeWidth="1.5"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
@@ -15,7 +15,7 @@
     <!-- Left battlement -->
     <path
         android:fillColor="#00000000"
-        android:strokeColor="@color/white"
+        android:strokeColor="#FFFFFF"
         android:strokeWidth="1.5"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
@@ -23,7 +23,7 @@
     <!-- Castle tower right -->
     <path
         android:fillColor="#00000000"
-        android:strokeColor="@color/white"
+        android:strokeColor="#FFFFFF"
         android:strokeWidth="1.5"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
@@ -31,7 +31,7 @@
     <!-- Right battlement -->
     <path
         android:fillColor="#00000000"
-        android:strokeColor="@color/white"
+        android:strokeColor="#FFFFFF"
         android:strokeWidth="1.5"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
@@ -39,7 +39,7 @@
     <!-- Main wall -->
     <path
         android:fillColor="#00000000"
-        android:strokeColor="@color/white"
+        android:strokeColor="#FFFFFF"
         android:strokeWidth="1.5"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
@@ -47,7 +47,7 @@
     <!-- Gate arch -->
     <path
         android:fillColor="#00000000"
-        android:strokeColor="@color/white"
+        android:strokeColor="#FFFFFF"
         android:strokeWidth="1.5"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
@@ -55,7 +55,7 @@
     <!-- Center tower -->
     <path
         android:fillColor="#00000000"
-        android:strokeColor="@color/white"
+        android:strokeColor="#FFFFFF"
         android:strokeWidth="1.5"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
@@ -63,7 +63,7 @@
     <!-- Center battlement -->
     <path
         android:fillColor="#00000000"
-        android:strokeColor="@color/white"
+        android:strokeColor="#FFFFFF"
         android:strokeWidth="1.5"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
@@ -71,7 +71,7 @@
     <!-- Base ground line -->
     <path
         android:fillColor="#00000000"
-        android:strokeColor="@color/white"
+        android:strokeColor="#FFFFFF"
         android:strokeWidth="1.5"
         android:strokeLineCap="round"
         android:pathData="M2,21 L22,21" />
