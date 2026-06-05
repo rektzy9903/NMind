@@ -1,204 +1,247 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover" />
 <title>Dungeon</title>
 <style>
-* { margin:0; padding:0; box-sizing:border-box; }
-html,body { width:100%; height:100%; background:#0C0C0F; overflow:hidden; font-family:'Courier New',monospace; color:#F0F0F2; }
+  :root {
+    --parchment: #e8d5a8;
+    --parchment-dark: #c9a96e;
+    --parchment-deep: #8b6f3f;
+    --ink: #3a2818;
+    --ink-soft: #5a3f28;
+    --blood: #8b2a1f;
+    --gold: #c89b3c;
+    --moss: #5a6b3a;
+    /* Nexus chrome (home screen) */
+    --nbg:#0C0C0F; --nsurf:#151518; --nsurf2:#1E1E22; --nborder:#2A2A30;
+    --naccent:#E8834A; --ntext:#F0F0F2; --ntext2:#9090A0; --ntext3:#60606E;
+    --ngreen:#3DD68C; --nred:#F87171;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; margin:0; padding:0; }
+  html, body {
+    height: 100%; width: 100%; overflow: hidden;
+    font-family: 'Georgia', serif; color: var(--ink);
+    background: #2b1e10; user-select: none;
+  }
 
-/* ── Screens ── */
-.screen { position:fixed; top:0; left:0; right:0; bottom:0; display:none; flex-direction:column; }
-.screen.active { display:flex; }
+  .screen { position:fixed; inset:0; display:none; flex-direction:column; }
+  .screen.active { display:flex; }
 
-/* ══════════════════════════════════════════════
-   HOME SCREEN — dungeon list
-══════════════════════════════════════════════ */
-#home-screen { background:#0C0C0F; }
+  /* ════════════════════════════════════════
+     HOME SCREEN — dungeon list (Nexus chrome)
+  ════════════════════════════════════════ */
+  #home-screen { background:var(--nbg); font-family:'Courier New',monospace; color:var(--ntext); }
+  #home-header {
+    padding:16px 16px 12px; border-bottom:1px solid var(--nborder);
+    display:flex; align-items:center; gap:12px;
+  }
+  #home-header svg.castle { width:22px; height:22px; flex-shrink:0; }
+  #home-title { font-size:17px; font-weight:700; flex:1; letter-spacing:0.3px; }
+  .back-btn {
+    width:34px; height:34px; border-radius:8px; background:var(--nsurf);
+    border:1px solid var(--nborder); color:var(--ntext2); font-size:20px;
+    display:flex; align-items:center; justify-content:center; cursor:pointer; flex-shrink:0;
+  }
+  .back-btn:active { background:var(--nsurf2); }
+  #dungeon-list { flex:1; overflow-y:auto; padding:16px; }
+  .dungeon-card {
+    background:var(--nsurf); border:1px solid var(--nborder); border-radius:14px;
+    padding:14px 16px; margin-bottom:10px; cursor:pointer;
+    display:flex; align-items:center; gap:12px; transition:border-color .15s,background .15s;
+  }
+  .dungeon-card:active { background:var(--nsurf2); border-color:var(--naccent); }
+  .dungeon-icon {
+    width:44px; height:44px; border-radius:10px; background:var(--nsurf2);
+    border:1px solid var(--nborder); display:flex; align-items:center; justify-content:center; flex-shrink:0;
+  }
+  .dungeon-icon svg { width:22px; height:22px; }
+  .dungeon-info { flex:1; min-width:0; }
+  .dungeon-name { font-size:14px; font-weight:700; margin-bottom:3px; }
+  .dungeon-path { font-size:10px; color:var(--ntext2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .dungeon-meta { font-size:10px; margin-top:2px; }
+  .dungeon-enter {
+    width:32px; height:32px; border-radius:8px; background:#22E8834A;
+    border:1px solid var(--naccent); color:var(--naccent); font-size:16px;
+    display:flex; align-items:center; justify-content:center; flex-shrink:0;
+  }
+  .dungeon-delete {
+    width:28px; height:28px; border-radius:7px; background:transparent;
+    border:1px solid var(--nborder); color:var(--ntext3); font-size:14px;
+    display:flex; align-items:center; justify-content:center; flex-shrink:0; margin-right:4px;
+  }
+  #empty-state {
+    text-align:center; padding:48px 32px; color:var(--ntext3);
+    display:none; flex-direction:column; align-items:center; gap:12px;
+  }
+  #empty-state svg { width:48px; height:48px; opacity:.3; }
+  #empty-state p { font-size:13px; line-height:1.6; }
+  #add-btn {
+    margin:0 16px 24px; padding:14px; border-radius:14px;
+    background:#22E8834A; border:1px solid var(--naccent); color:var(--naccent);
+    font-size:14px; font-weight:700; font-family:'Courier New',monospace; cursor:pointer;
+    display:flex; align-items:center; justify-content:center; gap:8px; letter-spacing:.3px;
+  }
+  #add-btn:active { background:#44E8834A; }
+  #add-btn svg { width:18px; height:18px; }
 
-#home-header {
-  padding:16px 20px 12px;
-  border-bottom:1px solid #2A2A30;
-  display:flex; align-items:center; gap:12px;
-}
-#home-header svg { width:22px; height:22px; flex-shrink:0; }
-#home-title { font-size:17px; font-weight:700; color:#F0F0F2; flex:1; letter-spacing:0.3px; }
-#home-header .back-btn {
-  width:32px; height:32px; border-radius:8px; background:#151518;
-  border:1px solid #2A2A30; color:#9090A0; font-size:18px;
-  display:flex; align-items:center; justify-content:center; cursor:pointer;
-}
+  /* Name / path dialog */
+  #name-dialog {
+    position:fixed; inset:0; background:rgba(0,0,0,.75); z-index:90;
+    display:none; align-items:center; justify-content:center; padding:24px;
+    font-family:'Courier New',monospace;
+  }
+  #name-dialog.show { display:flex; }
+  #name-box { background:var(--nsurf); border:1px solid var(--nborder); border-radius:16px; padding:20px; width:100%; max-width:320px; }
+  #name-box h3 { font-size:14px; font-weight:700; color:var(--ntext); margin-bottom:4px; }
+  #name-box .sub { font-size:11px; color:var(--ntext2); margin-bottom:14px; }
+  #name-dialog input {
+    width:100%; padding:10px 12px; border-radius:10px; background:var(--nsurf2);
+    border:1px solid var(--nborder); color:var(--ntext); font-size:13px;
+    font-family:'Courier New',monospace; outline:none; margin-bottom:12px;
+  }
+  #name-dialog input:focus { border-color:var(--naccent); }
+  .dialog-btns { display:flex; gap:8px; }
+  .dialog-btns button { flex:1; padding:10px; border-radius:10px; font-size:12px; font-weight:700; font-family:'Courier New',monospace; cursor:pointer; border:none; }
+  #name-cancel { background:var(--nsurf2); color:var(--ntext2); border:1px solid var(--nborder) !important; }
+  #name-confirm { background:var(--naccent); color:var(--nbg); }
 
-#dungeon-list {
-  flex:1; overflow-y:auto; padding:16px;
-}
-#dungeon-list::-webkit-scrollbar { width:3px; }
-#dungeon-list::-webkit-scrollbar-thumb { background:#2A2A30; border-radius:2px; }
+  /* ════════════════════════════════════════
+     MAP SCREEN — parchment dungeon
+  ════════════════════════════════════════ */
+  #map-screen { background:#2b1e10; }
+  #stage {
+    position:absolute; inset:0;
+    background: radial-gradient(ellipse at center, #f0dcb0 0%, #d8be88 55%, #a07f4a 100%), #c9a96e;
+    overflow:hidden; cursor:grab; touch-action:none;
+  }
+  #stage.dragging { cursor:grabbing; }
+  #stage::before {
+    content:""; position:absolute; inset:0; pointer-events:none;
+    background-image:
+      radial-gradient(circle at 20% 30%, rgba(80,50,20,.18), transparent 40%),
+      radial-gradient(circle at 80% 70%, rgba(80,50,20,.22), transparent 50%),
+      radial-gradient(circle at 50% 100%, rgba(40,20,10,.35), transparent 60%);
+    z-index:3;
+  }
+  #stage::after {
+    content:""; position:absolute; inset:0; pointer-events:none;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.2  0 0 0 0 0.1  0 0 0 0 0.05  0 0 0 0.15 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+    opacity:.55; mix-blend-mode:multiply; z-index:4;
+  }
+  #world { position:absolute; left:50%; top:50%; transform-origin:0 0; will-change:transform; z-index:2; }
+  svg.map { display:block; overflow:visible; }
 
-.dungeon-card {
-  background:#151518; border:1px solid #2A2A30; border-radius:14px;
-  padding:14px 16px; margin-bottom:10px; cursor:pointer;
-  display:flex; align-items:center; gap:12px;
-  transition:border-color 0.15s, background 0.15s;
-  -webkit-tap-highlight-color:transparent;
-}
-.dungeon-card:active { background:#1E1E22; border-color:#E8834A; }
-.dungeon-icon {
-  width:44px; height:44px; border-radius:10px; background:#1E1E22;
-  border:1px solid #2A2A30; display:flex; align-items:center; justify-content:center;
-  flex-shrink:0;
-}
-.dungeon-icon svg { width:22px; height:22px; }
-.dungeon-info { flex:1; min-width:0; }
-.dungeon-name { font-size:14px; font-weight:700; color:#F0F0F2; margin-bottom:3px; }
-.dungeon-path { font-size:10px; color:#9090A0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.dungeon-meta { font-size:10px; color:#60606E; margin-top:2px; }
-.dungeon-enter {
-  width:32px; height:32px; border-radius:8px; background:#22E8834A;
-  border:1px solid #E8834A; color:#E8834A; font-size:16px;
-  display:flex; align-items:center; justify-content:center; flex-shrink:0;
-}
-.dungeon-delete {
-  width:28px; height:28px; border-radius:7px; background:transparent;
-  border:1px solid #2A2A30; color:#60606E; font-size:14px;
-  display:flex; align-items:center; justify-content:center; flex-shrink:0;
-  margin-right:4px;
-}
+  #topbar {
+    position:fixed; top:0; left:0; right:0; padding:10px;
+    display:flex; align-items:center; gap:6px; z-index:20; pointer-events:none;
+    padding-top:calc(10px + env(safe-area-inset-top));
+  }
+  .pbtn {
+    pointer-events:auto; background:linear-gradient(180deg,#e8d5a8,#c9a96e);
+    border:1.5px solid var(--ink); color:var(--ink);
+    font-family:'Georgia',serif; font-weight:bold; font-size:12px; letter-spacing:.3px;
+    padding:6px 10px; border-radius:3px;
+    box-shadow:0 2px 0 var(--ink), 0 3px 6px rgba(0,0,0,.3); cursor:pointer; transition:transform .1s;
+  }
+  .pbtn:active { transform:translateY(2px); box-shadow:0 0 0 var(--ink); }
+  #map-title { pointer-events:none; font-family:'Georgia',serif; font-weight:bold; font-size:14px; color:var(--ink); text-shadow:1px 1px 0 rgba(255,240,200,.5); margin-left:auto; }
 
-#empty-state {
-  text-align:center; padding:48px 32px; color:#60606E;
-  display:none; flex-direction:column; align-items:center; gap:12px;
-}
-#empty-state svg { width:48px; height:48px; opacity:0.3; }
-#empty-state p { font-size:13px; line-height:1.6; }
+  #agentsPanel {
+    position:fixed; top:calc(54px + env(safe-area-inset-top)); left:10px;
+    width:230px; max-height:60vh; overflow-y:auto;
+    background:linear-gradient(180deg,#f0dcb0,#d8be88); border:2px solid var(--ink);
+    border-radius:4px; padding:8px 10px; box-shadow:0 6px 20px rgba(0,0,0,.4);
+    z-index:19; display:none; font-family:'Georgia',serif;
+  }
+  #agentsPanel.open { display:block; }
+  #agentsPanel h3 { margin:0 0 6px; font-weight:bold; font-size:14px; color:var(--ink); border-bottom:1px dashed var(--ink-soft); padding-bottom:4px; }
+  .agent-row { display:flex; align-items:center; gap:8px; padding:5px 3px; border-bottom:1px dotted rgba(58,40,24,.3); cursor:pointer; }
+  .agent-row .dot { width:9px; height:9px; border-radius:50%; border:1px solid var(--ink); flex-shrink:0; }
+  .agent-row.idle .dot { background:#aaa; }
+  .agent-row.traveling .dot { background:var(--gold); box-shadow:0 0 5px var(--gold); }
+  .agent-row.working .dot { background:var(--moss); box-shadow:0 0 5px var(--moss); }
+  .agent-row.fighting .dot { background:var(--blood); box-shadow:0 0 5px var(--blood); }
+  .agent-name { font-weight:bold; font-size:12px; }
+  .agent-status { font-size:10px; color:var(--ink-soft); font-style:italic; }
+  .agent-row.idle .agent-name { color:#888; }
+  .agent-empty { font-size:11px; font-style:italic; color:var(--ink-soft); padding:6px 2px; }
 
-#add-btn {
-  margin:0 16px 24px;
-  padding:14px; border-radius:14px;
-  background:#22E8834A; border:1px solid #E8834A;
-  color:#E8834A; font-size:14px; font-weight:700;
-  font-family:'Courier New',monospace; cursor:pointer;
-  display:flex; align-items:center; justify-content:center; gap:8px;
-  letter-spacing:0.3px; -webkit-tap-highlight-color:transparent;
-}
-#add-btn:active { background:#44E8834A; }
-#add-btn svg { width:18px; height:18px; }
+  #roomPanel {
+    position:fixed; bottom:0; left:0; right:0; max-height:65vh;
+    background:linear-gradient(180deg,#f0dcb0,#d8be88); border-top:3px solid var(--ink);
+    box-shadow:0 -8px 24px rgba(0,0,0,.4); z-index:25; transform:translateY(100%);
+    transition:transform .3s cubic-bezier(.5,0,.2,1); display:flex; flex-direction:column;
+    border-radius:12px 12px 0 0; padding-bottom:env(safe-area-inset-bottom);
+  }
+  #roomPanel.open { transform:translateY(0); }
+  #roomPanel::before { content:""; position:absolute; top:6px; left:50%; transform:translateX(-50%); width:36px; height:4px; border-radius:2px; background:var(--ink-soft); opacity:.5; }
+  #roomPanel header { padding:14px 14px 8px; border-bottom:1.5px solid var(--ink); display:flex; justify-content:space-between; align-items:center; }
+  #roomPanel h2 { margin:0; font-family:'Georgia',serif; font-weight:bold; font-size:18px; color:var(--ink); }
+  #roomPanel .close { background:none; border:none; font-size:22px; cursor:pointer; color:var(--ink); padding:0 4px; }
+  #roomTabs { display:flex; border-bottom:1px solid var(--ink-soft); background:rgba(200,155,60,.15); }
+  .tab { flex:1; padding:7px 4px; text-align:center; font-family:'Georgia',serif; font-size:11px; cursor:pointer; border-right:1px solid var(--ink-soft); }
+  .tab:last-child { border-right:none; }
+  .tab.active { background:var(--parchment); font-weight:bold; }
+  #roomContent { flex:1; overflow-y:auto; padding:12px 14px; font-size:13px; line-height:1.5; min-height:110px; }
+  #roomContent h1,#roomContent h2,#roomContent h3,#roomContent h4 { font-family:'Georgia',serif; margin:10px 0 4px; font-size:14px; }
+  #roomContent code { background:rgba(58,40,24,.1); padding:1px 4px; border-radius:3px; font-size:11px; font-family:'Courier New',monospace; }
+  #roomContent ul { padding-left:18px; margin:4px 0; }
+  #roomContent .bug-line { color:var(--blood); }
+  #roomContent .jump { cursor:pointer; text-decoration:underline; }
+  #roomContent .muted { font-style:italic; color:var(--ink-soft); }
+  #roomFooter { padding:8px 10px; border-top:1.5px solid var(--ink); display:flex; gap:5px; }
+  .mini-btn { flex:1; padding:8px 4px; font-size:11px; background:var(--parchment-dark); border:1px solid var(--ink); border-radius:3px; font-family:'Georgia',serif; font-weight:bold; color:var(--ink); cursor:pointer; }
+  .mini-btn:active { background:var(--gold); }
 
-/* ── Name dialog (shown after folder pick) ── */
-#name-dialog {
-  position:fixed; top:0; left:0; right:0; bottom:0;
-  background:rgba(0,0,0,0.75); z-index:90;
-  display:none; align-items:center; justify-content:center; padding:24px;
-}
-#name-dialog.show { display:flex; }
-#name-box {
-  background:#151518; border:1px solid #2A2A30; border-radius:16px;
-  padding:20px; width:100%; max-width:320px;
-}
-#name-box h3 { font-size:14px; font-weight:700; color:#F0F0F2; margin-bottom:4px; }
-#name-box .sub { font-size:11px; color:#9090A0; margin-bottom:14px; }
-#name-input {
-  width:100%; padding:10px 12px; border-radius:10px;
-  background:#1E1E22; border:1px solid #2A2A30;
-  color:#F0F0F2; font-size:13px; font-family:'Courier New',monospace;
-  outline:none; margin-bottom:12px;
-}
-#name-input:focus { border-color:#E8834A; }
-.dialog-btns { display:flex; gap:8px; }
-.dialog-btns button {
-  flex:1; padding:10px; border-radius:10px; font-size:12px;
-  font-weight:700; font-family:'Courier New',monospace; cursor:pointer; border:none;
-}
-#name-cancel { background:#1E1E22; color:#9090A0; border:1px solid #2A2A30 !important; }
-#name-confirm { background:#E8834A; color:#0C0C0F; }
+  #toast {
+    position:fixed; bottom:70px; left:50%; transform:translateX(-50%) translateY(80px);
+    background:var(--ink); color:var(--parchment); padding:8px 14px; border-radius:3px;
+    font-family:'Georgia',serif; font-size:12px; letter-spacing:.3px;
+    box-shadow:0 4px 16px rgba(0,0,0,.5); z-index:50; opacity:0;
+    transition:transform .3s,opacity .3s; pointer-events:none; max-width:80vw; text-align:center;
+  }
+  #toast.show { transform:translateX(-50%) translateY(0); opacity:1; }
+  #hint {
+    position:fixed; bottom:8px; left:50%; transform:translateX(-50%);
+    font-family:'Georgia',serif; font-style:italic; font-size:10px;
+    color:rgba(58,40,24,.7); pointer-events:none; z-index:10; text-align:center;
+    text-shadow:0 1px 0 rgba(255,240,200,.5); padding-bottom:env(safe-area-inset-bottom);
+  }
 
-/* ══════════════════════════════════════════════
-   MAP SCREEN — parchment dungeon map
-══════════════════════════════════════════════ */
-#map-screen { background:#111108; }
-
-#map-header {
-  position:absolute; top:0; left:0; right:0; height:48px; z-index:50;
-  background:rgba(12,12,15,0.92); border-bottom:1px solid #2A2A30;
-  display:flex; align-items:center; padding:0 12px; gap:10px;
-}
-#map-back {
-  width:32px; height:32px; border-radius:8px; background:#151518;
-  border:1px solid #2A2A30; color:#9090A0; font-size:18px;
-  display:flex; align-items:center; justify-content:center; cursor:pointer;
-}
-#map-title { font-size:14px; font-weight:700; color:#F0F0F2; flex:1; }
-#map-bug-count { font-size:11px; color:#F87171; }
-
-#canvas-wrap { position:absolute; top:48px; left:0; right:0; bottom:56px; overflow:hidden; }
-#dungeon-canvas { display:block; cursor:grab; }
-#dungeon-canvas:active { cursor:grabbing; }
-
-#map-toolbar {
-  position:absolute; bottom:0; left:0; right:0; height:56px;
-  background:rgba(12,12,15,0.92); border-top:1px solid #2A2A30;
-  display:flex; align-items:center; justify-content:space-around; padding:0 8px;
-}
-.tb-btn {
-  display:flex; flex-direction:column; align-items:center; gap:3px;
-  padding:6px 12px; border-radius:10px; background:transparent;
-  border:none; color:#9090A0; font-size:9px; font-family:'Courier New',monospace;
-  cursor:pointer; letter-spacing:0.5px; text-transform:uppercase;
-}
-.tb-btn svg { width:18px; height:18px; }
-.tb-btn.active { color:#E8834A; background:#22E8834A; }
-
-/* ── Room panel ── */
-#room-panel {
-  position:absolute; top:48px; right:0; bottom:56px; width:280px;
-  background:#151518; border-left:1px solid #2A2A30;
-  transform:translateX(100%); transition:transform 0.25s ease;
-  display:flex; flex-direction:column; z-index:40; overflow:hidden;
-}
-#room-panel.open { transform:translateX(0); }
-#panel-header { padding:14px 16px; border-bottom:1px solid #2A2A30; display:flex; align-items:center; gap:8px; }
-#panel-title { font-size:14px; font-weight:700; color:#F0F0F2; flex:1; }
-#panel-close { width:28px; height:28px; border-radius:6px; background:#1E1E22; border:1px solid #2A2A30; color:#9090A0; font-size:16px; display:flex; align-items:center; justify-content:center; cursor:pointer; }
-#panel-content { flex:1; overflow-y:auto; padding:12px; }
-#panel-content::-webkit-scrollbar { width:3px; }
-#panel-content::-webkit-scrollbar-thumb { background:#2A2A30; border-radius:2px; }
-
-.bug-item { background:#1E1E22; border:1px solid #2A2A30; border-radius:10px; padding:10px 12px; margin-bottom:8px; }
-.bug-item.critical { border-color:#F87171; }
-.bug-item.major    { border-color:#FBBF24; }
-.bug-title { font-size:12px; font-weight:700; color:#F0F0F2; margin-bottom:4px; }
-.bug-meta  { font-size:10px; color:#9090A0; }
-.bug-sev   { display:inline-block; padding:1px 6px; border-radius:4px; font-size:9px; font-weight:700; margin-right:4px; }
-.bug-sev.critical { background:#3FF87171; color:#F87171; }
-.bug-sev.major    { background:#3FFBBF24; color:#FBBF24; }
-.bug-sev.minor    { background:#22606060; color:#9090A0; }
-.dispatch-btn { width:100%; padding:10px; border-radius:10px; margin-top:6px; background:#22E8834A; border:1px solid #E8834A; color:#E8834A; font-size:11px; font-weight:700; font-family:'Courier New',monospace; cursor:pointer; }
-
-/* ── Toast ── */
-#toast {
-  position:fixed; bottom:72px; left:50%; transform:translateX(-50%) translateY(20px);
-  background:#1E1E22; border:1px solid #2A2A30; border-radius:10px;
-  padding:8px 16px; font-size:12px; color:#F0F0F2;
-  opacity:0; transition:opacity 0.2s,transform 0.2s; pointer-events:none; z-index:99;
-  white-space:nowrap;
-}
-#toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+  /* SVG map styling */
+  .room-rect { fill:var(--parchment); stroke:var(--ink); stroke-width:1.5; cursor:pointer; filter:drop-shadow(0 2px 0 rgba(58,40,24,.4)); transition:fill .3s; }
+  .room-rect.throne { fill:#e8c878; stroke-width:2; }
+  .room-rect.has-bug { fill:#d9a59a; }
+  .room-rect.has-agent { filter:drop-shadow(0 0 8px var(--gold)) drop-shadow(0 2px 0 rgba(58,40,24,.4)); }
+  .room-label { font-family:'Georgia',serif; font-weight:bold; fill:var(--ink); text-anchor:middle; pointer-events:none; font-size:7px; }
+  .room-label.throne-label { font-size:9px; }
+  .corridor { stroke:var(--ink); stroke-width:1.8; fill:none; stroke-linecap:round; stroke-linejoin:round; stroke-dasharray:1.5 3; opacity:.7; }
+  .corridor-fill { stroke:var(--parchment); stroke-width:7; fill:none; stroke-linecap:square; opacity:.95; }
+  .agent-sprite { cursor:pointer; }
+  .agent-body { stroke:var(--ink); stroke-width:.6; }
+  .agent-head { fill:#e8c89a; stroke:var(--ink); stroke-width:.6; }
+  .agent-label { font-family:'Georgia',serif; font-size:4px; fill:var(--ink); text-anchor:middle; pointer-events:none; }
+  .agent-label-bg { fill:var(--parchment); stroke:var(--ink); stroke-width:.3; opacity:.95; }
+  .monster { cursor:pointer; }
+  .monster-body { fill:var(--blood); stroke:var(--ink); stroke-width:.6; }
+  .hp-bar-bg { fill:var(--ink); }
+  .hp-bar { fill:#4a8a3a; }
+  .hp-text { font-family:'Georgia',serif; font-size:3.5px; fill:var(--parchment); text-anchor:middle; pointer-events:none; }
 </style>
 </head>
 <body>
 
 <!-- ══ HOME SCREEN ══ -->
 <div id="home-screen" class="screen active">
-
   <div id="home-header">
-    <div class="back-btn" onclick="exitDungeon()">‹</div>
-    <svg viewBox="0 0 24 24" fill="none" stroke="#E8834A" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+    <div class="back-btn" id="home-back">‹</div>
+    <svg class="castle" viewBox="0 0 24 24" fill="none" stroke="#E8834A" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
       <path d="M2,21 L22,21 M3,21 L3,8 L4.5,8 L4.5,10 L6,10 L6,8 L6,21 M18,21 L18,8 L19.5,8 L19.5,10 L21,10 L21,8 L21,21 M6,21 L6,13 L18,13 L18,21 M10,21 L10,17 Q12,15 14,17 L14,21 M9,13 L9,5 L10.5,5 L10.5,7 L13.5,7 L13.5,5 L15,5 L15,7 L15,13"/>
     </svg>
     <span id="home-title">Dungeon</span>
   </div>
-
   <div id="dungeon-list">
     <div id="empty-state">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -207,542 +250,554 @@ html,body { width:100%; height:100%; background:#0C0C0F; overflow:hidden; font-f
       <p>No dungeons yet.<br>Add a project folder to begin.</p>
     </div>
   </div>
-
-  <button id="add-btn" onclick="startAddDungeon()">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
-      <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-    </svg>
+  <button id="add-btn">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
     Add Dungeon
   </button>
 </div>
 
-<!-- ── Name dialog ── -->
+<!-- Name / path dialog -->
 <div id="name-dialog">
   <div id="name-box">
     <h3>Name your dungeon</h3>
     <div class="sub" id="picked-path-label"></div>
-    <div id="path-row" style="display:none;margin-bottom:10px;">
-      <input id="path-input" type="text" placeholder="/sdcard/MyProject" style="width:100%;padding:10px 12px;border-radius:10px;background:#1E1E22;border:1px solid #2A2A30;color:#F0F0F2;font-size:12px;font-family:'Courier New',monospace;outline:none;" />
+    <div id="path-row" style="display:none;">
+      <input id="path-input" type="text" placeholder="/sdcard/MyProject" />
     </div>
-    <input id="name-input" type="text" placeholder="e.g. Nexus-Mind" maxlength="32" />
+    <input id="name-input" type="text" placeholder="e.g. Nexus-Mind" maxlength="40" />
     <div class="dialog-btns">
-      <button id="name-cancel" onclick="cancelAdd()">Cancel</button>
-      <button id="name-confirm" onclick="confirmAdd()">Create</button>
+      <button id="name-cancel">Cancel</button>
+      <button id="name-confirm">Create</button>
     </div>
   </div>
 </div>
 
 <!-- ══ MAP SCREEN ══ -->
 <div id="map-screen" class="screen">
-
-  <div id="map-header">
-    <div id="map-back" onclick="exitMap()">‹</div>
-    <span id="map-title">Dungeon</span>
-    <span id="map-bug-count"></span>
+  <div id="stage">
+    <div id="world"><svg class="map" id="svgMap" width="400" height="500" viewBox="-200 -250 400 500"></svg></div>
   </div>
-
-  <div id="canvas-wrap">
-    <canvas id="dungeon-canvas"></canvas>
+  <div id="topbar">
+    <button class="pbtn" id="mapBackBtn">‹ Back</button>
+    <button class="pbtn" id="agentsBtn">⚔ 0</button>
+    <button class="pbtn" id="scoutBtn">Scout</button>
+    <div id="map-title">⚜ Dungeon</div>
   </div>
-
-  <div id="map-toolbar">
-    <button class="tb-btn active" id="btn-map" onclick="setView('map')">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-        <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
-        <rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>
-      </svg>
-      Map
-    </button>
-    <button class="tb-btn" id="btn-agents" onclick="setView('agents')">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-        <circle cx="9" cy="7" r="4"/><path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/>
-        <path d="M16 3.13a4 4 0 0 1 0 7.75M21 21v-2a4 4 0 0 0-3-3.85"/>
-      </svg>
-      Heroes
-    </button>
-    <button class="tb-btn" id="btn-scout" onclick="runScout()">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-        <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
-      </svg>
-      Scout
-    </button>
-    <button class="tb-btn" id="btn-bugs" onclick="setView('bugs')">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-        <path d="M8 2v2a4 4 0 0 0 8 0V2M12 12v4M8 12H4a8 8 0 0 0 16 0h-4M12 8a4 4 0 0 0-4 4M16 12a4 4 0 0 0-4-4"/>
-      </svg>
-      Bugs
-    </button>
-  </div>
-
-  <div id="room-panel">
-    <div id="panel-header">
-      <span id="panel-title">Room</span>
-      <div id="panel-close" onclick="closePanel()">×</div>
+  <div id="agentsPanel"></div>
+  <aside id="roomPanel">
+    <header>
+      <h2 id="roomTitle">Room</h2>
+      <button class="close" id="closeRoom">✕</button>
+    </header>
+    <div id="roomTabs">
+      <div class="tab active" data-tab="library">📜 Library</div>
+      <div class="tab" data-tab="tasks">🗝 Bugs</div>
+      <div class="tab" data-tab="agents">⚔ Agents</div>
+      <div class="tab" data-tab="subs">🏛 Subs</div>
     </div>
-    <div id="panel-content"></div>
-  </div>
+    <div id="roomContent"></div>
+    <div id="roomFooter">
+      <button class="mini-btn" id="dispatchBtn">Dispatch</button>
+      <button class="mini-btn" id="logBugBtn">Log Bug</button>
+      <button class="mini-btn" id="rescanBtn">Re-scan</button>
+    </div>
+  </aside>
+  <div id="toast"></div>
+  <div id="hint">drag · pinch to zoom · tap a room</div>
 </div>
-
-<!-- Toast -->
-<div id="toast"></div>
 
 <script>
 (function(){
 'use strict';
+var DUNGEON_BUILD = 'd6-parchment-parity';
 
-// ── Build stamp (matches !hotload-dungeon version detection) ─────────────────
-var DUNGEON_BUILD = 'd5-home-back-btn';
-
-// ── Bridge ───────────────────────────────────────────────────────────────────
+// ── Bridge ────────────────────────────────────────────────
 var A = (typeof DungeonAndroid !== 'undefined') ? DungeonAndroid : null;
-function readFile(p)         { return A ? (A.readFile(p)||'') : ''; }
-function writeFile(p,c)      { return A ? A.writeFile(p,c) : false; }
-function listDir(p)          { try { return JSON.parse(A ? A.listDir(p) : '[]'); } catch(_){ return []; } }
-function getAgents()         { try { return JSON.parse(A ? A.getAgents() : '[]'); } catch(_){ return []; } }
-function getDungeons()       { try { return JSON.parse(A ? A.getDungeons() : '[]'); } catch(_){ return []; } }
-function addDungeon(n,p)     { return A ? A.addDungeon(n,p) : false; }
-function removeDungeon(p)    { return A ? A.removeDungeon(p) : false; }
-function getProjectPath()    { return A ? (A.getProjectPath()||'') : ''; }
-function spawnAgent(n,c,t)   { return A ? A.spawnAgent(n,c,t) : 'no-bridge'; }
-function pickFolder()        { if(A) A.pickFolder(); }
+function readFile(p)      { try { return A ? (A.readFile(p)||'') : ''; } catch(_){ return ''; } }
+function writeFile(p,c)   { try { return A ? A.writeFile(p,c) : false; } catch(_){ return false; } }
+function listDir(p)       { try { return JSON.parse(A ? A.listDir(p) : '[]'); } catch(_){ return []; } }
+function jGetAgents()     { try { return JSON.parse(A ? A.getAgents() : '[]'); } catch(_){ return []; } }
+function jGetDungeons()   { try { return JSON.parse(A ? A.getDungeons() : '[]'); } catch(_){ return []; } }
+function jAddDungeon(n,p) { try { return A ? A.addDungeon(n,p) : false; } catch(_){ return false; } }
+function jRemoveDungeon(p){ try { return A ? A.removeDungeon(p) : false; } catch(_){ return false; } }
+function jSpawnAgent(n,c,t){ try { return A ? A.spawnAgent(n,c,t) : 'no-bridge'; } catch(_){ return 'err'; } }
 
-window.exitDungeon = function(){
-  if(A && typeof A.finishActivity === 'function'){ A.finishActivity(); }
-};
+function $(id){ return document.getElementById(id); }
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
-// ── State ────────────────────────────────────────────────────────────────────
-var activePath = '';
-var activeName = '';
-var rooms = [];
-var agents = [];
-var selectedRoom = null;
-var view = 'map';
-var panOffset = {x:0,y:0};
-var panStart = null;
-var scale = 1;
-
-// pending folder pick
+// ════════════════════════════════════════
+// HOME SCREEN
+// ════════════════════════════════════════
 var pendingPath = null;
-
-// ── Folder pick callback (called by Kotlin) ───────────────────────────────────
-window.onFolderPicked = function(path){
-  if(!path){ showToast('No folder selected'); return; }
-  pendingPath = path;
-  document.getElementById('path-row').style.display = 'none';
-  var name = path.split('/').pop() || 'Dungeon';
-  var inp = document.getElementById('name-input');
-  inp.value = name;
-  document.getElementById('picked-path-label').textContent = path;
-  document.getElementById('name-dialog').classList.add('show');
-  setTimeout(function(){ inp.focus(); inp.select(); }, 100);
-};
-
-// ── Home screen ───────────────────────────────────────────────────────────────
-function renderHome(){
-  var list = document.getElementById('dungeon-list');
-  var empty = document.getElementById('empty-state');
-  var dungeons = getDungeons();
-
-  // clear existing cards (keep empty-state div)
-  var cards = list.querySelectorAll('.dungeon-card');
-  cards.forEach(function(c){ c.remove(); });
-
-  if(dungeons.length === 0){
-    empty.style.display = 'flex';
-    return;
-  }
-  empty.style.display = 'none';
-
-  dungeons.forEach(function(d){
-    var card = document.createElement('div');
-    card.className = 'dungeon-card';
-    var totalBugs = countBugs(d.path);
-    card.innerHTML =
-      '<div class="dungeon-icon">' +
-        '<svg viewBox="0 0 24 24" fill="none" stroke="#E8834A" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' +
-          '<path d="M2,21 L22,21 M3,21 L3,10 L6,10 L6,21 M18,21 L18,10 L21,10 L21,21 M3,10 L3,8 L4.5,8 L4.5,10 M4.5,8 L6,8 L6,10 M18,10 L18,8 L19.5,8 L19.5,10 M19.5,8 L21,8 L21,10 M6,13 L18,13 M10,21 L10,17 Q12,15 14,17 L14,21 M9,13 L9,7 L15,7 L15,13"/>' +
-        '</svg>' +
-      '</div>' +
-      '<div class="dungeon-info">' +
-        '<div class="dungeon-name">' + esc(d.name) + '</div>' +
-        '<div class="dungeon-path">' + esc(d.path) + '</div>' +
-        (totalBugs > 0
-          ? '<div class="dungeon-meta" style="color:#F87171;">🐛 ' + totalBugs + ' monster' + (totalBugs>1?'s':'') + '</div>'
-          : '<div class="dungeon-meta" style="color:#3DD68C;">✅ clean</div>') +
-      '</div>' +
-      '<div class="dungeon-delete" data-path="' + esc(d.path) + '" title="Remove">✕</div>' +
-      '<div class="dungeon-enter">›</div>';
-
-    // enter dungeon
-    card.querySelector('.dungeon-enter').addEventListener('click', function(e){
-      e.stopPropagation();
-      enterDungeon(d.name, d.path);
-    });
-    card.addEventListener('click', function(){ enterDungeon(d.name, d.path); });
-
-    // delete
-    card.querySelector('.dungeon-delete').addEventListener('click', function(e){
-      e.stopPropagation();
-      if(removeDungeon(d.path)) renderHome();
-    });
-
-    list.insertBefore(card, list.querySelector('#empty-state'));
-  });
-}
-
-function countBugs(projectPath){
-  var count = 0;
-  try {
-    count += parseBugs(projectPath + '/library.md').length;
-    var entries = listDir(projectPath).filter(function(e){ return e.isDir && !e.name.startsWith('.'); });
-    entries.forEach(function(e){
-      count += parseBugs(projectPath + '/' + e.name + '/library.md').length;
-    });
-  } catch(_){}
-  return count;
-}
-
-// ── Add dungeon flow ──────────────────────────────────────────────────────────
-window.startAddDungeon = function(){
-  var canPick = A && typeof A.pickFolder === 'function';
-  if(canPick){
-    try { A.pickFolder(); return; } catch(_){}
-  }
-  // Fallback: manual path input
-  pendingPath = null;
-  document.getElementById('path-row').style.display = 'block';
-  document.getElementById('path-input').value = '';
-  document.getElementById('picked-path-label').textContent = 'Enter the full project path:';
-  document.getElementById('name-input').value = '';
-  document.getElementById('name-dialog').classList.add('show');
-  setTimeout(function(){ document.getElementById('path-input').focus(); }, 100);
-};
-
-window.cancelAdd = function(){
-  pendingPath = null;
-  document.getElementById('path-row').style.display = 'none';
-  document.getElementById('name-dialog').classList.remove('show');
-};
-
-window.confirmAdd = function(){
-  var name = document.getElementById('name-input').value.trim();
-  if(!name){ showToast('Enter a name'); return; }
-  // resolve path: from folder picker OR manual input
-  var path = pendingPath || document.getElementById('path-input').value.trim();
-  if(!path){ showToast('Enter a project path'); return; }
-  addDungeon(name, path);
-  document.getElementById('name-dialog').classList.remove('show');
-  document.getElementById('path-row').style.display = 'none';
-  pendingPath = null;
-  renderHome();
-};
-
-// confirm on Enter key
-document.getElementById('name-input').addEventListener('keydown', function(e){
-  if(e.key === 'Enter') window.confirmAdd();
-});
-
-// ── Enter dungeon (switch to map screen) ──────────────────────────────────────
-function enterDungeon(name, path){
-  activePath = path;
-  activeName = name;
-  document.getElementById('map-title').textContent = name;
-  agents = getAgents();
-  buildRooms();
-  showScreen('map-screen');
-  resizeCanvas();
-  draw();
-}
-
-window.exitMap = function(){
-  showScreen('home-screen');
-  renderHome();  // refresh bug counts
-};
 
 function showScreen(id){
   document.querySelectorAll('.screen').forEach(function(s){ s.classList.remove('active'); });
-  document.getElementById(id).classList.add('active');
+  $(id).classList.add('active');
 }
 
-// ── Canvas ────────────────────────────────────────────────────────────────────
-var wrap = document.getElementById('canvas-wrap');
-var canvas = document.getElementById('dungeon-canvas');
-var ctx = canvas.getContext('2d');
-
-function resizeCanvas(){
-  canvas.width  = wrap.clientWidth;
-  canvas.height = wrap.clientHeight;
-  draw();
-}
-window.addEventListener('resize', function(){ if(document.getElementById('map-screen').classList.contains('active')) resizeCanvas(); });
-
-// ── Room building ─────────────────────────────────────────────────────────────
-function buildRooms(){
-  rooms = [];
-  var cw = wrap.clientWidth  || 360;
-  var ch = wrap.clientHeight || 520;
-
-  rooms.push({
-    id:'throne', name:'Throne Room', type:'throne',
-    path:activePath, parentId:null,
-    bugs:parseBugs(activePath+'/library.md'),
-    x:cw/2-60, y:ch/2-50, w:120, h:80,
-  });
-
-  var entries = listDir(activePath).filter(function(e){ return e.isDir && !e.name.startsWith('.'); });
-  var count = entries.length;
-  var radius = Math.min(cw,ch)*0.32;
-  entries.forEach(function(e,i){
-    var angle = (i/count)*Math.PI*2 - Math.PI/2;
-    var cx = cw/2 + Math.cos(angle)*radius;
-    var cy = ch/2 + Math.sin(angle)*radius;
-    var rp = activePath+'/'+e.name;
-    rooms.push({
-      id:e.name, name:e.name, type:'feature',
-      path:rp, parentId:'throne',
-      bugs:parseBugs(rp+'/library.md'),
-      x:cx-55, y:cy-35, w:110, h:60,
-    });
-  });
-
-  // update header bug count
-  var total = rooms.reduce(function(s,r){ return s+r.bugs.length; },0);
-  document.getElementById('map-bug-count').textContent = total > 0 ? '🐛 '+total : '';
-}
-
-// ── library.md bug parser ─────────────────────────────────────────────────────
 function parseBugs(libPath){
   var text = readFile(libPath);
   if(!text) return [];
-  var bugs=[]; var inSection=false;
+  var bugs=[], inSection=false;
   text.split('\n').forEach(function(line){
-    if(/^##\s+🐛\s+Open Bugs/i.test(line)){ inSection=true; return; }
+    if(/^##\s+🐛/.test(line) || /^##\s+.*Open Bugs/i.test(line)){ inSection=true; return; }
     if(/^##\s+/.test(line) && inSection){ inSection=false; }
     if(!inSection) return;
-    var m=line.match(/^-\s+\[\s+\]\s+\*\*(.+?)\*\*\s*(?:·\s*`?([^`·]+)`?)?\s*(?:·\s*(critical|major|minor))?/i);
-    if(m) bugs.push({title:m[1].trim(),file:(m[2]||'').trim(),sev:(m[3]||'minor').toLowerCase(),raw:line});
+    var m=line.match(/^-\s+\[\s*\]\s+\*\*(.+?)\*\*\s*(?:·\s*`?([^`·]+)`?)?\s*(?:·\s*(critical|major|minor))?/i);
+    if(m) bugs.push({ title:m[1].trim(), file:(m[2]||'').trim(), sev:(m[3]||'minor').toLowerCase() });
   });
   return bugs;
 }
 
-// ── Draw ──────────────────────────────────────────────────────────────────────
-function draw(){
-  if(view!=='map'){ ctx.fillStyle='#0C0C0F'; ctx.fillRect(0,0,canvas.width,canvas.height); return; }
+function countBugs(projectPath){
+  var c=0;
+  try {
+    c += parseBugs(projectPath+'/library.md').length;
+    listDir(projectPath).filter(function(e){ return e.isDir && e.name.charAt(0)!=='.'; })
+      .forEach(function(e){ c += parseBugs(projectPath+'/'+e.name+'/library.md').length; });
+  } catch(_){}
+  return c;
+}
 
-  ctx.fillStyle='#111108';
-  ctx.fillRect(0,0,canvas.width,canvas.height);
+function renderHome(){
+  var list=$('dungeon-list'), empty=$('empty-state');
+  list.querySelectorAll('.dungeon-card').forEach(function(c){ c.remove(); });
+  var dungeons=jGetDungeons();
+  if(!dungeons.length){ empty.style.display='flex'; return; }
+  empty.style.display='none';
+  dungeons.forEach(function(d){
+    var bugs=countBugs(d.path);
+    var card=document.createElement('div');
+    card.className='dungeon-card';
+    card.innerHTML=
+      '<div class="dungeon-icon"><svg viewBox="0 0 24 24" fill="none" stroke="#E8834A" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2,21 L22,21 M3,21 L3,10 L6,10 L6,21 M18,21 L18,10 L21,10 L21,21 M3,10 L3,8 L4.5,8 L4.5,10 M4.5,8 L6,8 L6,10 M18,10 L18,8 L19.5,8 L19.5,10 M19.5,8 L21,8 L21,10 M6,13 L18,13 M10,21 L10,17 Q12,15 14,17 L14,21 M9,13 L9,7 L15,7 L15,13"/></svg></div>'+
+      '<div class="dungeon-info"><div class="dungeon-name">'+esc(d.name)+'</div><div class="dungeon-path">'+esc(d.path)+'</div>'+
+        (bugs>0?'<div class="dungeon-meta" style="color:var(--nred);">🐛 '+bugs+' monster'+(bugs>1?'s':'')+'</div>':'<div class="dungeon-meta" style="color:var(--ngreen);">✅ clean</div>')+
+      '</div>'+
+      '<div class="dungeon-delete" title="Remove">✕</div><div class="dungeon-enter">›</div>';
+    card.querySelector('.dungeon-enter').addEventListener('click', function(e){ e.stopPropagation(); enterDungeon(d.name,d.path); });
+    card.addEventListener('click', function(){ enterDungeon(d.name,d.path); });
+    card.querySelector('.dungeon-delete').addEventListener('click', function(e){ e.stopPropagation(); if(jRemoveDungeon(d.path)) renderHome(); });
+    list.insertBefore(card, empty);
+  });
+}
 
-  var grad=ctx.createRadialGradient(canvas.width/2,canvas.height/2,0,canvas.width/2,canvas.height/2,Math.max(canvas.width,canvas.height)*0.7);
-  grad.addColorStop(0,'rgba(30,26,12,0)'); grad.addColorStop(1,'rgba(0,0,0,0.55)');
-  ctx.fillStyle=grad; ctx.fillRect(0,0,canvas.width,canvas.height);
+// Add dungeon — folder picker if available, else manual path
+function startAddDungeon(){
+  if(A && typeof A.pickFolder==='function'){
+    try { A.pickFolder(); return; } catch(_){}
+  }
+  pendingPath=null;
+  $('path-row').style.display='block';
+  $('path-input').value='';
+  $('picked-path-label').textContent='Enter the full project path:';
+  $('name-input').value='';
+  $('name-dialog').classList.add('show');
+  setTimeout(function(){ $('path-input').focus(); },100);
+}
+window.onFolderPicked=function(path){
+  if(!path){ toast('No folder selected'); return; }
+  pendingPath=path;
+  $('path-row').style.display='none';
+  $('name-input').value=path.split('/').pop()||'Dungeon';
+  $('picked-path-label').textContent=path;
+  $('name-dialog').classList.add('show');
+  setTimeout(function(){ $('name-input').focus(); $('name-input').select(); },100);
+};
+function cancelAdd(){ pendingPath=null; $('path-row').style.display='none'; $('name-dialog').classList.remove('show'); }
+function confirmAdd(){
+  var name=$('name-input').value.trim();
+  if(!name){ toast('Enter a name'); return; }
+  var path=pendingPath || $('path-input').value.trim();
+  if(!path){ toast('Enter a project path'); return; }
+  jAddDungeon(name,path);
+  $('name-dialog').classList.remove('show');
+  $('path-row').style.display='none';
+  pendingPath=null;
+  renderHome();
+}
 
-  ctx.save();
-  ctx.translate(panOffset.x,panOffset.y);
-  ctx.scale(scale,scale);
+$('home-back').addEventListener('click', function(){ if(A && typeof A.finishActivity==='function') A.finishActivity(); });
+$('add-btn').addEventListener('click', startAddDungeon);
+$('name-cancel').addEventListener('click', cancelAdd);
+$('name-confirm').addEventListener('click', confirmAdd);
+$('name-input').addEventListener('keydown', function(e){ if(e.key==='Enter') confirmAdd(); });
+$('path-input').addEventListener('keydown', function(e){ if(e.key==='Enter') $('name-input').focus(); });
 
+// ════════════════════════════════════════
+// MAP — data wired to real folders/library.md/agents
+// ════════════════════════════════════════
+var activePath='', activeName='';
+var rooms=[], agents=[];
+var svg=$('svgMap'), SVGNS='http://www.w3.org/2000/svg';
+function el(tag,attrs){ var e=document.createElementNS(SVGNS,tag); attrs=attrs||{}; for(var k in attrs) e.setAttribute(k,attrs[k]); return e; }
+function getRoom(id){ return rooms.find(function(r){ return r.id===id; }); }
+
+function colorFor(s){ var h=0; for(var i=0;i<s.length;i++) h=(h*31+s.charCodeAt(i))>>>0; var hues=['#4a6b3a','#5a3f7a','#7a5a2a','#3a5a6b','#6b3a4a','#5a6b3a']; return hues[h%hues.length]; }
+
+function buildWorld(){
+  rooms=[];
+  var throne={ id:'throne', name:activeName, type:'throne', parent:null, cx:0, cy:0, w:62, h:46, path:activePath };
+  throne.bugs=mkBugs(parseBugs(activePath+'/library.md'));
+  rooms.push(throne);
+
+  var dirs=listDir(activePath).filter(function(e){ return e.isDir && e.name.charAt(0)!=='.'; });
+  var n=dirs.length||1;
+  var R=Math.max(95, 26*Math.min(n,8));
+  dirs.forEach(function(e,i){
+    var ang=(i/n)*Math.PI*2 - Math.PI/2;
+    var rp=activePath+'/'+e.name;
+    var room={ id:e.name, name:e.name, type:'feature', parent:'throne',
+      cx:Math.cos(ang)*R, cy:Math.sin(ang)*R, w:50, h:36, path:rp };
+    room.bugs=mkBugs(parseBugs(rp+'/library.md'));
+    rooms.push(room);
+    // one level of sub-rooms
+    var subs=listDir(rp).filter(function(s){ return s.isDir && s.name.charAt(0)!=='.'; });
+    var sn=subs.length;
+    if(sn){
+      var subR=46;
+      subs.slice(0,6).forEach(function(s,j){
+        var sa=ang + (j-(Math.min(sn,6)-1)/2)*0.5;
+        var sp=rp+'/'+s.name;
+        var sub={ id:e.name+'/'+s.name, name:s.name, type:'subroom', parent:e.name,
+          cx:room.cx+Math.cos(sa)*subR, cy:room.cy+Math.sin(sa)*subR, w:40, h:28, path:sp };
+        sub.bugs=mkBugs(parseBugs(sp+'/library.md'));
+        rooms.push(sub);
+      });
+    }
+  });
+
+  // agents from ~/.claude/agents
+  var raw=jGetAgents();
+  agents=raw.map(function(a,i){
+    var hx=(Math.random()-0.5)*16, hy=(Math.random()-0.5)*10;
+    return { id:'ag'+i, name:a.name, body:a.body||'', model:a.model||'', desc:a.description||'',
+      status:'idle', x:hx, y:hy, color:colorFor(a.name), home:{x:hx,y:hy}, destRoom:null, task:null };
+  });
+}
+
+function mkBugs(parsed){
+  return parsed.map(function(b,i){ return { id:'b'+i+'_'+(b.file||b.title).replace(/\W/g,'').slice(0,8), hp:100, maxHp:100, severity:b.sev, title:b.title, file:b.file }; });
+}
+
+function corridorPath(a,b){
+  var dx=b.cx-a.cx, dy=b.cy-a.cy;
+  var mid=Math.abs(dx)>Math.abs(dy)?{x:b.cx,y:a.cy}:{x:a.cx,y:b.cy};
+  return [{x:a.cx,y:a.cy},mid,{x:b.cx,y:b.cy}];
+}
+function renderCorridors(){
   rooms.forEach(function(r){
-    if(!r.parentId) return;
-    var p=rooms.find(function(x){ return x.id===r.parentId; });
-    if(!p) return;
-    ctx.save();
-    ctx.strokeStyle='#5C5030'; ctx.lineWidth=2; ctx.setLineDash([5,4]); ctx.globalAlpha=0.6;
-    ctx.beginPath(); ctx.moveTo(p.x+p.w/2,p.y+p.h/2); ctx.lineTo(r.x+r.w/2,r.y+r.h/2); ctx.stroke();
-    ctx.restore();
+    if(!r.parent) return;
+    var p=getRoom(r.parent); if(!p) return;
+    var pts=corridorPath(p,r);
+    var d=pts.map(function(pt,i){ return (i===0?'M':'L')+pt.x+' '+pt.y; }).join(' ');
+    svg.appendChild(el('path',{d:d,'class':'corridor-fill'}));
+    svg.appendChild(el('path',{d:d,'class':'corridor'}));
+    r._waypoints=pts;
   });
-
-  rooms.forEach(drawRoom);
-  ctx.restore();
+}
+function renderRooms(){
+  rooms.forEach(function(r){
+    var g=el('g',{'class':'room','data-id':r.id});
+    var rect=el('rect',{ x:r.cx-r.w/2, y:r.cy-r.h/2, width:r.w, height:r.h, rx:2,
+      'class':'room-rect '+(r.type==='throne'?'throne':'')+(r.bugs.length?' has-bug':'') });
+    rect.addEventListener('click', function(e){ e.stopPropagation(); openRoomPanel(r.id); });
+    g.appendChild(rect);
+    g.appendChild(el('rect',{ x:r.cx-2.5, y:r.cy-r.h/2-1, width:5, height:2, fill:'#8b6f3f', stroke:'#3a2818','stroke-width':0.4 }));
+    if(r.type==='throne'){ var crown=el('text',{x:r.cx, y:r.cy-r.h/2+7,'text-anchor':'middle','font-size':8,fill:'#8b6f3f'}); crown.textContent='♛'; g.appendChild(crown); }
+    var lbl=el('text',{ x:r.cx, y:r.cy+(r.type==='throne'?4:2), 'class':'room-label '+(r.type==='throne'?'throne-label':'') });
+    lbl.textContent=r.name.length>14?r.name.slice(0,13)+'…':r.name;
+    g.appendChild(lbl);
+    r._gEl=g; svg.appendChild(g);
+  });
+}
+function renderMonsters(){
+  svg.querySelectorAll('.monster').forEach(function(n){ n.remove(); });
+  rooms.forEach(function(r){
+    r.bugs.forEach(function(b,i){
+      var slots=r.bugs.length, spacing=Math.min(13,(r.w-10)/Math.max(slots,1));
+      var mx=r.cx+(i-(slots-1)/2)*spacing, my=r.cy+r.h*0.15;
+      var g=el('g',{'class':'monster','data-room':r.id,'data-bug':b.id,transform:'translate('+mx+','+my+')'});
+      g.appendChild(el('path',{ d:'M -4 2.5 Q -4 -4 0 -4 Q 4 -4 4 2.5 L 2.5 4 L 1.2 2.5 L 0 4 L -1.2 2.5 L -2.5 4 Z','class':'monster-body' }));
+      g.appendChild(el('circle',{cx:-1.5,cy:-1.2,r:0.6,fill:'#fff'}));
+      g.appendChild(el('circle',{cx:1.5,cy:-1.2,r:0.6,fill:'#fff'}));
+      g.appendChild(el('circle',{cx:-1.5,cy:-1.2,r:0.3,fill:'#000'}));
+      g.appendChild(el('circle',{cx:1.5,cy:-1.2,r:0.3,fill:'#000'}));
+      g.appendChild(el('path',{d:'M -3 -3.2 L -4 -5.6 L -2 -4 Z',fill:'#3a2818'}));
+      g.appendChild(el('path',{d:'M 3 -3.2 L 4 -5.6 L 2 -4 Z',fill:'#3a2818'}));
+      g.appendChild(el('rect',{x:-6.5,y:-9,width:13,height:2.4,'class':'hp-bar-bg',rx:0.4}));
+      var hpRect=el('rect',{x:-6,y:-8.6,width:12*(b.hp/b.maxHp),height:1.6,'class':'hp-bar',rx:0.2}); hpRect.setAttribute('data-hp',b.id); g.appendChild(hpRect);
+      var hpText=el('text',{x:0,y:-10,'class':'hp-text'}); hpText.textContent=Math.ceil(b.hp)+'/'+b.maxHp; hpText.setAttribute('data-hptext',b.id); g.appendChild(hpText);
+      b._gEl=g; b._homeX=mx; b._homeY=my; svg.appendChild(g);
+    });
+  });
+}
+function renderAgents(){
+  svg.querySelectorAll('.agent-sprite').forEach(function(n){ n.remove(); });
+  agents.forEach(function(a){
+    var g=el('g',{'class':'agent-sprite','data-id':a.id,transform:'translate('+a.x+','+a.y+')'});
+    g.appendChild(el('rect',{x:-2,y:-0.8,width:4,height:4,rx:0.4,'class':'agent-body',fill:a.color}));
+    g.appendChild(el('circle',{cx:0,cy:-2.4,r:1.6,'class':'agent-head'}));
+    g.appendChild(el('line',{x1:2.4,y1:0,x2:3.6,y2:-1.6,stroke:'#3a2818','stroke-width':0.5}));
+    var lw=a.name.length*2+2.5;
+    g.appendChild(el('rect',{x:-lw/2,y:-7.2,width:lw,height:3,rx:0.4,'class':'agent-label-bg'}));
+    var lbl=el('text',{x:0,y:-5,'class':'agent-label'}); lbl.textContent=a.name; g.appendChild(lbl);
+    a._gEl=g; svg.appendChild(g);
+  });
+}
+function renderAll(){
+  while(svg.firstChild) svg.removeChild(svg.firstChild);
+  renderCorridors(); renderRooms(); renderMonsters(); renderAgents();
+  updateRoomVisuals();
+  $('agentsBtn').textContent='⚔ '+agents.length;
+  var total=rooms.reduce(function(s,r){ return s+r.bugs.length; },0);
+  $('map-title').textContent=total>0?('⚜ '+activeName+' · 🐛'+total):('⚜ '+activeName);
 }
 
-function drawRoom(r){
-  var hasBugs=r.bugs.length>0, isThrone=r.type==='throne', isSel=selectedRoom&&selectedRoom.id===r.id;
-  ctx.save();
-  ctx.fillStyle = hasBugs ? '#1F110C' : (isThrone ? '#221E10' : '#1A180F');
-  rr(r.x,r.y,r.w,r.h,8); ctx.fill();
-  ctx.strokeStyle=isSel?'#E8834A':(hasBugs?'#5C2010':(isThrone?'#8B7540':'#5C5030'));
-  ctx.lineWidth=isSel?2:1.5;
-  rr(r.x,r.y,r.w,r.h,8); ctx.stroke();
-  ctx.fillStyle=isThrone?'#8B7540':'#D4C49A';
-  ctx.font=(isThrone?'bold ':'')+' 11px "Courier New",monospace';
-  ctx.textAlign='center'; ctx.textBaseline='middle';
-  var lbl=r.name.length>14?r.name.slice(0,13)+'…':r.name;
-  ctx.fillText(lbl,r.x+r.w/2,r.y+r.h/2-(hasBugs?8:0));
-  if(hasBugs){
-    var clr=r.bugs.some(function(b){ return b.sev==='critical'; })?'#F87171':(r.bugs.some(function(b){ return b.sev==='major'; })?'#FBBF24':'#9090A0');
-    ctx.fillStyle=clr; ctx.font='10px "Courier New",monospace';
-    ctx.fillText('🐛 '+r.bugs.length+(r.bugs.length===1?' monster':' monsters'),r.x+r.w/2,r.y+r.h/2+9);
-  }
-  if(isThrone){ ctx.fillStyle='#8B7540'; ctx.font='14px serif'; ctx.fillText('♛',r.x+r.w/2,r.y+14); }
-  ctx.restore();
+function enterDungeon(name,path){
+  activePath=path; activeName=name;
+  buildWorld(); renderAll();
+  showScreen('map-screen');
+  fitToScreen();
+  renderAgentsPanel();
 }
 
-function rr(x,y,w,h,rad){
-  ctx.beginPath();
-  ctx.moveTo(x+rad,y); ctx.lineTo(x+w-rad,y); ctx.arcTo(x+w,y,x+w,y+rad,rad);
-  ctx.lineTo(x+w,y+h-rad); ctx.arcTo(x+w,y+h,x+w-rad,y+h,rad);
-  ctx.lineTo(x+rad,y+h); ctx.arcTo(x,y+h,x,y+h-rad,rad);
-  ctx.lineTo(x,y+rad); ctx.arcTo(x,y,x+rad,y,rad); ctx.closePath();
+// ── Pan & zoom ──
+var world=$('world'), stage=$('stage');
+var vw={x:0,y:0,scale:1};
+function fitToScreen(){
+  var W=window.innerWidth, H=window.innerHeight;
+  var maxR=rooms.reduce(function(m,r){ return Math.max(m, Math.abs(r.cx)+r.w, Math.abs(r.cy)+r.h); },120);
+  var content=maxR*2.2;
+  vw.scale=Math.max(0.55, Math.min((W*0.9)/content, (H*0.66)/content, 2.2));
+  vw.x=0; vw.y=0; applyView();
 }
+function applyView(){ world.style.transform='translate('+vw.x+'px,'+vw.y+'px) scale('+vw.scale+')'; }
+window.addEventListener('resize', function(){ if($('map-screen').classList.contains('active')) fitToScreen(); });
 
-// ── Pan & tap ─────────────────────────────────────────────────────────────────
-var tapStart=null;
-canvas.addEventListener('touchstart',function(e){
-  if(e.touches.length===1){
-    panStart={x:e.touches[0].clientX-panOffset.x,y:e.touches[0].clientY-panOffset.y};
-    tapStart={x:e.touches[0].clientX,y:e.touches[0].clientY,t:Date.now()};
-  }
-},{passive:true});
-canvas.addEventListener('touchmove',function(e){
-  if(e.touches.length===1&&panStart){
-    panOffset.x=e.touches[0].clientX-panStart.x;
-    panOffset.y=e.touches[0].clientY-panStart.y;
-    draw();
-  }
-},{passive:true});
-canvas.addEventListener('touchend',function(e){
-  if(tapStart&&Date.now()-tapStart.t<300){
-    var dx=e.changedTouches[0].clientX-tapStart.x,dy=e.changedTouches[0].clientY-tapStart.y;
-    if(Math.abs(dx)<8&&Math.abs(dy)<8) handleTap(e.changedTouches[0].clientX,e.changedTouches[0].clientY);
-  }
-  tapStart=null;panStart=null;
-},{passive:true});
-canvas.addEventListener('mousedown',function(e){
-  panStart={x:e.clientX-panOffset.x,y:e.clientY-panOffset.y};
-  tapStart={x:e.clientX,y:e.clientY,t:Date.now()};
+var dragging=false, dragStart=null, pinch=null;
+stage.addEventListener('pointerdown', function(e){
+  if(e.target.closest('.room-rect,.agent-sprite,.monster')) return;
+  if(e.pointerType==='touch' && pinch) return;
+  dragging=true; stage.classList.add('dragging');
+  dragStart={x:e.clientX,y:e.clientY,vx:vw.x,vy:vw.y};
+  try{ stage.setPointerCapture(e.pointerId); }catch(_){}
 });
-canvas.addEventListener('mousemove',function(e){
-  if(panStart&&(e.buttons&1)){panOffset.x=e.clientX-panStart.x;panOffset.y=e.clientY-panStart.y;draw();}
+stage.addEventListener('pointermove', function(e){
+  if(!dragging) return;
+  vw.x=dragStart.vx+(e.clientX-dragStart.x);
+  vw.y=dragStart.vy+(e.clientY-dragStart.y);
+  applyView();
 });
-canvas.addEventListener('mouseup',function(e){
-  if(tapStart&&Date.now()-tapStart.t<300){
-    var dx=e.clientX-tapStart.x,dy=e.clientY-tapStart.y;
-    if(Math.abs(dx)<5&&Math.abs(dy)<5) handleTap(e.clientX,e.clientY);
+stage.addEventListener('pointerup', function(){ dragging=false; stage.classList.remove('dragging'); });
+stage.addEventListener('touchstart', function(e){
+  if(e.touches.length===2){
+    var dx=e.touches[0].clientX-e.touches[1].clientX, dy=e.touches[0].clientY-e.touches[1].clientY;
+    pinch={dist:Math.hypot(dx,dy),scale:vw.scale}; dragging=false;
   }
-  panStart=null;tapStart=null;
 });
+stage.addEventListener('touchmove', function(e){
+  if(e.touches.length===2 && pinch){
+    e.preventDefault();
+    var dx=e.touches[0].clientX-e.touches[1].clientX, dy=e.touches[0].clientY-e.touches[1].clientY;
+    vw.scale=Math.max(0.4,Math.min(3,pinch.scale*(Math.hypot(dx,dy)/pinch.dist))); applyView();
+  }
+}, {passive:false});
+stage.addEventListener('touchend', function(){ pinch=null; });
 
-function handleTap(cx,cy){
-  if(view!=='map') return;
-  var rect=canvas.getBoundingClientRect();
-  var wx=(cx-rect.left-panOffset.x)/scale, wy=(cy-rect.top-panOffset.y)/scale;
-  var hit=rooms.find(function(r){ return wx>=r.x&&wx<=r.x+r.w&&wy>=r.y&&wy<=r.y+r.h; });
-  if(hit){selectedRoom=hit;openPanel(hit);draw();}
-  else{selectedRoom=null;closePanel();draw();}
+// ── Combat / dispatch animation (cosmetic; real fix done by spawned agent) ──
+function currentRoomOf(a){
+  for(var i=0;i<rooms.length;i++){ var r=rooms[i]; if(Math.abs(a.x-r.cx)<r.w/2 && Math.abs(a.y-r.cy)<r.h/2) return r.id; }
+  return null;
 }
-
-// ── Panel ─────────────────────────────────────────────────────────────────────
-function openPanel(room){
-  document.getElementById('panel-title').textContent=room.name;
-  var body=document.getElementById('panel-content');
-  body.innerHTML='';
-  if(room.bugs.length===0){
-    body.innerHTML='<p style="color:#60606E;font-size:12px;text-align:center;padding:24px 0;">No monsters here.<br>This room is clean ✅</p>';
-  } else {
-    room.bugs.forEach(function(bug){
-      var div=document.createElement('div');
-      div.className='bug-item '+bug.sev;
-      div.innerHTML='<div class="bug-title">'+esc(bug.title)+'</div><div class="bug-meta"><span class="bug-sev '+bug.sev+'">'+bug.sev.toUpperCase()+'</span>'+(bug.file?'<code style="font-size:10px;color:#9090A0;">'+esc(bug.file)+'</code>':'')+'</div>';
-      body.appendChild(div);
-      if(agents.length>0){
-        var btn=document.createElement('button');
-        btn.className='dispatch-btn';
-        btn.textContent='⚔ Dispatch '+agents[0].name+' to fix';
-        btn.onclick=(function(b,r){ return function(){ dispatchHero(agents[0],r,b); }; })(bug,room);
-        body.appendChild(btn);
+function buildPath(fromId,toId){
+  var fc=[],cur=fromId; while(cur){ fc.push(cur); cur=(getRoom(cur)||{}).parent; }
+  var tc=[]; cur=toId; while(cur){ tc.push(cur); cur=(getRoom(cur)||{}).parent; }
+  var set={}; fc.forEach(function(x){ set[x]=1; }); var lca=null;
+  for(var i=0;i<tc.length;i++){ if(set[tc[i]]){ lca=tc[i]; break; } }
+  var path=[];
+  for(var j=0;j<fc.length;j++){ if(fc[j]===lca) break; var rm=getRoom(fc[j]); if(rm&&rm._waypoints) rm._waypoints.slice().reverse().forEach(function(p){ path.push(p); }); }
+  var desc=[]; for(var k=0;k<tc.length;k++){ if(tc[k]===lca) break; desc.push(tc[k]); } desc.reverse();
+  desc.forEach(function(id){ var rm=getRoom(id); if(rm&&rm._waypoints) rm._waypoints.forEach(function(p){ path.push(p); }); });
+  var cleaned=[]; path.forEach(function(p){ var l=cleaned[cleaned.length-1]; if(!l||l.x!==p.x||l.y!==p.y) cleaned.push(p); });
+  return cleaned;
+}
+function dispatchAgent(agent,roomId){
+  var room=getRoom(roomId); if(!agent||!room) return;
+  var wp=buildPath(currentRoomOf(agent)||'throne', roomId);
+  if(room.bugs.length){ var bug=room.bugs[0]; wp.push({x:bug._homeX-5,y:bug._homeY}); }
+  else wp.push({x:room.cx+(Math.random()-0.5)*(room.w*0.4), y:room.cy});
+  agent._path=wp; agent._pathIdx=0; agent.status='traveling'; agent.destRoom=roomId;
+  agent.task=room.bugs.length?('Hunting bug in '+room.name):('Working in '+room.name);
+  // REAL dispatch: spawn claude --print in the room
+  var task=['You are dispatched to this room.', room.bugs.length?('Fix the bug: '+room.bugs[0].title+(room.bugs[0].file?(' ('+room.bugs[0].file+')'):'')) :'Review and document this folder.',
+    '', '1. Read library.md here for context.', '2. Make the fix.', '3. Move the bug from ## 🐛 Open Bugs to ## ✅ Resolved in library.md.', '4. Update the parent room receptionist line.'].join('\n');
+  jSpawnAgent(agent.name, room.path, task);
+  renderAgentsPanel();
+  toast('⚔ '+agent.name+' → '+room.name);
+}
+var SPEED=34, last=performance.now();
+function tick(now){
+  var dt=Math.min(0.05,(now-last)/1000); last=now;
+  agents.forEach(function(a){
+    if(a.status==='traveling' && a._path){
+      var t=a._path[a._pathIdx];
+      if(!t){ var here=currentRoomOf(a); a.status=(here&&getRoom(here).bugs.length)?'fighting':'working'; a._path=null; renderAgentsPanel(); updateRoomVisuals(); }
+      else {
+        var dx=t.x-a.x, dy=t.y-a.y, dist=Math.hypot(dx,dy), step=SPEED*dt;
+        if(dist<=step){ a.x=t.x; a.y=t.y; a._pathIdx++; }
+        else { a.x+=dx/dist*step; a.y+=dy/dist*step; }
+        if(a._gEl) a._gEl.setAttribute('transform','translate('+a.x.toFixed(2)+','+a.y.toFixed(2)+')');
       }
-    });
-  }
-  var subs=rooms.filter(function(r){ return r.parentId===room.id; });
-  if(subs.length){
-    var hdr=document.createElement('p');
-    hdr.style.cssText='color:#9090A0;font-size:10px;letter-spacing:1px;margin:16px 0 8px;text-transform:uppercase;';
-    hdr.textContent='Sub-rooms'; body.appendChild(hdr);
-    subs.forEach(function(s){
-      var row=document.createElement('div');
-      row.style.cssText='padding:8px 10px;background:#1E1E22;border:1px solid #2A2A30;border-radius:8px;margin-bottom:6px;cursor:pointer;';
-      row.innerHTML='<span style="font-size:12px;color:#F0F0F2;">'+esc(s.name)+'</span>'+(s.bugs.length?'<span style="float:right;font-size:10px;color:#F87171;">🐛 '+s.bugs.length+'</span>':'<span style="float:right;font-size:10px;color:#3DD68C;">✅</span>');
-      row.onclick=function(){selectedRoom=s;openPanel(s);draw();};
-      body.appendChild(row);
-    });
-  }
-  document.getElementById('room-panel').classList.add('open');
-}
-
-function closePanel(){
-  document.getElementById('room-panel').classList.remove('open');
-}
-
-// ── Dispatch ──────────────────────────────────────────────────────────────────
-function dispatchHero(agent,room,bug){
-  var task=['You have been dispatched to fix a bug in this room.','','Bug: **'+bug.title+'**',(bug.file?'File: '+bug.file:''),'Severity: '+bug.sev,'','Your task:','1. Read library.md in this folder to understand the room context','2. Read and fix the file at '+(bug.file||'the location described above'),'3. Update library.md — move the bug from ## 🐛 Open Bugs to ## ✅ Resolved','4. Update the parent room\'s library.md receptionist line'].filter(Boolean).join('\n');
-  spawnAgent(agent.name,room.path,task);
-  showToast('⚔ '+agent.name+' dispatched to '+room.name);
-  closePanel();
-}
-
-// ── View switching ────────────────────────────────────────────────────────────
-function setView(v){
-  view=v;
-  ['map','agents','scout','bugs'].forEach(function(id){
-    var b=document.getElementById('btn-'+id);
-    if(b) b.classList.toggle('active',id===v);
+    }
+    if(a.status==='fighting'){
+      var hid=currentRoomOf(a), room=hid&&getRoom(hid);
+      if(room && room.bugs.length && room.id===a.destRoom){
+        var bug=room.bugs[0]; bug.hp-=28*dt;
+        if(bug.hp<=0){ spawnParticles(bug._homeX,bug._homeY); room.bugs.shift(); renderMonsters(); updateRoomVisuals(); a.status='working'; a.task='Cleaning up'; renderAgentsPanel(); toast('💥 '+a.name+' slew '+bug.title); setTimeout(function(){ sendHome(a); },700); }
+        else {
+          var hr=svg.querySelector('[data-hp="'+bug.id+'"]'), ht=svg.querySelector('[data-hptext="'+bug.id+'"]');
+          if(hr) hr.setAttribute('width',Math.max(0,12*bug.hp/bug.maxHp));
+          if(ht) ht.textContent=Math.max(0,Math.ceil(bug.hp))+'/'+bug.maxHp;
+          if(bug._gEl){ var sx=(Math.random()-0.5)*0.8, sy=(Math.random()-0.5)*0.8; bug._gEl.setAttribute('transform','translate('+(bug._homeX+sx)+','+(bug._homeY+sy)+')'); var body=bug._gEl.querySelector('.monster-body'); if(body) body.setAttribute('fill',Math.random()>0.5?'#fff':'#8b2a1f'); }
+          if(a._gEl) a._gEl.setAttribute('transform','translate('+(a.x+(Math.random()-0.5)*0.6).toFixed(2)+','+(a.y+(Math.random()-0.5)*0.6).toFixed(2)+')');
+        }
+      } else a.status='working';
+    }
   });
-  if(v==='agents') showAgentsPanel();
-  else if(v==='bugs') showAllBugs();
-  else { closePanel(); draw(); }
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+function sendHome(a){
+  var wp=buildPath(currentRoomOf(a)||'throne','throne'); wp.push({x:a.home.x,y:a.home.y});
+  a._path=wp; a._pathIdx=0; a.status='traveling'; a.destRoom='throne'; a.task='returning home';
+  var chk=setInterval(function(){ if(a.status!=='traveling' && currentRoomOf(a)==='throne'){ a.status='idle'; a.task=null; a.destRoom=null; renderAgentsPanel(); clearInterval(chk); } },200);
+  renderAgentsPanel();
+}
+function spawnParticles(x,y){
+  for(var i=0;i<10;i++){ (function(i){
+    var p=el('circle',{cx:x,cy:y,r:0.7,fill:'#c89b3c'}); svg.appendChild(p);
+    var angle=(i/10)*Math.PI*2, speed=10+Math.random()*10, t=0;
+    function an(){ t+=0.04; p.setAttribute('cx',x+Math.cos(angle)*speed*t); p.setAttribute('cy',y+Math.sin(angle)*speed*t+15*t*t); p.setAttribute('opacity',Math.max(0,1-t*1.5)); if(t<0.8) requestAnimationFrame(an); else p.remove(); }
+    requestAnimationFrame(an);
+  })(i); }
+}
+function updateRoomVisuals(){
+  rooms.forEach(function(r){
+    if(!r._gEl) return; var rect=r._gEl.querySelector('rect.room-rect'); if(!rect) return;
+    rect.classList.toggle('has-bug', r.bugs.length>0);
+    rect.classList.toggle('has-agent', agents.some(function(a){ return currentRoomOf(a)===r.id && (a.status==='working'||a.status==='fighting'); }));
+  });
 }
 
-function showAgentsPanel(){
-  draw();
-  document.getElementById('panel-title').textContent='⚔ Heroes';
-  var body=document.getElementById('panel-content');
-  body.innerHTML='';
-  if(!agents.length){
-    body.innerHTML='<p style="color:#60606E;font-size:12px;text-align:center;padding:24px 0;">No heroes found.<br>Create agents in ~/.claude/agents/</p>';
-  } else {
-    agents.forEach(function(a){
-      var div=document.createElement('div');
-      div.style.cssText='background:#1E1E22;border:1px solid #2A2A30;border-radius:10px;padding:10px 12px;margin-bottom:8px;';
-      div.innerHTML='<div style="font-size:12px;font-weight:700;color:#F0F0F2;">'+esc(a.name)+'</div>'+(a.description?'<div style="font-size:10px;color:#9090A0;margin-top:3px;">'+esc(a.description)+'</div>':'')+(a.model?'<div style="font-size:10px;color:#60A5FA;margin-top:3px;">model: '+esc(a.model)+'</div>':'');
-      body.appendChild(div);
-    });
+// ── Agents roster panel ──
+var agentsPanel=$('agentsPanel');
+function renderAgentsPanel(){
+  $('agentsBtn').textContent='⚔ '+agents.length;
+  agentsPanel.innerHTML='<h3>⚔ Roster</h3>';
+  if(!agents.length){ agentsPanel.innerHTML+='<div class="agent-empty">No heroes.<br>Create agents in<br>~/.claude/agents/</div>'; return; }
+  agents.forEach(function(a){
+    var row=document.createElement('div'); row.className='agent-row '+a.status;
+    var dest=a.destRoom?(getRoom(a.destRoom)||{}).name:'Throne';
+    var st=a.status==='idle'?'resting · Throne':a.status==='traveling'?('→ '+dest):a.status==='fighting'?('⚔ '+(a.task||'combat')):(a.task||dest);
+    row.innerHTML='<span class="dot"></span><div style="flex:1;min-width:0"><div class="agent-name">'+esc(a.name)+'</div><div class="agent-status">'+esc(st)+'</div></div>';
+    row.addEventListener('click', function(){ vw.x=-a.x*vw.scale; vw.y=-a.y*vw.scale; applyView(); });
+    agentsPanel.appendChild(row);
+  });
+}
+$('agentsBtn').addEventListener('click', function(){ agentsPanel.classList.toggle('open'); });
+
+// ── Room panel ──
+var roomPanel=$('roomPanel'), openRoomId=null, openTab='library';
+function openRoomPanel(id){
+  openRoomId=id; openTab='library';
+  document.querySelectorAll('#roomTabs .tab').forEach(function(t){ t.classList.toggle('active', t.dataset.tab==='library'); });
+  renderRoomPanel(); roomPanel.classList.add('open');
+}
+function miniMd(md){
+  if(!md) return '<p class="muted">No library.md in this room yet.</p>';
+  var html=esc(md)
+    .replace(/^####\s+(.+)$/gm,'<h4>$1</h4>')
+    .replace(/^###\s+(.+)$/gm,'<h4>$1</h4>')
+    .replace(/^##\s+(.+)$/gm,'<h3>$1</h3>')
+    .replace(/^#\s+(.+)$/gm,'<h3>$1</h3>')
+    .replace(/`([^`]+)`/g,'<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>')
+    .replace(/^-\s+\[\s*\]\s+(.+)$/gm,'<li class="bug-line">🐛 $1</li>')
+    .replace(/^-\s+\[x\]\s+(.+)$/gm,'<li>✅ $1</li>')
+    .replace(/^[-*]\s+(.+)$/gm,'<li>$1</li>');
+  html=html.replace(/(<li[\s\S]*?<\/li>)(?!\s*<li)/g, function(m){ return '<ul>'+m+'</ul>'; });
+  return html.split(/\n{2,}/).map(function(b){ return /^<(h\d|ul|li)/.test(b.trim())?b:('<p>'+b.replace(/\n/g,'<br>')+'</p>'); }).join('');
+}
+function renderRoomPanel(){
+  var r=getRoom(openRoomId); if(!r) return;
+  $('roomTitle').textContent=r.name;
+  var c=$('roomContent');
+  if(openTab==='library'){
+    c.innerHTML=miniMd(readFile(r.path+'/library.md')) + '<p class="muted" style="margin-top:10px">📂 '+esc(r.path)+'</p>';
+  } else if(openTab==='tasks'){
+    c.innerHTML = r.bugs.length
+      ? '<h4>🐛 Monsters ('+r.bugs.length+')</h4><ul>'+r.bugs.map(function(b){ return '<li class="bug-line"><strong>'+esc(b.title)+'</strong> · '+b.severity+(b.file?(' · <code>'+esc(b.file)+'</code>'):'')+'</li>'; }).join('')+'</ul>'
+      : '<p class="muted">This room is clean ✅<br>No monsters.</p>';
+  } else if(openTab==='agents'){
+    var here=agents.filter(function(a){ return currentRoomOf(a)===r.id; });
+    c.innerHTML='<h4>Heroes here</h4>'+(here.length?('<ul>'+here.map(function(a){ return '<li>'+esc(a.name)+' — '+a.status+'</li>'; }).join('')+'</ul>'):'<p class="muted">No heroes present.</p>');
+  } else if(openTab==='subs'){
+    var subs=rooms.filter(function(x){ return x.parent===r.id; });
+    c.innerHTML='<h4>Sub-rooms</h4>'+(subs.length?('<ul>'+subs.map(function(s){ return '<li class="jump" data-jump="'+esc(s.id)+'">📁 '+esc(s.name)+(s.bugs.length?(' · 🐛'+s.bugs.length):' · ✅')+'</li>'; }).join('')+'</ul>'):'<p class="muted">No sub-rooms.</p>');
+    c.querySelectorAll('[data-jump]').forEach(function(li){ li.addEventListener('click', function(){ openRoomPanel(li.dataset.jump); }); });
   }
-  document.getElementById('room-panel').classList.add('open');
+}
+document.querySelectorAll('#roomTabs .tab').forEach(function(t){
+  t.addEventListener('click', function(){
+    document.querySelectorAll('#roomTabs .tab').forEach(function(x){ x.classList.remove('active'); });
+    t.classList.add('active'); openTab=t.dataset.tab; renderRoomPanel();
+  });
+});
+$('closeRoom').addEventListener('click', function(){ roomPanel.classList.remove('open'); });
+$('dispatchBtn').addEventListener('click', function(){
+  if(!openRoomId) return;
+  var idle=agents.find(function(a){ return a.status==='idle'; });
+  if(!agents.length){ toast('No heroes — add agents in ~/.claude/agents'); return; }
+  if(!idle){ toast('All heroes busy'); return; }
+  dispatchAgent(idle, openRoomId); roomPanel.classList.remove('open');
+});
+$('logBugBtn').addEventListener('click', function(){
+  if(!openRoomId) return;
+  var r=getRoom(openRoomId);
+  var title=window.prompt('Bug title:',''); if(!title) return;
+  appendBugToLibrary(r.path, title.slice(0,80));
+  r.bugs.push({ id:'b'+Date.now(), hp:100, maxHp:100, severity:'minor', title:title.slice(0,80), file:'' });
+  renderMonsters(); updateRoomVisuals(); renderRoomPanel();
+  toast('🐛 Bug logged in '+r.name);
+});
+$('rescanBtn').addEventListener('click', function(){
+  if(!openRoomId) return;
+  var r=getRoom(openRoomId);
+  r.bugs=mkBugs(parseBugs(r.path+'/library.md'));
+  renderMonsters(); updateRoomVisuals(); renderRoomPanel();
+  toast('🔄 Re-scanned '+r.name);
+});
+function appendBugToLibrary(roomPath, title){
+  var p=roomPath+'/library.md';
+  var md=readFile(p);
+  var line='- [ ] **'+title+'** · minor · logged '+new Date().toISOString().slice(0,10)+' · src=manual';
+  if(!md){ md='# library\n\n## 🐛 Open Bugs\n'+line+'\n'; }
+  else if(/##\s+🐛/.test(md) || /##\s+.*Open Bugs/i.test(md)){
+    md=md.replace(/(##\s+(?:🐛.*|.*Open Bugs).*\n)/i, '$1'+line+'\n');
+  } else { md=md.replace(/\s*$/,'')+'\n\n## 🐛 Open Bugs\n'+line+'\n'; }
+  writeFile(p, md);
 }
 
-function showAllBugs(){
-  draw();
-  var allBugs=[];
-  rooms.forEach(function(r){ r.bugs.forEach(function(b){ allBugs.push({room:r,bug:b}); }); });
-  document.getElementById('panel-title').textContent='🐛 All Bugs ('+allBugs.length+')';
-  var body=document.getElementById('panel-content'); body.innerHTML='';
-  if(!allBugs.length){
-    body.innerHTML='<p style="color:#3DD68C;font-size:12px;text-align:center;padding:24px 0;">Dungeon is clear! ✅<br>No monsters found.</p>';
-  } else {
-    allBugs.forEach(function(item){
-      var div=document.createElement('div');
-      div.className='bug-item '+item.bug.sev;
-      div.innerHTML='<div class="bug-title">'+esc(item.bug.title)+'</div><div class="bug-meta" style="margin-top:3px;"><span class="bug-sev '+item.bug.sev+'">'+item.bug.sev.toUpperCase()+'</span><span style="color:#9090A0;">in '+esc(item.room.name)+'</span></div>';
-      body.appendChild(div);
-    });
-  }
-  document.getElementById('room-panel').classList.add('open');
-}
+$('mapBackBtn').addEventListener('click', function(){ showScreen('home-screen'); renderHome(); });
+$('scoutBtn').addEventListener('click', function(){ toast('Scout (audit) — P2/P3. Use /code-review in the terminal for now.'); });
 
-function runScout(){ showToast('Scout coming in P2 — use /code-review in the terminal for now'); setView('map'); }
+// ── Toast ──
+var toastEl=$('toast'), toastTimer=null;
+function toast(msg){ toastEl.textContent=msg; toastEl.classList.add('show'); clearTimeout(toastTimer); toastTimer=setTimeout(function(){ toastEl.classList.remove('show'); },2000); }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-
-function showToast(msg){
-  var t=document.getElementById('toast');
-  t.textContent=msg; t.classList.add('show');
-  setTimeout(function(){ t.classList.remove('show'); },2800);
-}
-
-// ── Boot ──────────────────────────────────────────────────────────────────────
+// ── Boot ──
 renderHome();
-
 })();
 </script>
 </body>
