@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b59-hotload-dungeon';
+const BRIDGE_BUILD = 'b60-dungeon-build-stamp';
 
 const net   = require('net');
 const http  = require('http');
@@ -4577,8 +4577,15 @@ function openPrintSession() {
                         let txt = ''; res.setEncoding('utf8');
                         await new Promise((rs, rj) => { res.on('data', c => txt += c); res.on('end', rs); res.on('error', rj); });
                         if (txt.length > 500 && txt.includes('DungeonAndroid')) {
+                            const remoteB = (txt.match(/DUNGEON_BUILD\s*=\s*'([^']+)'/) || [])[1] || '?';
+                            let localB = '(none)';
+                            try { const cur = fs.readFileSync(devFile,'utf8'); localB = (cur.match(/DUNGEON_BUILD\s*=\s*'([^']+)'/) || [])[1] || '?'; } catch(_){}
                             fs.writeFileSync(devFile, txt);
-                            w('\x1b[32m✓ dungeon/index.html → ' + txt.length + ' bytes\x1b[0m\r\n');
+                            if (remoteB === localB) {
+                                w('\x1b[33m⚠ downloaded build == running build (' + remoteB + ') — already current, or force-stop+reopen\x1b[0m\r\n');
+                            } else {
+                                w('\x1b[32m✓ dungeon/index.html → ' + txt.length + ' bytes (build ' + remoteB + ')\x1b[0m\r\n');
+                            }
                         } else {
                             w('\x1b[31m✗ dungeon/index.html invalid (size=' + txt.length + ') — kept current\x1b[0m\r\n');
                         }

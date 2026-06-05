@@ -286,6 +286,9 @@ html,body { width:100%; height:100%; background:#0C0C0F; overflow:hidden; font-f
 (function(){
 'use strict';
 
+// ── Build stamp (matches !hotload-dungeon version detection) ─────────────────
+var DUNGEON_BUILD = 'd2-home-folder-picker';
+
 // ── Bridge ───────────────────────────────────────────────────────────────────
 var A = (typeof DungeonAndroid !== 'undefined') ? DungeonAndroid : null;
 function readFile(p)         { return A ? (A.readFile(p)||'') : ''; }
