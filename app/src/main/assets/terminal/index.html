@@ -2867,6 +2867,18 @@ document.getElementById('btn-shell').addEventListener('click',function(){
 // shared with the Ubuntu xterm via window.__ctrlArmed / window.__updateCtrlGlow.
 window.__ctrlArmed = false;
 window.__nexusMode = 'chat';
+// Keep the soft keyboard up when tapping toolbar buttons (A+/A−, arrows, Ctrl, …).
+// The TAP itself blurs the active input (xterm's hidden textarea in Ubuntu mode, the
+// chat ghost textarea in chat mode) → Android dismisses the IME, which is why the
+// keyboard kept vanishing. preventDefault on the button's mousedown suppresses that
+// focus-steal so focus (and the keyboard) stay put; the click still fires its action.
+// Delegated on #toolbar so every .tb-btn is covered with one listener. Hotloadable.
+(function(){
+  var tb=document.getElementById('toolbar');
+  if(tb) tb.addEventListener('mousedown', function(e){
+    if(e.target && e.target.closest && e.target.closest('.tb-btn')) e.preventDefault();
+  });
+})();
 window.__updateCtrlGlow = function(){
   var b=document.getElementById('btn-ctrl');
   if(b) b.classList.toggle('armed', !!window.__ctrlArmed);
@@ -2956,8 +2968,12 @@ function reportTermSize(){
   }
 }
 window.addEventListener('resize',reportTermSize);
-document.getElementById('btn-font-dec').addEventListener('click',function(){applyFontSize(termFontSize-1);if(window.adjustXtermFont)window.adjustXtermFont(-1);ghost.focus();});
-document.getElementById('btn-font-inc').addEventListener('click',function(){applyFontSize(termFontSize+1);if(window.adjustXtermFont)window.adjustXtermFont(1);ghost.focus();});
+// Refocus the ACTIVE input by mode (ghost is the chat input — focusing it in Ubuntu
+// mode was wrong and could itself pop/dismiss the keyboard). Belt-and-suspenders with
+// the toolbar mousedown-preventDefault above.
+function refocusActiveInput(){ if(window.__nexusMode==='ubuntu'){ if(window.__focusTerm) window.__focusTerm(); } else { try{ghost.focus();}catch(_){} } }
+document.getElementById('btn-font-dec').addEventListener('click',function(){applyFontSize(termFontSize-1);if(window.adjustXtermFont)window.adjustXtermFont(-1);refocusActiveInput();});
+document.getElementById('btn-font-inc').addEventListener('click',function(){applyFontSize(termFontSize+1);if(window.adjustXtermFont)window.adjustXtermFont(1);refocusActiveInput();});
 
 // ── Help ──────────────────────────────────────────────────────────────────────
 document.getElementById('btn-help').addEventListener('click',function(){
