@@ -220,6 +220,9 @@ html,body { width:100%; height:100%; background:#0C0C0F; overflow:hidden; font-f
   <div id="name-box">
     <h3>Name your dungeon</h3>
     <div class="sub" id="picked-path-label"></div>
+    <div id="path-row" style="display:none;margin-bottom:10px;">
+      <input id="path-input" type="text" placeholder="/sdcard/MyProject" style="width:100%;padding:10px 12px;border-radius:10px;background:#1E1E22;border:1px solid #2A2A30;color:#F0F0F2;font-size:12px;font-family:'Courier New',monospace;outline:none;" />
+    </div>
     <input id="name-input" type="text" placeholder="e.g. Nexus-Mind" maxlength="32" />
     <div class="dialog-btns">
       <button id="name-cancel" onclick="cancelAdd()">Cancel</button>
@@ -287,7 +290,7 @@ html,body { width:100%; height:100%; background:#0C0C0F; overflow:hidden; font-f
 'use strict';
 
 // ── Build stamp (matches !hotload-dungeon version detection) ─────────────────
-var DUNGEON_BUILD = 'd2-home-folder-picker';
+var DUNGEON_BUILD = 'd4-smart-fallback';
 
 // ── Bridge ───────────────────────────────────────────────────────────────────
 var A = (typeof DungeonAndroid !== 'undefined') ? DungeonAndroid : null;
@@ -320,6 +323,7 @@ var pendingPath = null;
 window.onFolderPicked = function(path){
   if(!path){ showToast('No folder selected'); return; }
   pendingPath = path;
+  document.getElementById('path-row').style.display = 'none';
   var name = path.split('/').pop() || 'Dungeon';
   var inp = document.getElementById('name-input');
   inp.value = name;
@@ -395,20 +399,35 @@ function countBugs(projectPath){
 
 // ── Add dungeon flow ──────────────────────────────────────────────────────────
 window.startAddDungeon = function(){
-  pickFolder();  // → Kotlin → OpenDocumentTree → window.onFolderPicked
+  var canPick = A && typeof A.pickFolder === 'function';
+  if(canPick){
+    try { A.pickFolder(); return; } catch(_){}
+  }
+  // Fallback: manual path input
+  pendingPath = null;
+  document.getElementById('path-row').style.display = 'block';
+  document.getElementById('path-input').value = '';
+  document.getElementById('picked-path-label').textContent = 'Enter the full project path:';
+  document.getElementById('name-input').value = '';
+  document.getElementById('name-dialog').classList.add('show');
+  setTimeout(function(){ document.getElementById('path-input').focus(); }, 100);
 };
 
 window.cancelAdd = function(){
   pendingPath = null;
+  document.getElementById('path-row').style.display = 'none';
   document.getElementById('name-dialog').classList.remove('show');
 };
 
 window.confirmAdd = function(){
   var name = document.getElementById('name-input').value.trim();
   if(!name){ showToast('Enter a name'); return; }
-  if(!pendingPath){ return; }
-  addDungeon(name, pendingPath);
+  // resolve path: from folder picker OR manual input
+  var path = pendingPath || document.getElementById('path-input').value.trim();
+  if(!path){ showToast('Enter a project path'); return; }
+  addDungeon(name, path);
   document.getElementById('name-dialog').classList.remove('show');
+  document.getElementById('path-row').style.display = 'none';
   pendingPath = null;
   renderHome();
 };
