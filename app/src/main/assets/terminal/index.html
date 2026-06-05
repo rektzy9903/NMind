@@ -3158,6 +3158,41 @@ reportTermSize();
       }
       if(typeof Android!=='undefined'&&Android.sendPty) Android.sendPty(d);
     });
+    // Mobile touch-drag scrollback. With the WebGL/Canvas renderer the .xterm-screen
+    // canvas sits OVER the native-scroll .xterm-viewport and swallows touch drags, so
+    // the viewport never scrolls (the translateZ/will-change layer promotion from the
+    // perf pass made the hit-test miss worse). This is why scrollback is dead INSIDE
+    // the interactive claude TUI — its conversation lives in the terminal's main-buffer
+    // scrollback, but the drag never reaches the scroller. Bind an explicit handler
+    // that converts vertical travel into term.scrollLines(): renderer- and z-order-
+    // independent. Tap-to-focus is preserved — we only treat it as a scroll once travel
+    // passes the slop threshold, and never preventDefault on a stationary tap.
+    (function bindTouchScroll(){
+      var sy=0, accum=0, dragging=false, rowH=14;
+      function rowHeight(){
+        try {
+          var rows=mount.querySelector('.xterm-rows')||mount.querySelector('.xterm-screen');
+          if(rows && term.rows>0 && rows.clientHeight>0) return rows.clientHeight/term.rows;
+        } catch(_){}
+        return (term.options.fontSize||11)*1.2;
+      }
+      mount.addEventListener('touchstart', function(e){
+        if(e.touches.length!==1) return;
+        sy=e.touches[0].clientY; accum=0; dragging=false; rowH=rowHeight();
+      }, {passive:true});
+      mount.addEventListener('touchmove', function(e){
+        if(e.touches.length!==1) return;
+        var y=e.touches[0].clientY; accum+=(y-sy); sy=y;
+        if(!dragging && Math.abs(accum)<8) return;   // slop: let a tap stay a tap
+        dragging=true;
+        var whole=(accum>0)?Math.floor(accum/rowH):Math.ceil(accum/rowH);
+        if(whole!==0){
+          try{ term.scrollLines(-whole); }catch(_){}   // finger down ⇒ reveal older ⇒ scroll up
+          accum-=whole*rowH;
+        }
+        e.preventDefault();   // we own the vertical gesture — no native scroll/zoom on top
+      }, {passive:false});
+    })();
   }
 
   // Debounced fit: entering Ubuntu mode + the soft keyboard fire doFit() several
