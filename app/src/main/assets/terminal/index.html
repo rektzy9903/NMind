@@ -3164,9 +3164,11 @@ reportTermSize();
   // times in a burst (rAF + 120ms + 450ms + fonts.ready + every resize event).
   // Each one used to send resizePty immediately → a SIGWINCH storm that made
   // Claude's TUI repaint its whole startup banner over and over (the stacked
-  // "Welcome back!" banners) and churned the slow DOM renderer (stutter). Now we
-  // coalesce to ONE resize after the layout settles, and skip it when cols/rows
-  // didn't actually change.
+  // "Welcome back!" banners). The debounce MUST be wider than the biggest gap
+  // between those triggers (120ms→450ms = 330ms) or the timer fires mid-settle and
+  // sends 2-3 distinct sizes (font not-yet-loaded vs loaded) → 2-3 banner reprints.
+  // 360ms swallows the whole mode-entry settle AND the keyboard-animation burst into
+  // ONE resize. Skip when cols/rows didn't actually change so no needless SIGWINCH.
   var fitT=null, lastCols=0, lastRows=0;
   function doFit(){
     if(!fit||!term) return;
@@ -3179,7 +3181,7 @@ reportTermSize();
         lastCols=term.cols; lastRows=term.rows;
         if(typeof Android!=='undefined'&&Android.resizePty) Android.resizePty(term.cols, term.rows);
       } catch(_){}
-    }, 140);
+    }, 360);
   }
 
   // ── Globals called from Kotlin (TerminalActivity) ──
