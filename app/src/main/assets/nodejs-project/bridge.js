@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b66-dungeon-multiprovider';
+const BRIDGE_BUILD = 'b67-dungeon-tool-path';
 
 const net   = require('net');
 const http  = require('http');
@@ -5989,7 +5989,7 @@ function openPrintSession() {
                 catch (e) { send({ t:'start', member:idx, error:e.message }); finishMember(idx, -1); return; }
                 procs.add(proc);
                 try { proc.stdin.end(); } catch(_){}
-                send({ t:'start', member:idx, model: guestEnv.ANTHROPIC_MODEL || '' });
+                send({ t:'start', member:idx, model: guestEnv.ANTHROPIC_MODEL || '', cwd: memberCwd });
                 let lineBuf = '';
                 proc.stdout.on('data', d => {
                     lineBuf += d.toString();
@@ -6001,7 +6001,11 @@ function openPrintSession() {
                             const ev = JSON.parse(line);
                             if (ev.type === 'assistant' && ev.message && Array.isArray(ev.message.content)) {
                                 ev.message.content.forEach(c => {
-                                    if (c.type === 'tool_use') send({ t:'tool', member:idx, name:c.name });
+                                    if (c.type === 'tool_use') {
+                                        const ti = c.input || {};
+                                        const tp = ti.file_path || ti.path || ti.notebook_path || ti.pattern || '';
+                                        send({ t:'tool', member:idx, name:c.name, path: (typeof tp === 'string' ? tp : '') });
+                                    }
                                     if (c.type === 'text' && c.text) scanBugs(c.text, idx);
                                 });
                             } else if (ev.type === 'result') {

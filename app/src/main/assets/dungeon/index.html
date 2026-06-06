@@ -176,6 +176,19 @@
   }
   .pbtn:active { transform:translateY(2px); box-shadow:0 0 0 var(--ink); }
   #map-title { pointer-events:none; font-family:'Georgia',serif; font-weight:bold; font-size:14px; color:var(--ink); text-shadow:1px 1px 0 rgba(255,240,200,.5); margin-left:auto; max-width:46%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  /* dispatch progress cards — a column under the project name (top-right) */
+  #dispatch-cards { position:fixed; right:10px; z-index:19; display:flex; flex-direction:column; gap:5px; align-items:flex-end; pointer-events:none;
+    top:calc(46px + env(safe-area-inset-top)); width:184px; }
+  .dcard { width:100%; box-sizing:border-box; background:linear-gradient(180deg,#efe0bb,#dcc79a); border:1.5px solid var(--ink); border-radius:4px;
+    padding:6px 8px; box-shadow:0 2px 0 var(--ink),0 3px 6px rgba(0,0,0,.3); font-family:'Georgia',serif;
+    opacity:0; transform:translateY(-6px); transition:opacity .25s, transform .25s; }
+  .dcard.show { opacity:1; transform:none; }
+  .dcard .dc-name { font-size:11px; font-weight:bold; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .dcard .dc-room { font-size:9.5px; color:#5a4632; margin-top:1px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .dcard .dc-room b { color:#7a3f1f; }
+  .dcard .dc-bar { margin-top:4px; height:5px; border-radius:3px; background:rgba(60,40,20,.22); overflow:hidden; }
+  .dcard .dc-fill { height:100%; width:0%; border-radius:3px; background:linear-gradient(90deg,#b9852f,#e0b25a); transition:width .35s ease; }
+  .dcard.done .dc-fill { background:linear-gradient(90deg,#3f8a4a,#6cc06a); }
 
   #agentsPanel {
     position:fixed; top:calc(54px + env(safe-area-inset-top)); left:10px;
@@ -378,6 +391,7 @@
     <button class="pbtn" id="scoutBtn">Scout</button>
     <div id="map-title">⚜ Dungeon</div>
   </div>
+  <div id="dispatch-cards"></div>
   <div id="agentsPanel"></div>
   <aside id="roomPanel">
     <header>
@@ -404,7 +418,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd16-council-walk-scan';
+var DUNGEON_BUILD = 'd17-live-progress-cards';
 
 // ── Bridge ────────────────────────────────────────────────
 var A = (typeof DungeonAndroid !== 'undefined') ? DungeonAndroid : null;
@@ -889,55 +903,54 @@ function spawnExpSprite(kind,color){
   }
   svg.appendChild(g); return g;
 }
-// DFS the room tree from rootId → an ordered tour (room then its children, recursive)
-function buildTour(rootId){
-  var order=[];
-  (function visit(id){ var r=getRoom(id); if(!r) return; order.push(r); rooms.filter(function(x){ return x.parent===id; }).forEach(function(c){ visit(c.id); }); })(rootId);
-  return order;
+// Map an absolute-or-cwd-relative file path → the deepest room whose folder contains it.
+function roomForPath(p, cwd){
+  if(!p) return null;
+  var base=(cwd||activePath||'').replace(/\/+$/,'');
+  var abs = p.charAt(0)==='/' ? p : (base + '/' + p.replace(/^\.\//,''));
+  abs = abs.replace(/\/+$/,'');
+  var best=null, bestLen=-1;
+  rooms.forEach(function(r){
+    var rp=(r.path||'').replace(/\/+$/,''); if(!rp) return;
+    if((abs===rp || abs.indexOf(rp+'/')===0) && rp.length>bestLen){ best=r; bestLen=rp.length; }
+  });
+  return best;
 }
-// Build a continuous corridor waypoint path over a tour, marking which waypoint = arriving at which room
-function buildTourPath(tour){
-  if(!tour.length) return { pts:[{x:0,y:0}], stopMap:{} };
-  var pts=[{x:tour[0].cx,y:tour[0].cy}], stopMap={};
-  for(var i=1;i<tour.length;i++){
-    var seg=buildPath(tour[i-1].id, tour[i].id);   // corridor waypoints prev→next
-    for(var j=1;j<seg.length;j++) pts.push(seg[j]); // skip dup start
-    stopMap[pts.length-1]=tour[i];                  // last waypoint = arrival at this room
-  }
-  stopMap[0]=tour[0];
-  return { pts:pts, stopMap:stopMap };
-}
-function makeScout(kind,color,tour){
-  var tp=buildTourPath(tour);
+// One sprite per council/scout MEMBER (index-aligned to the bridge). It starts at the
+// Throne and is TARGET-DRIVEN: live tool/bug events say which file the model is reading,
+// we map that file → its room and walk the sprite there along corridors, scanning on
+// arrival. No pre-baked tour, no loop, no fly-across.
+function makeMember(kind,color){
+  var th=getRoom('throne')||{cx:0,cy:0};
   var g=spawnExpSprite(kind,color);
-  return { g:g, pts:tp.pts, stopMap:tp.stopMap, idx:1, x:tp.pts[0].x, y:tp.pts[0].y, bob:Math.random()*6.28, dwell:0, blip:0, hereRoom:null, parked:false, rooms:tour };
+  return { g:g, x:th.cx, y:th.cy, atId:'throne', path:[], pidx:0, targetId:null,
+           bob:Math.random()*6.28, blip:0, hereRoom:null, parked:false, rooms:[], color:color };
 }
 function startExpedition(sid,kind,rootId,members){
-  var throne=getRoom('throne'); rootId=getRoom(rootId)?rootId:'throne';
+  var n = kind==='council' ? Math.max(2,Math.min(4,members||2)) : 1;
   var sprites=[];
-  if(kind==='council'){
-    var n=Math.max(2,Math.min(4,members||2));
-    // partition the top-level nodes under rootId among members; each tours its slice
-    var top=rooms.filter(function(r){ return r.parent===rootId; });
-    if(rootId!=='throne') top=[getRoom(rootId)].concat(top);   // room-scope: include the room itself
-    var buckets=[]; for(var m=0;m<n;m++) buckets.push([]);
-    top.forEach(function(node,i){ buildTour(node.id).forEach(function(r){ buckets[i%n].push(r); }); });
-    for(var m2=0;m2<n;m2++){
-      var tour=[throne].concat(buckets[m2].length?buckets[m2]:[getRoom(rootId)].filter(Boolean));
-      sprites.push(makeScout('council', EXP_PAL[m2%EXP_PAL.length], tour));
-    }
-  } else {
-    var t = rootId==='throne' ? buildTour('throne') : [throne].concat(buildTour(rootId));
-    sprites.push(makeScout('scout', '#4a8a3a', t.filter(Boolean)));
-  }
-  expeditions[sid]={ kind:kind, sprites:sprites, active:true, fade:0, label:'' };
+  for(var i=0;i<n;i++) sprites.push(makeMember(kind, kind==='council'?EXP_PAL[i%EXP_PAL.length]:'#4a8a3a'));
+  expeditions[sid]={ kind:kind, sprites:sprites, active:true, fade:0, label:'', cwds:{} };
   if(!expRAF){ expLast=performance.now(); expRAF=requestAnimationFrame(expTick); }
 }
+function expSetCwd(sid,member,cwd){ var e=expeditions[sid]; if(e && cwd) e.cwds[member]=cwd; }
+// The member is now reading <p> → walk that sprite to its room (corridor-followed).
+function expRetarget(sid,member,p){
+  var exp=expeditions[sid]; if(!exp || !exp.active) return;
+  var s=exp.sprites[member]; if(!s || s.parked) return;
+  var room=roomForPath(p, exp.cwds[member]); if(!room) return;
+  if(s.targetId===room.id) return;                          // already heading there
+  if(s.atId===room.id && !s.path.length){ s.targetId=room.id; s.hereRoom=room; return; }
+  var wp=buildPath(s.atId, room.id) || [];
+  s.path=[{x:s.x,y:s.y}].concat(wp); s.pidx=1; s.targetId=room.id; // prepend current pos → ease back onto corridor
+  exp.label=room.name;
+  updDcard(sid+':'+member, { room:room.name, bump:true });
+}
+function expPark(sid,member){ var exp=expeditions[sid]; if(!exp) return; var s=exp.sprites[member]; if(s) s.parked=true; }
 function endExpedition(sid){
   var exp=expeditions[sid]; if(!exp || !exp.active) return;
   exp.active=false;
   var col=exp.kind==='council'?'#c89b3c':'#4a8a3a';
-  // burst over every room that was visited
   var seen={};
   exp.sprites.forEach(function(s){ s.rooms.forEach(function(r){ if(r && !seen[r.id]){ seen[r.id]=1; expBurst(r.cx,r.cy,col); } }); });
 }
@@ -962,32 +975,25 @@ function expTick(now){
     var exp=expeditions[sid];
     if(exp.active){
       exp.sprites.forEach(function(s){
-        // Auditing a room (or parked at the last one) → stay put, pulse like radar.
-        if(s.parked || s.dwell>0){
-          if(!s.parked) s.dwell-=dt;
-          s.blip-=dt;
-          if(s.blip<=0 && s.hereRoom){ scanRing(s.hereRoom,exp.kind); s.blip=0.7; }
-        } else {
-          // Walking the corridor to the next room — follow waypoints, never cut across.
-          var t=s.pts[s.idx];
-          if(t){
-            var dx=t.x-s.x, dy=t.y-s.y, d=Math.hypot(dx,dy), step=EXP_SPEED*dt;
-            if(d<=step){
-              s.x=t.x; s.y=t.y;
-              var rm=s.stopMap[s.idx];
-              if(rm){   // arrived at a room → begin auditing it (stop + scan)
-                s.hereRoom=rm; exp.label=rm.name;
-                scanRing(rm,exp.kind); s.blip=0.7; s.dwell=2.2+Math.random()*1.3;
-              }
-              s.idx++;
-              if(s.idx>=s.pts.length) s.parked=true;   // tour done → park & keep scanning (no loop, no fly-back)
-            } else { s.x+=dx/d*step; s.y+=dy/d*step; }
-          } else { s.parked=true; }
+        if(s.path.length && s.pidx < s.path.length){
+          // walking the corridor toward the room the model is auditing
+          var t=s.path[s.pidx];
+          var dx=t.x-s.x, dy=t.y-s.y, d=Math.hypot(dx,dy), step=EXP_SPEED*dt;
+          if(d<=step){
+            s.x=t.x; s.y=t.y; s.pidx++;
+            if(s.pidx>=s.path.length){                 // arrived at the target room
+              s.atId=s.targetId; s.hereRoom=getRoom(s.targetId);
+              if(s.hereRoom){ scanRing(s.hereRoom,exp.kind); s.blip=0.7;
+                if(s.rooms.indexOf(s.hereRoom)===-1) s.rooms.push(s.hereRoom); }
+              s.path=[]; s.pidx=0;
+            }
+          } else { s.x+=dx/d*step; s.y+=dy/d*step; }
+        } else if(s.hereRoom){                          // sitting in a room → pulse like radar
+          s.blip-=dt; if(s.blip<=0){ scanRing(s.hereRoom,exp.kind); s.blip=0.85; }
         }
         var by=Math.sin(now/170+s.bob)*0.5;
         s.g.setAttribute('transform','translate('+s.x.toFixed(2)+','+(s.y+by).toFixed(2)+')');
       });
-      // live "auditing <room>" label in the title bar
       if(exp.label && exp.label!==exp._shown){ exp._shown=exp.label; setScouting((exp.kind==='council'?'⚖':'🧭')+' auditing '+exp.label); }
     } else {
       exp.fade+=dt*1.2;
@@ -996,6 +1002,37 @@ function expTick(now){
     }
   }
   expRAF = Object.keys(expeditions).length ? requestAnimationFrame(expTick) : null;
+}
+
+// ── Dispatch progress cards (top-right, under the project name) ──
+//    One card per dispatched member/hero: name · which room they're scouting · progress bar.
+var dcards={};
+function shortModel(m){ m=String(m||''); var i=m.indexOf('::'); if(i!==-1) m=m.slice(i+2); m=m.split('/').pop(); return m.length>20?m.slice(0,19)+'…':m; }
+function addDcard(id, name, sub){
+  if(dcards[id]) return dcards[id];
+  var box=$('dispatch-cards'); if(!box) return null;
+  var c=document.createElement('div'); c.className='dcard';
+  c.innerHTML='<div class="dc-name"></div><div class="dc-room"></div><div class="dc-bar"><div class="dc-fill"></div></div>';
+  box.appendChild(c);
+  var o={ el:c, nameEl:c.querySelector('.dc-name'), roomEl:c.querySelector('.dc-room'), fillEl:c.querySelector('.dc-fill'), prog:6 };
+  o.nameEl.textContent=name||'Scout';
+  o.roomEl.innerHTML=sub||'starting…';
+  o.fillEl.style.width=o.prog+'%';
+  dcards[id]=o;
+  requestAnimationFrame(function(){ c.classList.add('show'); });
+  return o;
+}
+function updDcard(id, opt){
+  var o=dcards[id]; if(!o) return;
+  if(opt.room!=null) o.roomEl.innerHTML='scouting <b>'+esc(opt.room)+'</b>';
+  if(opt.bump) o.prog=Math.min(92, o.prog + 6 + Math.random()*8);
+  if(opt.prog!=null) o.prog=opt.prog;
+  o.fillEl.style.width=o.prog+'%';
+}
+function doneDcard(id){
+  var o=dcards[id]; if(!o) return;
+  o.prog=100; o.fillEl.style.width='100%'; o.el.classList.add('done'); o.roomEl.innerHTML='done ✓';
+  setTimeout(function(){ o.el.classList.remove('show'); setTimeout(function(){ try{o.el.remove();}catch(_){} delete dcards[id]; },300); }, 1500);
 }
 
 // ── Agents roster panel ──
@@ -1147,6 +1184,7 @@ $('mapBackBtn').addEventListener('click', function(){ showScreen('home-screen');
 
 // ── Scout sheet (Solo / War Council) — model picking mirrors Discussion ──
 var scoutRoom=null, scoutModels=[], scoutModelSel=[];   // sel = selected TAGGED ids "<prov>::<model>"
+var scoutAutoPick=null;                                  // the id auto-selected as the Solo default (so Council can drop it)
 var scoutProviders={};                                   // providerId → {name, ids:[], loading}
 var scoutSearch='';                                      // model picker filter text
 var assignSel={};                                        // divide mode: tagged id → assigned roomId
@@ -1197,7 +1235,9 @@ window.onDungeonModels=function(providerId, providerName, ids, loading){
     (p.ids||[]).forEach(function(mid){ out.push({ id:pid+'::'+mid, model:mid, provider:pid, providerName:p.name }); });
   });
   scoutModels=out;
-  if(!scoutModelSel.length && scoutModels.length) scoutModelSel=[scoutModels[0].id];   // sensible default for Solo
+  // Auto-pick a default ONLY for Solo. In Council we must not pre-fill a seat (it made
+  // the active provider, e.g. deepseek, look "stuck" and ate one of the 4 choices).
+  if(!scoutModelSel.length && scoutModels.length && segVal('scout-mode')!=='council'){ scoutModelSel=[scoutModels[0].id]; scoutAutoPick=scoutModels[0].id; }
   if($('scout-dialog').classList.contains('show')) renderModelChips();
 };
 function renderModelChips(){
@@ -1255,6 +1295,8 @@ document.querySelectorAll('#scout-mode .seg-btn').forEach(function(b){
     setSeg('scout-mode', b.dataset.v);
     // switching to solo: keep just the first selected model
     if(b.dataset.v==='solo' && scoutModelSel.length>1) scoutModelSel=[scoutModelSel[0]];
+    // switching to council: drop the Solo auto-default so all seats are freely choosable
+    if(b.dataset.v==='council' && scoutModelSel.length===1 && scoutModelSel[0]===scoutAutoPick){ scoutModelSel=[]; scoutAutoPick=null; }
     renderModelChips();
   });
 });
@@ -1493,14 +1535,42 @@ window.onDungeonEvent=function(sid, line){
     }
     return;
   }
-  if(ev.t==='start' && ev.error){ toast('member '+ev.member+' failed to start'); }
+  // Hero dispatch (single member, op:'dispatch') keeps its on-map walk (tick); we still
+  // surface a progress card and advance it from live activity.
+  var heroId = (job && job.agent) ? ('hero:'+sid) : null;
+  var memCard = (sid!=null && ev.member!=null) ? (sid+':'+ev.member) : null;
+
+  if(ev.t==='start'){
+    if(ev.error){ toast('member '+ev.member+' failed to start'); return; }
+    if(heroId){
+      var hr=getRoom((job.agent&&job.agent.destRoom)||(job.roomIds||[])[0]);
+      addDcard(heroId, '⚔ '+(job.agent.name||'Hero'), hr?('scouting <b>'+esc(hr.name)+'</b>'):'heading out…');
+    } else if(job && (job.scout||job.council)){
+      expSetCwd(sid, ev.member, ev.cwd);
+      addDcard(memCard, job.council ? shortModel(ev.model) : 'Scout', 'starting…');
+    }
+    return;
+  }
+  else if(ev.t==='tool'){
+    if(heroId){ updDcard(heroId, { bump:true }); }
+    else { if(ev.path) expRetarget(sid, ev.member, ev.path); updDcard(memCard, { bump:true }); }  // walk to the file's room + advance bar
+    return;
+  }
+  else if(ev.t==='result'){ updDcard(heroId||memCard, { bump:true }); return; }
+  else if(ev.t==='done'){
+    if(heroId) doneDcard(heroId);
+    else { expPark(sid, ev.member); doneDcard(memCard); }
+    return;
+  }
   else if(ev.t==='bug'){
+    if(!heroId && ev.file) expRetarget(sid, ev.member, ev.file);   // a found bug → the model is in that room
     // divide: bucket per assigned room. consensus council: buffer for tribunal. solo: agent wrote library.md → ignore.
     if(job && job.divide) collectDivideFinding(job, ev.member, ev.file, ev.sev, ev.title);
     else if(job && job.council) collectFinding(job, ev.member, ev.file, ev.sev, ev.title);
   }
   else if(ev.t==='all-done'){
     endExpedition(sid);
+    if(heroId) doneDcard(heroId);
     if(job && job.divide){
       finalizeDivide(job);   // write plain monsters per room, no voting
     } else if(job && job.council){
