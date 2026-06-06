@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b64-tribunal';
+const BRIDGE_BUILD = 'b65-divide';
 
 const net   = require('net');
 const http  = require('http');
@@ -5868,14 +5868,17 @@ function openPrintSession() {
                 return;
             }
             const cwd  = r.cwd || FILES_DIR;
-            const isCouncil = (op === 'council') || (r.mode === 'council');
+            // Divide mode: each member audits its OWN assigned room (per-member cwd+model).
+            const assignments = Array.isArray(r.assignments) ? r.assignments.filter(a => a && a.cwd) : [];
+            const isDivide = (op === 'council') && (r.mode === 'divide') && assignments.length > 0;
+            const isCouncil = (op === 'council') || (r.mode === 'council') || isDivide;
             // chosen models: council uses r.models[] (one per member); solo/dispatch uses r.model
             const chosen = Array.isArray(r.models) ? r.models.filter(Boolean) : [];
             let models = [];
             try { const cfg = JSON.parse(fs.readFileSync(path.join(FILES_DIR,'bridge_config.json'),'utf8')); models = (cfg.modelList||[]).slice(); } catch(_){}
             if (chosen.length) models = chosen.slice();
-            const members = isCouncil
-                ? (chosen.length ? Math.min(4, chosen.length) : Math.max(2, Math.min(4, parseInt(r.members,10) || 2)))
+            const members = isDivide ? Math.min(4, assignments.length)
+                : isCouncil ? (chosen.length ? Math.min(4, chosen.length) : Math.max(2, Math.min(4, parseInt(r.members,10) || 2)))
                 : 1;
             const benv = buildEnv();
 
@@ -5913,13 +5916,17 @@ function openPrintSession() {
                 return;
             }
 
+            const DIVIDE_AUDIT_TASK =
+                'Audit THIS folder (your assigned area) for REAL issues. Do NOT write or edit ANY file. ' +
+                'For each genuine bug print exactly one line: `🪲BUG <file:line> <critical|major|minor> <title>`.';
             const persona = (op === 'dispatch' && r.persona) ? r.persona
                           : isCouncil ? councilPersona()
                           : scoutPersona(cwd);
             const task = r.task || (op === 'dispatch' ? 'Do the assigned work in this folder.'
+                          : isDivide ? DIVIDE_AUDIT_TASK
                           : isCouncil ? COUNCIL_AUDIT_TASK
                           : DEFAULT_SCOUT_TASK);
-            log('[dungeon] op=' + op + ' members=' + members + ' cwd=' + cwd + '\n');
+            log('[dungeon] op=' + op + (isDivide ? ' (divide)' : '') + ' members=' + members + ' cwd=' + cwd + '\n');
 
             let doneCount = 0;
             function finishMember(idx, code) {
@@ -5931,9 +5938,11 @@ function openPrintSession() {
                 while ((m = re.exec(text))) send({ t:'bug', member:idx, file:m[1], sev:m[2].toLowerCase(), title:m[3].trim().slice(0,120) });
             }
             function runMember(idx) {
-                // member model: council → models[idx]; solo/dispatch → r.model; else default
+                // divide → per-member assigned room+model; council → models[idx]; solo/dispatch → r.model
+                const memberCwd = isDivide ? (assignments[idx].cwd || cwd) : cwd;
                 let memberModel = benv.ANTHROPIC_MODEL;
-                if (isCouncil && models.length) memberModel = models[idx % models.length];
+                if (isDivide) memberModel = assignments[idx].model || benv.ANTHROPIC_MODEL;
+                else if (isCouncil && models.length) memberModel = models[idx % models.length];
                 else if (r.model) memberModel = r.model;
                 const guestEnv = {
                     ANTHROPIC_API_KEY:   benv.ANTHROPIC_API_KEY,
@@ -5945,7 +5954,7 @@ function openPrintSession() {
                 const argv = [GUEST_CLAUDE, '--output-format', 'stream-json', '--print',
                     '--dangerously-skip-permissions', '--append-system-prompt', persona, '--verbose', task];
                 let proc;
-                try { proc = prootChild(argv, { extraEnv: guestEnv, workspace: cwd }); }
+                try { proc = prootChild(argv, { extraEnv: guestEnv, workspace: memberCwd }); }
                 catch (e) { send({ t:'start', member:idx, error:e.message }); finishMember(idx, -1); return; }
                 procs.add(proc);
                 try { proc.stdin.end(); } catch(_){}

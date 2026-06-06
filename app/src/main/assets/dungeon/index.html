@@ -126,6 +126,11 @@
   .model-chip { padding:7px 10px; border-radius:9px; background:var(--nsurf2); border:1px solid var(--nborder); color:var(--ntext2); font-size:11px; font-weight:700; font-family:'Courier New',monospace; cursor:pointer; }
   .model-chip.sel { background:#22E8834A; border-color:var(--naccent); color:var(--naccent); }
   #scout-models .mc-empty { font-size:11px; color:var(--ntext3); font-style:italic; }
+  #scout-assign { margin-top:10px; display:flex; flex-direction:column; gap:6px; }
+  .assign-row { display:flex; align-items:center; gap:8px; }
+  .assign-name { flex:0 0 42%; font-size:11px; font-weight:700; font-family:'Courier New',monospace; color:var(--naccent); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .assign-sel { flex:1; padding:7px 8px; border-radius:8px; background:var(--nsurf2); border:1px solid var(--nborder); color:var(--ntext); font-size:11px; font-family:'Courier New',monospace; }
+  #scout-assign .assign-hint { font-size:10px; color:var(--ntext3); font-style:italic; margin-bottom:2px; }
 
   /* ════════════════════════════════════════
      MAP SCREEN — parchment dungeon
@@ -307,8 +312,16 @@
       <button class="seg-btn active" data-v="solo">🧭 Solo Scout</button>
       <button class="seg-btn" data-v="council">⚖ War Council</button>
     </div>
+    <div id="cmode-row" style="display:none;">
+      <div class="dlg-label">Council style</div>
+      <div class="seg" id="scout-cmode">
+        <button class="seg-btn active" data-v="consensus">🤝 Consensus</button>
+        <button class="seg-btn" data-v="divide">🗺 Divide rooms</button>
+      </div>
+    </div>
     <div class="dlg-label" id="model-label">Model</div>
     <div id="scout-models"></div>
+    <div id="scout-assign" style="display:none;"></div>
     <div class="dlg-note" id="council-note" style="display:none;">Pick 2–4 models — each audits in parallel, then a tribunal votes on disputed bugs. Unanimous → 👑 boss · majority → monster · lone claim → 👻 phantom. Deep audit — slower than a solo scout.</div>
     <div class="dialog-btns" style="margin-top:14px;">
       <button id="scout-cancel">Cancel</button>
@@ -386,7 +399,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd12-tribunal';
+var DUNGEON_BUILD = 'd13-divide';
 
 // ── Bridge ────────────────────────────────────────────────
 var A = (typeof DungeonAndroid !== 'undefined') ? DungeonAndroid : null;
@@ -1098,8 +1111,40 @@ $('mapBackBtn').addEventListener('click', function(){ showScreen('home-screen');
 
 // ── Scout sheet (Solo / War Council) — model picking mirrors Discussion ──
 var scoutRoom=null, scoutModels=[], scoutModelSel=[];   // sel = selected model ids
+var assignSel={};                                        // divide mode: model → assigned roomId
 function setSeg(id,v){ document.querySelectorAll('#'+id+' .seg-btn').forEach(function(b){ b.classList.toggle('active', b.dataset.v===v); }); }
 function segVal(id){ var a=document.querySelector('#'+id+' .seg-btn.active'); return a?a.dataset.v:''; }
+
+// Show/hide council-style + assignment UI based on Mode + Council-style segs.
+function syncCouncilUi(){
+  var council = segVal('scout-mode')==='council';
+  var divide  = council && segVal('scout-cmode')==='divide';
+  $('cmode-row').style.display    = council ? 'block' : 'none';
+  $('scout-assign').style.display = divide ? 'flex' : 'none';
+  // scope is meaningless in divide mode — each member gets its own room
+  document.getElementById('scout-scope').style.display = divide ? 'none' : 'flex';
+  $('council-note').style.display = (council && !divide) ? 'block' : 'none';
+  if(divide) renderAssignRows();
+}
+// One row per selected model: a <select> of project rooms it should audit (default round-robin).
+function renderAssignRows(){
+  var box=$('scout-assign'); box.innerHTML='';
+  var hint=document.createElement('div'); hint.className='assign-hint';
+  hint.textContent='Each member audits ONE room (no voting — coverage run):'; box.appendChild(hint);
+  if(!scoutModelSel.length){ var e=document.createElement('div'); e.className='assign-hint'; e.textContent='Pick models above first.'; box.appendChild(e); return; }
+  var roomList=rooms.slice();
+  if(!roomList.length){ var e2=document.createElement('div'); e2.className='assign-hint'; e2.textContent='No rooms in this project.'; box.appendChild(e2); return; }
+  scoutModelSel.forEach(function(m,i){
+    var row=document.createElement('div'); row.className='assign-row';
+    var nm=document.createElement('div'); nm.className='assign-name'; nm.textContent=m.length>18?m.slice(0,17)+'…':m; nm.title=m;
+    var sel=document.createElement('select'); sel.className='assign-sel'; sel.dataset.model=m;
+    roomList.forEach(function(r){ var o=document.createElement('option'); o.value=r.id; o.textContent=r.name; sel.appendChild(o); });
+    sel.value = (assignSel[m]!=null && getRoom(assignSel[m])) ? assignSel[m] : roomList[i%roomList.length].id;
+    assignSel[m]=sel.value;
+    sel.addEventListener('change', function(){ assignSel[m]=sel.value; });
+    row.appendChild(nm); row.appendChild(sel); box.appendChild(row);
+  });
+}
 
 // Fetch the provider's model list once (via the dungeon socket, op:'models')
 function fetchScoutModels(){
@@ -1110,8 +1155,7 @@ function renderModelChips(){
   var box=$('scout-models'); box.innerHTML='';
   var mode=segVal('scout-mode'), council=mode==='council';
   $('model-label').textContent = council ? 'Council models (pick 2–4)' : 'Model';
-  $('council-note').style.display = council ? 'block' : 'none';
-  if(!scoutModels.length){ box.innerHTML='<span class="mc-empty">Using your configured model (list unavailable).</span>'; return; }
+  if(!scoutModels.length){ box.innerHTML='<span class="mc-empty">Using your configured model (list unavailable).</span>'; syncCouncilUi(); return; }
   scoutModels.forEach(function(m){
     var chip=document.createElement('div'); chip.className='model-chip'+(scoutModelSel.indexOf(m)!==-1?' sel':'');
     chip.textContent=m.length>26?m.slice(0,25)+'…':m;
@@ -1126,11 +1170,13 @@ function renderModelChips(){
     });
     box.appendChild(chip);
   });
+  syncCouncilUi();
 }
 function openScout(roomId){
   scoutRoom = roomId ? getRoom(roomId) : null;
   setSeg('scout-scope', scoutRoom?'room':'full');
   setSeg('scout-mode','solo');
+  setSeg('scout-cmode','consensus');
   var roomBtn=document.querySelector('#scout-scope .seg-btn[data-v="room"]');
   roomBtn.style.opacity = scoutRoom?'1':'0.35';
   $('scout-target').textContent = scoutRoom?('Audit room: '+scoutRoom.name):'Audit the whole dungeon';
@@ -1153,12 +1199,36 @@ document.querySelectorAll('#scout-mode .seg-btn').forEach(function(b){
     renderModelChips();
   });
 });
+document.querySelectorAll('#scout-cmode .seg-btn').forEach(function(b){
+  b.addEventListener('click', function(){ setSeg('scout-cmode', b.dataset.v); syncCouncilUi(); });
+});
 $('scout-cancel').addEventListener('click', function(){ $('scout-dialog').classList.remove('show'); });
 $('scout-begin').addEventListener('click', function(){
-  var scope=segVal('scout-scope');
-  if(scope==='room' && !scoutRoom){ toast('Tap a room first'); return; }
   var mode=segVal('scout-mode'), council=mode==='council';
   if(council && scoutModelSel.length<2){ toast('Pick at least 2 council models'); return; }
+
+  // ── War Council · Divide rooms — each member audits its own assigned room (no voting) ──
+  if(council && segVal('scout-cmode')==='divide'){
+    if(!rooms.length){ toast('No rooms to divide'); return; }
+    var assignments=scoutModelSel.map(function(m){
+      var rid=assignSel[m] || (rooms[0]&&rooms[0].id); var rm=getRoom(rid);
+      return rm ? { model:m, room:rid, cwd:rm.path } : null;
+    }).filter(Boolean);
+    if(assignments.length<scoutModelSel.length){ toast('Assign a room to every member'); return; }
+    var dFindings={}; var dIds={};
+    assignments.forEach(function(a){ dFindings[a.room]=dFindings[a.room]||[]; dIds[a.room]=1; });
+    var dsid=jDispatch(JSON.stringify({ op:'council', cwd:activePath, mode:'divide', assignments:assignments }));
+    dispatchJobs[dsid]={ roomIds:Object.keys(dIds), council:true, divide:true, scout:true,
+      cwd:activePath, members:assignments.length, assignments:assignments, divideFindings:dFindings };
+    startExpedition(dsid, 'council', 'throne', assignments.length);
+    $('scout-dialog').classList.remove('show');
+    setScouting('🗺 Divide audit ('+assignments.length+')…');
+    toast('🗺 '+assignments.length+' members dispatched to rooms');
+    return;
+  }
+
+  var scope=segVal('scout-scope');
+  if(scope==='room' && !scoutRoom){ toast('Tap a room first'); return; }
   var cwd = scope==='room' ? scoutRoom.path : activePath;
   var rootId = scope==='room' ? scoutRoom.id : 'throne';
   var ids = scope==='room' ? [scoutRoom.id] : rooms.map(function(r){ return r.id; });
@@ -1297,7 +1367,17 @@ function roomForFinding(roomIds, cwd, file){
   });
   return best;
 }
-// Rewrite each affected room's Open Bugs section with the voted findings (preserve the rest).
+// Rewrite a room's Open Bugs section (preserve Resolved + overview). linesArr may be empty (= clean).
+function replaceOpenBugs(roomPath, linesArr){
+  var p=roomPath+'/library.md', md=readFile(p);
+  var block='## 🐛 Open Bugs\n'+(linesArr.length?linesArr.join('\n')+'\n':'');
+  if(!md){ md='# library\n\n'+block; }
+  else if(/##\s+(?:🐛|.*Open Bugs)/i.test(md)){
+    md=md.replace(/##\s+(?:🐛.*|.*Open Bugs.*)\n([\s\S]*?)(?=\n##\s+|$)/i, block);
+  } else { md=md.replace(/\s*$/,'')+'\n\n'+block; }
+  writeFile(p, md);
+}
+// Tribunal (consensus): bucket each finding to its room, write voted lines.
 function writeVotedLibraries(trib){
   var fallback=getRoom((trib.roomIds||[])[0]) || getRoom('throne');
   var byRoom={};
@@ -1306,17 +1386,7 @@ function writeVotedLibraries(trib){
     if(!r) return;
     (byRoom[r.path]=byRoom[r.path]||[]).push(f);
   });
-  Object.keys(byRoom).forEach(function(path){
-    var lines=byRoom[path].map(votedBugLine).join('\n');
-    var p=path+'/library.md', md=readFile(p);
-    var block='## 🐛 Open Bugs\n'+lines+'\n';
-    if(!md){ md='# library\n\n'+block; }
-    else if(/##\s+🐛.*\n([\s\S]*?)(?=\n##\s+|$)/.test(md) || /##\s+.*Open Bugs.*\n([\s\S]*?)(?=\n##\s+|$)/i.test(md)){
-      // replace the existing Open Bugs section body
-      md=md.replace(/##\s+(?:🐛.*|.*Open Bugs.*)\n([\s\S]*?)(?=\n##\s+|$)/i, block);
-    } else { md=md.replace(/\s*$/,'')+'\n\n'+block; }
-    writeFile(p, md);
-  });
+  Object.keys(byRoom).forEach(function(path){ replaceOpenBugs(path, byRoom[path].map(votedBugLine)); });
 }
 function finalizeTribunal(trib){
   writeVotedLibraries(trib);
@@ -1325,6 +1395,27 @@ function finalizeTribunal(trib){
   rescanRooms(trib.roomIds);
   refreshTitle();
   toast('⚖ Tribunal complete · '+trib.list.length+' findings ('+bosses+' boss / '+ph+' phantom)');
+}
+
+// ── Divide mode: each member audits one room → plain monsters, no voting ──
+function plainBugLine(f){ return '- [ ] **'+f.title+'** · `'+(f.file||'')+'` · '+f.sev; }
+function collectDivideFinding(job, member, file, sev, title){
+  var a=(job.assignments||[])[member]; if(!a) return;
+  var bucket=job.divideFindings[a.room]=job.divideFindings[a.room]||[];
+  var inc={ file:file, sev:sev, title:title };
+  for(var i=0;i<bucket.length;i++){ if(sameFinding(bucket[i],inc)) return; }  // dedup within room
+  bucket.push(inc);
+}
+function finalizeDivide(job){
+  var total=0, roomsHit=0;
+  (job.roomIds||[]).forEach(function(rid){
+    var rm=getRoom(rid); if(!rm) return;
+    var found=job.divideFindings[rid]||[];
+    replaceOpenBugs(rm.path, found.map(plainBugLine));   // empty → marks the room audited-clean
+    total+=found.length; if(found.length) roomsHit++;
+  });
+  rescanRooms(job.roomIds); refreshTitle();
+  toast('🗺 Divide audit complete · '+total+' findings across '+roomsHit+' room(s)');
 }
 
 // ── Dispatch / Scout event stream from Kotlin ──
@@ -1351,12 +1442,15 @@ window.onDungeonEvent=function(sid, line){
   }
   if(ev.t==='start' && ev.error){ toast('member '+ev.member+' failed to start'); }
   else if(ev.t==='bug'){
-    // council: members write no files — buffer findings for the tribunal. solo: ignore (agent wrote library.md).
-    if(job && job.council) collectFinding(job, ev.member, ev.file, ev.sev, ev.title);
+    // divide: bucket per assigned room. consensus council: buffer for tribunal. solo: agent wrote library.md → ignore.
+    if(job && job.divide) collectDivideFinding(job, ev.member, ev.file, ev.sev, ev.title);
+    else if(job && job.council) collectFinding(job, ev.member, ev.file, ev.sev, ev.title);
   }
   else if(ev.t==='all-done'){
     endExpedition(sid);
-    if(job && job.council){
+    if(job && job.divide){
+      finalizeDivide(job);   // write plain monsters per room, no voting
+    } else if(job && job.council){
       toast('⚔ Council audit done · '+job.findings.length+' candidate findings');
       beginTribunal(job);   // Phase 2/3 — writes voted library.md + renders monsters
     } else {
