@@ -501,7 +501,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd29-council-shared-exp';
+var DUNGEON_BUILD = 'd30-march-then-scout';
 
 // ── Bridge ────────────────────────────────────────────────
 var A = (typeof DungeonAndroid !== 'undefined') ? DungeonAndroid : null;
@@ -1134,6 +1134,7 @@ function addDcard(id, name, sub){
 function fileTail(p){ p=String(p||''); if(!p) return ''; var parts=p.split('/').filter(Boolean); return parts.slice(-2).join('/'); }
 function updDcard(id, opt){
   var o=dcards[id]; if(!o) return;
+  if(opt.march!=null) o.roomEl.innerHTML='🐎 marching to <b>'+esc(opt.march)+'</b>';
   if(opt.room!=null) o.roomEl.innerHTML='scouting <b>'+esc(opt.room)+'</b>';
   if(opt.file!=null && o.fileEl) o.fileEl.textContent = opt.file ? ('📄 '+fileTail(opt.file)) : '';
   if(opt.bump) o.prog=Math.min(92, o.prog + 6 + Math.random()*8);
@@ -1537,7 +1538,7 @@ function deepNextRoom(){
   var room=deepState.list[deepState.i];
   var exp=expeditions[deepState.expSid];
   if(exp && exp.sprites[0]){ exp.sprites[0].want=room.id; spriteGoToRoom(exp.sprites[0], room, exp); }
-  updDcard(deepState.cardId, { room:room.name, prog:Math.round(deepState.i/deepState.total*100) });
+  updDcard(deepState.cardId, { march:room.name, prog:Math.round(deepState.i/deepState.total*100) });
   setScouting('🔱 Deep scout ('+(deepState.i+1)+'/'+deepState.total+') · '+room.name);
   var sid=jDispatch(JSON.stringify({ op:'scout', cwd:room.path, mode:'deep', model:deepState.model }));
   deepState.sid=sid;
@@ -1647,7 +1648,9 @@ function knightGoRoom(k, room){
   var kn=councilState.knights[k]; kn.roomId=room.id;
   var exp=expeditions[councilState.expSid];
   if(exp && exp.sprites[k]){ var s=exp.sprites[k]; s.parked=false; s.want=room.id; spriteGoToRoom(s, room, exp); }
-  updDcard(kn.cardId, { room:room.name, prog:roamProgress() });
+  // Card shows "marching to X" while the knight walks; the arrival handler (expTick)
+  // flips it to "scouting X" only once the sprite physically reaches the room.
+  updDcard(kn.cardId, { march:room.name, prog:roamProgress() });
   var sid=jDispatch(JSON.stringify({ op:'scout', cwd:room.path, mode:'deep', model:kn.model }));
   kn.sid=sid;
   dispatchJobs[sid]={ councilRoam:true, knight:k, roomId:room.id, findings:[] };
