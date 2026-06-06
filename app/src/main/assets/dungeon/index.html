@@ -441,7 +441,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd18-chronicle-log';
+var DUNGEON_BUILD = 'd19-fanout-warmup';
 
 // ── Bridge ────────────────────────────────────────────────
 var A = (typeof DungeonAndroid !== 'undefined') ? DungeonAndroid : null;
@@ -950,11 +950,28 @@ function makeMember(kind,color){
   return { g:g, x:th.cx, y:th.cy, atId:'throne', path:[], pidx:0, targetId:null,
            bob:Math.random()*6.28, blip:0, hereRoom:null, parked:false, rooms:[], color:color };
 }
+// Walk a sprite to <room> along corridors (prepends its current pos so it eases back on).
+function spriteGoToRoom(s, room, exp){
+  if(!s || !room || s.parked) return false;
+  if(s.targetId===room.id) return false;                    // already heading there
+  if(s.atId===room.id && !s.path.length){ s.targetId=room.id; s.hereRoom=room; return false; }
+  var wp=buildPath(s.atId, room.id) || [];
+  s.path=[{x:s.x,y:s.y}].concat(wp); s.pidx=1; s.targetId=room.id;
+  if(exp) exp.label=room.name;
+  return true;
+}
 function startExpedition(sid,kind,rootId,members){
   var n = kind==='council' ? Math.max(2,Math.min(4,members||2)) : 1;
   var sprites=[];
   for(var i=0;i<n;i++) sprites.push(makeMember(kind, kind==='council'?EXP_PAL[i%EXP_PAL.length]:'#4a8a3a'));
-  expeditions[sid]={ kind:kind, sprites:sprites, active:true, fade:0, label:'', cwds:{} };
+  var exp={ kind:kind, sprites:sprites, active:true, fade:0, label:'', cwds:{} };
+  expeditions[sid]=exp;
+  // Immediate fan-out so there's visible motion from t=0 (real tool events refine the
+  // target once claude warms up — cold start is ~30–40s of no events otherwise).
+  var rid = getRoom(rootId) ? rootId : 'throne';
+  var fan = rooms.filter(function(r){ return r.parent===rid; });
+  if(!fan.length){ var rr=getRoom(rid); if(rr && rid!=='throne') fan=[rr]; }
+  if(fan.length) sprites.forEach(function(s,i){ spriteGoToRoom(s, fan[i%fan.length], exp); });
   if(!expRAF){ expLast=performance.now(); expRAF=requestAnimationFrame(expTick); }
 }
 function expSetCwd(sid,member,cwd){ var e=expeditions[sid]; if(e && cwd) e.cwds[member]=cwd; }
@@ -963,12 +980,8 @@ function expRetarget(sid,member,p){
   var exp=expeditions[sid]; if(!exp || !exp.active) return;
   var s=exp.sprites[member]; if(!s || s.parked) return;
   var room=roomForPath(p, exp.cwds[member]); if(!room) return;
-  if(s.targetId===room.id) return;                          // already heading there
-  if(s.atId===room.id && !s.path.length){ s.targetId=room.id; s.hereRoom=room; return; }
-  var wp=buildPath(s.atId, room.id) || [];
-  s.path=[{x:s.x,y:s.y}].concat(wp); s.pidx=1; s.targetId=room.id; // prepend current pos → ease back onto corridor
-  exp.label=room.name;
-  updDcard(sid+':'+member, { room:room.name, bump:true });
+  if(spriteGoToRoom(s, room, exp)) updDcard(sid+':'+member, { room:room.name, bump:true });
+  else updDcard(sid+':'+member, { bump:true });
 }
 function expPark(sid,member){ var exp=expeditions[sid]; if(!exp) return; var s=exp.sprites[member]; if(s) s.parked=true; }
 function endExpedition(sid){
@@ -1058,6 +1071,11 @@ function doneDcard(id){
   o.prog=100; o.fillEl.style.width='100%'; o.el.classList.add('done'); o.roomEl.innerHTML='done ✓';
   setTimeout(function(){ o.el.classList.remove('show'); setTimeout(function(){ try{o.el.remove();}catch(_){} delete dcards[id]; },300); }, 1500);
 }
+// Warm-up creep: while a member is cold-starting (no tool events yet) inch the bar to
+// ~28% so it never looks frozen at "starting". Real tool bumps push well past this.
+setInterval(function(){
+  for(var id in dcards){ var o=dcards[id]; if(o && !o.el.classList.contains('done') && o.prog<28){ o.prog=Math.min(28, o.prog+1.4); o.fillEl.style.width=o.prog+'%'; } }
+}, 1000);
 
 // ── Agents roster panel ──
 var agentsPanel=$('agentsPanel');
@@ -1571,7 +1589,9 @@ window.onDungeonEvent=function(sid, line){
       addDcard(heroId, '⚔ '+(job.agent.name||'Hero'), hr?('scouting <b>'+esc(hr.name)+'</b>'):'heading out…');
     } else if(job && (job.scout||job.council)){
       expSetCwd(sid, ev.member, ev.cwd);
-      addDcard(memCard, job.council ? shortModel(ev.model) : 'Scout', 'starting…');
+      addDcard(memCard, job.council ? shortModel(ev.model) : 'Scout', 'warming up…');
+      var s0=(expeditions[sid]&&expeditions[sid].sprites[ev.member]);
+      if(s0 && s0.targetId){ updDcard(memCard, { room:(getRoom(s0.targetId)||{}).name }); }
     }
     return;
   }
