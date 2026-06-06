@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b70-deep-scout-task';
+const BRIDGE_BUILD = 'b71-readonly-scout-tools';
 
 const net   = require('net');
 const http  = require('http');
@@ -1283,6 +1283,15 @@ const PRUNED_TOOLS = new Set([
     'Skill', 'Monitor', 'PushNotification', 'RemoteTrigger', 'AskUserQuestion',
 ]);
 
+// Read-only dungeon scouts (Deep Scout / War Council / Divide) are MARKERS-ONLY —
+// they must never edit files (the dungeon writes the per-room library.md itself) and
+// weak models (gpt-oss-20b/120b) otherwise burn whole round-trips fumbling Grep's
+// required `pattern` + stray Edits (observed in !log). The read-only scout personas
+// embed this sentinel; the proxy strips write/grep tools when it sees it. Solo Scout
+// and Hero Dispatch do NOT carry it — they legitimately write.
+const READONLY_SCOUT_SENTINEL = '[[nexus:readonly-scout]]';
+const SCOUT_STRIP_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'Grep']);
+
 // ── Tool deferral (proxy-side "lazy load" for OAI providers) ──────────────────
 // Anthropic's real tool-search is a SERVER-side feature of api.anthropic.com
 // (defer_loading + tool_search_tool); OAI providers (Gemini/OpenRouter/…) have
@@ -1466,6 +1475,24 @@ function handleProxyRequest(anthReq, res) {
         const dropped = before - anthReq.tools.length;
         if (dropped) log('[proxy] pruned ' + dropped + ' tool(s)' +
             (userOff.length ? ' (' + userOff.length + ' user-disabled)' : '') + '\n');
+
+        // ── Read-only dungeon scout: strip write + grep tools ──────────────────
+        // Deep Scout / War Council / Divide are markers-only. Their persona (in the
+        // system prompt, via --append-system-prompt) carries READONLY_SCOUT_SENTINEL.
+        // Stripping Edit/Write enforces markers-only (the dungeon owns library.md);
+        // stripping Grep stops weak models wasting round-trips on its required
+        // `pattern` (Read/Glob/Bash cover discovery in a single folder). Hero Dispatch
+        // and Solo Scout don't carry the sentinel, so their write tools are untouched.
+        const sysText = Array.isArray(anthReq.system)
+            ? anthReq.system.map(b => (b && b.text) || '').join('\n')
+            : (typeof anthReq.system === 'string' ? anthReq.system : '');
+        if (routed && sysText.indexOf(READONLY_SCOUT_SENTINEL) !== -1) {
+            const b2 = anthReq.tools.length;
+            anthReq.tools = anthReq.tools.filter(t => !SCOUT_STRIP_TOOLS.has(t.name));
+            if (anthReq.tools.length !== b2)
+                log('[proxy] dungeon scout: read-only → stripped ' + (b2 - anthReq.tools.length) +
+                    ' write/grep tool(s) [' + Array.from(SCOUT_STRIP_TOOLS).join(',') + ']\n');
+        }
     }
 
     // ── Tool deferral (Phase 2 — reactive "lazy load" for OAI providers) ──────
@@ -5868,9 +5895,10 @@ function openPrintSession() {
             'Your room (working directory): ' + cwd,
             'GOAL: find REAL problems in THIS folder only — bugs, crashes, security risks, broken logic.',
             'Do NOT recurse into sub-folders (those are separate rooms, scouted on their own).',
-            'Do NOT invent issues. Use Read / Grep / Bash to inspect. Be concise.',
+            'Do NOT invent issues. Use Read / Glob / Bash to inspect. Be concise.',
             'Do NOT create or edit any file. Your only output is `🪲BUG <file:line> <sev> <title>` lines.',
-            'When done, stop.'
+            'When done, stop.',
+            READONLY_SCOUT_SENTINEL
         ].join('\n');
     }
     function councilPersona() {
@@ -5878,10 +5906,11 @@ function openPrintSession() {
             'You are one member of a War Council auditing a software project.',
             'GOAL: independently find REAL problems — bugs, crashes, security risks, broken logic.',
             'Be rigorous and skeptical; do NOT invent issues to look productive.',
-            'Use Read / Grep / Bash to inspect code. Cover as much of the project as you can.',
+            'Use Read / Glob / Bash to inspect code. Cover as much of the project as you can.',
             'IMPORTANT: do NOT create or edit any file (no library.md). Your only output is markers.',
             'For EACH real bug print exactly: `🪲BUG <file:line> <critical|major|minor> <title>`.',
-            'When done, stop.'
+            'When done, stop.',
+            READONLY_SCOUT_SENTINEL
         ].join('\n');
     }
     const JUDGE_PERSONA = [
