@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b69-member-death-cause';
+const BRIDGE_BUILD = 'b70-deep-scout-task';
 
 const net   = require('net');
 const http  = require('http');
@@ -5857,6 +5857,22 @@ function openPrintSession() {
     const COUNCIL_AUDIT_TASK =
         'Audit this WHOLE project for REAL issues. Do NOT write or edit ANY file. ' +
         'For each genuine bug print exactly one line: `🪲BUG <file:line> <critical|major|minor> <title>`.';
+    // Deep Scout: ONE room (folder) per spawn, markers only — the dungeon writes the
+    // per-room library.md + parent pointer. Ignore sub-folders (scouted separately).
+    const DEEP_SCOUT_TASK =
+        'Audit ONLY the files directly in THIS folder for REAL issues. Ignore sub-folders — they are scouted separately. ' +
+        'Do NOT write or edit ANY file. For each genuine bug print exactly one line: `🪲BUG <file:line> <critical|major|minor> <title>`.';
+    function deepScoutPersona(cwd) {
+        return [
+            'You are a Dungeon Scout auditing ONE folder (room) of a software project.',
+            'Your room (working directory): ' + cwd,
+            'GOAL: find REAL problems in THIS folder only — bugs, crashes, security risks, broken logic.',
+            'Do NOT recurse into sub-folders (those are separate rooms, scouted on their own).',
+            'Do NOT invent issues. Use Read / Grep / Bash to inspect. Be concise.',
+            'Do NOT create or edit any file. Your only output is `🪲BUG <file:line> <sev> <title>` lines.',
+            'When done, stop.'
+        ].join('\n');
+    }
     function councilPersona() {
         return [
             'You are one member of a War Council auditing a software project.',
@@ -5903,6 +5919,7 @@ function openPrintSession() {
             const assignments = Array.isArray(r.assignments) ? r.assignments.filter(a => a && a.cwd) : [];
             const isDivide = (op === 'council') && (r.mode === 'divide') && assignments.length > 0;
             const isCouncil = (op === 'council') || (r.mode === 'council') || isDivide;
+            const isDeep = (op === 'scout') && (r.mode === 'deep');   // one room per spawn, markers only
             // chosen models: council uses r.models[] (one per member); solo/dispatch uses r.model
             const chosen = Array.isArray(r.models) ? r.models.filter(Boolean) : [];
             let models = [];
@@ -5951,13 +5968,15 @@ function openPrintSession() {
                 'Audit THIS folder (your assigned area) for REAL issues. Do NOT write or edit ANY file. ' +
                 'For each genuine bug print exactly one line: `🪲BUG <file:line> <critical|major|minor> <title>`.';
             const persona = (op === 'dispatch' && r.persona) ? r.persona
+                          : isDeep ? deepScoutPersona(cwd)
                           : isCouncil ? councilPersona()
                           : scoutPersona(cwd);
             const task = r.task || (op === 'dispatch' ? 'Do the assigned work in this folder.'
+                          : isDeep ? DEEP_SCOUT_TASK
                           : isDivide ? DIVIDE_AUDIT_TASK
                           : isCouncil ? COUNCIL_AUDIT_TASK
                           : DEFAULT_SCOUT_TASK);
-            log('[dungeon] op=' + op + (isDivide ? ' (divide)' : '') + ' members=' + members + ' cwd=' + cwd + '\n');
+            log('[dungeon] op=' + op + (isDivide ? ' (divide)' : isDeep ? ' (deep)' : '') + ' members=' + members + ' cwd=' + cwd + '\n');
 
             let doneCount = 0;
             const memberDone = [];                 // once-only guard per member
