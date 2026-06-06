@@ -501,7 +501,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd31-sprite-motion-diag';
+var DUNGEON_BUILD = 'd32-persistent-motion-diag';
 
 // ── Bridge ────────────────────────────────────────────────
 var A = (typeof DungeonAndroid !== 'undefined') ? DungeonAndroid : null;
@@ -1033,19 +1033,27 @@ function startExpedition(sid,kind,rootId,members){
   if(!fan.length){ var rr=getRoom(rid); if(rr && rid!=='throne') fan=[rr]; }
   if(fan.length) sprites.forEach(function(s,i){ var r=fan[i%fan.length]; s.want=r.id; spriteGoToRoom(s, r, exp); });
   if(!expRAF){ expLast=performance.now(); expRAF=requestAnimationFrame(expTick); }
-  // ── one-shot diagnostic (d31) — remove once sprite motion is verified on-device ──
+  // ── persistent live diagnostic (d32) — remove once sprite motion is verified ──
   try{
     expTickCount=0;
     var th=getRoom('throne');
-    var sx0=(sprites[0]||{}).x|0, sy0=(sprites[0]||{}).y|0, p0=((sprites[0]||{}).path||[]).length;
-    setTimeout(function(){
-      var s0=sprites[0]||{};
-      toast('DBG n='+sprites.length+' thr='+(th?th.cx+','+th.cy:'MISS')+' fan='+fan.length+
-            ' p0='+p0+' start='+sx0+','+sy0+' now='+(s0.x|0)+','+(s0.y|0)+' tk='+expTickCount);
-    }, 1100);
-  }catch(e){ toast('DBG err '+e.message); }
+    dbgStatic='n='+sprites.length+' thr='+(th?th.cx+','+th.cy:'MISS')+' fan='+fan.length+
+              ' p0='+((sprites[0]||{}).path||[]).length;
+    dbgExp=exp;
+  }catch(e){ dbgStatic='err '+e.message; }
 }
-var expTickCount=0;
+var expTickCount=0, dbgStatic='', dbgExp=null, dbgEl=null;
+function dbgShow(){
+  if(!dbgEl){ dbgEl=document.createElement('div'); dbgEl.style.cssText=
+    'position:fixed;left:6px;bottom:6px;z-index:99999;background:rgba(0,0,0,.82);color:#3DD68C;'+
+    'font:11px monospace;padding:4px 7px;border-radius:5px;max-width:96vw;white-space:pre-wrap;';
+    document.body.appendChild(dbgEl); }
+  var s0=(dbgExp&&dbgExp.sprites&&dbgExp.sprites[0])||{};
+  dbgEl.textContent='DBG '+dbgStatic+' now='+(s0.x|0)+','+(s0.y|0)+' tk='+expTickCount+
+                    ' raf='+(expRAF?'on':'off')+' attached='+(s0.g&&s0.g.parentNode?'Y':'N');
+  requestAnimationFrame(dbgShow);
+}
+requestAnimationFrame(dbgShow);
 function expSetCwd(sid,member,cwd){ var e=expeditions[sid]; if(e && cwd) e.cwds[member]=cwd; }
 // The member is now reading <p> → record the DESIRED room. The sprite only switches to it
 // AFTER it has arrived at and finished auditing its current room (pacing in expTick), and
