@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b67-dungeon-tool-path';
+const BRIDGE_BUILD = 'b68-council-member-watchdog';
 
 const net   = require('net');
 const http  = require('http');
@@ -5960,9 +5960,28 @@ function openPrintSession() {
             log('[dungeon] op=' + op + (isDivide ? ' (divide)' : '') + ' members=' + members + ' cwd=' + cwd + '\n');
 
             let doneCount = 0;
+            const memberDone = [];                 // once-only guard per member
+            // Per-member watchdogs so ONE hung/stuck member can't block all-done (→ no
+            // tribunal/vote scene ever). STALL = max silence after warm-up; ABS = hard cap.
+            const MEMBER_STALL_MS = 120000;        // 2 min of no stdout → assume hung
+            const MEMBER_ABS_MS   = 360000;        // 6 min total → hard stop
+            const memberTimers = {};               // idx → { stall, abs, proc }
+            function clearMemberTimers(idx) {
+                const t = memberTimers[idx]; if (!t) return;
+                clearTimeout(t.stall); clearTimeout(t.abs); delete memberTimers[idx];
+            }
             function finishMember(idx, code) {
+                if (memberDone[idx]) return;        // guard: close + timeout can both fire
+                memberDone[idx] = true;
+                clearMemberTimers(idx);
                 send({ t:'done', member:idx, code:code });
                 if (++doneCount >= members) { send({ t:'all-done' }); try { socket.end(); } catch(_){} }
+            }
+            function killMember(idx, why) {
+                const t = memberTimers[idx];
+                log('[dungeon] m' + idx + ' ' + why + ' → force-finishing\n');
+                if (t && t.proc) { try { t.proc.kill('SIGTERM'); } catch(_){} }
+                finishMember(idx, -2);
             }
             function scanBugs(text, idx) {
                 const re = /🪲BUG\s+(\S+)\s+(critical|major|minor)\s+(.+)/gi; let m;
@@ -5990,8 +6009,14 @@ function openPrintSession() {
                 procs.add(proc);
                 try { proc.stdin.end(); } catch(_){}
                 send({ t:'start', member:idx, model: guestEnv.ANTHROPIC_MODEL || '', cwd: memberCwd });
+                // arm watchdogs: stall (reset on every stdout) + absolute cap
+                memberTimers[idx] = { proc: proc,
+                    stall: setTimeout(() => killMember(idx, 'stalled (no output ' + (MEMBER_STALL_MS/1000) + 's)'), MEMBER_STALL_MS),
+                    abs:   setTimeout(() => killMember(idx, 'exceeded ' + (MEMBER_ABS_MS/1000) + 's cap'), MEMBER_ABS_MS) };
                 let lineBuf = '';
                 proc.stdout.on('data', d => {
+                    const tm = memberTimers[idx];       // bump the stall timer — member is alive
+                    if (tm) { clearTimeout(tm.stall); tm.stall = setTimeout(() => killMember(idx, 'stalled (no output ' + (MEMBER_STALL_MS/1000) + 's)'), MEMBER_STALL_MS); }
                     lineBuf += d.toString();
                     let nl;
                     while ((nl = lineBuf.indexOf('\n')) !== -1) {
