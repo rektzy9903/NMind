@@ -501,7 +501,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd25-deep-scout';
+var DUNGEON_BUILD = 'd26-throne-index';
 
 // ── Bridge ────────────────────────────────────────────────
 var A = (typeof DungeonAndroid !== 'undefined') ? DungeonAndroid : null;
@@ -1512,7 +1512,7 @@ function roomScoutedClean(room){
   return parseBugs(room.path+'/library.md').length===0;
 }
 function startDeepScout(order, model){
-  deepState={ list:order, i:0, model:model, total:order.length, expSid:'deep_'+Date.now(), cardId:null, bugsTotal:0, roomsHit:0 };
+  deepState={ list:order, i:0, model:model, total:order.length, expSid:'deep_'+Date.now(), cardId:null, bugsTotal:0, roomsHit:0, results:[] };
   startExpedition(deepState.expSid, 'scout', 'throne', 1);   // one persistent sprite
   deepState.cardId=deepState.expSid+':0';
   addDcard(deepState.cardId, '🔱 Deep · '+shortModel(model), 'starting…');
@@ -1551,6 +1551,7 @@ function deepFinishRoom(sid){
     replaceOpenBugs(room.path, job.findings.map(plainBugLine));   // empty → marks room scouted-clean
     deepState.bugsTotal+=job.findings.length;
     if(job.findings.length) deepState.roomsHit++;
+    deepState.results.push({ name:room.name, bugs:job.findings.length, depth:(room.parent&&room.parent!=='throne')?'  ':'' });
     updateParentPointer(room, job.findings.length);
     rescanRooms([room.id]);
     logEvent('🔱 '+room.name+' scouted · '+job.findings.length+' finding(s)'+(job.findings.length?': '+job.findings.map(function(f){return '"'+f.title+'"';}).join(', '):' (clean)'), room);
@@ -1559,10 +1560,23 @@ function deepFinishRoom(sid){
   deepState.i++;
   deepNextRoom();
 }
+// The King's grand index — a rolled-up survey of the whole sweep, carved into the
+// throne-room library.md so there's one readable master report on the King's desk.
+function writeThroneIndex(st){
+  var throne=getRoom('throne'); if(!throne) return;
+  var p=throne.path+'/library.md', md=readFile(p)||'# library\n';
+  var lines=st.results.map(function(r){ return '- '+r.depth+r.name+' → '+(r.bugs?(r.bugs+' open bug'+(r.bugs===1?'':'s')+' 🐛'):'clean ✓'); });
+  var header='## 🏰 Castle Survey';
+  var block=header+'\n_swept '+new Date().toISOString().slice(0,10)+' · '+st.bugsTotal+' foe(s) in '+st.roomsHit+'/'+st.total+' room(s)_\n'+lines.join('\n')+'\n';
+  if(md.indexOf(header)===-1){ md=md.replace(/\s*$/,'')+'\n\n'+block; }
+  else { md=md.replace(new RegExp(header.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'[\\s\\S]*?(?=\\n##\\s+|$)'), block.replace(/\n$/,'')); }
+  writeFile(p, md);
+}
 function deepFinish(){
   var st=deepState; deepState=null; if(!st) return;
   endExpedition(st.expSid);
   doneDcard(st.cardId, 'deep scout ✓');
+  writeThroneIndex(st);                         // King's grand index on the throne desk
   rescanRooms(rooms.map(function(r){ return r.id; }));
   refreshTitle();
   logEvent('🔱 Deep scout complete · '+st.total+' room(s) swept, '+st.bugsTotal+' finding(s) in '+st.roomsHit+' room(s)');
