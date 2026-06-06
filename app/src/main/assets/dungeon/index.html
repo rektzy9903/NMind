@@ -404,7 +404,7 @@
     <input id="model-search" class="model-search" placeholder="Search models or provider…" autocomplete="off" />
     <div id="scout-models"></div>
     <div id="scout-assign" style="display:none;"></div>
-    <div class="dlg-note" id="council-note" style="display:none;">Pick 2–4 models — each audits in parallel, then a tribunal votes on disputed bugs. Unanimous → 👑 boss · majority → monster · lone claim → 👻 phantom. Deep audit — slower than a solo scout.</div>
+    <div class="dlg-note" id="council-note" style="display:none;">Pick 2–4 models — knights <b>roam room-by-room</b> with light packs (one room per spawn), every room swept by all, then the King’s Verdict votes disputed finds. Unanimous → 👑 Overlord · majority → 👹 Beast · lone claim → 👻 Wraith. Slower, but weak-model-safe + more thorough than one heavy pass.</div>
     <div class="dialog-btns" style="margin-top:14px;">
       <button id="scout-cancel">Cancel</button>
       <button id="scout-begin">Begin</button>
@@ -501,7 +501,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd26-throne-index';
+var DUNGEON_BUILD = 'd27-roaming-council';
 
 // ── Bridge ────────────────────────────────────────────────
 var A = (typeof DungeonAndroid !== 'undefined') ? DungeonAndroid : null;
@@ -1478,23 +1478,36 @@ $('scout-begin').addEventListener('click', function(){
     return;
   }
 
+  // ── ⚖ War Council · Consensus — ROAMING engine ──────────────────────────────
+  // Knights roam room-by-room with light packs (one small markers-only spawn per room,
+  // reusing the deep-scout primitive), starting at DIFFERENT rooms and spreading until
+  // every room has been swept by all N. Per-room who-found-what → one King's Verdict.
+  // (Replaces the old single heavy whole-project spawn per member.)
+  if(council){
+    var cscope=segVal('scout-scope');
+    if(cscope==='room' && !scoutRoom){ toast('Tap a room first'); return; }
+    var croot = cscope==='room' ? scoutRoom.id : 'throne';
+    var corder=[];
+    (function visit(id){ var r=getRoom(id); if(r && id!=='throne') corder.push(r); rooms.filter(function(x){ return x.parent===id; }).forEach(function(c){ visit(c.id); }); })(croot);
+    if(!corder.length){ toast('No rooms to scout'); return; }
+    startRoamingCouncil(corder, scoutModelSel.slice());
+    $('scout-dialog').classList.remove('show');
+    return;
+  }
+
+  // ── 🧭 Solo Scout — one agent audits + writes library.md ─────────────────────
   var scope=segVal('scout-scope');
   if(scope==='room' && !scoutRoom){ toast('Tap a room first'); return; }
   var cwd = scope==='room' ? scoutRoom.path : activePath;
   var rootId = scope==='room' ? scoutRoom.id : 'throne';
   var ids = scope==='room' ? [scoutRoom.id] : rooms.map(function(r){ return r.id; });
-  var payload = council
-    ? { op:'council', cwd:cwd, mode:'council', models:scoutModelSel.slice() }
-    : { op:'scout', cwd:cwd, mode:'solo', model:(scoutModelSel[0]||'') };
-  var members = council ? scoutModelSel.length : 1;
-  var sid=jDispatch(JSON.stringify(payload));
-  dispatchJobs[sid]={ roomIds:ids, council:council, scout:true,
-    cwd:cwd, rootId:rootId, members:members,
-    models:council?scoutModelSel.slice():[], findings:[] };
-  startExpedition(sid, council?'council':'scout', rootId, members);
+  var sid=jDispatch(JSON.stringify({ op:'scout', cwd:cwd, mode:'solo', model:(scoutModelSel[0]||'') }));
+  dispatchJobs[sid]={ roomIds:ids, council:false, scout:true,
+    cwd:cwd, rootId:rootId, members:1, models:[], findings:[] };
+  startExpedition(sid, 'scout', rootId, 1);
   $('scout-dialog').classList.remove('show');
-  setScouting(council?('⚖ Council scouting ('+members+')…'):'🧭 Scouting…');
-  toast(council?('⚖ War Council ('+members+') rides out'):'🧭 Scout rides out');
+  setScouting('🧭 Scouting…');
+  toast('🧭 Scout rides out');
 });
 $('scoutBtn').addEventListener('click', function(){ openScout(openRoomId); });
 
@@ -1581,6 +1594,102 @@ function deepFinish(){
   refreshTitle();
   logEvent('🔱 Deep scout complete · '+st.total+' room(s) swept, '+st.bugsTotal+' finding(s) in '+st.roomsHit+' room(s)');
   toast('🔱 Deep scout complete · '+st.bugsTotal+' bug(s) across '+st.roomsHit+'/'+st.total+' room(s)');
+}
+
+// ════════════════════════════════════════
+// ⚖ WAR COUNCIL — ROAMING CONSENSUS ENGINE  (the re-engine, d27)
+//   The OLD council had N knights each haul the WHOLE castle in one heavy spawn →
+//   weak models timed out / 429'd, coverage was shallow. The NEW council has N knights
+//   ROAM room-by-room with light packs: ONE room per small markers-only spawn (the same
+//   deep-scout primitive), starting at DIFFERENT rooms and spreading out until every room
+//   has been swept by all N. Per room we tally who-found-what (foundBy) → identical
+//   support/total → ONE King's Verdict (reused untouched).
+//   Light pack per spawn = weak-model friendly · every room × N sweeps = more thorough.
+//   The King (this orchestrator) holds the ledger; knights never memorise the whole castle.
+// ════════════════════════════════════════
+var councilState=null;
+function startRoamingCouncil(order, models){
+  var N=Math.max(2, Math.min(4, models.length));
+  councilState={ models:models.slice(0,N), N:N, rooms:order, visits:{}, byRoom:{},
+                 target:N, cwd:activePath, roomIds:order.map(function(r){ return r.id; }), knights:[] };
+  for(var k=0;k<N;k++){
+    var expSid='council_'+Date.now()+'_'+k;
+    startExpedition(expSid, 'council', 'throne', 1);                 // one knight-sprite per member
+    var sp=expeditions[expSid]; if(sp && sp.sprites[0]) sp.sprites[0].color=EXP_PAL[k%EXP_PAL.length];
+    var cardId=expSid+':0';
+    addDcard(cardId, '⚖ '+shortModel(councilState.models[k]), '🎒 Preparing equipment…');
+    councilState.knights.push({ i:k, model:councilState.models[k], expSid:expSid,
+                                cardId:cardId, roomId:null, sid:null, seen:{}, done:false });
+  }
+  setScouting('⚖ War Council roaming ('+N+')…');
+  logEvent('⚖ War Council rides out — '+N+' knights roam '+order.length+' room(s), room by room');
+  toast('⚖ War Council ('+N+') rides out — room by room');
+  // Stagger the starting rooms so the knights fan out instead of dogpiling room 1.
+  var step=Math.max(1, Math.floor(order.length/N));
+  for(var s=0;s<N;s++) knightGoRoom(s, order[(s*step)%order.length] || order[0]);
+}
+// Overall coverage = swept (room,knight) pairs / (rooms × N).
+function roamProgress(){
+  if(!councilState) return 0;
+  var done=0, total=councilState.rooms.length*councilState.N;
+  for(var id in councilState.visits) done+=councilState.visits[id];
+  return total ? Math.round(done/total*100) : 0;
+}
+// Send knight k to <room>: walk its sprite there + fire a one-room markers-only spawn.
+function knightGoRoom(k, room){
+  if(!councilState || !room) return;
+  var kn=councilState.knights[k]; kn.roomId=room.id;
+  var exp=expeditions[kn.expSid];
+  if(exp && exp.sprites[0]){ exp.sprites[0].want=room.id; spriteGoToRoom(exp.sprites[0], room, exp); }
+  updDcard(kn.cardId, { room:room.name, prog:roamProgress() });
+  var sid=jDispatch(JSON.stringify({ op:'scout', cwd:room.path, mode:'deep', model:kn.model }));
+  kn.sid=sid;
+  dispatchJobs[sid]={ councilRoam:true, knight:k, roomId:room.id, findings:[] };
+}
+// Knight k finished a room: fold its finds into that room's consensus tally, mark the
+// visit, then roam on. (Reuses collectFinding's fuzzy dedup + foundBy across knights.)
+function knightFinishRoom(k, job){
+  if(!councilState) return;
+  var kn=councilState.knights[k], room=getRoom(job.roomId);
+  if(room){
+    var bucket=councilState.byRoom[room.id]=councilState.byRoom[room.id]||[];
+    job.findings.forEach(function(f){ collectFinding({ findings:bucket }, k, f.file, f.sev, f.title); });
+    councilState.visits[room.id]=(councilState.visits[room.id]||0)+1;
+    kn.seen[room.id]=1;
+    logEvent('⚖ '+shortModel(kn.model)+' swept '+room.name+' · '+job.findings.length+' finding(s)'+(job.findings.length?': '+job.findings.map(function(f){return '"'+f.title+'"';}).join(', '):' (clean)'), room);
+  }
+  if(kn.sid && dispatchJobs[kn.sid]) delete dispatchJobs[kn.sid];
+  knightNextRoom(k);
+}
+// Pick the least-visited room this knight hasn't personally swept yet (spreads coverage).
+function knightNextRoom(k){
+  if(!councilState) return;
+  var kn=councilState.knights[k];
+  var cand=councilState.rooms.filter(function(r){ return !kn.seen[r.id] && (councilState.visits[r.id]||0) < councilState.target; });
+  if(!cand.length){ knightDone(k); return; }
+  cand.sort(function(a,b){ return (councilState.visits[a.id]||0)-(councilState.visits[b.id]||0); });
+  knightGoRoom(k, cand[0]);
+}
+function knightDone(k){
+  if(!councilState) return;
+  var kn=councilState.knights[k]; if(kn.done) return;
+  kn.done=true;
+  endExpedition(kn.expSid);
+  doneDcard(kn.cardId, 'swept '+Object.keys(kn.seen).length+' room(s)');
+  if(councilState.knights.every(function(x){ return x.done; })) consensusVerdict();
+}
+// All knights home → flatten the per-room ledger into one findings list and convene the
+// existing King's Verdict (openRoundtable + beginTribunal — both reused unchanged).
+function consensusVerdict(){
+  var st=councilState; councilState=null; if(!st) return;
+  var flat=[];
+  st.rooms.forEach(function(r){ (st.byRoom[r.id]||[]).forEach(function(f){ flat.push(f); }); });
+  var job={ cwd:st.cwd, roomIds:st.roomIds, members:st.N, models:st.models, findings:flat };
+  refreshTitle();
+  logEvent('⚖ Council roam complete · '+flat.length+' finding(s) across '+st.rooms.length+' room(s) — the round table convenes');
+  toast('⚔ Council audit done · '+flat.length+' candidate finding(s)');
+  openRoundtable(job);   // gather at the round table (must precede beginTribunal — it may finalize synchronously)
+  beginTribunal(job);    // support/total → 👑 Overlord / 👹 Beast / 👻 Wraith → King's Verdict (you rule the Wraiths)
 }
 
 function setScouting(label){ $('map-title').textContent = label ? ('⚜ '+activeName+' · '+label) : refreshTitle(); }
@@ -1839,6 +1948,18 @@ window.onDungeonEvent=function(sid, line){
     else if(ev.t==='all-done'){ deepFinishRoom(sid); return; }
     else if(ev.t==='error'){ deepFinishRoom(sid); return; }
     return;   // result / closed / start → ignore
+  }
+
+  // ── ⚖ Roaming War Council: one room per knight-spawn; drive THAT knight's sprite/card ──
+  if(job && job.councilRoam){
+    var ck=job.knight, ckn=councilState && councilState.knights[ck];
+    if(ev.t==='tool'){ if(ckn) updDcard(ckn.cardId, { file:ev.path, bump:true }); return; }   // sprite stays at the room; show live file + nudge bar
+    else if(ev.t==='bug'){ if(ev.file) job.findings.push({ file:ev.file, sev:ev.sev, title:ev.title }); return; }
+    else if(ev.t==='start'){ if(ckn) expSetCwd(ckn.expSid, 0, ev.cwd); return; }
+    else if(ev.t==='done'){ if(ev.ok===false && ckn){ var rmc=getRoom(job.roomId); logEvent('💀 '+shortModel(ckn.model)+' assassinated at '+(rmc?rmc.name:'a room')+' · '+(ev.reason||'unknown'), rmc); } return; }
+    else if(ev.t==='all-done'){ knightFinishRoom(ck, job); return; }
+    else if(ev.t==='error'){ knightFinishRoom(ck, job); return; }
+    return;   // result / closed → ignore (the room's spawn drives one knight only)
   }
 
   // Hero dispatch (single member, op:'dispatch') keeps its on-map walk (tick); we still
