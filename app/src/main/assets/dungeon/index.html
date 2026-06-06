@@ -494,7 +494,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd23-cool-terms-live-file';
+var DUNGEON_BUILD = 'd24-scope-aware-depth';
 
 // ── Bridge ────────────────────────────────────────────────
 var A = (typeof DungeonAndroid !== 'undefined') ? DungeonAndroid : null;
@@ -1740,15 +1740,20 @@ window.onDungeonEvent=function(sid, line){
   else if(ev.t==='result'){ updDcard(heroId||memCard, { bump:true }); return; }
   else if(ev.t==='done'){
     var assassinated = (ev.ok===false);   // timeout / 429 / crash → "Assassinated by unknown"
-    if(heroId){ if(assassinated) killDcard(heroId, ev.reason); else doneDcard(heroId); }
+    if(heroId){ if(assassinated) killDcard(heroId, ev.reason); else doneDcard(heroId, 'quest done'); }
     else {
       expPark(sid, ev.member);
       if(assassinated){ killDcard(memCard, ev.reason); }
       else {
-        // count the rooms this scout actually reached → a 1-room scout is a DEEP scout
+        // Scope-aware label. ROOM mode (or divide) = scoped to ONE room → 1 room is the
+        // whole job = a deep scout. FULL mode = supposed to roam → only 1 room = poor scout.
         var sp=(expeditions[sid]&&expeditions[sid].sprites[ev.member]);
         var depth=(sp&&sp.rooms)?sp.rooms.length:0;
-        doneDcard(memCard, depth<=1 ? '🔎 deep scout' : 'scouted '+depth+' rooms');
+        var roomScope = job && (job.divide || (job.rootId && job.rootId!=='throne'));
+        var label = roomScope ? '🔎 deep scout'
+                  : depth<=1 ? '⚠ only '+depth+' room scouted'
+                  : 'scouted '+depth+' rooms';
+        doneDcard(memCard, label);
       }
     }
     return;
