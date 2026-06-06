@@ -186,9 +186,16 @@
   .dcard .dc-name { font-size:11px; font-weight:bold; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .dcard .dc-room { font-size:9.5px; color:#5a4632; margin-top:1px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .dcard .dc-room b { color:#7a3f1f; }
+  .dcard .dc-file { font-size:8px; color:#8a7050; margin-top:1px; font-family:'Courier New',monospace; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; direction:rtl; text-align:left; }
   .dcard .dc-bar { margin-top:4px; height:5px; border-radius:3px; background:rgba(60,40,20,.22); overflow:hidden; }
   .dcard .dc-fill { height:100%; width:0%; border-radius:3px; background:linear-gradient(90deg,#b9852f,#e0b25a); transition:width .35s ease; }
   .dcard.done .dc-fill { background:linear-gradient(90deg,#3f8a4a,#6cc06a); }
+  /* assassinated (timeout / error) */
+  .dcard.dead { background:linear-gradient(180deg,#2a1414,#3a1c1c); border-color:#7a2a2a; }
+  .dcard.dead .dc-name { color:#f0c0c0; }
+  .dcard.dead .dc-room { color:#e88; font-weight:bold; }
+  .dcard.dead .dc-file { color:#c88; direction:ltr; }
+  .dcard.dead .dc-fill { width:100%; background:linear-gradient(90deg,#6a2020,#a83232); }
   /* chronicle / history log rows */
   .log-row { display:flex; gap:8px; padding:8px 4px; border-bottom:1px solid var(--nborder); font-family:'Courier New',monospace; }
   .log-row:last-child { border-bottom:none; }
@@ -369,7 +376,7 @@
 <div id="scout-dialog" class="dlg">
   <div class="dlg-box">
     <h3>⚔ Send a Scout</h3>
-    <div class="dlg-sub" id="scout-target">Audit the whole dungeon</div>
+    <div class="dlg-sub" id="scout-target">Scout the whole dungeon</div>
     <div class="seg" id="scout-scope">
       <button class="seg-btn active" data-v="full">Full Dungeon</button>
       <button class="seg-btn" data-v="room">This Room</button>
@@ -475,7 +482,7 @@
     </div>
     <div id="roomContent"></div>
     <div id="roomFooter">
-      <button class="mini-btn" id="dispatchBtn">Dispatch</button>
+      <button class="mini-btn" id="dispatchBtn">⚔ Quest</button>
       <button class="mini-btn" id="logBugBtn">📜 Log</button>
       <button class="mini-btn" id="rescanBtn">Re-scan</button>
     </div>
@@ -487,7 +494,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd22-you-are-the-judge';
+var DUNGEON_BUILD = 'd23-cool-terms-live-file';
 
 // ── Bridge ────────────────────────────────────────────────
 var A = (typeof DungeonAndroid !== 'undefined') ? DungeonAndroid : null;
@@ -873,8 +880,8 @@ function dispatchAgent(agent,roomId,bug){
   var sid=jDispatch(JSON.stringify({ op:'dispatch', cwd:room.path, persona:agent.body||'', task:task }));
   dispatchJobs[sid]={ roomIds:[room.id], council:false, agent:agent };
   renderAgentsPanel();
-  logEvent('⚔ '+agent.name+' dispatched '+(bug?('to hunt "'+bug.title+'"'):('to work in '+room.name)), room);
-  toast('⚔ '+agent.name+' → '+(bug?bug.title:room.name));
+  logEvent('⚔ '+agent.name+' sent on a quest '+(bug?('to slay "'+bug.title+'"'):('to '+room.name)), room);
+  toast('⚔ '+agent.name+' quests → '+(bug?bug.title:room.name));
 }
 
 // Hero picker — choose which idle hero fixes which bug
@@ -1088,7 +1095,7 @@ function expTick(now){
         var by=Math.sin(now/170+s.bob)*0.5;
         s.g.setAttribute('transform','translate('+s.x.toFixed(2)+','+(s.y+by).toFixed(2)+')');
       });
-      if(exp.label && exp.label!==exp._shown){ exp._shown=exp.label; setScouting((exp.kind==='council'?'⚖':'🧭')+' auditing '+exp.label); }
+      if(exp.label && exp.label!==exp._shown){ exp._shown=exp.label; setScouting((exp.kind==='council'?'⚖':'🧭')+' scouting '+exp.label); }
     } else {
       exp.fade+=dt*1.2;
       exp.sprites.forEach(function(s){ s.g.setAttribute('opacity',Math.max(0,1-exp.fade)); });
@@ -1106,9 +1113,9 @@ function addDcard(id, name, sub){
   if(dcards[id]) return dcards[id];
   var box=$('dispatch-cards'); if(!box) return null;
   var c=document.createElement('div'); c.className='dcard';
-  c.innerHTML='<div class="dc-name"></div><div class="dc-room"></div><div class="dc-bar"><div class="dc-fill"></div></div>';
+  c.innerHTML='<div class="dc-name"></div><div class="dc-room"></div><div class="dc-file"></div><div class="dc-bar"><div class="dc-fill"></div></div>';
   box.appendChild(c);
-  var o={ el:c, nameEl:c.querySelector('.dc-name'), roomEl:c.querySelector('.dc-room'), fillEl:c.querySelector('.dc-fill'), prog:6 };
+  var o={ el:c, nameEl:c.querySelector('.dc-name'), roomEl:c.querySelector('.dc-room'), fileEl:c.querySelector('.dc-file'), fillEl:c.querySelector('.dc-fill'), prog:6 };
   o.nameEl.textContent=name||'Scout';
   o.roomEl.innerHTML=sub||'starting…';
   o.fillEl.style.width=o.prog+'%';
@@ -1116,17 +1123,30 @@ function addDcard(id, name, sub){
   requestAnimationFrame(function(){ c.classList.add('show'); });
   return o;
 }
+// Show the file a scout is reading right now (basename + parent folder, real-time).
+function fileTail(p){ p=String(p||''); if(!p) return ''; var parts=p.split('/').filter(Boolean); return parts.slice(-2).join('/'); }
 function updDcard(id, opt){
   var o=dcards[id]; if(!o) return;
-  if(opt.room!=null) o.roomEl.innerHTML='auditing <b>'+esc(opt.room)+'</b>';
+  if(opt.room!=null) o.roomEl.innerHTML='scouting <b>'+esc(opt.room)+'</b>';
+  if(opt.file!=null && o.fileEl) o.fileEl.textContent = opt.file ? ('📄 '+fileTail(opt.file)) : '';
   if(opt.bump) o.prog=Math.min(92, o.prog + 6 + Math.random()*8);
   if(opt.prog!=null) o.prog=opt.prog;
   o.fillEl.style.width=o.prog+'%';
 }
-function doneDcard(id){
+function doneDcard(id, label){
   var o=dcards[id]; if(!o) return;
-  o.prog=100; o.fillEl.style.width='100%'; o.el.classList.add('done'); o.roomEl.innerHTML='done ✓';
-  setTimeout(function(){ o.el.classList.remove('show'); setTimeout(function(){ try{o.el.remove();}catch(_){} delete dcards[id]; },300); }, 1500);
+  o.prog=100; o.fillEl.style.width='100%'; o.el.classList.add('done');
+  o.roomEl.innerHTML=(label||'scouted')+' ✓'; if(o.fileEl) o.fileEl.textContent='';
+  setTimeout(function(){ o.el.classList.remove('show'); setTimeout(function(){ try{o.el.remove();}catch(_){} delete dcards[id]; },300); }, 1600);
+}
+// Scout died (timeout / 429 / error): show the death + cause below it, lingers longer.
+function killDcard(id, reason){
+  var o=dcards[id]; if(!o) return;
+  o.el.classList.remove('done'); o.el.classList.add('dead');
+  o.roomEl.innerHTML='💀 Assassinated by unknown';
+  if(o.fileEl) o.fileEl.textContent = reason ? ('☠ '+reason) : '☠ cause unknown';
+  o.fillEl.style.width='100%';
+  setTimeout(function(){ o.el.classList.remove('show'); setTimeout(function(){ try{o.el.remove();}catch(_){} delete dcards[id]; },300); }, 4200);
 }
 // Idle creep so the bar never looks frozen: fast to ~28% during cold-start ("preparing
 // equipment"), then a slow crawl toward ~80% during a long single-room audit. Real
@@ -1378,7 +1398,7 @@ function openScout(roomId){
   setSeg('scout-cmode','consensus');
   var roomBtn=document.querySelector('#scout-scope .seg-btn[data-v="room"]');
   roomBtn.style.opacity = scoutRoom?'1':'0.35';
-  $('scout-target').textContent = scoutRoom?('Audit room: '+scoutRoom.name):'Audit the whole dungeon';
+  $('scout-target').textContent = scoutRoom?('Scout room: '+scoutRoom.name):'Scout the whole dungeon';
   scoutSearch=''; var ms=$('model-search'); if(ms) ms.value='';
   fetchScoutModels();   // refresh live models each open (picks up newly-added provider keys)
   renderModelChips();
@@ -1388,7 +1408,7 @@ document.querySelectorAll('#scout-scope .seg-btn').forEach(function(b){
   b.addEventListener('click', function(){
     if(b.dataset.v==='room' && !scoutRoom){ toast('Tap a room first, then Scout'); return; }
     setSeg('scout-scope', b.dataset.v);
-    $('scout-target').textContent = b.dataset.v==='room'?('Audit room: '+scoutRoom.name):'Audit the whole dungeon';
+    $('scout-target').textContent = b.dataset.v==='room'?('Scout room: '+scoutRoom.name):'Scout the whole dungeon';
   });
 });
 document.querySelectorAll('#scout-mode .seg-btn').forEach(function(b){
@@ -1426,7 +1446,7 @@ $('scout-begin').addEventListener('click', function(){
     startExpedition(dsid, 'council', 'throne', assignments.length);
     $('scout-dialog').classList.remove('show');
     setScouting('🗺 Divide audit ('+assignments.length+')…');
-    toast('🗺 '+assignments.length+' members dispatched to rooms');
+    toast('🗺 '+assignments.length+' scouts sent to their rooms');
     return;
   }
 
@@ -1446,7 +1466,7 @@ $('scout-begin').addEventListener('click', function(){
   startExpedition(sid, council?'council':'scout', rootId, members);
   $('scout-dialog').classList.remove('show');
   setScouting(council?('⚖ Council scouting ('+members+')…'):'🧭 Scouting…');
-  toast(council?('⚖ War Council ('+members+') dispatched'):'🧭 Scout dispatched');
+  toast(council?('⚖ War Council ('+members+') rides out'):'🧭 Scout rides out');
 });
 $('scoutBtn').addEventListener('click', function(){ openScout(openRoomId); });
 
@@ -1528,6 +1548,9 @@ function tribType(f){
        : f.support>=Math.ceil(f.total/2) ? 'normal'
        : 'phantom';
 }
+// Display names for the confidence tiers (internal keys stay boss/normal/phantom).
+function tierName(t){ return t==='boss'?'Overlord':t==='phantom'?'Wraith':'Beast'; }
+function tierIcon(t){ return t==='boss'?'👑':t==='phantom'?'👻':'👹'; }
 function votedBugLine(f){
   return '- [ ] **'+f.title+'** · `'+(f.file||'')+'` · '+f.sev+
          ' · votes='+f.support+'/'+f.total+' · '+tribType(f);
@@ -1570,9 +1593,9 @@ function finalizeTribunal(trib){
   var ph=trib.list.filter(function(f){ return tribType(f)==='phantom'; }).length;
   rescanRooms(trib.roomIds);
   refreshTitle();
-  logEvent('⚖ War Council tribunal · '+trib.list.length+' finding(s): '+bosses+' 👑 boss, '+ph+' 👻 phantom', trib.roomIds&&trib.roomIds[0]);
-  trib.list.forEach(function(f){ var ty=tribType(f); var icon=ty==='boss'?'👑':ty==='phantom'?'👻':'🐛'; logEvent(icon+' '+ty+' — "'+f.title+'"'+(f.file?(' · '+f.file):'')+(f.support!=null?(' ('+f.support+'/'+f.total+' votes)'):''), roomForPath(f.file, activePath)); });
-  toast('⚖ Verdict sealed · '+trib.list.length+' bug(s) ('+bosses+' boss / '+ph+' phantom)');
+  logEvent('👑 The King’s Verdict · '+trib.list.length+' foe(s): '+bosses+' 👑 Overlord, '+ph+' 👻 Wraith', trib.roomIds&&trib.roomIds[0]);
+  trib.list.forEach(function(f){ var ty=tribType(f); logEvent(tierIcon(ty)+' '+tierName(ty)+' — "'+f.title+'"'+(f.file?(' · '+f.file):'')+(f.support!=null?(' ('+f.support+'/'+f.total+' votes)'):''), roomForPath(f.file, activePath)); });
+  toast('👑 Verdict sealed · '+trib.list.length+' foe(s) ('+bosses+' Overlord / '+ph+' Wraith)');
 }
 
 // ── War Council roundtable vote scene (Consensus only) ──
@@ -1585,7 +1608,7 @@ function rtSeatPos(i,n){ var ang=(-90 + i*360/n)*Math.PI/180; return { left:50+4
 function openRoundtable(job){
   var stage=$('rt-stage'); if(!stage || !job || !job.findings.length) return;
   var n=job.members || ((job.models&&job.models.length)||2);
-  stage.innerHTML='<div class="rt-title">⚖ The War Council Convenes</div>'
+  stage.innerHTML='<div class="rt-title">👑 The King’s Verdict</div>'
     +'<div class="rt-sub">'+job.findings.length+' finding(s) gathered · the round table shall vote</div>'
     +'<div class="rt-table"></div>'
     +'<div class="rt-center" id="rt-center"><div class="rt-delib">The council presents its findings…</div></div>'
@@ -1622,10 +1645,10 @@ function rtRunVotes(trib){
     if(!rtState || !rtState.open) return;
     if(ai>=auto.length){ clearSeats(); startPhantoms(); return; }
     var f=auto[ai]; f.ruling='keep'; glow(f);
-    var ty=tribType(f), icon=ty==='boss'?'👑':'🐛';
+    var ty=tribType(f);
     center.innerHTML='<div class="rt-vt">"'+rtShort(f.title)+'"</div>'
       +'<div class="rt-tally">'+f.support+' / '+f.total+' agree</div>'
-      +'<div class="rt-verdict rt-'+ty+'">'+icon+' '+ty.toUpperCase()+'</div>';
+      +'<div class="rt-verdict rt-'+ty+'">'+tierIcon(ty)+' '+tierName(ty).toUpperCase()+'</div>';
     var v=center.querySelector('.rt-verdict'); setTimeout(function(){ if(v) v.classList.add('in'); }, 300);
     ai++; setTimeout(stepAuto, 1500);
   }
@@ -1637,7 +1660,7 @@ function rtRunVotes(trib){
     if(!rtState || !rtState.open) return;
     if(pi>=phantoms.length){ prompt.innerHTML=''; rtFinish(); return; }
     var f=phantoms[pi]; glow(f);
-    center.innerHTML='<div class="rt-vt">👻 A contested claim</div><div class="rt-tally">only '+f.support+' of '+f.total+' scouts saw it</div>';
+    center.innerHTML='<div class="rt-vt">🗣 A whispered rumor</div><div class="rt-tally">only '+f.support+' of '+f.total+' scouts saw it</div>';
     prompt.innerHTML='<div class="rt-claim">"'+rtShort(f.title)+'"</div>'
       +'<div class="rt-claim-sub">'+esc(f.file||'')+' · your ruling, my liege?</div>'
       +'<div class="rt-judge-btns"><button class="rt-vanquish">⚔ Vanquish<br><small>it IS a bug</small></button>'
@@ -1647,7 +1670,7 @@ function rtRunVotes(trib){
   }
   function rule(f, kind){
     f.ruling=kind; pi++;
-    prompt.innerHTML='<div class="rt-claim rt-'+(kind==='keep'?'phantom':'normal')+'">'+(kind==='keep'?'⚔ Vanquished — a phantom rises as a bug':'🕊 Released — cleared of all charges')+'</div>';
+    prompt.innerHTML='<div class="rt-claim rt-'+(kind==='keep'?'phantom':'normal')+'">'+(kind==='keep'?'⚔ Vanquished — a Wraith rises':'🕊 Released — cleared of all charges')+'</div>';
     setTimeout(judgeNext, 1050);
   }
 
@@ -1657,7 +1680,7 @@ function rtRunVotes(trib){
     finalizeTribunal(trib);                                                   // write libraries + render monsters
     var bosses=trib.list.filter(function(f){ return tribType(f)==='boss'; }).length;
     var ph=trib.list.filter(function(f){ return tribType(f)==='phantom'; }).length;
-    center.innerHTML='<div class="rt-vt">⚜ The verdict is sealed</div><div class="rt-tally">'+trib.list.length+' bug(s) · '+bosses+' 👑 · '+ph+' 👻</div>';
+    center.innerHTML='<div class="rt-vt">⚜ The verdict is sealed</div><div class="rt-tally">'+trib.list.length+' foe(s) · '+bosses+' 👑 Overlord · '+ph+' 👻 Wraith</div>';
     $('rt-enter').classList.add('show');
   }
 
@@ -1710,14 +1733,24 @@ window.onDungeonEvent=function(sid, line){
     return;
   }
   else if(ev.t==='tool'){
-    if(heroId){ updDcard(heroId, { bump:true }); }
-    else { if(ev.path) expRetarget(sid, ev.member, ev.path); updDcard(memCard, { bump:true }); }  // walk to the file's room + advance bar
+    if(heroId){ updDcard(heroId, { bump:true, file:ev.path }); }
+    else { if(ev.path) expRetarget(sid, ev.member, ev.path); updDcard(memCard, { bump:true, file:ev.path }); }  // walk to the file's room + show live file + advance bar
     return;
   }
   else if(ev.t==='result'){ updDcard(heroId||memCard, { bump:true }); return; }
   else if(ev.t==='done'){
-    if(heroId) doneDcard(heroId);
-    else { expPark(sid, ev.member); doneDcard(memCard); }
+    var assassinated = (ev.ok===false);   // timeout / 429 / crash → "Assassinated by unknown"
+    if(heroId){ if(assassinated) killDcard(heroId, ev.reason); else doneDcard(heroId); }
+    else {
+      expPark(sid, ev.member);
+      if(assassinated){ killDcard(memCard, ev.reason); }
+      else {
+        // count the rooms this scout actually reached → a 1-room scout is a DEEP scout
+        var sp=(expeditions[sid]&&expeditions[sid].sprites[ev.member]);
+        var depth=(sp&&sp.rooms)?sp.rooms.length:0;
+        doneDcard(memCard, depth<=1 ? '🔎 deep scout' : 'scouted '+depth+' rooms');
+      }
+    }
     return;
   }
   else if(ev.t==='bug'){
@@ -1737,7 +1770,7 @@ window.onDungeonEvent=function(sid, line){
       beginTribunal(job);   // Phase 2/3 — writes voted library.md + renders monsters → rtRunVotes on finalize
     } else {
       refreshTitle(); toast('✅ Scout complete');
-      if(job){ rescanRooms(job.roomIds); logEvent('🧭 Solo Scout finished auditing '+((job.rootId&&job.rootId!=='throne'&&getRoom(job.rootId))?getRoom(job.rootId).name:'the dungeon'), (job.rootId&&job.rootId!=='throne')?job.rootId:null); }
+      if(job){ rescanRooms(job.roomIds); logEvent('🧭 Solo Scout finished scouting '+((job.rootId&&job.rootId!=='throne'&&getRoom(job.rootId))?getRoom(job.rootId).name:'the dungeon'), (job.rootId&&job.rootId!=='throne')?job.rootId:null); }
     }
   }
   else if(ev.t==='error'){ endExpedition(sid); refreshTitle(); toast('⚠ '+(ev.msg||'dispatch error')); }

@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b68-council-member-watchdog';
+const BRIDGE_BUILD = 'b69-member-death-cause';
 
 const net   = require('net');
 const http  = require('http');
@@ -5961,8 +5961,9 @@ function openPrintSession() {
 
             let doneCount = 0;
             const memberDone = [];                 // once-only guard per member
+            const memberErr = {};                  // idx → captured death cause (429 / error / etc.)
             // Per-member watchdogs so ONE hung/stuck member can't block all-done (→ no
-            // tribunal/vote scene ever). STALL = max silence after warm-up; ABS = hard cap.
+            // King's Verdict / vote scene ever). STALL = max silence after warm-up; ABS = hard cap.
             const MEMBER_STALL_MS = 120000;        // 2 min of no stdout → assume hung
             const MEMBER_ABS_MS   = 360000;        // 6 min total → hard stop
             const memberTimers = {};               // idx → { stall, abs, proc }
@@ -5970,18 +5971,29 @@ function openPrintSession() {
                 const t = memberTimers[idx]; if (!t) return;
                 clearTimeout(t.stall); clearTimeout(t.abs); delete memberTimers[idx];
             }
-            function finishMember(idx, code) {
+            // Pull a readable cause out of error text (stderr / result / API error lines).
+            function noteErr(idx, text) {
+                if (!text || memberErr[idx]) return;
+                const s = String(text);
+                let m = s.match(/\b(429|529|503|502|500|401|403)\b/);
+                if (m) { memberErr[idx] = m[1] + (/rate.?limit|overload|quota/i.test(s) ? ' — rate limited' : m[1]==='401'||m[1]==='403' ? ' — auth rejected' : ' error'); return; }
+                m = s.match(/(rate.?limit|overloaded|quota exceeded|too many requests|insufficient|unauthor\w*|forbidden|context length|api error[^\n]{0,40})/i);
+                if (m) { memberErr[idx] = m[0].replace(/\s+/g,' ').trim().slice(0,70); return; }
+            }
+            function finishMember(idx, code, reason) {
                 if (memberDone[idx]) return;        // guard: close + timeout can both fire
                 memberDone[idx] = true;
                 clearMemberTimers(idx);
-                send({ t:'done', member:idx, code:code });
+                const ok = (code === 0);
+                const why = ok ? '' : (reason || memberErr[idx] || (code === -2 ? 'no response — timed out' : 'fell silent (exit ' + code + ')'));
+                send({ t:'done', member:idx, code:code, ok:ok, reason:why });
                 if (++doneCount >= members) { send({ t:'all-done' }); try { socket.end(); } catch(_){} }
             }
             function killMember(idx, why) {
                 const t = memberTimers[idx];
                 log('[dungeon] m' + idx + ' ' + why + ' → force-finishing\n');
                 if (t && t.proc) { try { t.proc.kill('SIGTERM'); } catch(_){} }
-                finishMember(idx, -2);
+                finishMember(idx, -2);             // reason falls back to memberErr (e.g. 429) or "no response — timed out"
             }
             function scanBugs(text, idx) {
                 const re = /🪲BUG\s+(\S+)\s+(critical|major|minor)\s+(.+)/gi; let m;
@@ -6005,7 +6017,7 @@ function openPrintSession() {
                     '--dangerously-skip-permissions', '--append-system-prompt', persona, '--verbose', task];
                 let proc;
                 try { proc = prootChild(argv, { extraEnv: guestEnv, workspace: memberCwd }); }
-                catch (e) { send({ t:'start', member:idx, error:e.message }); finishMember(idx, -1); return; }
+                catch (e) { send({ t:'start', member:idx, error:e.message }); finishMember(idx, -1, 'failed to start: ' + (e.message||'').slice(0,50)); return; }
                 procs.add(proc);
                 try { proc.stdin.end(); } catch(_){}
                 send({ t:'start', member:idx, model: guestEnv.ANTHROPIC_MODEL || '', cwd: memberCwd });
@@ -6031,16 +6043,17 @@ function openPrintSession() {
                                         const tp = ti.file_path || ti.path || ti.notebook_path || ti.pattern || '';
                                         send({ t:'tool', member:idx, name:c.name, path: (typeof tp === 'string' ? tp : '') });
                                     }
-                                    if (c.type === 'text' && c.text) scanBugs(c.text, idx);
+                                    if (c.type === 'text' && c.text) { scanBugs(c.text, idx); if (/api error|rate.?limit|\b429\b|overloaded/i.test(c.text)) noteErr(idx, c.text); }
                                 });
                             } else if (ev.type === 'result') {
+                                if (ev.is_error || (ev.subtype && ev.subtype !== 'success')) noteErr(idx, (ev.subtype || 'error') + ' ' + (typeof ev.result === 'string' ? ev.result : ''));
                                 send({ t:'result', member:idx });
                             }
                         } catch(_) { scanBugs(line, idx); }
                     }
                 });
-                proc.stderr.on('data', d => log('[dungeon] m' + idx + ' ' + d.toString().slice(0,160) + '\n'));
-                proc.on('close', code => { procs.delete(proc); finishMember(idx, code); });
+                proc.stderr.on('data', d => { const s = d.toString(); log('[dungeon] m' + idx + ' ' + s.slice(0,160) + '\n'); noteErr(idx, s); });
+                proc.on('close', code => { procs.delete(proc); finishMember(idx, code, null); });
             }
             send({ t:'dispatch-start', op:op, members:members, cwd:cwd });
             for (let i = 0; i < members; i++) runMember(i);
