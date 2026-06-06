@@ -171,7 +171,7 @@
     box-shadow:0 2px 0 var(--ink), 0 3px 6px rgba(0,0,0,.3); cursor:pointer; transition:transform .1s;
   }
   .pbtn:active { transform:translateY(2px); box-shadow:0 0 0 var(--ink); }
-  #map-title { pointer-events:none; font-family:'Georgia',serif; font-weight:bold; font-size:14px; color:var(--ink); text-shadow:1px 1px 0 rgba(255,240,200,.5); margin-left:auto; }
+  #map-title { pointer-events:none; font-family:'Georgia',serif; font-weight:bold; font-size:14px; color:var(--ink); text-shadow:1px 1px 0 rgba(255,240,200,.5); margin-left:auto; max-width:46%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 
   #agentsPanel {
     position:fixed; top:calc(54px + env(safe-area-inset-top)); left:10px;
@@ -399,7 +399,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd13-divide';
+var DUNGEON_BUILD = 'd14-label-wrap';
 
 // ── Bridge ────────────────────────────────────────────────
 var A = (typeof DungeonAndroid !== 'undefined') ? DungeonAndroid : null;
@@ -608,6 +608,21 @@ function renderCorridors(){
     r._waypoints=pts;
   });
 }
+// Wrap a label to <=maxLines lines of <=maxChars each, breaking at separators
+// (space / _ - . /) when possible, else hard-breaking; '…' on overflow.
+function wrapLabel(name, maxChars, maxLines){
+  name=String(name); var lines=[];
+  while(name.length){
+    if(lines.length===maxLines-1 && name.length>maxChars){ lines.push(name.slice(0,maxChars-1)+'…'); break; }
+    if(name.length<=maxChars){ lines.push(name); break; }
+    var slice=name.slice(0,maxChars+1);
+    var bp=Math.max(slice.lastIndexOf(' '),slice.lastIndexOf('_'),slice.lastIndexOf('-'),slice.lastIndexOf('.'),slice.lastIndexOf('/'));
+    if(bp < Math.floor(maxChars*0.5)) bp=maxChars;   // separator too early → hard break
+    lines.push(name.slice(0,bp).replace(/[ _\-./]+$/,''));
+    name=name.slice(bp).replace(/^[ _\-./]+/,'');
+  }
+  return lines.length?lines:[''];
+}
 function renderRooms(){
   rooms.forEach(function(r){
     var g=el('g',{'class':'room','data-id':r.id});
@@ -617,9 +632,17 @@ function renderRooms(){
     g.appendChild(rect);
     g.appendChild(el('rect',{ x:r.cx-2.5, y:r.cy-r.h/2-1, width:5, height:2, fill:'#8b6f3f', stroke:'#3a2818','stroke-width':0.4 }));
     if(r.type==='throne'){ var crown=el('text',{x:r.cx, y:r.cy-r.h/2+7,'text-anchor':'middle','font-size':8,fill:'#8b6f3f'}); crown.textContent='♛'; g.appendChild(crown); }
-    var lbl=el('text',{ x:r.cx, y:r.cy+(r.type==='throne'?4:2), 'class':'room-label '+(r.type==='throne'?'throne-label':'') });
-    var nm=r.name.length>14?r.name.slice(0,13)+'…':r.name;
-    lbl.textContent=r._moreSubs?(nm+' (+'+r._moreSubs+')'):nm;
+    // multi-line label that stays inside the box. Throne shows "Throne Room" (project name lives top-right).
+    var F = r.type==='throne'?6 : r.w>=50?6 : 5.2;
+    var maxChars = Math.max(4, Math.floor((r.w-6)/(F*0.52)));
+    var nameStr = r.type==='throne' ? 'Throne Room'
+                : r.name + (r._moreSubs?(' (+'+r._moreSubs+')'):'');
+    var lines = wrapLabel(nameStr, maxChars, 2);
+    var LH = F*1.12, startY = r.cy - (lines.length-1)*LH/2;
+    var lbl=el('text',{ 'class':'room-label'+(r.type==='throne'?' throne-label':''),
+      'text-anchor':'middle', 'dominant-baseline':'central' });
+    lbl.style.fontSize = F+'px';   // inline beats the .room-label stylesheet rule
+    lines.forEach(function(ln,i){ var ts=el('tspan',{ x:r.cx, y:(startY+i*LH).toFixed(2) }); ts.textContent=ln; lbl.appendChild(ts); });
     g.appendChild(lbl);
     r._gEl=g; svg.appendChild(g);
   });
@@ -671,8 +694,7 @@ function renderAll(){
   renderCorridors(); renderRooms(); renderMonsters(); renderAgents();
   updateRoomVisuals();
   $('agentsBtn').textContent='⚔ '+agents.length;
-  var total=rooms.reduce(function(s,r){ return s+r.bugs.length; },0);
-  $('map-title').textContent=total>0?('⚜ '+activeName+' · 🐛'+total):('⚜ '+activeName);
+  $('map-title').textContent='⚜ '+activeName;   // top-right = project name only
 }
 
 function enterDungeon(name,path){
@@ -1248,7 +1270,7 @@ $('scout-begin').addEventListener('click', function(){
 $('scoutBtn').addEventListener('click', function(){ openScout(openRoomId); });
 
 function setScouting(label){ $('map-title').textContent = label ? ('⚜ '+activeName+' · '+label) : refreshTitle(); }
-function refreshTitle(){ var total=rooms.reduce(function(s,r){ return s+r.bugs.length; },0); var t=total>0?('⚜ '+activeName+' · 🐛'+total):('⚜ '+activeName); $('map-title').textContent=t; return t; }
+function refreshTitle(){ var t='⚜ '+activeName; $('map-title').textContent=t; return t; }   // top-right = project name only
 function rescanRooms(ids){
   (ids||[]).forEach(function(id){ var r=getRoom(id); if(r){ r.bugs=mkBugs(parseBugs(r.path+'/library.md')); } });
   renderMonsters(); updateRoomVisuals(); refreshTitle();
