@@ -226,6 +226,15 @@
   .rt-seat.vote { transform:translate(-50%,-50%) scale(1.08); }
   .rt-sword { position:absolute; top:-12px; left:50%; transform:translateX(-50%); font-size:13px; opacity:0; transition:opacity .25s; }
   .rt-seat.vote .rt-sword { opacity:1; }
+  .rt-prompt { position:absolute; bottom:54px; left:0; right:0; text-align:center; font-family:'Georgia',serif; padding:0 10px; }
+  .rt-prompt .rt-claim { color:#f0d9a8; font-size:12px; font-weight:bold; line-height:1.35; margin-bottom:3px; text-shadow:0 1px 4px #000; }
+  .rt-prompt .rt-claim-sub { color:#caa873; font-size:10px; margin-bottom:10px; }
+  .rt-prompt .rt-judge-btns { display:flex; gap:10px; justify-content:center; }
+  .rt-prompt .rt-judge-btns button { flex:1; max-width:150px; border:2px solid #241708; border-radius:6px; padding:8px 6px; cursor:pointer;
+    font-family:'Georgia',serif; font-weight:bold; font-size:12px; box-shadow:0 3px 0 #241708; line-height:1.2; }
+  .rt-prompt .rt-judge-btns small { font-weight:normal; font-size:8.5px; opacity:.8; }
+  .rt-prompt .rt-vanquish { background:linear-gradient(180deg,#e0905a,#b9602f); color:#2a1408; }
+  .rt-prompt .rt-release { background:linear-gradient(180deg,#cdd2e0,#9aa0c0); color:#1c2030; }
   #rt-enter { position:absolute; bottom:0; left:50%; transform:translateX(-50%); background:linear-gradient(180deg,#e8d5a8,#c9a96e);
     border:2px solid #241708; color:#2a1c0e; font-family:'Georgia',serif; font-weight:bold; font-size:13px; padding:9px 20px;
     border-radius:5px; box-shadow:0 3px 0 #241708; cursor:pointer; opacity:0; pointer-events:none; transition:opacity .3s; }
@@ -478,7 +487,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd21-roundtable-vote';
+var DUNGEON_BUILD = 'd22-you-are-the-judge';
 
 // ── Bridge ────────────────────────────────────────────────
 var A = (typeof DungeonAndroid !== 'undefined') ? DungeonAndroid : null;
@@ -1499,46 +1508,19 @@ function collectFinding(job, member, file, sev, title){
 }
 function SEV_RANK(s){ return s==='critical'?3:s==='major'?2:1; }
 
-// Council members done → consolidate, then either run the tribunal or finalize.
+// Council members done → consolidate findings, then YOU judge at the round table.
+// No judge models are spawned: unanimous/majority findings are auto-confirmed; the
+// contested (phantom) ones are ruled by the user — Vanquish (real bug) or Let it out.
 function beginTribunal(job){
   var members=job.members||1;
   var list=job.findings.map(function(f,i){
     return { id:'f'+i, file:f.file, sev:f.sev, title:f.title,
-             foundBy:f.foundBy, support:Object.keys(f.foundBy).length, total:members,
-             judged:{} };
+             foundBy:f.foundBy, support:Object.keys(f.foundBy).length, total:members, ruling:null };
   });
-  if(!list.length){ finalizeTribunal({ cwd:job.cwd, roomIds:job.roomIds, list:[], judgesPending:0 }); return; }
-
-  var trib={ cwd:job.cwd, roomIds:job.roomIds, models:job.models||[], list:list, judgesPending:0 };
-  // model that owns council member idx (members map to models[idx % models.length])
-  function modelOf(idx){ return trib.models.length ? trib.models[idx % trib.models.length] : ''; }
-  function foundByModel(f, mdl){
-    return Object.keys(f.foundBy).some(function(idx){ return modelOf(+idx)===mdl; });
-  }
-  // DISPUTED = not everyone found it. Each model that MISSED a disputed finding re-votes on it.
-  var disputed=list.filter(function(f){ return f.support < f.total; });
-  if(disputed.length && trib.models.length>1){
-    setScouting('⚖ Tribunal — judges deliberating…');
-    trib.models.forEach(function(mdl){
-      var missed=disputed.filter(function(f){ return !foundByModel(f, mdl); });
-      if(!missed.length) return;
-      var jsid=jDispatch(JSON.stringify({ op:'judge', cwd:trib.cwd, model:mdl,
-        findings:missed.map(function(f){ return { id:f.id, title:f.title, file:f.file }; }) }));
-      dispatchJobs[jsid]={ judge:true, tribId:jsid, _trib:trib, model:mdl };
-      tribunals[jsid]=trib;            // alias: judge sid → shared tribunal
-      trib.judgesPending++;
-    });
-  }
-  if(trib.judgesPending===0) finalizeTribunal(trib);
-}
-
-// A judge confirmed a missed finding → that model now agrees → +1 support (capped, once per model).
-function applyVote(trib, model, id, verdict){
-  if(verdict!=='real') return;
-  for(var i=0;i<trib.list.length;i++){
-    var f=trib.list[i];
-    if(f.id===id && !f.judged[model] && f.support<f.total){ f.judged[model]=1; f.support++; return; }
-  }
+  var trib={ cwd:job.cwd, roomIds:job.roomIds, models:job.models||[], list:list };
+  if(!list.length){ finalizeTribunal(trib); return; }
+  if(rtState && rtState.open) rtRunVotes(trib);   // interactive — you are the judge
+  else finalizeTribunal(trib);                    // no overlay → keep everything as found
 }
 
 function tribType(f){
@@ -1590,8 +1572,7 @@ function finalizeTribunal(trib){
   refreshTitle();
   logEvent('⚖ War Council tribunal · '+trib.list.length+' finding(s): '+bosses+' 👑 boss, '+ph+' 👻 phantom', trib.roomIds&&trib.roomIds[0]);
   trib.list.forEach(function(f){ var ty=tribType(f); var icon=ty==='boss'?'👑':ty==='phantom'?'👻':'🐛'; logEvent(icon+' '+ty+' — "'+f.title+'"'+(f.file?(' · '+f.file):'')+(f.support!=null?(' ('+f.support+'/'+f.total+' votes)'):''), roomForPath(f.file, activePath)); });
-  toast('⚖ Tribunal complete · '+trib.list.length+' findings ('+bosses+' boss / '+ph+' phantom)');
-  if(rtState && rtState.open) rtRunVotes(trib);   // play the roundtable vote reveal
+  toast('⚖ Verdict sealed · '+trib.list.length+' bug(s) ('+bosses+' boss / '+ph+' phantom)');
 }
 
 // ── War Council roundtable vote scene (Consensus only) ──
@@ -1607,7 +1588,8 @@ function openRoundtable(job){
   stage.innerHTML='<div class="rt-title">⚖ The War Council Convenes</div>'
     +'<div class="rt-sub">'+job.findings.length+' finding(s) gathered · the round table shall vote</div>'
     +'<div class="rt-table"></div>'
-    +'<div class="rt-center" id="rt-center"><div class="rt-delib">The council deliberates…</div><div class="rt-spin"></div></div>'
+    +'<div class="rt-center" id="rt-center"><div class="rt-delib">The council presents its findings…</div></div>'
+    +'<div class="rt-prompt" id="rt-prompt"></div>'
     +'<button id="rt-enter">Enter the Dungeon ⚔</button>';
   var seats=[];
   for(var i=0;i<n;i++){
@@ -1625,30 +1607,62 @@ function openRoundtable(job){
   $('rt-enter').addEventListener('click', closeRoundtable);
 }
 function closeRoundtable(){ $('rt-overlay').classList.remove('show'); rtState=null; refreshTitle(); }
+function rtShort(t){ t=t||''; return esc(t.length>52?t.slice(0,51)+'…':t); }
 function rtRunVotes(trib){
   if(!rtState || !rtState.open) return;
-  var center=$('rt-center'), seats=rtState.seats, list=trib.list.slice(), i=0;
+  var center=$('rt-center'), prompt=$('rt-prompt'), seats=rtState.seats;
+  var auto = trib.list.filter(function(f){ return tribType(f)!=='phantom'; });   // unanimous/majority → auto-confirmed
+  var phantoms = trib.list.filter(function(f){ return tribType(f)==='phantom'; });// contested → YOU rule
   function clearSeats(){ seats.forEach(function(s){ s.classList.remove('vote'); }); }
-  function step(){
+  function glow(f){ clearSeats(); Object.keys(f.foundBy||{}).forEach(function(mi){ var s=seats[+mi]; if(s) s.classList.add('vote'); }); }
+
+  // Phase A — auto-reveal the findings the council already agrees on.
+  var ai=0;
+  function stepAuto(){
     if(!rtState || !rtState.open) return;
-    if(i>=list.length){
-      clearSeats();
-      var bosses=list.filter(function(f){ return tribType(f)==='boss'; }).length;
-      var ph=list.filter(function(f){ return tribType(f)==='phantom'; }).length;
-      center.innerHTML='<div class="rt-vt">⚜ The verdict is sealed</div><div class="rt-tally">'+list.length+' findings · '+bosses+' 👑 boss · '+ph+' 👻 phantom</div>';
-      $('rt-enter').classList.add('show'); return;
-    }
-    var f=list[i]; clearSeats();
-    Object.keys(f.foundBy||{}).forEach(function(mi){ var s=seats[+mi]; if(s) s.classList.add('vote'); });
-    var ty=tribType(f), icon=ty==='boss'?'👑':ty==='phantom'?'👻':'🐛', t=f.title||'';
-    center.innerHTML='<div class="rt-vt">"'+esc(t.length>50?t.slice(0,49)+'…':t)+'"</div>'
-      +'<div class="rt-tally">'+f.support+' / '+f.total+' in favor</div>'
+    if(ai>=auto.length){ clearSeats(); startPhantoms(); return; }
+    var f=auto[ai]; f.ruling='keep'; glow(f);
+    var ty=tribType(f), icon=ty==='boss'?'👑':'🐛';
+    center.innerHTML='<div class="rt-vt">"'+rtShort(f.title)+'"</div>'
+      +'<div class="rt-tally">'+f.support+' / '+f.total+' agree</div>'
       +'<div class="rt-verdict rt-'+ty+'">'+icon+' '+ty.toUpperCase()+'</div>';
-    var v=center.querySelector('.rt-verdict'); setTimeout(function(){ if(v) v.classList.add('in'); }, 350);
-    i++; setTimeout(step, 1700);
+    var v=center.querySelector('.rt-verdict'); setTimeout(function(){ if(v) v.classList.add('in'); }, 300);
+    ai++; setTimeout(stepAuto, 1500);
   }
-  if(list.length){ center.innerHTML='<div class="rt-vt">The vote begins…</div>'; setTimeout(step, 800); }
-  else { center.innerHTML='<div class="rt-vt">The council found nothing amiss</div>'; $('rt-enter').classList.add('show'); }
+
+  // Phase B — YOU judge each contested (phantom) claim.
+  var pi=0;
+  function startPhantoms(){ if(!phantoms.length){ rtFinish(); } else judgeNext(); }
+  function judgeNext(){
+    if(!rtState || !rtState.open) return;
+    if(pi>=phantoms.length){ prompt.innerHTML=''; rtFinish(); return; }
+    var f=phantoms[pi]; glow(f);
+    center.innerHTML='<div class="rt-vt">👻 A contested claim</div><div class="rt-tally">only '+f.support+' of '+f.total+' scouts saw it</div>';
+    prompt.innerHTML='<div class="rt-claim">"'+rtShort(f.title)+'"</div>'
+      +'<div class="rt-claim-sub">'+esc(f.file||'')+' · your ruling, my liege?</div>'
+      +'<div class="rt-judge-btns"><button class="rt-vanquish">⚔ Vanquish<br><small>it IS a bug</small></button>'
+      +'<button class="rt-release">🕊 Let it out<br><small>not a bug</small></button></div>';
+    prompt.querySelector('.rt-vanquish').addEventListener('click', function(){ rule(f,'keep'); });
+    prompt.querySelector('.rt-release').addEventListener('click', function(){ rule(f,'drop'); });
+  }
+  function rule(f, kind){
+    f.ruling=kind; pi++;
+    prompt.innerHTML='<div class="rt-claim rt-'+(kind==='keep'?'phantom':'normal')+'">'+(kind==='keep'?'⚔ Vanquished — a phantom rises as a bug':'🕊 Released — cleared of all charges')+'</div>';
+    setTimeout(judgeNext, 1050);
+  }
+
+  function rtFinish(){
+    clearSeats(); prompt.innerHTML='';
+    trib.list = trib.list.filter(function(f){ return f.ruling!=='drop'; });   // released phantoms are dropped
+    finalizeTribunal(trib);                                                   // write libraries + render monsters
+    var bosses=trib.list.filter(function(f){ return tribType(f)==='boss'; }).length;
+    var ph=trib.list.filter(function(f){ return tribType(f)==='phantom'; }).length;
+    center.innerHTML='<div class="rt-vt">⚜ The verdict is sealed</div><div class="rt-tally">'+trib.list.length+' bug(s) · '+bosses+' 👑 · '+ph+' 👻</div>';
+    $('rt-enter').classList.add('show');
+  }
+
+  if(auto.length){ center.innerHTML='<div class="rt-vt">The council casts its votes…</div>'; setTimeout(stepAuto, 700); }
+  else startPhantoms();
 }
 
 // ── Divide mode: each member audits one room → plain monsters, no voting ──
@@ -1678,16 +1692,7 @@ window.onDungeonEvent=function(sid, line){
   var ev; try{ ev=JSON.parse(line); }catch(_){ return; }
   var job=dispatchJobs[sid];
 
-  // ── Tribunal judge stream (separate socket per judge model) ──
-  if(job && job.judge){
-    var trib=job._trib;
-    if(ev.t==='vote'){ if(trib) applyVote(trib, job.model, ev.id, ev.verdict); }
-    else if(ev.t==='judge-done' || ev.t==='closed'){
-      delete dispatchJobs[sid]; delete tribunals[sid];
-      if(trib && job._counted!==true){ job._counted=true; if(--trib.judgesPending<=0) finalizeTribunal(trib); }
-    }
-    return;
-  }
+  // (Judge models removed — YOU are the tribunal judge now, at the round table.)
   // Hero dispatch (single member, op:'dispatch') keeps its on-map walk (tick); we still
   // surface a progress card and advance it from live activity.
   var heroId = (job && job.agent) ? ('hero:'+sid) : null;
