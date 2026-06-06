@@ -189,6 +189,13 @@
   .dcard .dc-bar { margin-top:4px; height:5px; border-radius:3px; background:rgba(60,40,20,.22); overflow:hidden; }
   .dcard .dc-fill { height:100%; width:0%; border-radius:3px; background:linear-gradient(90deg,#b9852f,#e0b25a); transition:width .35s ease; }
   .dcard.done .dc-fill { background:linear-gradient(90deg,#3f8a4a,#6cc06a); }
+  /* chronicle / history log rows */
+  .log-row { display:flex; gap:8px; padding:8px 4px; border-bottom:1px solid var(--nborder); font-family:'Courier New',monospace; }
+  .log-row:last-child { border-bottom:none; }
+  .log-row .log-when { flex:none; font-size:9px; color:var(--ntext3); width:42px; padding-top:1px; }
+  .log-row .log-msg { flex:1; min-width:0; font-size:11px; color:var(--ntext); line-height:1.45; word-break:break-word; }
+  .log-row .log-room { color:var(--ntext3); }
+  #log-list .log-empty { font-size:11px; color:var(--ntext3); font-style:italic; padding:14px 4px; text-align:center; }
 
   #agentsPanel {
     position:fixed; top:calc(54px + env(safe-area-inset-top)); left:10px;
@@ -370,6 +377,22 @@
   </div>
 </div>
 
+<!-- Battle / audit history log -->
+<div id="log-dialog" class="dlg">
+  <div class="dlg-box">
+    <h3>📜 Chronicle</h3>
+    <div class="dlg-sub" id="log-sub">What happened in this room</div>
+    <div class="seg" id="log-scope">
+      <button class="seg-btn active" data-v="room">This room</button>
+      <button class="seg-btn" data-v="all">Whole dungeon</button>
+    </div>
+    <div id="log-list" style="margin-top:10px;max-height:52vh;overflow-y:auto;"></div>
+    <div class="dialog-btns" style="margin-top:14px;">
+      <button id="log-close">Close</button>
+    </div>
+  </div>
+</div>
+
 <!-- Hero picker (which hero → which bug) -->
 <div id="hero-dialog" class="dlg">
   <div class="dlg-box">
@@ -407,7 +430,7 @@
     <div id="roomContent"></div>
     <div id="roomFooter">
       <button class="mini-btn" id="dispatchBtn">Dispatch</button>
-      <button class="mini-btn" id="logBugBtn">Log Bug</button>
+      <button class="mini-btn" id="logBugBtn">📜 Log</button>
       <button class="mini-btn" id="rescanBtn">Re-scan</button>
     </div>
   </aside>
@@ -418,7 +441,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd17-live-progress-cards';
+var DUNGEON_BUILD = 'd18-chronicle-log';
 
 // ── Bridge ────────────────────────────────────────────────
 var A = (typeof DungeonAndroid !== 'undefined') ? DungeonAndroid : null;
@@ -804,6 +827,7 @@ function dispatchAgent(agent,roomId,bug){
   var sid=jDispatch(JSON.stringify({ op:'dispatch', cwd:room.path, persona:agent.body||'', task:task }));
   dispatchJobs[sid]={ roomIds:[room.id], council:false, agent:agent };
   renderAgentsPanel();
+  logEvent('⚔ '+agent.name+' dispatched '+(bug?('to hunt "'+bug.title+'"'):('to work in '+room.name)), room);
   toast('⚔ '+agent.name+' → '+(bug?bug.title:room.name));
 }
 
@@ -849,7 +873,7 @@ function tick(now){
       var hid=currentRoomOf(a), room=hid&&getRoom(hid);
       if(room && room.bugs.length && room.id===a.destRoom){
         var bug=room.bugs[0]; bug.hp-=28*dt;
-        if(bug.hp<=0){ spawnParticles(bug._homeX,bug._homeY); room.bugs.shift(); renderMonsters(); updateRoomVisuals(); a.status='working'; a.task='Cleaning up'; renderAgentsPanel(); toast('💥 '+a.name+' slew '+bug.title); setTimeout(function(){ sendHome(a); },700); }
+        if(bug.hp<=0){ spawnParticles(bug._homeX,bug._homeY); room.bugs.shift(); renderMonsters(); updateRoomVisuals(); a.status='working'; a.task='Cleaning up'; renderAgentsPanel(); logEvent('⚔ '+a.name+' slew "'+bug.title+'" ('+(bug.severity||'bug')+')'+(bug.file?(' in '+bug.file):''), room); toast('💥 '+a.name+' slew '+bug.title); setTimeout(function(){ sendHome(a); },700); }
         else {
           var hr=svg.querySelector('[data-hp="'+bug.id+'"]'), ht=svg.querySelector('[data-hptext="'+bug.id+'"]');
           if(hr) hr.setAttribute('width',Math.max(0,12*bug.hp/bug.maxHp));
@@ -1153,21 +1177,18 @@ $('dispatchBtn').addEventListener('click', function(){
   openHeroPicker(openRoomId, r && r.bugs.length ? r.bugs[0] : null);
 });
 $('hero-cancel').addEventListener('click', function(){ $('hero-dialog').classList.remove('show'); });
-$('logBugBtn').addEventListener('click', function(){
-  if(!openRoomId) return;
-  var r=getRoom(openRoomId);
-  var title=window.prompt('Bug title:',''); if(!title) return;
-  appendBugToLibrary(r.path, title.slice(0,80));
-  r.bugs.push({ id:'b'+Date.now(), hp:100, maxHp:100, severity:'minor', title:title.slice(0,80), file:'' });
-  renderMonsters(); updateRoomVisuals(); renderRoomPanel();
-  toast('🐛 Bug logged in '+r.name);
-});
+// 📜 Log — opens the Chronicle (battle/audit history), NOT a bug-adder.
+// (window.prompt is unavailable in this WebView, so the old "Log Bug" silently
+//  did nothing; bugs now come from scouts/council/heroes, which the log records.)
+$('logBugBtn').addEventListener('click', function(){ openLog(); });
+// Re-scan — re-read THIS room's library.md and rebuild its monsters. Use after a
+// hero/scout edits the file (clears a slain bug, picks up newly-found ones).
 $('rescanBtn').addEventListener('click', function(){
   if(!openRoomId) return;
   var r=getRoom(openRoomId);
   r.bugs=mkBugs(parseBugs(r.path+'/library.md'));
   renderMonsters(); updateRoomVisuals(); renderRoomPanel();
-  toast('🔄 Re-scanned '+r.name);
+  toast('🔄 '+r.name+' · '+r.bugs.length+' bug(s)');
 });
 function appendBugToLibrary(roomPath, title){
   var p=roomPath+'/library.md';
@@ -1496,6 +1517,8 @@ function finalizeTribunal(trib){
   var ph=trib.list.filter(function(f){ return tribType(f)==='phantom'; }).length;
   rescanRooms(trib.roomIds);
   refreshTitle();
+  logEvent('⚖ War Council tribunal · '+trib.list.length+' finding(s): '+bosses+' 👑 boss, '+ph+' 👻 phantom', trib.roomIds&&trib.roomIds[0]);
+  trib.list.forEach(function(f){ var ty=tribType(f); var icon=ty==='boss'?'👑':ty==='phantom'?'👻':'🐛'; logEvent(icon+' '+ty+' — "'+f.title+'"'+(f.file?(' · '+f.file):'')+(f.support!=null?(' ('+f.support+'/'+f.total+' votes)'):''), roomForPath(f.file, activePath)); });
   toast('⚖ Tribunal complete · '+trib.list.length+' findings ('+bosses+' boss / '+ph+' phantom)');
 }
 
@@ -1517,6 +1540,7 @@ function finalizeDivide(job){
     total+=found.length; if(found.length) roomsHit++;
   });
   rescanRooms(job.roomIds); refreshTitle();
+  (job.roomIds||[]).forEach(function(rid){ var rm=getRoom(rid); var found=job.divideFindings[rid]||[]; if(rm) logEvent('🗺 '+rm.name+' audited · '+found.length+' finding(s)'+(found.length?': '+found.map(function(f){return '"'+f.title+'"';}).join(', '):' (clean)'), rm); });
   toast('🗺 Divide audit complete · '+total+' findings across '+roomsHit+' room(s)');
 }
 
@@ -1578,12 +1602,49 @@ window.onDungeonEvent=function(sid, line){
       beginTribunal(job);   // Phase 2/3 — writes voted library.md + renders monsters
     } else {
       refreshTitle(); toast('✅ Scout complete');
-      if(job) rescanRooms(job.roomIds);
+      if(job){ rescanRooms(job.roomIds); logEvent('🧭 Solo Scout finished auditing '+((job.rootId&&job.rootId!=='throne'&&getRoom(job.rootId))?getRoom(job.rootId).name:'the dungeon'), (job.rootId&&job.rootId!=='throne')?job.rootId:null); }
     }
   }
   else if(ev.t==='error'){ endExpedition(sid); refreshTitle(); toast('⚠ '+(ev.msg||'dispatch error')); }
   else if(ev.t==='closed'){ endExpedition(sid); if(job && job.scout) refreshTitle(); delete dispatchJobs[sid]; }
 };
+
+// ── Chronicle (battle / audit history) ──
+// In-memory event log. Each entry: { ts, roomId, roomName, msg }. Newest first.
+var dungeonLog=[];
+function logEvent(msg, room){
+  var r = room ? (typeof room==='string' ? getRoom(room) : room) : null;
+  dungeonLog.unshift({ ts:Date.now(), roomId:r?r.id:null, roomName:r?r.name:'', msg:msg });
+  if(dungeonLog.length>200) dungeonLog.length=200;
+}
+function hhmm(ts){ var d=new Date(ts); return ('0'+d.getHours()).slice(-2)+':'+('0'+d.getMinutes()).slice(-2); }
+function renderLog(){
+  var box=$('log-list'); if(!box) return;
+  var scope=segVal('log-scope')||'room';
+  var entries = (scope==='room' && openRoomId)
+    ? dungeonLog.filter(function(e){ return e.roomId===openRoomId; })
+    : dungeonLog;
+  box.innerHTML='';
+  if(!entries.length){ box.innerHTML='<div class="log-empty">No deeds recorded yet — dispatch a hero or run a scout.</div>'; return; }
+  entries.forEach(function(e){
+    var row=document.createElement('div'); row.className='log-row';
+    var showRoom = (scope!=='room') && e.roomName;
+    row.innerHTML='<span class="log-when">'+hhmm(e.ts)+'</span><span class="log-msg">'+esc(e.msg)+(showRoom?(' <span class="log-room">· '+esc(e.roomName)+'</span>'):'')+'</span>';
+    box.appendChild(row);
+  });
+}
+function openLog(){
+  $('log-sub').textContent = openRoomId ? ('Deeds in '+(getRoom(openRoomId)||{}).name) : 'Dungeon chronicle';
+  setSeg('log-scope', openRoomId ? 'room' : 'all');
+  var roomBtn=document.querySelector('#log-scope .seg-btn[data-v="room"]');
+  if(roomBtn) roomBtn.style.opacity = openRoomId ? '1' : '0.35';
+  renderLog();
+  $('log-dialog').classList.add('show');
+}
+document.querySelectorAll('#log-scope .seg-btn').forEach(function(b){
+  b.addEventListener('click', function(){ if(b.dataset.v==='room' && !openRoomId) return; setSeg('log-scope', b.dataset.v); renderLog(); });
+});
+$('log-close').addEventListener('click', function(){ $('log-dialog').classList.remove('show'); });
 
 // ── Toast ──
 var toastEl=$('toast'), toastTimer=null;
