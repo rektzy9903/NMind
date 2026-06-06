@@ -501,7 +501,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd28-knight-sprite-fix';
+var DUNGEON_BUILD = 'd29-council-shared-exp';
 
 // ── Bridge ────────────────────────────────────────────────
 var A = (typeof DungeonAndroid !== 'undefined') ? DungeonAndroid : null;
@@ -1608,28 +1608,22 @@ function deepFinish(){
 //   The King (this orchestrator) holds the ledger; knights never memorise the whole castle.
 // ════════════════════════════════════════
 var councilState=null;
-// One knight = one expedition with exactly ONE sprite (its own colour), parked at the
-// Throne with NO auto fan-out — the King drives it explicitly via knightGoRoom. (Going
-// through startExpedition floored council sprites at 2 + ran a conflicting fan-out.)
-function startKnightExp(sid, color){
-  var th=getRoom('throne')||{cx:0,cy:0};
-  var g=spawnExpSprite('council', color);
-  var s={ g:g, x:th.cx, y:th.cy, atId:'throne', path:[], pidx:0, targetId:null, want:null, dwell:0,
-          bob:Math.random()*6.28, blip:0, hereRoom:null, parked:false, rooms:[], color:color };
-  expeditions[sid]={ kind:'council', sprites:[s], active:true, fade:0, label:'', cwds:{} };
-  if(!expRAF){ expLast=performance.now(); expRAF=requestAnimationFrame(expTick); }
-  return s;
-}
+// Reuse the PROVEN council expedition: ONE expedition with N sprites (same render +
+// immediate fan-out the old council used — that fan-out is what makes the sprites
+// visibly move from t=0). Each knight = sprite index k; the King just redirects each
+// sprite to its own room via knightGoRoom. (d27/d28 wrongly used a custom single-sprite
+// creator per knight that didn't render — reverted.)
 function startRoamingCouncil(order, models){
   var N=Math.max(2, Math.min(4, models.length));
+  var expSid='council_'+Date.now();
   councilState={ models:models.slice(0,N), N:N, rooms:order, visits:{}, byRoom:{},
-                 target:N, cwd:activePath, roomIds:order.map(function(r){ return r.id; }), knights:[] };
+                 target:N, cwd:activePath, roomIds:order.map(function(r){ return r.id; }),
+                 expSid:expSid, knights:[] };
+  startExpedition(expSid, 'council', 'throne', N);                  // N sprites, proven fan-out/render
   for(var k=0;k<N;k++){
-    var expSid='council_'+Date.now()+'_'+k;
-    startKnightExp(expSid, EXP_PAL[k%EXP_PAL.length]);               // one knight-sprite, own colour, no fan-out
-    var cardId=expSid+':0';
+    var cardId=expSid+':'+k;
     addDcard(cardId, '⚖ '+shortModel(councilState.models[k]), '🎒 Preparing equipment…');
-    councilState.knights.push({ i:k, model:councilState.models[k], expSid:expSid,
+    councilState.knights.push({ i:k, model:councilState.models[k],
                                 cardId:cardId, roomId:null, sid:null, seen:{}, done:false });
   }
   setScouting('⚖ War Council roaming ('+N+')…');
@@ -1646,12 +1640,13 @@ function roamProgress(){
   for(var id in councilState.visits) done+=councilState.visits[id];
   return total ? Math.round(done/total*100) : 0;
 }
-// Send knight k to <room>: walk its sprite there + fire a one-room markers-only spawn.
+// Send knight k to <room>: walk its sprite (index k in the shared expedition) there +
+// fire a one-room markers-only spawn.
 function knightGoRoom(k, room){
   if(!councilState || !room) return;
   var kn=councilState.knights[k]; kn.roomId=room.id;
-  var exp=expeditions[kn.expSid];
-  if(exp && exp.sprites[0]){ exp.sprites[0].want=room.id; spriteGoToRoom(exp.sprites[0], room, exp); }
+  var exp=expeditions[councilState.expSid];
+  if(exp && exp.sprites[k]){ var s=exp.sprites[k]; s.parked=false; s.want=room.id; spriteGoToRoom(s, room, exp); }
   updDcard(kn.cardId, { room:room.name, prog:roamProgress() });
   var sid=jDispatch(JSON.stringify({ op:'scout', cwd:room.path, mode:'deep', model:kn.model }));
   kn.sid=sid;
@@ -1685,9 +1680,10 @@ function knightDone(k){
   if(!councilState) return;
   var kn=councilState.knights[k]; if(kn.done) return;
   kn.done=true;
-  endExpedition(kn.expSid);
+  var exp=expeditions[councilState.expSid];
+  if(exp && exp.sprites[k]) exp.sprites[k].parked=true;   // this knight stops roaming, stays put
   doneDcard(kn.cardId, 'swept '+Object.keys(kn.seen).length+' room(s)');
-  if(councilState.knights.every(function(x){ return x.done; })) consensusVerdict();
+  if(councilState.knights.every(function(x){ return x.done; })){ endExpedition(councilState.expSid); consensusVerdict(); }
 }
 // All knights home → flatten the per-room ledger into one findings list and convene the
 // existing King's Verdict (openRoundtable + beginTribunal — both reused unchanged).
@@ -1966,7 +1962,7 @@ window.onDungeonEvent=function(sid, line){
     var ck=job.knight, ckn=councilState && councilState.knights[ck];
     if(ev.t==='tool'){ if(ckn) updDcard(ckn.cardId, { file:ev.path, bump:true }); return; }   // sprite stays at the room; show live file + nudge bar
     else if(ev.t==='bug'){ if(ev.file) job.findings.push({ file:ev.file, sev:ev.sev, title:ev.title }); return; }
-    else if(ev.t==='start'){ if(ckn) expSetCwd(ckn.expSid, 0, ev.cwd); return; }
+    else if(ev.t==='start'){ if(councilState) expSetCwd(councilState.expSid, ck, ev.cwd); return; }
     else if(ev.t==='done'){ if(ev.ok===false && ckn){ var rmc=getRoom(job.roomId); logEvent('💀 '+shortModel(ckn.model)+' assassinated at '+(rmc?rmc.name:'a room')+' · '+(ev.reason||'unknown'), rmc); } return; }
     else if(ev.t==='all-done'){ knightFinishRoom(ck, job); return; }
     else if(ev.t==='error'){ knightFinishRoom(ck, job); return; }
