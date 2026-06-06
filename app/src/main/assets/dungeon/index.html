@@ -441,7 +441,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd19-fanout-warmup';
+var DUNGEON_BUILD = 'd20-arrive-then-audit';
 
 // ── Bridge ────────────────────────────────────────────────
 var A = (typeof DungeonAndroid !== 'undefined') ? DungeonAndroid : null;
@@ -947,7 +947,7 @@ function roomForPath(p, cwd){
 function makeMember(kind,color){
   var th=getRoom('throne')||{cx:0,cy:0};
   var g=spawnExpSprite(kind,color);
-  return { g:g, x:th.cx, y:th.cy, atId:'throne', path:[], pidx:0, targetId:null,
+  return { g:g, x:th.cx, y:th.cy, atId:'throne', path:[], pidx:0, targetId:null, want:null, dwell:0,
            bob:Math.random()*6.28, blip:0, hereRoom:null, parked:false, rooms:[], color:color };
 }
 // Walk a sprite to <room> along corridors (prepends its current pos so it eases back on).
@@ -971,17 +971,18 @@ function startExpedition(sid,kind,rootId,members){
   var rid = getRoom(rootId) ? rootId : 'throne';
   var fan = rooms.filter(function(r){ return r.parent===rid; });
   if(!fan.length){ var rr=getRoom(rid); if(rr && rid!=='throne') fan=[rr]; }
-  if(fan.length) sprites.forEach(function(s,i){ spriteGoToRoom(s, fan[i%fan.length], exp); });
+  if(fan.length) sprites.forEach(function(s,i){ var r=fan[i%fan.length]; s.want=r.id; spriteGoToRoom(s, r, exp); });
   if(!expRAF){ expLast=performance.now(); expRAF=requestAnimationFrame(expTick); }
 }
 function expSetCwd(sid,member,cwd){ var e=expeditions[sid]; if(e && cwd) e.cwds[member]=cwd; }
-// The member is now reading <p> → walk that sprite to its room (corridor-followed).
+// The member is now reading <p> → record the DESIRED room. The sprite only switches to it
+// AFTER it has arrived at and finished auditing its current room (pacing in expTick), and
+// "auditing" (scan + card + progress) only starts once the sprite physically arrives.
 function expRetarget(sid,member,p){
   var exp=expeditions[sid]; if(!exp || !exp.active) return;
   var s=exp.sprites[member]; if(!s || s.parked) return;
   var room=roomForPath(p, exp.cwds[member]); if(!room) return;
-  if(spriteGoToRoom(s, room, exp)) updDcard(sid+':'+member, { room:room.name, bump:true });
-  else updDcard(sid+':'+member, { bump:true });
+  s.want=room.id;
 }
 function expPark(sid,member){ var exp=expeditions[sid]; if(!exp) return; var s=exp.sprites[member]; if(s) s.parked=true; }
 function endExpedition(sid){
@@ -1005,7 +1006,8 @@ function expBurst(x,y,color){
   (function g(){ t+=0.04; ring.setAttribute('r',3+t*60); ring.setAttribute('opacity',Math.max(0,1-t*1.3)); ring.setAttribute('stroke-width',Math.max(0.2,1.5-t)); if(t<0.8 && ring.parentNode) requestAnimationFrame(g); else ring.remove(); })();
   spawnParticles(x,y);
 }
-var EXP_SPEED=42;  // world units/sec along corridors
+var EXP_SPEED=42;     // world units/sec along corridors
+var AUDIT_DWELL=2.6;  // sec a sprite audits (scans in place) a room before it may move on
 function expTick(now){
   var dt=Math.min(0.05,(now-expLast)/1000); expLast=now;
   for(var sid in expeditions){
@@ -1013,20 +1015,29 @@ function expTick(now){
     if(exp.active){
       exp.sprites.forEach(function(s){
         if(s.path.length && s.pidx < s.path.length){
-          // walking the corridor toward the room the model is auditing
+          // TRAVELING — walk the corridor toward the room (no auditing yet)
           var t=s.path[s.pidx];
           var dx=t.x-s.x, dy=t.y-s.y, d=Math.hypot(dx,dy), step=EXP_SPEED*dt;
           if(d<=step){
             s.x=t.x; s.y=t.y; s.pidx++;
-            if(s.pidx>=s.path.length){                 // arrived at the target room
-              s.atId=s.targetId; s.hereRoom=getRoom(s.targetId);
-              if(s.hereRoom){ scanRing(s.hereRoom,exp.kind); s.blip=0.7;
-                if(s.rooms.indexOf(s.hereRoom)===-1) s.rooms.push(s.hereRoom); }
-              s.path=[]; s.pidx=0;
+            if(s.pidx>=s.path.length){                 // ARRIVED → auditing starts now
+              s.atId=s.targetId; s.hereRoom=getRoom(s.targetId); s.path=[]; s.pidx=0;
+              if(s.hereRoom){
+                scanRing(s.hereRoom,exp.kind); s.blip=0.7; s.dwell=AUDIT_DWELL;
+                if(s.rooms.indexOf(s.hereRoom)===-1) s.rooms.push(s.hereRoom);
+                exp.label=s.hereRoom.name;
+                updDcard(sid+':'+(exp.sprites.indexOf(s)), { room:s.hereRoom.name, bump:true });
+              }
             }
           } else { s.x+=dx/d*step; s.y+=dy/d*step; }
-        } else if(s.hereRoom){                          // sitting in a room → pulse like radar
-          s.blip-=dt; if(s.blip<=0){ scanRing(s.hereRoom,exp.kind); s.blip=0.85; }
+        } else if(s.dwell>0){
+          // AUDITING — stay put, pulse like radar, for the dwell delay before switching rooms
+          s.dwell-=dt; s.blip-=dt;
+          if(s.blip<=0 && s.hereRoom){ scanRing(s.hereRoom,exp.kind); s.blip=0.7; }
+        } else {
+          // IDLE — audit done; if the model has moved to another room, walk there now
+          if(s.want && s.want!==s.atId){ var nr=getRoom(s.want); if(nr) spriteGoToRoom(s, nr, exp); }
+          else if(s.hereRoom){ s.blip-=dt; if(s.blip<=0){ scanRing(s.hereRoom,exp.kind); s.blip=1.1; } }
         }
         var by=Math.sin(now/170+s.bob)*0.5;
         s.g.setAttribute('transform','translate('+s.x.toFixed(2)+','+(s.y+by).toFixed(2)+')');
@@ -1061,7 +1072,7 @@ function addDcard(id, name, sub){
 }
 function updDcard(id, opt){
   var o=dcards[id]; if(!o) return;
-  if(opt.room!=null) o.roomEl.innerHTML='scouting <b>'+esc(opt.room)+'</b>';
+  if(opt.room!=null) o.roomEl.innerHTML='auditing <b>'+esc(opt.room)+'</b>';
   if(opt.bump) o.prog=Math.min(92, o.prog + 6 + Math.random()*8);
   if(opt.prog!=null) o.prog=opt.prog;
   o.fillEl.style.width=o.prog+'%';
@@ -1071,10 +1082,15 @@ function doneDcard(id){
   o.prog=100; o.fillEl.style.width='100%'; o.el.classList.add('done'); o.roomEl.innerHTML='done ✓';
   setTimeout(function(){ o.el.classList.remove('show'); setTimeout(function(){ try{o.el.remove();}catch(_){} delete dcards[id]; },300); }, 1500);
 }
-// Warm-up creep: while a member is cold-starting (no tool events yet) inch the bar to
-// ~28% so it never looks frozen at "starting". Real tool bumps push well past this.
+// Idle creep so the bar never looks frozen: fast to ~28% during cold-start ("preparing
+// equipment"), then a slow crawl toward ~80% during a long single-room audit. Real
+// per-room arrivals add the visible jumps on top.
 setInterval(function(){
-  for(var id in dcards){ var o=dcards[id]; if(o && !o.el.classList.contains('done') && o.prog<28){ o.prog=Math.min(28, o.prog+1.4); o.fillEl.style.width=o.prog+'%'; } }
+  for(var id in dcards){ var o=dcards[id]; if(!o || o.el.classList.contains('done')) continue;
+    if(o.prog<28) o.prog=Math.min(28, o.prog+1.4);
+    else if(o.prog<80) o.prog=Math.min(80, o.prog+0.45);
+    o.fillEl.style.width=o.prog+'%';
+  }
 }, 1000);
 
 // ── Agents roster panel ──
@@ -1589,9 +1605,7 @@ window.onDungeonEvent=function(sid, line){
       addDcard(heroId, '⚔ '+(job.agent.name||'Hero'), hr?('scouting <b>'+esc(hr.name)+'</b>'):'heading out…');
     } else if(job && (job.scout||job.council)){
       expSetCwd(sid, ev.member, ev.cwd);
-      addDcard(memCard, job.council ? shortModel(ev.model) : 'Scout', 'warming up…');
-      var s0=(expeditions[sid]&&expeditions[sid].sprites[ev.member]);
-      if(s0 && s0.targetId){ updDcard(memCard, { room:(getRoom(s0.targetId)||{}).name }); }
+      addDcard(memCard, job.council ? shortModel(ev.model) : 'Scout', '🎒 Preparing equipment for the adventure…');
     }
     return;
   }
