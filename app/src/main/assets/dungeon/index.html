@@ -196,6 +196,40 @@
   .log-row .log-msg { flex:1; min-width:0; font-size:11px; color:var(--ntext); line-height:1.45; word-break:break-word; }
   .log-row .log-room { color:var(--ntext3); }
   #log-list .log-empty { font-size:11px; color:var(--ntext3); font-style:italic; padding:14px 4px; text-align:center; }
+  /* ── War Council roundtable vote scene ── */
+  #rt-overlay { position:fixed; inset:0; z-index:120; display:none; align-items:center; justify-content:center;
+    background:radial-gradient(circle at 50% 42%, rgba(40,26,12,.86), rgba(8,5,2,.95)); }
+  #rt-overlay.show { display:flex; }
+  .rt-stage { position:relative; width:min(95vw,540px); height:min(82vh,580px); }
+  .rt-title { position:absolute; top:2px; left:0; right:0; text-align:center; font-family:'Georgia',serif; font-weight:bold;
+    font-size:16px; color:#f0d9a8; text-shadow:0 2px 8px #000; }
+  .rt-sub { position:absolute; top:26px; left:0; right:0; text-align:center; font-family:'Georgia',serif; font-size:10px; color:#caa873; }
+  .rt-table { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); width:174px; height:174px; border-radius:50%;
+    background:radial-gradient(circle at 50% 38%, #7a5630, #3a2814 70%); border:4px solid #241708;
+    box-shadow:0 10px 40px rgba(0,0,0,.7), inset 0 0 34px rgba(0,0,0,.55); }
+  .rt-center { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); width:150px; text-align:center;
+    font-family:'Georgia',serif; color:#f0d9a8; pointer-events:none; }
+  .rt-center .rt-vt { font-size:11px; font-weight:bold; line-height:1.3; max-height:46px; overflow:hidden; }
+  .rt-center .rt-tally { font-size:9px; color:#e0b25a; margin-top:3px; }
+  .rt-center .rt-verdict { margin-top:5px; font-size:13px; font-weight:bold; opacity:0; transform:scale(1.6) rotate(-8deg); transition:opacity .25s, transform .25s; }
+  .rt-center .rt-verdict.in { opacity:1; transform:none; }
+  .rt-center .rt-boss { color:#f5c542; } .rt-center .rt-normal { color:#e88a4a; } .rt-center .rt-phantom { color:#9aa0c0; }
+  .rt-center .rt-delib { font-size:10px; color:#caa873; font-style:italic; }
+  .rt-center .rt-spin { width:22px;height:22px;margin:6px auto 0;border:3px solid #5a4324;border-top-color:#f0d9a8;border-radius:50%;animation:rtspin 1s linear infinite; }
+  @keyframes rtspin { to{ transform:rotate(360deg);} }
+  .rt-seat { position:absolute; width:118px; transform:translate(-50%,-50%); transition:transform .3s; }
+  .rt-card { background:linear-gradient(180deg,#efe0bb,#d4be8c); border:2px solid #241708; border-radius:8px; padding:6px 8px;
+    box-shadow:0 4px 10px rgba(0,0,0,.55); }
+  .rt-card .rt-name { font-family:'Georgia',serif; font-weight:bold; font-size:11px; color:#2a1c0e; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .rt-card .rt-found { font-size:8.5px; color:#6a4a28; margin-top:2px; line-height:1.35; max-height:30px; overflow:hidden; }
+  .rt-seat.vote .rt-card { box-shadow:0 0 16px 4px #f0c860, 0 4px 10px rgba(0,0,0,.55); border-color:#a06a1f; }
+  .rt-seat.vote { transform:translate(-50%,-50%) scale(1.08); }
+  .rt-sword { position:absolute; top:-12px; left:50%; transform:translateX(-50%); font-size:13px; opacity:0; transition:opacity .25s; }
+  .rt-seat.vote .rt-sword { opacity:1; }
+  #rt-enter { position:absolute; bottom:0; left:50%; transform:translateX(-50%); background:linear-gradient(180deg,#e8d5a8,#c9a96e);
+    border:2px solid #241708; color:#2a1c0e; font-family:'Georgia',serif; font-weight:bold; font-size:13px; padding:9px 20px;
+    border-radius:5px; box-shadow:0 3px 0 #241708; cursor:pointer; opacity:0; pointer-events:none; transition:opacity .3s; }
+  #rt-enter.show { opacity:1; pointer-events:auto; }
 
   #agentsPanel {
     position:fixed; top:calc(54px + env(safe-area-inset-top)); left:10px;
@@ -393,6 +427,9 @@
   </div>
 </div>
 
+<!-- War Council roundtable vote scene -->
+<div id="rt-overlay"><div class="rt-stage" id="rt-stage"></div></div>
+
 <!-- Hero picker (which hero → which bug) -->
 <div id="hero-dialog" class="dlg">
   <div class="dlg-box">
@@ -441,7 +478,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd20-arrive-then-audit';
+var DUNGEON_BUILD = 'd21-roundtable-vote';
 
 // ── Bridge ────────────────────────────────────────────────
 var A = (typeof DungeonAndroid !== 'undefined') ? DungeonAndroid : null;
@@ -1554,6 +1591,64 @@ function finalizeTribunal(trib){
   logEvent('⚖ War Council tribunal · '+trib.list.length+' finding(s): '+bosses+' 👑 boss, '+ph+' 👻 phantom', trib.roomIds&&trib.roomIds[0]);
   trib.list.forEach(function(f){ var ty=tribType(f); var icon=ty==='boss'?'👑':ty==='phantom'?'👻':'🐛'; logEvent(icon+' '+ty+' — "'+f.title+'"'+(f.file?(' · '+f.file):'')+(f.support!=null?(' ('+f.support+'/'+f.total+' votes)'):''), roomForPath(f.file, activePath)); });
   toast('⚖ Tribunal complete · '+trib.list.length+' findings ('+bosses+' boss / '+ph+' phantom)');
+  if(rtState && rtState.open) rtRunVotes(trib);   // play the roundtable vote reveal
+}
+
+// ── War Council roundtable vote scene (Consensus only) ──
+// Opens when the council finishes auditing: one seat-card per scout (name + its
+// findings) around a round table. While the judges deliberate (async) the centre
+// shows a spinner; finalizeTribunal → rtRunVotes reveals each verdict in turn,
+// King-Arthur style, driven by the REAL support/total tally.
+var rtState=null;
+function rtSeatPos(i,n){ var ang=(-90 + i*360/n)*Math.PI/180; return { left:50+40*Math.cos(ang), top:50+34*Math.sin(ang) }; }
+function openRoundtable(job){
+  var stage=$('rt-stage'); if(!stage || !job || !job.findings.length) return;
+  var n=job.members || ((job.models&&job.models.length)||2);
+  stage.innerHTML='<div class="rt-title">⚖ The War Council Convenes</div>'
+    +'<div class="rt-sub">'+job.findings.length+' finding(s) gathered · the round table shall vote</div>'
+    +'<div class="rt-table"></div>'
+    +'<div class="rt-center" id="rt-center"><div class="rt-delib">The council deliberates…</div><div class="rt-spin"></div></div>'
+    +'<button id="rt-enter">Enter the Dungeon ⚔</button>';
+  var seats=[];
+  for(var i=0;i<n;i++){
+    var pos=rtSeatPos(i,n);
+    var mine=job.findings.filter(function(f){ return f.foundBy[i]; });
+    var nm=(job.models&&job.models.length)? shortModel(job.models[i%job.models.length]) : ('Scout '+(i+1));
+    var titles=mine.slice(0,2).map(function(f){ var t=f.title||''; return '• '+esc(t.length>30?t.slice(0,29)+'…':t); }).join('<br>');
+    var seat=document.createElement('div'); seat.className='rt-seat'; seat.style.left=pos.left+'%'; seat.style.top=pos.top+'%';
+    seat.innerHTML='<div class="rt-sword">⚔</div><div class="rt-card"><div class="rt-name">'+esc(nm)+'</div>'
+      +'<div class="rt-found">'+mine.length+' finding'+(mine.length===1?'':'s')+(titles?('<br>'+titles):'')+'</div></div>';
+    stage.appendChild(seat); seats.push(seat);
+  }
+  rtState={ open:true, seats:seats };
+  $('rt-overlay').classList.add('show');
+  $('rt-enter').addEventListener('click', closeRoundtable);
+}
+function closeRoundtable(){ $('rt-overlay').classList.remove('show'); rtState=null; refreshTitle(); }
+function rtRunVotes(trib){
+  if(!rtState || !rtState.open) return;
+  var center=$('rt-center'), seats=rtState.seats, list=trib.list.slice(), i=0;
+  function clearSeats(){ seats.forEach(function(s){ s.classList.remove('vote'); }); }
+  function step(){
+    if(!rtState || !rtState.open) return;
+    if(i>=list.length){
+      clearSeats();
+      var bosses=list.filter(function(f){ return tribType(f)==='boss'; }).length;
+      var ph=list.filter(function(f){ return tribType(f)==='phantom'; }).length;
+      center.innerHTML='<div class="rt-vt">⚜ The verdict is sealed</div><div class="rt-tally">'+list.length+' findings · '+bosses+' 👑 boss · '+ph+' 👻 phantom</div>';
+      $('rt-enter').classList.add('show'); return;
+    }
+    var f=list[i]; clearSeats();
+    Object.keys(f.foundBy||{}).forEach(function(mi){ var s=seats[+mi]; if(s) s.classList.add('vote'); });
+    var ty=tribType(f), icon=ty==='boss'?'👑':ty==='phantom'?'👻':'🐛', t=f.title||'';
+    center.innerHTML='<div class="rt-vt">"'+esc(t.length>50?t.slice(0,49)+'…':t)+'"</div>'
+      +'<div class="rt-tally">'+f.support+' / '+f.total+' in favor</div>'
+      +'<div class="rt-verdict rt-'+ty+'">'+icon+' '+ty.toUpperCase()+'</div>';
+    var v=center.querySelector('.rt-verdict'); setTimeout(function(){ if(v) v.classList.add('in'); }, 350);
+    i++; setTimeout(step, 1700);
+  }
+  if(list.length){ center.innerHTML='<div class="rt-vt">The vote begins…</div>'; setTimeout(step, 800); }
+  else { center.innerHTML='<div class="rt-vt">The council found nothing amiss</div>'; $('rt-enter').classList.add('show'); }
 }
 
 // ── Divide mode: each member audits one room → plain monsters, no voting ──
@@ -1633,7 +1728,8 @@ window.onDungeonEvent=function(sid, line){
       finalizeDivide(job);   // write plain monsters per room, no voting
     } else if(job && job.council){
       toast('⚔ Council audit done · '+job.findings.length+' candidate findings');
-      beginTribunal(job);   // Phase 2/3 — writes voted library.md + renders monsters
+      openRoundtable(job);  // gather at the round table (must precede beginTribunal — it may finalize synchronously)
+      beginTribunal(job);   // Phase 2/3 — writes voted library.md + renders monsters → rtRunVotes on finalize
     } else {
       refreshTitle(); toast('✅ Scout complete');
       if(job){ rescanRooms(job.roomIds); logEvent('🧭 Solo Scout finished auditing '+((job.rootId&&job.rootId!=='throne'&&getRoom(job.rootId))?getRoom(job.rootId).name:'the dungeon'), (job.rootId&&job.rootId!=='throne')?job.rootId:null); }
