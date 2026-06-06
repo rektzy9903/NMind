@@ -209,14 +209,14 @@
   #rt-overlay { position:fixed; inset:0; z-index:120; display:none; align-items:center; justify-content:center;
     background:radial-gradient(circle at 50% 42%, rgba(40,26,12,.86), rgba(8,5,2,.95)); }
   #rt-overlay.show { display:flex; }
-  .rt-stage { position:relative; width:min(95vw,540px); height:min(82vh,580px); }
+  .rt-stage { position:relative; width:min(96vw,520px); height:min(82vh,580px); }
   .rt-title { position:absolute; top:2px; left:0; right:0; text-align:center; font-family:'Georgia',serif; font-weight:bold;
     font-size:16px; color:#f0d9a8; text-shadow:0 2px 8px #000; }
   .rt-sub { position:absolute; top:26px; left:0; right:0; text-align:center; font-family:'Georgia',serif; font-size:10px; color:#caa873; }
-  .rt-table { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); width:174px; height:174px; border-radius:50%;
+  .rt-table { position:absolute; left:50%; top:42%; transform:translate(-50%,-50%); width:158px; height:158px; border-radius:50%;
     background:radial-gradient(circle at 50% 38%, #7a5630, #3a2814 70%); border:4px solid #241708;
     box-shadow:0 10px 40px rgba(0,0,0,.7), inset 0 0 34px rgba(0,0,0,.55); }
-  .rt-center { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); width:150px; text-align:center;
+  .rt-center { position:absolute; left:50%; top:42%; transform:translate(-50%,-50%); width:140px; text-align:center;
     font-family:'Georgia',serif; color:#f0d9a8; pointer-events:none; }
   .rt-center .rt-vt { font-size:11px; font-weight:bold; line-height:1.3; max-height:46px; overflow:hidden; }
   .rt-center .rt-tally { font-size:9px; color:#e0b25a; margin-top:3px; }
@@ -226,7 +226,7 @@
   .rt-center .rt-delib { font-size:10px; color:#caa873; font-style:italic; }
   .rt-center .rt-spin { width:22px;height:22px;margin:6px auto 0;border:3px solid #5a4324;border-top-color:#f0d9a8;border-radius:50%;animation:rtspin 1s linear infinite; }
   @keyframes rtspin { to{ transform:rotate(360deg);} }
-  .rt-seat { position:absolute; width:118px; transform:translate(-50%,-50%); transition:transform .3s; }
+  .rt-seat { position:absolute; width:96px; transform:translate(-50%,-50%); transition:transform .3s; }
   .rt-card { background:linear-gradient(180deg,#efe0bb,#d4be8c); border:2px solid #241708; border-radius:8px; padding:6px 8px;
     box-shadow:0 4px 10px rgba(0,0,0,.55); }
   .rt-card .rt-name { font-family:'Georgia',serif; font-weight:bold; font-size:11px; color:#2a1c0e; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
@@ -501,7 +501,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd32-persistent-motion-diag';
+var DUNGEON_BUILD = 'd33-verdict-fits-phone';
 
 // ── Bridge ────────────────────────────────────────────────
 var A = (typeof DungeonAndroid !== 'undefined') ? DungeonAndroid : null;
@@ -1033,27 +1033,7 @@ function startExpedition(sid,kind,rootId,members){
   if(!fan.length){ var rr=getRoom(rid); if(rr && rid!=='throne') fan=[rr]; }
   if(fan.length) sprites.forEach(function(s,i){ var r=fan[i%fan.length]; s.want=r.id; spriteGoToRoom(s, r, exp); });
   if(!expRAF){ expLast=performance.now(); expRAF=requestAnimationFrame(expTick); }
-  // ── persistent live diagnostic (d32) — remove once sprite motion is verified ──
-  try{
-    expTickCount=0;
-    var th=getRoom('throne');
-    dbgStatic='n='+sprites.length+' thr='+(th?th.cx+','+th.cy:'MISS')+' fan='+fan.length+
-              ' p0='+((sprites[0]||{}).path||[]).length;
-    dbgExp=exp;
-  }catch(e){ dbgStatic='err '+e.message; }
 }
-var expTickCount=0, dbgStatic='', dbgExp=null, dbgEl=null;
-function dbgShow(){
-  if(!dbgEl){ dbgEl=document.createElement('div'); dbgEl.style.cssText=
-    'position:fixed;left:6px;bottom:6px;z-index:99999;background:rgba(0,0,0,.82);color:#3DD68C;'+
-    'font:11px monospace;padding:4px 7px;border-radius:5px;max-width:96vw;white-space:pre-wrap;';
-    document.body.appendChild(dbgEl); }
-  var s0=(dbgExp&&dbgExp.sprites&&dbgExp.sprites[0])||{};
-  dbgEl.textContent='DBG '+dbgStatic+' now='+(s0.x|0)+','+(s0.y|0)+' tk='+expTickCount+
-                    ' raf='+(expRAF?'on':'off')+' attached='+(s0.g&&s0.g.parentNode?'Y':'N');
-  requestAnimationFrame(dbgShow);
-}
-requestAnimationFrame(dbgShow);
 function expSetCwd(sid,member,cwd){ var e=expeditions[sid]; if(e && cwd) e.cwds[member]=cwd; }
 // The member is now reading <p> → record the DESIRED room. The sprite only switches to it
 // AFTER it has arrived at and finished auditing its current room (pacing in expTick), and
@@ -1089,7 +1069,6 @@ function expBurst(x,y,color){
 var EXP_SPEED=42;     // world units/sec along corridors
 var AUDIT_DWELL=2.6;  // sec a sprite audits (scans in place) a room before it may move on
 function expTick(now){
-  expTickCount++;
   var dt=Math.min(0.05,(now-expLast)/1000); expLast=now;
   for(var sid in expeditions){
     var exp=expeditions[sid];
@@ -1857,7 +1836,10 @@ function finalizeTribunal(trib){
 // shows a spinner; finalizeTribunal → rtRunVotes reveals each verdict in turn,
 // King-Arthur style, driven by the REAL support/total tally.
 var rtState=null;
-function rtSeatPos(i,n){ var ang=(-90 + i*360/n)*Math.PI/180; return { left:50+40*Math.cos(ang), top:50+34*Math.sin(ang) }; }
+// Seats ring the table (centered at 42% to leave the lower third for the judge prompt).
+// Radii kept narrow (32% / 30%) + 96px cards so left/right seats never clip on phones,
+// and the bottom seat clears the Vanquish/Release buttons.
+function rtSeatPos(i,n){ var ang=(-90 + i*360/n)*Math.PI/180; return { left:50+32*Math.cos(ang), top:42+28*Math.sin(ang) }; }
 function openRoundtable(job){
   var stage=$('rt-stage'); if(!stage || !job || !job.findings.length) return;
   var n=job.members || ((job.models&&job.models.length)||2);
