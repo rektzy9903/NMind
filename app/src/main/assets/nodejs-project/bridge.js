@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b63-dungeon-models';
+const BRIDGE_BUILD = 'b64-tribunal';
 
 const net   = require('net');
 const http  = require('http');
@@ -5821,6 +5821,31 @@ function openPrintSession() {
             'When the library.md is written, stop.'
         ].join('\n');
     }
+    // War Council member: audits the WHOLE project but writes NO files — only emits
+    // markers (the tribunal consolidates + the dungeon writes the voted library.md).
+    const COUNCIL_AUDIT_TASK =
+        'Audit this WHOLE project for REAL issues. Do NOT write or edit ANY file. ' +
+        'For each genuine bug print exactly one line: `🪲BUG <file:line> <critical|major|minor> <title>`.';
+    function councilPersona() {
+        return [
+            'You are one member of a War Council auditing a software project.',
+            'GOAL: independently find REAL problems — bugs, crashes, security risks, broken logic.',
+            'Be rigorous and skeptical; do NOT invent issues to look productive.',
+            'Use Read / Grep / Bash to inspect code. Cover as much of the project as you can.',
+            'IMPORTANT: do NOT create or edit any file (no library.md). Your only output is markers.',
+            'For EACH real bug print exactly: `🪲BUG <file:line> <critical|major|minor> <title>`.',
+            'When done, stop.'
+        ].join('\n');
+    }
+    const JUDGE_PERSONA = [
+        'You are a tribunal JUDGE reviewing bug claims made by other auditors of this project.',
+        'For each claim you are given (id :: title :: file), READ the referenced file/line and decide:',
+        '  real   — you can confirm the bug is genuine',
+        '  false  — the code is actually fine / the claim is wrong',
+        '  unsure — you cannot determine it',
+        'Be skeptical and evidence-based. Do NOT write or edit any file.',
+        'Output exactly one line per claim: `🗳VOTE <id> real|false|unsure`.'
+    ].join('\n');
     function attachDungeonSession(sid, socket, leftover) {
         let reqBuf = leftover ? Buffer.from(leftover, 'binary').toString() : '';
         let started = false;
@@ -5853,8 +5878,47 @@ function openPrintSession() {
                 ? (chosen.length ? Math.min(4, chosen.length) : Math.max(2, Math.min(4, parseInt(r.members,10) || 2)))
                 : 1;
             const benv = buildEnv();
-            const persona = (op === 'dispatch' && r.persona) ? r.persona : scoutPersona(cwd);
-            const task = r.task || (op === 'dispatch' ? 'Do the assigned work in this folder.' : DEFAULT_SCOUT_TASK);
+
+            // ── Tribunal judge: one spawn votes on a list of claimed bugs ──
+            if (op === 'judge') {
+                const findings = Array.isArray(r.findings) ? r.findings : [];
+                const guestEnv = {
+                    ANTHROPIC_API_KEY: benv.ANTHROPIC_API_KEY,
+                    ANTHROPIC_MODEL:   r.model || benv.ANTHROPIC_MODEL,
+                    DISABLE_AUTOUPDATER:'1', MCP_TIMEOUT:'30000', MCP_TOOL_TIMEOUT:'30000',
+                    SHELL:'/bin/bash', IS_SANDBOX:'1',
+                };
+                if (benv.ANTHROPIC_BASE_URL) guestEnv.ANTHROPIC_BASE_URL = benv.ANTHROPIC_BASE_URL;
+                const listTxt = findings.map(f => f.id + ' :: ' + f.title + ' :: ' + (f.file || '?')).join('\n');
+                const jtask = 'Review these claimed bugs in this project:\n\n' + listTxt +
+                    '\n\nFor EACH, read the file and output one line: 🗳VOTE <id> real|false|unsure';
+                const jargv = [GUEST_CLAUDE, '--output-format', 'stream-json', '--print',
+                    '--dangerously-skip-permissions', '--append-system-prompt', JUDGE_PERSONA, '--verbose', jtask];
+                let jp; try { jp = prootChild(jargv, { extraEnv: guestEnv, workspace: cwd }); }
+                catch (e) { send({ t:'judge-done', error:e.message }); try{socket.end();}catch(_){} return; }
+                procs.add(jp); try { jp.stdin.end(); } catch(_){}
+                send({ t:'judge-start', model: guestEnv.ANTHROPIC_MODEL || '' });
+                let jbuf = '';
+                const scanVotes = txt => { const re=/🗳VOTE\s+(\S+)\s+(real|false|unsure)/gi; let m; while ((m=re.exec(txt))) send({ t:'vote', id:m[1], verdict:m[2].toLowerCase() }); };
+                jp.stdout.on('data', d => {
+                    jbuf += d.toString(); let nl;
+                    while ((nl = jbuf.indexOf('\n')) !== -1) {
+                        const line = jbuf.slice(0,nl); jbuf = jbuf.slice(nl+1); if (!line.trim()) continue;
+                        try { const ev = JSON.parse(line); if (ev.type==='assistant' && ev.message && Array.isArray(ev.message.content)) ev.message.content.forEach(c => { if (c.type==='text' && c.text) scanVotes(c.text); }); }
+                        catch(_) { scanVotes(line); }
+                    }
+                });
+                jp.stderr.on('data', d => log('[judge] ' + d.toString().slice(0,160) + '\n'));
+                jp.on('close', code => { procs.delete(jp); send({ t:'judge-done', code:code }); try{socket.end();}catch(_){} });
+                return;
+            }
+
+            const persona = (op === 'dispatch' && r.persona) ? r.persona
+                          : isCouncil ? councilPersona()
+                          : scoutPersona(cwd);
+            const task = r.task || (op === 'dispatch' ? 'Do the assigned work in this folder.'
+                          : isCouncil ? COUNCIL_AUDIT_TASK
+                          : DEFAULT_SCOUT_TASK);
             log('[dungeon] op=' + op + ' members=' + members + ' cwd=' + cwd + '\n');
 
             let doneCount = 0;

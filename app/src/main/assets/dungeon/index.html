@@ -309,7 +309,7 @@
     </div>
     <div class="dlg-label" id="model-label">Model</div>
     <div id="scout-models"></div>
-    <div class="dlg-note" id="council-note" style="display:none;">Pick 2–4 models — each audits in parallel as a council member. Disagreements get flagged; full tribunal voting lands next phase.</div>
+    <div class="dlg-note" id="council-note" style="display:none;">Pick 2–4 models — each audits in parallel, then a tribunal votes on disputed bugs. Unanimous → 👑 boss · majority → monster · lone claim → 👻 phantom. Deep audit — slower than a solo scout.</div>
     <div class="dialog-btns" style="margin-top:14px;">
       <button id="scout-cancel">Cancel</button>
       <button id="scout-begin">Begin</button>
@@ -386,7 +386,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd11-scout-tour-model-pick';
+var DUNGEON_BUILD = 'd12-tribunal';
 
 // ── Bridge ────────────────────────────────────────────────
 var A = (typeof DungeonAndroid !== 'undefined') ? DungeonAndroid : null;
@@ -425,7 +425,12 @@ function parseBugs(libPath){
     if(/^##\s+/.test(line) && inSection){ inSection=false; }
     if(!inSection) return;
     var m=line.match(/^-\s+\[\s*\]\s+\*\*(.+?)\*\*\s*(?:·\s*`?([^`·]+)`?)?\s*(?:·\s*(critical|major|minor))?/i);
-    if(m) bugs.push({ title:m[1].trim(), file:(m[2]||'').trim(), sev:(m[3]||'minor').toLowerCase() });
+    if(m){
+      var bug={ title:m[1].trim(), file:(m[2]||'').trim(), sev:(m[3]||'minor').toLowerCase() };
+      var vm=line.match(/votes=(\d+)\/(\d+)/); if(vm){ bug.support=+vm[1]; bug.total=+vm[2]; }
+      if(/·\s*phantom/i.test(line)) bug.type='phantom'; else if(/·\s*boss/i.test(line)) bug.type='boss';
+      bugs.push(bug);
+    }
   });
   return bugs;
 }
@@ -567,7 +572,11 @@ function reloadAgents(){
 }
 
 function mkBugs(parsed){
-  return parsed.map(function(b,i){ return { id:'b'+i+'_'+(b.file||b.title).replace(/\W/g,'').slice(0,8), hp:100, maxHp:100, severity:b.sev, title:b.title, file:b.file }; });
+  return parsed.map(function(b,i){
+    var type=b.type || (b.support!=null ? (b.support>=b.total?'boss':(b.support>=Math.ceil(b.total/2)?'normal':'phantom')) : 'normal');
+    var maxHp = type==='boss'?160 : type==='phantom'?50 : 100;
+    return { id:'b'+i+'_'+(b.file||b.title).replace(/\W/g,'').slice(0,8), hp:maxHp, maxHp:maxHp, severity:b.sev, title:b.title, file:b.file, type:type, support:b.support, total:b.total };
+  });
 }
 
 function corridorPath(a,b){
@@ -608,8 +617,16 @@ function renderMonsters(){
     r.bugs.forEach(function(b,i){
       var slots=r.bugs.length, spacing=Math.min(13,(r.w-10)/Math.max(slots,1));
       var mx=r.cx+(i-(slots-1)/2)*spacing, my=r.cy+r.h*0.15;
-      var g=el('g',{'class':'monster','data-room':r.id,'data-bug':b.id,transform:'translate('+mx+','+my+')'});
-      g.appendChild(el('path',{ d:'M -4 2.5 Q -4 -4 0 -4 Q 4 -4 4 2.5 L 2.5 4 L 1.2 2.5 L 0 4 L -1.2 2.5 L -2.5 4 Z','class':'monster-body' }));
+      // tribunal confidence → monster nature (PRD §9.5): boss bigger+crowned, phantom faint+dashed
+      var mt=b.type||'normal', mscale=mt==='boss'?1.45:mt==='phantom'?0.8:1;
+      var g=el('g',{'class':'monster monster-'+mt,'data-room':r.id,'data-bug':b.id,
+        transform:'translate('+mx+','+my+') scale('+mscale+')'});
+      if(mt==='phantom') g.setAttribute('opacity','0.45');
+      var body=el('path',{ d:'M -4 2.5 Q -4 -4 0 -4 Q 4 -4 4 2.5 L 2.5 4 L 1.2 2.5 L 0 4 L -1.2 2.5 L -2.5 4 Z','class':'monster-body' });
+      if(mt==='boss') body.setAttribute('fill','#8b1a12');
+      if(mt==='phantom'){ body.setAttribute('fill','#6a5a7a'); body.setAttribute('stroke-dasharray','1 0.8'); }
+      g.appendChild(body);
+      if(mt==='boss'){ var cr=el('text',{x:0,y:-5.6,'text-anchor':'middle','font-size':4,fill:'#f2c14e'}); cr.textContent='♛'; g.appendChild(cr); }
       g.appendChild(el('circle',{cx:-1.5,cy:-1.2,r:0.6,fill:'#fff'}));
       g.appendChild(el('circle',{cx:1.5,cy:-1.2,r:0.6,fill:'#fff'}));
       g.appendChild(el('circle',{cx:-1.5,cy:-1.2,r:0.3,fill:'#000'}));
@@ -1150,7 +1167,9 @@ $('scout-begin').addEventListener('click', function(){
     : { op:'scout', cwd:cwd, mode:'solo', model:(scoutModelSel[0]||'') };
   var members = council ? scoutModelSel.length : 1;
   var sid=jDispatch(JSON.stringify(payload));
-  dispatchJobs[sid]={ roomIds:ids, council:council, scout:true };
+  dispatchJobs[sid]={ roomIds:ids, council:council, scout:true,
+    cwd:cwd, rootId:rootId, members:members,
+    models:council?scoutModelSel.slice():[], findings:[] };
   startExpedition(sid, council?'council':'scout', rootId, members);
   $('scout-dialog').classList.remove('show');
   setScouting(council?('⚖ Council scouting ('+members+')…'):'🧭 Scouting…');
@@ -1166,10 +1185,163 @@ function rescanRooms(ids){
   if(openRoomId) renderRoomPanel();
 }
 
+// ════════════════════════════════════════
+// WAR COUNCIL — TRIBUNAL (PRD §9.5)
+//   Phase 1 (bridge): N members audit → 🪲BUG markers → t:'bug'.
+//   Phase 1b (here):  union findings with fuzzy dedup; support = members who found it.
+//   Phase 2 (bridge): judge re-votes DISPUTED findings the model missed → t:'vote'.
+//   Phase 3 (here):   support/total → boss/normal/phantom → voted library.md → render.
+// Tribunal state lives in its own map because the council socket closes (t:'closed')
+// the instant all members finish — before the judges return.
+// ════════════════════════════════════════
+var tribunals={};   // tribId → { cwd, roomIds, models, list, judgesPending }
+
+function normFile(f){ return (f||'').split(':')[0].replace(/^.*\//,'').toLowerCase(); }
+function fileLine(f){ var m=(f||'').match(/:(\d+)/); return m?+m[1]:null; }
+function titleTokens(t){ return (t||'').toLowerCase().match(/[a-z0-9]{3,}/g)||[]; }
+function jaccard(a,b){
+  if(!a.length||!b.length) return 0;
+  var sa={}; a.forEach(function(x){ sa[x]=1; });
+  var inter=0, uni={}; a.forEach(function(x){ uni[x]=1; });
+  b.forEach(function(x){ if(sa[x]) inter++; uni[x]=1; });
+  return inter/Object.keys(uni).length;
+}
+// Same underlying bug? same file (basename) + (close line OR similar title), else strong title match.
+function sameFinding(a,b){
+  var fa=normFile(a.file), fb=normFile(b.file);
+  var tj=jaccard(titleTokens(a.title), titleTokens(b.title));
+  if(fa && fb && fa===fb){
+    var la=fileLine(a.file), lb=fileLine(b.file);
+    if(la!=null && lb!=null) return Math.abs(la-lb)<=8 || tj>=0.4;
+    return true;
+  }
+  if(!fa || !fb) return tj>=0.6;
+  return false;   // different files → different monsters
+}
+// Buffer a council member's finding into job.findings, merging duplicates across members.
+function collectFinding(job, member, file, sev, title){
+  var inc={ file:file, sev:sev, title:title };
+  for(var i=0;i<job.findings.length;i++){
+    if(sameFinding(job.findings[i], inc)){
+      job.findings[i].foundBy[member]=1;
+      // keep the most-severe label, prefer a finding that carries a line number
+      if(SEV_RANK(sev) > SEV_RANK(job.findings[i].sev)) job.findings[i].sev=sev;
+      if(!fileLine(job.findings[i].file) && fileLine(file)) job.findings[i].file=file;
+      return;
+    }
+  }
+  var fb={}; fb[member]=1;
+  job.findings.push({ file:file, sev:sev, title:title, foundBy:fb });
+}
+function SEV_RANK(s){ return s==='critical'?3:s==='major'?2:1; }
+
+// Council members done → consolidate, then either run the tribunal or finalize.
+function beginTribunal(job){
+  var members=job.members||1;
+  var list=job.findings.map(function(f,i){
+    return { id:'f'+i, file:f.file, sev:f.sev, title:f.title,
+             foundBy:f.foundBy, support:Object.keys(f.foundBy).length, total:members,
+             judged:{} };
+  });
+  if(!list.length){ finalizeTribunal({ cwd:job.cwd, roomIds:job.roomIds, list:[], judgesPending:0 }); return; }
+
+  var trib={ cwd:job.cwd, roomIds:job.roomIds, models:job.models||[], list:list, judgesPending:0 };
+  // model that owns council member idx (members map to models[idx % models.length])
+  function modelOf(idx){ return trib.models.length ? trib.models[idx % trib.models.length] : ''; }
+  function foundByModel(f, mdl){
+    return Object.keys(f.foundBy).some(function(idx){ return modelOf(+idx)===mdl; });
+  }
+  // DISPUTED = not everyone found it. Each model that MISSED a disputed finding re-votes on it.
+  var disputed=list.filter(function(f){ return f.support < f.total; });
+  if(disputed.length && trib.models.length>1){
+    setScouting('⚖ Tribunal — judges deliberating…');
+    trib.models.forEach(function(mdl){
+      var missed=disputed.filter(function(f){ return !foundByModel(f, mdl); });
+      if(!missed.length) return;
+      var jsid=jDispatch(JSON.stringify({ op:'judge', cwd:trib.cwd, model:mdl,
+        findings:missed.map(function(f){ return { id:f.id, title:f.title, file:f.file }; }) }));
+      dispatchJobs[jsid]={ judge:true, tribId:jsid, _trib:trib, model:mdl };
+      tribunals[jsid]=trib;            // alias: judge sid → shared tribunal
+      trib.judgesPending++;
+    });
+  }
+  if(trib.judgesPending===0) finalizeTribunal(trib);
+}
+
+// A judge confirmed a missed finding → that model now agrees → +1 support (capped, once per model).
+function applyVote(trib, model, id, verdict){
+  if(verdict!=='real') return;
+  for(var i=0;i<trib.list.length;i++){
+    var f=trib.list[i];
+    if(f.id===id && !f.judged[model] && f.support<f.total){ f.judged[model]=1; f.support++; return; }
+  }
+}
+
+function tribType(f){
+  return f.support>=f.total ? 'boss'
+       : f.support>=Math.ceil(f.total/2) ? 'normal'
+       : 'phantom';
+}
+function votedBugLine(f){
+  return '- [ ] **'+f.title+'** · `'+(f.file||'')+'` · '+f.sev+
+         ' · votes='+f.support+'/'+f.total+' · '+tribType(f);
+}
+// Bucket findings to the room whose path is the longest prefix of the finding's path.
+function roomForFinding(roomIds, cwd, file){
+  var abs=(file||'').split(':')[0];
+  if(abs && abs.charAt(0)!=='/') abs=cwd.replace(/\/$/,'')+'/'+abs;
+  var best=null, bestLen=-1;
+  (roomIds||[]).forEach(function(id){
+    var r=getRoom(id); if(!r) return;
+    if(abs.indexOf(r.path)===0 && r.path.length>bestLen){ best=r; bestLen=r.path.length; }
+  });
+  return best;
+}
+// Rewrite each affected room's Open Bugs section with the voted findings (preserve the rest).
+function writeVotedLibraries(trib){
+  var fallback=getRoom((trib.roomIds||[])[0]) || getRoom('throne');
+  var byRoom={};
+  trib.list.forEach(function(f){
+    var r=roomForFinding(trib.roomIds, trib.cwd, f.file) || fallback;
+    if(!r) return;
+    (byRoom[r.path]=byRoom[r.path]||[]).push(f);
+  });
+  Object.keys(byRoom).forEach(function(path){
+    var lines=byRoom[path].map(votedBugLine).join('\n');
+    var p=path+'/library.md', md=readFile(p);
+    var block='## 🐛 Open Bugs\n'+lines+'\n';
+    if(!md){ md='# library\n\n'+block; }
+    else if(/##\s+🐛.*\n([\s\S]*?)(?=\n##\s+|$)/.test(md) || /##\s+.*Open Bugs.*\n([\s\S]*?)(?=\n##\s+|$)/i.test(md)){
+      // replace the existing Open Bugs section body
+      md=md.replace(/##\s+(?:🐛.*|.*Open Bugs.*)\n([\s\S]*?)(?=\n##\s+|$)/i, block);
+    } else { md=md.replace(/\s*$/,'')+'\n\n'+block; }
+    writeFile(p, md);
+  });
+}
+function finalizeTribunal(trib){
+  writeVotedLibraries(trib);
+  var bosses=trib.list.filter(function(f){ return tribType(f)==='boss'; }).length;
+  var ph=trib.list.filter(function(f){ return tribType(f)==='phantom'; }).length;
+  rescanRooms(trib.roomIds);
+  refreshTitle();
+  toast('⚖ Tribunal complete · '+trib.list.length+' findings ('+bosses+' boss / '+ph+' phantom)');
+}
+
 // ── Dispatch / Scout event stream from Kotlin ──
 window.onDungeonEvent=function(sid, line){
   var ev; try{ ev=JSON.parse(line); }catch(_){ return; }
   var job=dispatchJobs[sid];
+
+  // ── Tribunal judge stream (separate socket per judge model) ──
+  if(job && job.judge){
+    var trib=job._trib;
+    if(ev.t==='vote'){ if(trib) applyVote(trib, job.model, ev.id, ev.verdict); }
+    else if(ev.t==='judge-done' || ev.t==='closed'){
+      delete dispatchJobs[sid]; delete tribunals[sid];
+      if(trib && job._counted!==true){ job._counted=true; if(--trib.judgesPending<=0) finalizeTribunal(trib); }
+    }
+    return;
+  }
   if(ev.t==='models'){
     scoutModels = ev.list||[];
     if(!scoutModelSel.length && ev.current) scoutModelSel=[ev.current];
@@ -1178,11 +1350,19 @@ window.onDungeonEvent=function(sid, line){
     return;
   }
   if(ev.t==='start' && ev.error){ toast('member '+ev.member+' failed to start'); }
-  else if(ev.t==='bug'){ /* findings get rendered on rescan at all-done */ }
+  else if(ev.t==='bug'){
+    // council: members write no files — buffer findings for the tribunal. solo: ignore (agent wrote library.md).
+    if(job && job.council) collectFinding(job, ev.member, ev.file, ev.sev, ev.title);
+  }
   else if(ev.t==='all-done'){
     endExpedition(sid);
-    refreshTitle(); toast('✅ '+(job&&job.council?'Council':'Scout')+' complete');
-    if(job) rescanRooms(job.roomIds);
+    if(job && job.council){
+      toast('⚔ Council audit done · '+job.findings.length+' candidate findings');
+      beginTribunal(job);   // Phase 2/3 — writes voted library.md + renders monsters
+    } else {
+      refreshTitle(); toast('✅ Scout complete');
+      if(job) rescanRooms(job.roomIds);
+    }
   }
   else if(ev.t==='error'){ endExpedition(sid); refreshTitle(); toast('⚠ '+(ev.msg||'dispatch error')); }
   else if(ev.t==='closed'){ endExpedition(sid); if(job && job.scout) refreshTitle(); delete dispatchJobs[sid]; }
