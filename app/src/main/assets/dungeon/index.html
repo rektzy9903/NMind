@@ -122,7 +122,11 @@
   .seg-btn.active { background:#22E8834A; border-color:var(--naccent); color:var(--naccent); }
   .dlg .dialog-btns button { background:var(--nsurf2); color:var(--ntext2); border:1px solid var(--nborder); }
   #scout-begin, #ag-save { background:var(--naccent) !important; color:var(--nbg) !important; border:none !important; }
-  #scout-models { display:flex; flex-wrap:wrap; gap:6px; max-height:168px; overflow-y:auto; }
+  .model-search { width:100%; padding:8px 10px; margin-bottom:7px; border-radius:8px; background:var(--nsurf2); border:1px solid var(--nborder); color:var(--ntext); font-size:11px; font-family:'Courier New',monospace; outline:none; }
+  .model-search:focus { border-color:var(--naccent); }
+  #scout-models { display:flex; flex-wrap:wrap; gap:6px; max-height:168px; overflow-y:auto; align-content:flex-start; padding:2px; }
+  .model-chip .mc-prov { display:block; font-size:8px; line-height:1.1; color:var(--ntext3); font-weight:700; letter-spacing:.3px; text-transform:uppercase; margin-bottom:1px; }
+  .model-chip.sel .mc-prov { color:var(--naccent); }
   .model-chip { padding:7px 10px; border-radius:9px; background:var(--nsurf2); border:1px solid var(--nborder); color:var(--ntext2); font-size:11px; font-weight:700; font-family:'Courier New',monospace; cursor:pointer; }
   .model-chip.sel { background:#22E8834A; border-color:var(--naccent); color:var(--naccent); }
   #scout-models .mc-empty { font-size:11px; color:var(--ntext3); font-style:italic; }
@@ -320,6 +324,7 @@
       </div>
     </div>
     <div class="dlg-label" id="model-label">Model</div>
+    <input id="model-search" class="model-search" placeholder="Search models or provider…" autocomplete="off" />
     <div id="scout-models"></div>
     <div id="scout-assign" style="display:none;"></div>
     <div class="dlg-note" id="council-note" style="display:none;">Pick 2–4 models — each audits in parallel, then a tribunal votes on disputed bugs. Unanimous → 👑 boss · majority → monster · lone claim → 👻 phantom. Deep audit — slower than a solo scout.</div>
@@ -399,7 +404,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd14-label-wrap';
+var DUNGEON_BUILD = 'd15-live-models';
 
 // ── Bridge ────────────────────────────────────────────────
 var A = (typeof DungeonAndroid !== 'undefined') ? DungeonAndroid : null;
@@ -1132,8 +1137,11 @@ function appendBugToLibrary(roomPath, title){
 $('mapBackBtn').addEventListener('click', function(){ showScreen('home-screen'); renderHome(); });
 
 // ── Scout sheet (Solo / War Council) — model picking mirrors Discussion ──
-var scoutRoom=null, scoutModels=[], scoutModelSel=[];   // sel = selected model ids
-var assignSel={};                                        // divide mode: model → assigned roomId
+var scoutRoom=null, scoutModels=[], scoutModelSel=[];   // sel = selected TAGGED ids "<prov>::<model>"
+var scoutProviders={};                                   // providerId → {name, ids:[], loading}
+var scoutSearch='';                                      // model picker filter text
+var assignSel={};                                        // divide mode: tagged id → assigned roomId
+function modelShort(taggedId){ var i=String(taggedId).indexOf('::'); return i===-1?taggedId:taggedId.slice(i+2); }
 function setSeg(id,v){ document.querySelectorAll('#'+id+' .seg-btn').forEach(function(b){ b.classList.toggle('active', b.dataset.v===v); }); }
 function segVal(id){ var a=document.querySelector('#'+id+' .seg-btn.active'); return a?a.dataset.v:''; }
 
@@ -1158,7 +1166,7 @@ function renderAssignRows(){
   if(!roomList.length){ var e2=document.createElement('div'); e2.className='assign-hint'; e2.textContent='No rooms in this project.'; box.appendChild(e2); return; }
   scoutModelSel.forEach(function(m,i){
     var row=document.createElement('div'); row.className='assign-row';
-    var nm=document.createElement('div'); nm.className='assign-name'; nm.textContent=m.length>18?m.slice(0,17)+'…':m; nm.title=m;
+    var lab=modelShort(m); var nm=document.createElement('div'); nm.className='assign-name'; nm.textContent=lab.length>18?lab.slice(0,17)+'…':lab; nm.title=m;
     var sel=document.createElement('select'); sel.className='assign-sel'; sel.dataset.model=m;
     roomList.forEach(function(r){ var o=document.createElement('option'); o.value=r.id; o.textContent=r.name; sel.appendChild(o); });
     sel.value = (assignSel[m]!=null && getRoom(assignSel[m])) ? assignSel[m] : roomList[i%roomList.length].id;
@@ -1168,30 +1176,49 @@ function renderAssignRows(){
   });
 }
 
-// Fetch the provider's model list once (via the dungeon socket, op:'models')
-function fetchScoutModels(){
-  var sid=jDispatch(JSON.stringify({ op:'models' }));
-  dispatchJobs[sid]={ modelsQuery:true };
-}
+// Live-fetch models from EVERY configured provider (Kotlin → window.onDungeonModels).
+function fetchScoutModels(){ try{ if(A && A.requestModels) A.requestModels(); }catch(_){} }
+
+// Kotlin pushes one call per provider (static first, then live). Merge into scoutModels.
+window.onDungeonModels=function(providerId, providerName, ids, loading){
+  scoutProviders[providerId]={ name:providerName||providerId, ids:(ids||[]), loading:!!loading };
+  var out=[];
+  Object.keys(scoutProviders).forEach(function(pid){
+    var p=scoutProviders[pid];
+    (p.ids||[]).forEach(function(mid){ out.push({ id:pid+'::'+mid, model:mid, provider:pid, providerName:p.name }); });
+  });
+  scoutModels=out;
+  if(!scoutModelSel.length && scoutModels.length) scoutModelSel=[scoutModels[0].id];   // sensible default for Solo
+  if($('scout-dialog').classList.contains('show')) renderModelChips();
+};
 function renderModelChips(){
   var box=$('scout-models'); box.innerHTML='';
   var mode=segVal('scout-mode'), council=mode==='council';
   $('model-label').textContent = council ? 'Council models (pick 2–4)' : 'Model';
-  if(!scoutModels.length){ box.innerHTML='<span class="mc-empty">Using your configured model (list unavailable).</span>'; syncCouncilUi(); return; }
-  scoutModels.forEach(function(m){
-    var chip=document.createElement('div'); chip.className='model-chip'+(scoutModelSel.indexOf(m)!==-1?' sel':'');
-    chip.textContent=m.length>26?m.slice(0,25)+'…':m;
-    chip.title=m;
+  var anyLoading=Object.keys(scoutProviders).some(function(k){ return scoutProviders[k].loading; });
+  if(!scoutModels.length){
+    box.innerHTML='<span class="mc-empty">'+(anyLoading?'Fetching models…':'No provider configured — add an API key in Settings.')+'</span>';
+    syncCouncilUi(); return;
+  }
+  var q=(scoutSearch||'').toLowerCase();
+  var shown=scoutModels.filter(function(m){ return !q || m.model.toLowerCase().indexOf(q)!==-1 || m.providerName.toLowerCase().indexOf(q)!==-1; });
+  if(!shown.length){ box.innerHTML='<span class="mc-empty">No models match “'+esc(scoutSearch)+'”.</span>'; syncCouncilUi(); return; }
+  shown.forEach(function(m){
+    var on=scoutModelSel.indexOf(m.id)!==-1;
+    var chip=document.createElement('div'); chip.className='model-chip'+(on?' sel':'');
+    chip.title=m.providerName+' · '+m.model;
+    chip.innerHTML='<span class="mc-prov">'+esc(m.providerName)+'</span>'+esc(m.model.length>26?m.model.slice(0,25)+'…':m.model);
     chip.addEventListener('click', function(){
       if(council){
-        var i=scoutModelSel.indexOf(m);
+        var i=scoutModelSel.indexOf(m.id);
         if(i!==-1) scoutModelSel.splice(i,1);
-        else { if(scoutModelSel.length>=4){ toast('Up to 4 models'); return; } scoutModelSel.push(m); }
-      } else { scoutModelSel=[m]; }
+        else { if(scoutModelSel.length>=4){ toast('Up to 4 models'); return; } scoutModelSel.push(m.id); }
+      } else { scoutModelSel=[m.id]; }
       renderModelChips();
     });
     box.appendChild(chip);
   });
+  if(anyLoading){ var l=document.createElement('div'); l.className='mc-empty'; l.style.width='100%'; l.textContent='fetching more…'; box.appendChild(l); }
   syncCouncilUi();
 }
 function openScout(roomId){
@@ -1202,7 +1229,8 @@ function openScout(roomId){
   var roomBtn=document.querySelector('#scout-scope .seg-btn[data-v="room"]');
   roomBtn.style.opacity = scoutRoom?'1':'0.35';
   $('scout-target').textContent = scoutRoom?('Audit room: '+scoutRoom.name):'Audit the whole dungeon';
-  if(!scoutModels.length) fetchScoutModels();
+  scoutSearch=''; var ms=$('model-search'); if(ms) ms.value='';
+  fetchScoutModels();   // refresh live models each open (picks up newly-added provider keys)
   renderModelChips();
   $('scout-dialog').classList.add('show');
 }
@@ -1224,6 +1252,7 @@ document.querySelectorAll('#scout-mode .seg-btn').forEach(function(b){
 document.querySelectorAll('#scout-cmode .seg-btn').forEach(function(b){
   b.addEventListener('click', function(){ setSeg('scout-cmode', b.dataset.v); syncCouncilUi(); });
 });
+$('model-search').addEventListener('input', function(){ scoutSearch=this.value; renderModelChips(); });
 $('scout-cancel').addEventListener('click', function(){ $('scout-dialog').classList.remove('show'); });
 $('scout-begin').addEventListener('click', function(){
   var mode=segVal('scout-mode'), council=mode==='council';
@@ -1453,13 +1482,6 @@ window.onDungeonEvent=function(sid, line){
       delete dispatchJobs[sid]; delete tribunals[sid];
       if(trib && job._counted!==true){ job._counted=true; if(--trib.judgesPending<=0) finalizeTribunal(trib); }
     }
-    return;
-  }
-  if(ev.t==='models'){
-    scoutModels = ev.list||[];
-    if(!scoutModelSel.length && ev.current) scoutModelSel=[ev.current];
-    else if(!scoutModelSel.length && scoutModels.length) scoutModelSel=[scoutModels[0]];
-    if($('scout-dialog').classList.contains('show')) renderModelChips();
     return;
   }
   if(ev.t==='start' && ev.error){ toast('member '+ev.member+' failed to start'); }

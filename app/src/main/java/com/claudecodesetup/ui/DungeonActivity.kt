@@ -8,6 +8,14 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import android.webkit.*
 import com.claudecodesetup.data.AppPreferences
+import com.claudecodesetup.data.Provider
+import com.claudecodesetup.data.ProvidersRepository
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -19,6 +27,11 @@ class DungeonActivity : AppCompatActivity() {
 
     // Open dispatch sockets keyed by sid (Scout / Dispatch / War Council)
     private val dispatchSockets = java.util.concurrent.ConcurrentHashMap<String, java.net.Socket>()
+
+    // Background scope for live model fetches (cancelled in onDestroy)
+    private val ioScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    // Live model ids per provider (rebuilds dungeon_providers.json so /v1/models validates tags)
+    private val dungeonModels = java.util.concurrent.ConcurrentHashMap<String, List<String>>()
 
     // The agents dir the proot guest actually reads: ~/.claude is bound to filesDir/.claude
     private fun agentsDir() = File(filesDir, ".claude/agents")
@@ -86,6 +99,32 @@ class DungeonActivity : AppCompatActivity() {
         webView.post { webView.evaluateJavascript(js, null) }
     }
 
+    private fun pushModelsToWeb(providerId: String, providerName: String, ids: List<String>, loading: Boolean) {
+        val jarr = JSONArray(); ids.forEach { jarr.put(it) }
+        val js = "window.onDungeonModels && window.onDungeonModels(" +
+            "${JSONObject.quote(providerId)},${JSONObject.quote(providerName)},$jarr,$loading)"
+        webView.post { webView.evaluateJavascript(js, null) }
+    }
+
+    // Routing table the bridge proxy reads to send each dungeon member to its own provider.
+    private fun writeDungeonProvidersFile(configured: List<Triple<Provider, String, String>>) {
+        val arr = JSONArray()
+        configured.forEach { (p, key, baseUrl) ->
+            arr.put(JSONObject().apply {
+                put("id", p.id); put("name", p.name)
+                put("providerUrl", baseUrl); put("apiKey", key)
+                val mids = JSONArray(); (dungeonModels[p.id] ?: p.models.map { it.modelId }).forEach { mids.put(it) }
+                put("models", mids)
+            })
+        }
+        try { File(filesDir, "dungeon_providers.json").writeText(arr.toString()) } catch (_: Exception) {}
+    }
+
+    override fun onDestroy() {
+        ioScope.cancel()
+        super.onDestroy()
+    }
+
     private fun dungeonsFile() = File(filesDir, "dungeons.json")
 
     private fun loadDungeons(): JSONArray {
@@ -117,6 +156,38 @@ class DungeonActivity : AppCompatActivity() {
         @JavascriptInterface
         fun pickFolder() {
             runOnUiThread { folderPicker.launch(null) }
+        }
+
+        // Live model fetch across EVERY configured provider (mirrors DiscussionModelPicker):
+        // exports each provider's url+key for the proxy's per-member routing AND fetches its
+        // model list, pushing results to window.onDungeonModels(providerId, name, ids[], loading).
+        @JavascriptInterface
+        fun requestModels() {
+            val configured = ProvidersRepository.currentList().mapNotNull { p ->
+                val key = prefs.getApiKeyForProvider(p.id)
+                if (key.isEmpty()) return@mapNotNull null
+                val custom = prefs.getCustomBaseUrlForProvider(p.id)
+                val baseUrl = if (custom.isNotEmpty()) custom else p.baseUrl
+                Triple(p, key, baseUrl)
+            }
+            // seed static lists + write the routing file so dispatch works even before fetch lands
+            configured.forEach { (p, _, _) ->
+                if (dungeonModels[p.id] == null) dungeonModels[p.id] = p.models.map { it.modelId }
+                pushModelsToWeb(p.id, p.name, dungeonModels[p.id]!!, loading = p.supportsLiveFetch)
+            }
+            writeDungeonProvidersFile(configured)
+            // live fetch per provider (static fallback on failure — never blanks a provider)
+            configured.filter { it.first.supportsLiveFetch }.forEach { (p, key, baseUrl) ->
+                ioScope.launch {
+                    val ids = try {
+                        val fetched = ProvidersRepository.fetchModels(p.copy(baseUrl = baseUrl), key)
+                        if (fetched.isNotEmpty()) fetched.map { it.modelId } else p.models.map { it.modelId }
+                    } catch (_: Exception) { p.models.map { it.modelId } }
+                    dungeonModels[p.id] = ids
+                    writeDungeonProvidersFile(configured)
+                    pushModelsToWeb(p.id, p.name, ids, loading = false)
+                }
+            }
         }
 
         // Dungeon list persistence

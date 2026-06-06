@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b65-divide';
+const BRIDGE_BUILD = 'b66-dungeon-multiprovider';
 
 const net   = require('net');
 const http  = require('http');
@@ -996,6 +996,12 @@ function startProxyServer(onReady) {
             // set ANTHROPIC_MODEL to a real provider model and pass startup validation.
             const ids = [base];
             if (Array.isArray(mcfg.modelList)) mcfg.modelList.forEach(m => { if (m && ids.indexOf(m) === -1) ids.push(m); });
+            // Dungeon multi-provider: advertise every "<providerId>::<modelId>" tag so a
+            // member spawned on ANY configured provider passes claude-code startup validation.
+            loadDungeonProviders().forEach(p => {
+                if (!p || !Array.isArray(p.models)) return;
+                p.models.forEach(mid => { const tag = p.id + '::' + mid; if (mid && ids.indexOf(tag) === -1) ids.push(tag); });
+            });
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
                 data: ids.map(id => ({ id, display_name: id, created_at: '' }))
@@ -1407,10 +1413,34 @@ function proactiveToolPick(userText, deferrable) {
     return picked;
 }
 
+// Dungeon multi-provider routing. The dungeon Scout/Council picker lets a member
+// run on ANY configured provider (not just the active one). It sets ANTHROPIC_MODEL
+// to a tagged id "<providerId>::<modelId>"; this resolves that provider's url+key
+// from dungeon_providers.json (written by DungeonActivity) and rewrites anthReq.model
+// to the bare model id. Per-request + read-only → concurrency-safe across members.
+const DUNGEON_PROVIDERS_FILE = path.join(FILES_DIR, 'dungeon_providers.json');
+function loadDungeonProviders() {
+    try { const a = JSON.parse(fs.readFileSync(DUNGEON_PROVIDERS_FILE, 'utf8')); return Array.isArray(a) ? a : []; }
+    catch(_) { return []; }
+}
+function routeDungeonProvider(anthReq) {
+    const m = anthReq && anthReq.model;
+    if (!m || typeof m !== 'string') return null;
+    const i = m.indexOf('::');
+    if (i === -1) return null;
+    const provId = m.slice(0, i), realModel = m.slice(i + 2);
+    const e = loadDungeonProviders().find(x => x && x.id === provId);
+    if (!e || !e.providerUrl) return null;
+    anthReq.model = realModel;   // downstream (OAI convert / anthropic-direct) uses the bare id
+    log('[proxy] dungeon route → provider=' + provId + ' model=' + realModel + '\n');
+    return { providerUrl: e.providerUrl, apiKey: e.apiKey || '', model: realModel };
+}
+
 function handleProxyRequest(anthReq, res) {
     const cfg   = readConfig();
-    const pUrl  = cfg.providerUrl || '';
-    const key   = cfg.apiKey || '';
+    const routed = routeDungeonProvider(anthReq);   // dungeon per-member provider pick (else null)
+    const pUrl  = routed ? routed.providerUrl : (cfg.providerUrl || '');
+    const key   = routed ? routed.apiKey      : (cfg.apiKey || '');
     const stream = !!anthReq.stream;
 
     // Drop tools before anything reads anthReq.tools (size diagnostic below +
@@ -1449,7 +1479,7 @@ function handleProxyRequest(anthReq, res) {
     // discovery path; on any failure the interception finishes the stream cleanly,
     // and tool_search calls never leak to claude-code.
     let deferCatalogOai = null;
-    if (getDeferTools() && !(cfg.providerUrl || '').includes('api.anthropic.com')
+    if (getDeferTools() && !pUrl.includes('api.anthropic.com')
         && Array.isArray(anthReq.tools) && anthReq.tools.length) {
         // Tools already exercised in history → keep them available (no re-search).
         const usedInHistory = new Set();
@@ -1527,7 +1557,8 @@ function handleProxyRequest(anthReq, res) {
     // id per member; /v1/models advertises those ids so claude-code's startup validation
     // accepts them.
     const reqModel = anthReq.model || '';
-    const baseModel = (reqModel && Array.isArray(cfg.modelList) && cfg.modelList.indexOf(reqModel) !== -1)
+    const baseModel = routed ? routed.model
+        : (reqModel && Array.isArray(cfg.modelList) && cfg.modelList.indexOf(reqModel) !== -1)
         ? reqModel
         : (cfg.modelId || reqModel || '');
     log('[proxy] request: model=' + (anthReq.model||'?') +
