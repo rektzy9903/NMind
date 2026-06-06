@@ -124,10 +124,10 @@
   #scout-begin, #ag-save { background:var(--naccent) !important; color:var(--nbg) !important; border:none !important; }
   .model-search { width:100%; padding:8px 10px; margin-bottom:7px; border-radius:8px; background:var(--nsurf2); border:1px solid var(--nborder); color:var(--ntext); font-size:11px; font-family:'Courier New',monospace; outline:none; }
   .model-search:focus { border-color:var(--naccent); }
-  #scout-models { display:flex; flex-wrap:wrap; gap:6px; max-height:168px; overflow-y:auto; align-content:flex-start; padding:2px; }
-  .model-chip .mc-prov { display:block; font-size:8px; line-height:1.1; color:var(--ntext3); font-weight:700; letter-spacing:.3px; text-transform:uppercase; margin-bottom:1px; }
+  #scout-models { display:flex; flex-direction:column; gap:6px; max-height:168px; overflow-y:auto; padding:2px; }
+  .model-chip .mc-prov { flex:none; display:inline-block; font-size:8px; line-height:1.1; color:var(--ntext3); font-weight:700; letter-spacing:.3px; text-transform:uppercase; padding:2px 5px; border-radius:5px; background:rgba(0,0,0,0.18); }
   .model-chip.sel .mc-prov { color:var(--naccent); }
-  .model-chip { padding:7px 10px; border-radius:9px; background:var(--nsurf2); border:1px solid var(--nborder); color:var(--ntext2); font-size:11px; font-weight:700; font-family:'Courier New',monospace; cursor:pointer; }
+  .model-chip { display:flex; align-items:center; gap:8px; width:100%; box-sizing:border-box; padding:8px 11px; border-radius:9px; background:var(--nsurf2); border:1px solid var(--nborder); color:var(--ntext2); font-size:11px; font-weight:700; font-family:'Courier New',monospace; cursor:pointer; }
   .model-chip.sel { background:#22E8834A; border-color:var(--naccent); color:var(--naccent); }
   #scout-models .mc-empty { font-size:11px; color:var(--ntext3); font-style:italic; }
   #scout-assign { margin-top:10px; display:flex; flex-direction:column; gap:6px; }
@@ -404,7 +404,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd15-live-models';
+var DUNGEON_BUILD = 'd16-council-walk-scan';
 
 // ── Bridge ────────────────────────────────────────────────
 var A = (typeof DungeonAndroid !== 'undefined') ? DungeonAndroid : null;
@@ -910,7 +910,7 @@ function buildTourPath(tour){
 function makeScout(kind,color,tour){
   var tp=buildTourPath(tour);
   var g=spawnExpSprite(kind,color);
-  return { g:g, pts:tp.pts, stopMap:tp.stopMap, idx:1, x:tp.pts[0].x, y:tp.pts[0].y, bob:Math.random()*6.28, dwell:0, rooms:tour, here:'' };
+  return { g:g, pts:tp.pts, stopMap:tp.stopMap, idx:1, x:tp.pts[0].x, y:tp.pts[0].y, bob:Math.random()*6.28, dwell:0, blip:0, hereRoom:null, parked:false, rooms:tour };
 }
 function startExpedition(sid,kind,rootId,members){
   var throne=getRoom('throne'); rootId=getRoom(rootId)?rootId:'throne';
@@ -962,18 +962,27 @@ function expTick(now){
     var exp=expeditions[sid];
     if(exp.active){
       exp.sprites.forEach(function(s){
-        if(s.dwell>0){ s.dwell-=dt; }
-        else {
+        // Auditing a room (or parked at the last one) → stay put, pulse like radar.
+        if(s.parked || s.dwell>0){
+          if(!s.parked) s.dwell-=dt;
+          s.blip-=dt;
+          if(s.blip<=0 && s.hereRoom){ scanRing(s.hereRoom,exp.kind); s.blip=0.7; }
+        } else {
+          // Walking the corridor to the next room — follow waypoints, never cut across.
           var t=s.pts[s.idx];
           if(t){
             var dx=t.x-s.x, dy=t.y-s.y, d=Math.hypot(dx,dy), step=EXP_SPEED*dt;
             if(d<=step){
               s.x=t.x; s.y=t.y;
               var rm=s.stopMap[s.idx];
-              if(rm){ scanRing(rm,exp.kind); s.dwell=0.7+Math.random()*0.4; s.here=rm.name; exp.label=rm.name; }
-              s.idx++; if(s.idx>=s.pts.length){ s.idx=1; }   // loop the tour until done
+              if(rm){   // arrived at a room → begin auditing it (stop + scan)
+                s.hereRoom=rm; exp.label=rm.name;
+                scanRing(rm,exp.kind); s.blip=0.7; s.dwell=2.2+Math.random()*1.3;
+              }
+              s.idx++;
+              if(s.idx>=s.pts.length) s.parked=true;   // tour done → park & keep scanning (no loop, no fly-back)
             } else { s.x+=dx/d*step; s.y+=dy/d*step; }
-          }
+          } else { s.parked=true; }
         }
         var by=Math.sin(now/170+s.bob)*0.5;
         s.g.setAttribute('transform','translate('+s.x.toFixed(2)+','+(s.y+by).toFixed(2)+')');
@@ -1207,7 +1216,7 @@ function renderModelChips(){
     var on=scoutModelSel.indexOf(m.id)!==-1;
     var chip=document.createElement('div'); chip.className='model-chip'+(on?' sel':'');
     chip.title=m.providerName+' · '+m.model;
-    chip.innerHTML='<span class="mc-prov">'+esc(m.providerName)+'</span>'+esc(m.model.length>26?m.model.slice(0,25)+'…':m.model);
+    chip.innerHTML='<span class="mc-prov">'+esc(m.providerName)+'</span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(m.model)+'</span>'+(on?'<span style="flex:none;color:var(--naccent);">✓</span>':'');
     chip.addEventListener('click', function(){
       if(council){
         var i=scoutModelSel.indexOf(m.id);
