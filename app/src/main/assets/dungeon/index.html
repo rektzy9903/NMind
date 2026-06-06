@@ -501,7 +501,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd27-roaming-council';
+var DUNGEON_BUILD = 'd28-knight-sprite-fix';
 
 // ── Bridge ────────────────────────────────────────────────
 var A = (typeof DungeonAndroid !== 'undefined') ? DungeonAndroid : null;
@@ -1608,14 +1608,25 @@ function deepFinish(){
 //   The King (this orchestrator) holds the ledger; knights never memorise the whole castle.
 // ════════════════════════════════════════
 var councilState=null;
+// One knight = one expedition with exactly ONE sprite (its own colour), parked at the
+// Throne with NO auto fan-out — the King drives it explicitly via knightGoRoom. (Going
+// through startExpedition floored council sprites at 2 + ran a conflicting fan-out.)
+function startKnightExp(sid, color){
+  var th=getRoom('throne')||{cx:0,cy:0};
+  var g=spawnExpSprite('council', color);
+  var s={ g:g, x:th.cx, y:th.cy, atId:'throne', path:[], pidx:0, targetId:null, want:null, dwell:0,
+          bob:Math.random()*6.28, blip:0, hereRoom:null, parked:false, rooms:[], color:color };
+  expeditions[sid]={ kind:'council', sprites:[s], active:true, fade:0, label:'', cwds:{} };
+  if(!expRAF){ expLast=performance.now(); expRAF=requestAnimationFrame(expTick); }
+  return s;
+}
 function startRoamingCouncil(order, models){
   var N=Math.max(2, Math.min(4, models.length));
   councilState={ models:models.slice(0,N), N:N, rooms:order, visits:{}, byRoom:{},
                  target:N, cwd:activePath, roomIds:order.map(function(r){ return r.id; }), knights:[] };
   for(var k=0;k<N;k++){
     var expSid='council_'+Date.now()+'_'+k;
-    startExpedition(expSid, 'council', 'throne', 1);                 // one knight-sprite per member
-    var sp=expeditions[expSid]; if(sp && sp.sprites[0]) sp.sprites[0].color=EXP_PAL[k%EXP_PAL.length];
+    startKnightExp(expSid, EXP_PAL[k%EXP_PAL.length]);               // one knight-sprite, own colour, no fan-out
     var cardId=expSid+':0';
     addDcard(cardId, '⚖ '+shortModel(councilState.models[k]), '🎒 Preparing equipment…');
     councilState.knights.push({ i:k, model:councilState.models[k], expSid:expSid,
