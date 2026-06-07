@@ -540,7 +540,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd46-drop-deep-scout';
+var DUNGEON_BUILD = 'd47-fix-graphctx-newline';
 
 // ── Bridge ────────────────────────────────────────────────
 var A = (typeof DungeonAndroid !== 'undefined') ? DungeonAndroid : null;
@@ -935,8 +935,7 @@ function buildGraphContext(roomPath){
   var sc=graphState.scores[folder];
   if(sc) lines.push('THIS ROOM ('+folder+'): rank #'+sc.priority+', centrality='+sc.centrality.toFixed(2)+
     (sc.hasCycle?', WARNING: circular dependency detected':'')+(sc.blastRadius.length?', blast radius: '+sc.blastRadius.join(', '):''));
-  return lines.join('
-');
+  return lines.join('\n');
 }
 
 // Trigger graph scan via dispatch bridge

@@ -83,11 +83,9 @@ class PreviewActivity : AppCompatActivity() {
         val topBar = buildTopBar()
         root.addView(topBar)
 
-        // WebView
+        // WebView (added to the frame below — never directly to root, or the
+        // second addView throws IllegalStateException "already has a parent")
         webView = WebView(this).apply {
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f
-            )
             settings.apply {
                 javaScriptEnabled = true
                 domStorageEnabled = true
@@ -103,10 +101,12 @@ class PreviewActivity : AppCompatActivity() {
                 }
             }
         }
-        root.addView(webView)
 
         // Error overlay (hidden by default)
         errorView = buildErrorView()
+
+        // Frame stacks the WebView and the error overlay; frame fills the
+        // remaining vertical space under the top bar.
         val frame = FrameLayout(this).apply {
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f
@@ -118,8 +118,6 @@ class PreviewActivity : AppCompatActivity() {
         frame.addView(errorView, FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
         ))
-        // Replace webView's direct parent attachment with frame
-        root.removeView(webView)
         root.addView(frame)
 
         return root
