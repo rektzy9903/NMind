@@ -501,7 +501,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd39-council-sprite-diag';
+var DUNGEON_BUILD = 'd40-maxpath-diag';
 
 // ── Bridge ────────────────────────────────────────────────
 var A = (typeof DungeonAndroid !== 'undefined') ? DungeonAndroid : null;
@@ -1087,7 +1087,7 @@ function __dbgRender(){
     s+='\n'+sid.slice(-6)+' n:'+e.sprites.length+' act:'+(e.active?1:0)+' fade:'+e.fade.toFixed(1);
     e.sprites.forEach(function(s0,k){ var p1=(s0.path&&s0.path[s0.pidx]);
       s+='\n ['+k+']'+(s0.g&&s0.g.parentNode?'D':'-')+' xy:'+__fmt(s0.x)+','+__fmt(s0.y)+
-         ' p:'+(s0.path?s0.path.length:0)+'/'+s0.pidx+' wp:'+(p1?(__fmt(p1.x)+','+__fmt(p1.y)):'-')+' t:'+(s0.targetId||'-'); });
+         ' p:'+(s0.path?s0.path.length:0)+'/'+s0.pidx+' mp:'+(s0.maxP||0)+' wp:'+(p1?(__fmt(p1.x)+','+__fmt(p1.y)):'-')+' t:'+(s0.targetId||'-'); });
   });
   __dbgEl.textContent=s;
 }
@@ -1101,6 +1101,7 @@ function expTick(now){
     var exp=expeditions[sid];
     if(exp.active){
       exp.sprites.forEach(function(s){
+        if(s.path.length>(s.maxP||0)) s.maxP=s.path.length;   // diag: biggest path it ever held
         if(s.path.length && s.pidx < s.path.length){
           // TRAVELING — walk the corridor toward the room (no auditing yet)
           var t=s.path[s.pidx];
