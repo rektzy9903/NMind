@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b83-council-deliberate';
+const BRIDGE_BUILD = 'b84-deliberate-timeout';
 
 const net   = require('net');
 const http  = require('http');
@@ -6373,7 +6373,9 @@ function openPrintSession() {
                     if (benv.ANTHROPIC_BASE_URL) e.ANTHROPIC_BASE_URL = benv.ANTHROPIC_BASE_URL;
                     return e;
                 };
-                // One guest spawn; each assistant text block is fed to onText; resolves on close.
+                // One guest spawn; each assistant text block is fed to onText. ALWAYS resolves —
+                // on close OR on a hard timeout (a hung spawn must never stall the whole round).
+                const DELIB_SPAWN_MS = 90000;
                 const runSpawn = (model, persona, task, onText) => new Promise((resolve) => {
                     const argv = [GUEST_CLAUDE, '--output-format','stream-json','--print',
                         '--dangerously-skip-permissions','--append-system-prompt', persona, '--verbose', task];
@@ -6381,6 +6383,9 @@ function openPrintSession() {
                     try { p = prootChild(argv, { extraEnv: mkEnv(model), workspace: cwd }); }
                     catch(e){ resolve(); return; }
                     procs.add(p); try { p.stdin.end(); } catch(_){}
+                    let done=false;
+                    const finish=()=>{ if(done) return; done=true; clearTimeout(to); procs.delete(p); resolve(); };
+                    const to=setTimeout(()=>{ log('[delib] spawn timeout, killing\n'); try{ p.kill('SIGTERM'); }catch(_){} finish(); }, DELIB_SPAWN_MS);
                     let buf='';
                     p.stdout.on('data', d => {
                         buf += d.toString(); let nl;
@@ -6391,7 +6396,8 @@ function openPrintSession() {
                         }
                     });
                     p.stderr.on('data', d => log('[delib] ' + d.toString().slice(0,120) + '\n'));
-                    p.on('close', () => { procs.delete(p); resolve(); });
+                    p.on('close', finish);
+                    p.on('error', finish);
                 });
                 (async () => {
                     // Pass 1 — each finder argues its contested findings (members run in parallel).

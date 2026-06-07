@@ -642,7 +642,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd58-deliberation';
+var DUNGEON_BUILD = 'd59-deliberate-watchdog';
 
 // ── Bridge ────────────────────────────────────────────────
 var A = (typeof DungeonAndroid !== 'undefined') ? DungeonAndroid : null;
@@ -2300,7 +2300,16 @@ function runDeliberation(job, contested){
   });
   var sid=jDispatch(JSON.stringify({ op:'deliberate', cwd:job.cwd, models:job.models||[], findings:payload }));
   var byId={}; contested.forEach(function(f){ byId[f._delibId]=f; });
-  dispatchJobs[sid]={ deliberate:true, dJob:job, byId:byId };
+  // Watchdog: if the bridge never replies (hung spawn, dropped socket, or a stale bridge that
+  // doesn't know op:'deliberate'), proceed to the verdict anyway instead of waiting forever.
+  var wd=setTimeout(function(){
+    if(dispatchJobs[sid] && dispatchJobs[sid].deliberate){
+      delete dispatchJobs[sid];
+      toast('⚖ Deliberation timed out — the King rules on what we have');
+      job._delibDone=true; beginTribunal(job);
+    }
+  }, 220000);
+  dispatchJobs[sid]={ deliberate:true, dJob:job, byId:byId, wd:wd };
 }
 
 function tribType(f){
@@ -2649,6 +2658,7 @@ window.onDungeonEvent=function(sid, line){
     else if(ev.t==='delib-arg'){ var fa=job.byId[ev.id]; if(fa) fa._argument=ev.text; return; }   // finder's argument captured
     else if(ev.t==='delib-vote'){ var fv=job.byId[ev.id]; if(fv && ev.verdict==='for') fv.agreedBy[ev.member]=1; return; }  // only FOR raises support
     else if(ev.t==='delib-done' || ev.t==='delib-error'){
+      if(job.wd) clearTimeout(job.wd);
       var dj=job.dJob; delete dispatchJobs[sid];
       if(ev.error) toast('⚖ Deliberation cut short — ruling on what we have');
       if(dj){ dj._delibDone=true; beginTribunal(dj); }   // re-enter: now builds the trib with agreedBy + animates
