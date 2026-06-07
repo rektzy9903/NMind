@@ -547,7 +547,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd43-report-parser';
+var DUNGEON_BUILD = 'd44-hero-briefing';
 
 // ── Bridge ────────────────────────────────────────────────
 var A = (typeof DungeonAndroid !== 'undefined') ? DungeonAndroid : null;
@@ -563,6 +563,8 @@ function jStopDispatch(s) { try { if(A) A.stopDispatch(s); } catch(_){} }
 function jWriteAgent(n,m) { try { return A ? A.writeAgent(n,m) : false; } catch(_){ return false; } }
 function jDeleteAgent(n)  { try { return A ? A.deleteAgent(n) : false; } catch(_){ return false; } }
 var dispatchJobs={};
+var heroBriefings={};        // bugId → prepass-data (stored for future panel display)
+var pendingHeroDispatches={}; // prepassSid → {agent, roomId, bug}
 
 function $(id){ return document.getElementById(id); }
 function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
@@ -1061,16 +1063,15 @@ function buildPath(fromId,toId){
   var cleaned=[]; path.forEach(function(p){ var l=cleaned[cleaned.length-1]; if(!l||l.x!==p.x||l.y!==p.y) cleaned.push(p); });
   return cleaned;
 }
-function dispatchAgent(agent,roomId,bug){
+// Inner dispatch: called after the optional hero pre-pass (briefing) completes.
+function finishHeroDispatch(agent, roomId, bug, briefing){
   var room=getRoom(roomId); if(!agent||!room) return;
-  bug = bug || (room.bugs.length ? room.bugs[0] : null);
   var wp=buildPath(currentRoomOf(agent)||'throne', roomId);
   if(bug && bug._homeX!=null){ wp.push({x:bug._homeX-5,y:bug._homeY}); }
   else wp.push({x:room.cx+(Math.random()-0.5)*(room.w*0.4), y:room.cy});
   agent._path=wp; agent._pathIdx=0; agent.status='traveling'; agent.destRoom=roomId;
   agent.task=bug?('Hunting "'+bug.title+'"'):('Working in '+room.name);
   agent._targetBugId=bug?bug.id:null;
-  // REAL dispatch: stream a claude --print spawn in the room's cwd
   var task=['You are dispatched to this room as the hero "'+agent.name+'".',
     bug?('Fix this bug: '+bug.title+(bug.file?(' — at '+bug.file):'')+' (severity: '+bug.severity+')'):'Review and document this folder.',
     '', '1. Read library.md here for context.',
@@ -1078,11 +1079,41 @@ function dispatchAgent(agent,roomId,bug){
     '3. Move the bug from ## 🐛 Open Bugs to ## ✅ Resolved in library.md (mark by='+agent.name+').',
     '4. Update the parent room receptionist line.',
     'If you genuinely cannot fix it, say so and leave it in Open Bugs.'].join('\n');
-  var sid=jDispatch(JSON.stringify({ op:'dispatch', cwd:room.path, persona:agent.body||'', task:task }));
+  // Build heroContext string from prepass briefing (injected by bridge into the task)
+  var heroContext = null;
+  if(briefing){
+    var hcParts=[];
+    if(briefing.purpose)          hcParts.push('PURPOSE: '+briefing.purpose);
+    if(briefing.functionSummary)  hcParts.push('FUNCTION: '+briefing.functionSummary);
+    if(briefing.contract)         hcParts.push('CONTRACT: '+briefing.contract);
+    if(briefing.suspectedCause)   hcParts.push('LIKELY CAUSE: '+briefing.suspectedCause);
+    if(briefing.recentChanges)    hcParts.push('RECENT COMMITS:\n'+briefing.recentChanges.slice(0,400));
+    heroContext = hcParts.join('\n');
+  }
+  var sid=jDispatch(JSON.stringify({ op:'dispatch', cwd:room.path, persona:agent.body||'', task:task, heroContext:heroContext }));
   dispatchJobs[sid]={ roomIds:[room.id], council:false, agent:agent };
   renderAgentsPanel();
-  logEvent('⚔ '+agent.name+' sent on a quest '+(bug?('to slay "'+bug.title+'"'):('to '+room.name)), room);
-  toast('⚔ '+agent.name+' quests → '+(bug?bug.title:room.name));
+  logEvent('⚔ '+agent.name+' sent on a quest '+(bug?('to slay "'+bug.title+'"'):('to '+room.name))+(briefing?' 📜':''), room);
+  toast('⚔ '+agent.name+' quests → '+(bug?bug.title:room.name)+(briefing?' (briefed)':''));
+}
+
+// GraphRAG-style: if the bug has a specific file and the graph is scanned, run a
+// semantic pre-pass FIRST (git log + 1 LLM call) to brief the hero, then dispatch.
+function dispatchAgent(agent,roomId,bug){
+  var room=getRoom(roomId); if(!agent||!room) return;
+  bug = bug || (room.bugs.length ? room.bugs[0] : null);
+  if(bug && bug.file && graphState.raw){
+    toast('📜 '+agent.name+': reading the scrolls…');
+    var psid=jDispatch(JSON.stringify({ op:'hero-prepass', file:bug.file,
+      line:bug.line||'', bugTitle:bug.title, cwd:room.path }));
+    if(psid && psid!=='no-bridge' && psid!=='err'){
+      pendingHeroDispatches[psid]={ agent:agent, roomId:roomId, bug:bug };
+      dispatchJobs[psid]={ heroPrepass:true };
+      return;
+    }
+  }
+  // no pre-pass available → dispatch immediately
+  finishHeroDispatch(agent, roomId, bug, null);
 }
 
 // Hero picker — choose which idle hero fixes which bug
@@ -1608,9 +1639,13 @@ function renderRoomPanel(){
     if(r.bugs.length){
       c.innerHTML='<h4>🐛 Monsters ('+r.bugs.length+')</h4>'+r.bugs.map(function(b,i){
         var sc=b.severity==='critical'?'#8b2a1f':b.severity==='major'?'#a0641f':'#5a6b3a';
+        var briefed=heroBriefings[b.id];
+        var briefChip=briefed?'<span class="graph-chip ready" style="margin-left:6px;cursor:default" title="'+esc(briefed.suspectedCause||'')+'">📜 briefed</span>':'';
+        var causeTip=briefed&&briefed.suspectedCause?('<div style="font-size:10px;color:var(--ink2);font-style:italic;margin-bottom:6px">'+esc(briefed.suspectedCause)+'</div>'):'';
         return '<div style="border:1px solid var(--ink-soft);border-radius:7px;padding:8px 10px;margin-bottom:8px;background:rgba(200,155,60,.10);">'+
-          '<div style="font-weight:bold;">'+esc(b.title)+'</div>'+
-          '<div style="font-size:11px;color:'+sc+';margin:2px 0 7px;">'+b.severity+(b.file?(' · '+esc(b.file)):'')+'</div>'+
+          '<div style="font-weight:bold;">'+esc(b.title)+briefChip+'</div>'+
+          '<div style="font-size:11px;color:'+sc+';margin:2px 0 5px;">'+b.severity+(b.file?(' · '+esc(b.file)):'')+'</div>'+
+          causeTip+
           '<button class="mini-btn send-hero" data-idx="'+i+'">⚔ Send hero to fix</button></div>';
       }).join('');
       c.querySelectorAll('.send-hero').forEach(function(btn){
@@ -2320,6 +2355,22 @@ window.onDungeonEvent=function(sid, line){
     return;
   }
   else if(ev.t==='graph-error'){ graphState.scanning=false; graphState.error=ev.err||'unknown'; updateGraphChip(); toast('⬡ Graph scan failed: '+(ev.err||'').slice(0,60)); return; }
+  // Hero pre-pass (GraphRAG-style): resolve briefing then fire real dispatch
+  else if(ev.t==='prepass-start'){ return; }
+  else if(ev.t==='prepass-data'){
+    var ppd=pendingHeroDispatches[sid]; delete pendingHeroDispatches[sid]; delete dispatchJobs[sid];
+    if(ppd){
+      var bkey=(ppd.bug&&ppd.bug.id)||sid; heroBriefings[bkey]=ev;
+      finishHeroDispatch(ppd.agent, ppd.roomId, ppd.bug, ev);
+    }
+    return;
+  }
+  else if(ev.t==='prepass-error'){
+    var ppe=pendingHeroDispatches[sid]; delete pendingHeroDispatches[sid]; delete dispatchJobs[sid];
+    toast('⚠ Hero briefing failed — questing without scrolls');
+    if(ppe) finishHeroDispatch(ppe.agent, ppe.roomId, ppe.bug, null);
+    return;
+  }
   // Pass 6: structured report — store per room, refresh panel if open
   else if(ev.t==='report'){
     if(!job) return;

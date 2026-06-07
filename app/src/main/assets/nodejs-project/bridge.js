@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b79-filter-structured';
+const BRIDGE_BUILD = 'b80-hero-prepass';
 
 const net   = require('net');
 const http  = require('http');
@@ -6235,6 +6235,98 @@ function openPrintSession() {
                 });
                 return;
             }
+            // ── Hero pre-pass (GraphRAG-style): git log + 1 LLM call on specific file ──
+            // Called by the dungeon BEFORE hero dispatch when the bug has a specific file.
+            // Pass A (git history) + Pass C (semantic 1-shot) run in parallel; result returned
+            // as {t:'prepass-data'} and the dungeon then fires the actual dispatch with heroContext.
+            if (op === 'hero-prepass') {
+                send({ t: 'prepass-start' });
+                const ppFile = r.file || '';
+                const ppBugTitle = r.bugTitle || '';
+                const ppLine = r.line ? String(r.line) : '';
+                const ppCwd = r.cwd || FILES_DIR;
+                const ppBenv = buildEnv();
+
+                (async () => {
+                    // Pass A: git history for the specific file — free, no tokens
+                    const gitPromise = ppFile
+                        ? runProotGuest(['/bin/bash', '-c',
+                              'git -C ' + JSON.stringify(ppCwd) + ' log --oneline -n 8 -- ' +
+                              JSON.stringify(ppFile) + ' 2>/dev/null'], 20000, null)
+                          .then(r2 => (r2.out || '').trim().slice(0, 600)).catch(() => '')
+                        : Promise.resolve('');
+
+                    // Pass C: 1 LLM call reading only the specific file — semantic understanding
+                    const llmPromise = new Promise((resolve) => {
+                        const ppTask = [
+                            ppFile ? 'Read the file: ' + ppFile : 'Read the main file in this folder.',
+                            'Answer each question concisely (one sentence each):',
+                            '',
+                            'PURPOSE: What does this file do in one sentence?',
+                            ppLine
+                                ? ('FUNCTION: What does the code near line ' + ppLine + ' do? What does it accept and return?')
+                                : 'FUNCTION: What is the main function or class and what does it do?',
+                            'CONTRACT: What do callers of this code rely on (return shape, side-effects, invariants)?',
+                            'CAUSE: Given the bug "' + ppBugTitle + '", what is the single most likely root cause?',
+                            '',
+                            'Output ONLY these 4 labeled lines, nothing else:',
+                            'PURPOSE: <answer>',
+                            'FUNCTION: <answer>',
+                            'CONTRACT: <answer>',
+                            'CAUSE: <answer>',
+                        ].join('\n');
+                        const ppGuestEnv = {
+                            ANTHROPIC_API_KEY: ppBenv.ANTHROPIC_API_KEY,
+                            ANTHROPIC_MODEL: ppBenv.ANTHROPIC_MODEL,
+                            DISABLE_AUTOUPDATER: '1', MCP_TIMEOUT: '30000', MCP_TOOL_TIMEOUT: '30000',
+                            SHELL: '/bin/bash', IS_SANDBOX: '1',
+                        };
+                        if (ppBenv.ANTHROPIC_BASE_URL) ppGuestEnv.ANTHROPIC_BASE_URL = ppBenv.ANTHROPIC_BASE_URL;
+                        const ppArgv = [GUEST_CLAUDE, '--output-format', 'stream-json', '--print',
+                            '--dangerously-skip-permissions', '--verbose', ppTask];
+                        let ppProc;
+                        try { ppProc = prootChild(ppArgv, { extraEnv: ppGuestEnv, workspace: ppCwd }); }
+                        catch(e) { resolve({ error: e.message }); return; }
+                        procs.add(ppProc);
+                        try { ppProc.stdin.end(); } catch(_) {}
+                        let ppBuf = '';
+                        ppProc.stdout.on('data', d => { ppBuf += d.toString(); });
+                        ppProc.on('close', () => {
+                            procs.delete(ppProc);
+                            let allText = '';
+                            ppBuf.split('\n').forEach(ln => {
+                                if (!ln.trim()) return;
+                                try {
+                                    const ev2 = JSON.parse(ln);
+                                    if (ev2.type === 'assistant' && ev2.message && Array.isArray(ev2.message.content))
+                                        ev2.message.content.forEach(c => { if (c.type === 'text' && c.text) allText += c.text + '\n'; });
+                                } catch(_) { allText += ln + '\n'; }
+                            });
+                            const field = (key) => { const m = allText.match(new RegExp(key + ':\\s*(.+)', 'i')); return m ? m[1].trim() : ''; };
+                            resolve({
+                                purpose: field('PURPOSE'),
+                                functionSummary: field('FUNCTION'),
+                                contract: field('CONTRACT'),
+                                suspectedCause: field('CAUSE'),
+                            });
+                        });
+                    });
+
+                    const [recentChanges, semantic] = await Promise.all([gitPromise, llmPromise]);
+                    send({ t: 'prepass-data',
+                        purpose: semantic.purpose || '',
+                        functionSummary: semantic.functionSummary || '',
+                        contract: semantic.contract || '',
+                        suspectedCause: semantic.suspectedCause || '',
+                        recentChanges: recentChanges,
+                    });
+                    try { socket.end(); } catch(_) {}
+                })().catch(e => {
+                    send({ t: 'prepass-error', err: (e && e.message) || 'prepass failed' });
+                    try { socket.end(); } catch(_) {}
+                });
+                return;
+            }
             const cwd  = r.cwd || FILES_DIR;
             // Divide mode: each member audits its OWN assigned room (per-member cwd+model).
             const assignments = Array.isArray(r.assignments) ? r.assignments.filter(a => a && a.cwd) : [];
@@ -6413,6 +6505,11 @@ function openPrintSession() {
                         r.graphContext + '
 
 ' + memberTask;
+                }
+                // Hero briefing: inject semantic pre-pass context for dispatch ops.
+                if (r.heroContext && op === 'dispatch') {
+                    memberTask = 'HERO BRIEFING (pre-computed intelligence — target your fix here):\n' +
+                        r.heroContext + '\n\n' + memberTask;
                 }
                 const argv = [GUEST_CLAUDE, '--output-format', 'stream-json', '--print',
                     '--dangerously-skip-permissions', '--append-system-prompt', persona, '--verbose', memberTask];
