@@ -501,7 +501,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd34-expedition-on-main-loop';
+var DUNGEON_BUILD = 'd35-sprite-diag';
 
 // ── Bridge ────────────────────────────────────────────────
 var A = (typeof DungeonAndroid !== 'undefined') ? DungeonAndroid : null;
@@ -1074,8 +1074,23 @@ function expBurst(x,y,color){
 }
 var EXP_SPEED=42;     // world units/sec along corridors
 var AUDIT_DWELL=2.6;  // sec a sprite audits (scans in place) a room before it may move on
+// ── one-shot sprite-motion diagnostic (d35) — REMOVE once first-dispatch motion verified ──
+var __expFrames=0, __dbgLast=0, __dbgEl=null;
+function __dbgRender(){
+  if(!__dbgEl){ __dbgEl=document.createElement('div');
+    __dbgEl.style.cssText='position:fixed;left:4px;bottom:4px;z-index:9999;font:9px/1.3 monospace;background:rgba(0,0,0,.8);color:#3DD68C;padding:3px 5px;border-radius:4px;max-width:96vw;white-space:pre;pointer-events:none;';
+    document.body.appendChild(__dbgEl); }
+  var sids=Object.keys(expeditions);
+  var s='f:'+__expFrames+' exp:'+sids.length;
+  sids.forEach(function(sid){ var e=expeditions[sid]; var s0=e.sprites[0];
+    s+='\n'+sid.slice(-6)+' n:'+e.sprites.length+' act:'+(e.active?1:0)+' fade:'+e.fade.toFixed(1);
+    if(s0) s+=' | s0 dom:'+(s0.g&&s0.g.parentNode?'Y':'N')+' xy:'+(s0.x|0)+','+(s0.y|0)+' p:'+(s0.path?s0.path.length:0)+'/'+s0.pidx+' t:'+(s0.targetId||'-');
+  });
+  __dbgEl.textContent=s;
+}
 function expTick(now){
   var dt=Math.min(0.05,(now-expLast)/1000); expLast=now;
+  __expFrames++; if(now-__dbgLast>250){ __dbgLast=now; __dbgRender(); }
   for(var sid in expeditions){
     var exp=expeditions[sid];
     if(exp.active){
