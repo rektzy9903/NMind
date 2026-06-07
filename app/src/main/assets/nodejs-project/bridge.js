@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b81-fix-graphctx-newline';
+const BRIDGE_BUILD = 'b82-twinlens-combine';
 
 const net   = require('net');
 const http  = require('http');
@@ -6499,9 +6499,18 @@ function openPrintSession() {
                 }
                 // Twin Lens Pass 4: inject graph context (centrality, cycles, blast radius)
                 // when the dungeon has already computed a graph for this project.
+                // The two lenses COMBINE to support each other: the graph says WHERE to
+                // look (priority by centrality/cycles/blast), the repomix map says WHAT is
+                // there. When both are present, explicitly tell the scout to use the graph
+                // ranking to navigate the map — that's why it's called "Twin Lens".
                 if (r.graphContext) {
+                    const mapBridge = (mp && mp.ok)
+                        ? ' Use this ranking to decide WHERE to look first in the structural map below: ' +
+                          'start with the highest-centrality, cyclic, and high-blast-radius files, then ' +
+                          'use the map to jump straight to their code.'
+                        : '';
                     memberTask = 'DEPENDENCY GRAPH CONTEXT (pre-computed, use to prioritise your audit):\n' +
-                        r.graphContext + '\n\n' + memberTask;
+                        r.graphContext + mapBridge + '\n\n' + memberTask;
                 }
                 // Hero briefing: inject semantic pre-pass context for dispatch ops.
                 if (r.heroContext && op === 'dispatch') {
