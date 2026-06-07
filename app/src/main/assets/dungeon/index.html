@@ -501,7 +501,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd38-dt-guard-diag';
+var DUNGEON_BUILD = 'd39-council-sprite-diag';
 
 // ── Bridge ────────────────────────────────────────────────
 var A = (typeof DungeonAndroid !== 'undefined') ? DungeonAndroid : null;
@@ -1083,17 +1083,20 @@ function __dbgRender(){
     document.body.appendChild(__dbgEl); }
   var sids=Object.keys(expeditions);
   var s='f:'+__expFrames+' exp:'+sids.length+' dt:'+(+__lastDt).toFixed(4);
-  sids.forEach(function(sid){ var e=expeditions[sid]; var s0=e.sprites[0];
+  sids.forEach(function(sid){ var e=expeditions[sid];
     s+='\n'+sid.slice(-6)+' n:'+e.sprites.length+' act:'+(e.active?1:0)+' fade:'+e.fade.toFixed(1);
-    if(s0){ var p1=(s0.path&&s0.path[s0.pidx]);
-      s+=' | dom:'+(s0.g&&s0.g.parentNode?'Y':'N')+' sx:'+__fmt(s0.x)+','+__fmt(s0.y)+
-         ' p:'+(s0.path?s0.path.length:0)+'/'+s0.pidx+' wp:'+(p1?(__fmt(p1.x)+','+__fmt(p1.y)):'-')+' t:'+(s0.targetId||'-'); }
+    e.sprites.forEach(function(s0,k){ var p1=(s0.path&&s0.path[s0.pidx]);
+      s+='\n ['+k+']'+(s0.g&&s0.g.parentNode?'D':'-')+' xy:'+__fmt(s0.x)+','+__fmt(s0.y)+
+         ' p:'+(s0.path?s0.path.length:0)+'/'+s0.pidx+' wp:'+(p1?(__fmt(p1.x)+','+__fmt(p1.y)):'-')+' t:'+(s0.targetId||'-'); });
   });
   __dbgEl.textContent=s;
 }
 function expTick(now){
-  var dt=(now-expLast)/1000; if(!(dt>0)) dt=0.016; dt=Math.min(0.05,dt); expLast=now; __lastDt=dt;
-  __expFrames++; if(now-__dbgLast>250){ __dbgLast=now; __dbgRender(); }
+  // dt guard: a NaN/0/negative timestep made step=EXP_SPEED*dt NaN/0, which froze the
+  // sprite at the throne (translate(NaN,..) is ignored) — the "first dispatch never
+  // animates" bug. Clamp to one frame on any bad value so motion can never stall.
+  var dt=(now-expLast)/1000; if(!(dt>0)) dt=0.016; dt=Math.min(0.05,dt); expLast=now;
+  __lastDt=dt; __expFrames++; if(now-__dbgLast>250){ __dbgLast=now; __dbgRender(); }
   for(var sid in expeditions){
     var exp=expeditions[sid];
     if(exp.active){
