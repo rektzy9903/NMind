@@ -331,12 +331,18 @@
   .danger-high     { background:#22E8834A; color:#E8834A; }
   .danger-critical { background:#22F87171; color:#F87171; }
   .room-purpose { font-size:11px; color:var(--ink2,#5a432a); margin:4px 0 8px; font-style:italic; }
-  .graph-chip { display:flex; align-items:center; justify-content:center; gap:5px; font-size:11px;
-    padding:8px 12px; border-radius:10px; border:1px solid var(--nborder); background:var(--nsurf2);
-    color:var(--ntext2); cursor:pointer; margin:8px 0 12px; width:100%; box-sizing:border-box; text-align:center; }
-  .graph-chip.ready { border-color:var(--ngreen,#3DD68C); color:var(--ngreen,#3DD68C); }
-  .graph-chip.scanning { border-color:var(--namber,#FBBF24); color:var(--namber,#FBBF24); }
-  .graph-chip.error { border-color:var(--nred,#F87171); color:var(--nred,#F87171); }
+  /* Twin Lens dependency-graph chip — OFF (dashed/dim) vs ON (solid green, filled) must be obvious */
+  .graph-chip { display:flex; align-items:center; justify-content:center; gap:5px; font-size:11px; font-weight:600;
+    padding:9px 12px; border-radius:10px; border:1px dashed var(--nborder2,#3A3A42); background:var(--nsurf2);
+    color:var(--ntext2); cursor:pointer; margin:8px 0 12px; width:100%; box-sizing:border-box; text-align:center;
+    -webkit-tap-highlight-color:rgba(232,131,74,.3); user-select:none; transition:background .15s,border-color .15s; }
+  .graph-chip:active { background:var(--nsurf,#151518); transform:scale(.99); }
+  .graph-chip.ready { border:1px solid var(--ngreen,#3DD68C); background:rgba(61,214,140,.12);
+    color:var(--ngreen,#3DD68C); }
+  .graph-chip.scanning { border:1px solid var(--namber,#FBBF24); background:rgba(251,191,36,.12);
+    color:var(--namber,#FBBF24); }
+  .graph-chip.error { border:1px solid var(--nred,#F87171); background:rgba(248,113,113,.12);
+    color:var(--nred,#F87171); }
   .room-rect.has-agent { filter:drop-shadow(0 0 8px var(--gold)) drop-shadow(0 2px 0 rgba(58,40,24,.4)); }
   .room-label { font-family:'Georgia',serif; font-weight:bold; fill:var(--ink); text-anchor:middle; pointer-events:none; font-size:7px; }
   .room-label.throne-label { font-size:9px; }
@@ -540,7 +546,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd48-persist-graph';
+var DUNGEON_BUILD = 'd49-graph-chip-onoff';
 
 // ── Bridge ────────────────────────────────────────────────
 var A = (typeof DungeonAndroid !== 'undefined') ? DungeonAndroid : null;
@@ -944,6 +950,7 @@ function scanProjectGraph(){
   if(graphState.scanning){ toast('Graph scan already running…'); return; }
   graphState.scanning=true; graphState.error=null;
   updateGraphChip();
+  toast(graphState.raw ? '◌ Re-scanning dependencies…' : '◌ Scanning dependencies… (first run fetches madge, ~1–2 min)');
   var sid=jDispatch(JSON.stringify({ op:'graph-scan', cwd:activePath }));
   if(sid&&sid!=='no-bridge'&&sid!=='err'){
     dispatchJobs[sid]={ graphScan:true };
@@ -982,16 +989,16 @@ function updateGraphChip(){
   var chip=document.getElementById('graph-chip'); if(!chip) return;
   chip.classList.remove('ready','scanning','error');
   if(graphState.scanning){
-    chip.textContent='⬡ Scanning…'; chip.classList.add('scanning');
+    chip.textContent='◌ Scanning dependencies…'; chip.classList.add('scanning');
   } else if(graphState.error){
     chip.textContent='⬡ Scan failed — tap to retry'; chip.classList.add('error');
   } else if(graphState.raw){
     var n=Object.keys(graphState.scores).length;
     var cyc=graphState.cycles.length;
-    chip.textContent='⬡ Graph ready · '+n+' folders'+(cyc?' · '+cyc+' cycle'+(cyc>1?'s':''):'')+' · tap to rescan';
+    chip.textContent='⬢ Dependency lens ON · '+n+' folders'+(cyc?' · '+cyc+' cycle'+(cyc>1?'s':''):'')+' · tap to rescan';
     chip.classList.add('ready');
   } else {
-    chip.textContent='⬡ Scan dependencies (faster audit)';
+    chip.textContent='⬡ Dependency lens OFF · tap to scan';
   }
 }
 
