@@ -324,6 +324,14 @@
   .room-rect { fill:var(--parchment); stroke:var(--ink); stroke-width:1.5; cursor:pointer; filter:drop-shadow(0 2px 0 rgba(58,40,24,.4)); transition:fill .3s; }
   .room-rect.throne { fill:#e8c878; stroke-width:2; }
   .room-rect.has-bug { fill:#d9a59a; }
+  .room-rect.has-cycle { filter:drop-shadow(0 0 4px #F8717199) drop-shadow(0 2px 0 rgba(58,40,24,.4)); }
+  .room-rect.is-dead   { opacity:0.5; filter:drop-shadow(0 2px 0 rgba(58,40,24,.25)); }
+  .graph-chip { display:inline-flex; align-items:center; gap:4px; font-size:9px; padding:3px 7px;
+    border-radius:10px; border:1px solid var(--nborder); background:var(--nsurf2); color:var(--ntext2);
+    cursor:pointer; margin-top:6px; }
+  .graph-chip.ready { border-color:var(--ngreen,#3DD68C); color:var(--ngreen,#3DD68C); }
+  .graph-chip.scanning { border-color:var(--namber,#FBBF24); color:var(--namber,#FBBF24); }
+  .graph-chip.error { border-color:var(--nred,#F87171); color:var(--nred,#F87171); }
   .room-rect.has-agent { filter:drop-shadow(0 0 8px var(--gold)) drop-shadow(0 2px 0 rgba(58,40,24,.4)); }
   .room-label { font-family:'Georgia',serif; font-weight:bold; fill:var(--ink); text-anchor:middle; pointer-events:none; font-size:7px; }
   .room-label.throne-label { font-size:9px; }
@@ -409,6 +417,7 @@
   <div class="dlg-box">
     <h3>⚔ Send a Scout</h3>
     <div class="dlg-sub" id="scout-target">Scout the whole dungeon</div>
+    <div id="graph-chip" class="graph-chip" onclick="scanProjectGraph()">⬡ Scan dependencies (faster audit)</div>
     <div class="seg" id="scout-scope">
       <button class="seg-btn active" data-v="full">Full Dungeon</button>
       <button class="seg-btn" data-v="room">This Room</button>
@@ -531,7 +540,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd41-new-sprites';
+var DUNGEON_BUILD = 'd42-twin-lens';
 
 // ── Bridge ────────────────────────────────────────────────
 var A = (typeof DungeonAndroid !== 'undefined') ? DungeonAndroid : null;
@@ -660,6 +669,8 @@ $('path-input').addEventListener('keydown', function(e){ if(e.key==='Enter') $('
 // ════════════════════════════════════════
 var activePath='', activeName='';
 var rooms=[], agents=[];
+// ── Twin Lens: graph analysis state ──────────────────────────────────────────
+var graphState = { raw:null, scores:{}, cycles:[], dead:[], scanning:false, error:null };
 var svg=$('svgMap'), SVGNS='http://www.w3.org/2000/svg';
 function el(tag,attrs){ var e=document.createElementNS(SVGNS,tag); attrs=attrs||{}; for(var k in attrs) e.setAttribute(k,attrs[k]); return e; }
 function getRoom(id){ return rooms.find(function(r){ return r.id===id; }); }
@@ -755,6 +766,148 @@ function wrapLabel(name, maxChars, maxLines){
   }
   return lines.length?lines:[''];
 }
+// ── Twin Lens Pass 1: graph analysis engine ──────────────────────────────────
+// analyzeGraph: takes raw madge JSON {file:[dep,...]} → populates graphState.scores
+// with per-FOLDER centrality, cycle flag, dead flag, blastRadius list.
+function analyzeGraph(raw){
+  var inDeg={}, outDeg={};
+  // Count file-level in/out degrees
+  Object.keys(raw).forEach(function(f){
+    if(!inDeg[f]) inDeg[f]=0;
+    if(!outDeg[f]) outDeg[f]=0;
+    (raw[f]||[]).forEach(function(dep){
+      if(!inDeg[dep]) inDeg[dep]=0;
+      inDeg[dep]++;
+      outDeg[f]++;
+    });
+  });
+  // Aggregate to folder (first path segment)
+  var rs={};
+  function folderOf(f){ return f.replace(/^(src|lib|app|source)[\/]/,'').split(/[\/]/)[0]||f; }
+  Object.keys(inDeg).forEach(function(f){
+    var folder=folderOf(f);
+    if(!rs[folder]) rs[folder]={inDeg:0,outDeg:0,files:0,hasCycle:false,isDead:false,blastRadius:[],centrality:0,priority:0};
+    rs[folder].inDeg+=inDeg[f]; rs[folder].outDeg+=outDeg[f]; rs[folder].files++;
+  });
+  // Normalize centrality (0–1)
+  var maxIn=Math.max(1,Object.keys(rs).reduce(function(m,k){ return Math.max(m,rs[k].inDeg); },0));
+  Object.keys(rs).forEach(function(k){ rs[k].centrality=rs[k].inDeg/maxIn; rs[k].isDead=(rs[k].inDeg===0&&rs[k].files>0); });
+  // Cycle detection: DFS with recursion stack
+  var visited={}, recStack={}, cycleFiles=new Set();
+  function dfs(node,stack){
+    visited[node]=true; recStack[node]=true;
+    (raw[node]||[]).forEach(function(dep){
+      if(!visited[dep]){ dfs(dep,stack.concat(dep)); }
+      else if(recStack[dep]){ cycleFiles.add(node); cycleFiles.add(dep); }
+    });
+    recStack[node]=false;
+  }
+  Object.keys(raw).forEach(function(f){ if(!visited[f]) dfs(f,[f]); });
+  cycleFiles.forEach(function(f){ var k=folderOf(f); if(rs[k]) rs[k].hasCycle=true; });
+  // Blast radius: which folders import THIS folder's files
+  var importedBy={};  // folder → Set of folders that import it
+  Object.keys(raw).forEach(function(f){
+    var srcFolder=folderOf(f);
+    (raw[f]||[]).forEach(function(dep){
+      var depFolder=folderOf(dep);
+      if(depFolder!==srcFolder){
+        if(!importedBy[depFolder]) importedBy[depFolder]=new Set();
+        importedBy[depFolder].add(srcFolder);
+      }
+    });
+  });
+  Object.keys(rs).forEach(function(k){ rs[k].blastRadius=importedBy[k]?Array.from(importedBy[k]).slice(0,8):[]; });
+  // Priority rank: cycle > centrality > outDeg (high fan-out = complex)
+  var sorted=Object.keys(rs).sort(function(a,b){
+    var sa=rs[a], sb=rs[b];
+    if(sa.hasCycle!==sb.hasCycle) return sa.hasCycle?-1:1;
+    if(Math.abs(sa.centrality-sb.centrality)>0.05) return sb.centrality-sa.centrality;
+    return sb.outDeg-sa.outDeg;
+  });
+  sorted.forEach(function(k,i){ rs[k].priority=i+1; });
+  graphState.raw=raw; graphState.scores=rs;
+  graphState.cycles=Object.keys(rs).filter(function(k){ return rs[k].hasCycle; });
+  graphState.dead=Object.keys(rs).filter(function(k){ return rs[k].isDead; });
+  updateRoomGraphVisuals();
+  updateGraphChip();
+  return rs;
+}
+
+// Pass 2: apply cycle/dead CSS classes to room SVG rects
+function updateRoomGraphVisuals(){
+  rooms.forEach(function(r){
+    if(!r._gEl) return;
+    var rect=r._gEl.querySelector('rect.room-rect'); if(!rect) return;
+    // Match room name → graph folder (case-insensitive, strip leading .)
+    var rname=(r.name||'').toLowerCase().replace(/^\./,'');
+    var score=graphState.scores[rname]||graphState.scores[r.name]||null;
+    if(!score){ // try partial match
+      Object.keys(graphState.scores).forEach(function(k){
+        if(k.toLowerCase()===rname || rname.startsWith(k.toLowerCase())) score=graphState.scores[k];
+      });
+    }
+    rect.classList.toggle('has-cycle', !!(score&&score.hasCycle));
+    rect.classList.toggle('is-dead',   !!(score&&score.isDead));
+  });
+}
+
+// Build a concise graph context string for a given room path to inject into scout prompt
+function buildGraphContext(roomPath){
+  if(!graphState.raw || !Object.keys(graphState.scores).length) return '';
+  // Find which folder this cwd maps to
+  var parts=(roomPath||'').split('/');
+  var folder=parts[parts.length-1]||parts[parts.length-2]||'';
+  // Top 8 rooms by priority for the dungeon-wide context
+  var sorted=Object.keys(graphState.scores).sort(function(a,b){ return graphState.scores[a].priority-graphState.scores[b].priority; }).slice(0,8);
+  var lines=['Dependency graph summary (top rooms by centrality):'];
+  sorted.forEach(function(k){
+    var s=graphState.scores[k];
+    lines.push('  '+k+': centrality='+s.centrality.toFixed(2)+(s.hasCycle?' ⚠CYCLE':'')+(s.isDead?' (dead)':'')+
+      (s.blastRadius.length?' blast→['+s.blastRadius.slice(0,4).join(',')+']':''));
+  });
+  if(graphState.cycles.length) lines.push('Circular dependencies detected in: '+graphState.cycles.join(', '));
+  if(graphState.dead.length) lines.push('Unreferenced (dead) folders: '+graphState.dead.join(', '));
+  // If scouting a specific room, highlight its score
+  var sc=graphState.scores[folder];
+  if(sc) lines.push('THIS ROOM ('+folder+'): rank #'+sc.priority+', centrality='+sc.centrality.toFixed(2)+
+    (sc.hasCycle?', WARNING: circular dependency detected':'')+(sc.blastRadius.length?', blast radius: '+sc.blastRadius.join(', '):''));
+  return lines.join('
+');
+}
+
+// Trigger graph scan via dispatch bridge
+function scanProjectGraph(){
+  if(!activePath){ toast('Open a project first'); return; }
+  if(graphState.scanning){ toast('Graph scan already running…'); return; }
+  graphState.scanning=true; graphState.error=null;
+  updateGraphChip();
+  var sid=jDispatch(JSON.stringify({ op:'graph-scan', cwd:activePath }));
+  if(sid&&sid!=='no-bridge'&&sid!=='err'){
+    dispatchJobs[sid]={ graphScan:true };
+  } else {
+    graphState.scanning=false; graphState.error='bridge unavailable';
+    updateGraphChip();
+  }
+}
+
+// Update the graph chip badge in the scout dialog
+function updateGraphChip(){
+  var chip=document.getElementById('graph-chip'); if(!chip) return;
+  chip.classList.remove('ready','scanning','error');
+  if(graphState.scanning){
+    chip.textContent='⬡ Scanning…'; chip.classList.add('scanning');
+  } else if(graphState.error){
+    chip.textContent='⬡ Scan failed — tap to retry'; chip.classList.add('error');
+  } else if(graphState.raw){
+    var n=Object.keys(graphState.scores).length;
+    var cyc=graphState.cycles.length;
+    chip.textContent='⬡ Graph ready · '+n+' folders'+(cyc?' · '+cyc+' cycle'+(cyc>1?'s':''):'');
+    chip.classList.add('ready');
+  } else {
+    chip.textContent='⬡ Scan dependencies (faster audit)';
+  }
+}
+
 function renderRooms(){
   rooms.forEach(function(r){
     var g=el('g',{'class':'room','data-id':r.id});
@@ -991,6 +1144,7 @@ function updateRoomVisuals(){
     rect.classList.toggle('has-bug', r.bugs.length>0);
     rect.classList.toggle('has-agent', agents.some(function(a){ return currentRoomOf(a)===r.id && (a.status==='working'||a.status==='fighting'); }));
   });
+  updateRoomGraphVisuals();
 }
 
 // ── Expedition animations — Scout (solo) vs War Council (party), distinct from
@@ -1625,7 +1779,7 @@ $('scout-begin').addEventListener('click', function(){
     if(assignments.length<scoutModelSel.length){ toast('Assign a room to every member'); return; }
     var dFindings={}; var dIds={};
     assignments.forEach(function(a){ dFindings[a.room]=dFindings[a.room]||[]; dIds[a.room]=1; });
-    var dsid=jDispatch(JSON.stringify({ op:'council', cwd:activePath, mode:'divide', assignments:assignments }));
+    var dsid=jDispatch(JSON.stringify({ op:'council', cwd:activePath, mode:'divide', assignments:assignments, graphContext:buildGraphContext(activePath) }));
     dispatchJobs[dsid]={ roomIds:Object.keys(dIds), council:true, divide:true, scout:true,
       cwd:activePath, members:assignments.length, assignments:assignments, divideFindings:dFindings };
     startExpedition(dsid, 'council', 'throne', assignments.length);
@@ -1658,7 +1812,7 @@ $('scout-begin').addEventListener('click', function(){
   var cwd = scope==='room' ? scoutRoom.path : activePath;
   var rootId = scope==='room' ? scoutRoom.id : 'throne';
   var ids = scope==='room' ? [scoutRoom.id] : rooms.map(function(r){ return r.id; });
-  var sid=jDispatch(JSON.stringify({ op:'scout', cwd:cwd, mode:'solo', model:(scoutModelSel[0]||'') }));
+  var sid=jDispatch(JSON.stringify({ op:'scout', cwd:cwd, mode:'solo', model:(scoutModelSel[0]||''), graphContext:buildGraphContext(cwd) }));
   dispatchJobs[sid]={ roomIds:ids, council:false, scout:true,
     cwd:cwd, rootId:rootId, members:1, models:[], findings:[] };
   startExpedition(sid, 'scout', rootId, 1);
@@ -1696,7 +1850,7 @@ function deepNextRoom(){
   if(exp && exp.sprites[0]){ exp.sprites[0].want=room.id; spriteGoToRoom(exp.sprites[0], room, exp); }
   updDcard(deepState.cardId, { march:room.name, prog:Math.round(deepState.i/deepState.total*100) });
   setScouting('🔱 Deep scout ('+(deepState.i+1)+'/'+deepState.total+') · '+room.name);
-  var sid=jDispatch(JSON.stringify({ op:'scout', cwd:room.path, mode:'deep', model:deepState.model }));
+  var sid=jDispatch(JSON.stringify({ op:'scout', cwd:room.path, mode:'deep', model:deepState.model, graphContext:buildGraphContext(room.path) }));
   deepState.sid=sid;
   dispatchJobs[sid]={ deep:true, roomId:room.id, member:0, findings:[] };
 }
@@ -1807,7 +1961,7 @@ function knightGoRoom(k, room){
   // Card shows "marching to X" while the knight walks; the arrival handler (expTick)
   // flips it to "scouting X" only once the sprite physically reaches the room.
   updDcard(kn.cardId, { march:room.name, prog:roamProgress() });
-  var sid=jDispatch(JSON.stringify({ op:'scout', cwd:room.path, mode:'deep', roam:true, model:kn.model }));
+  var sid=jDispatch(JSON.stringify({ op:'scout', cwd:room.path, mode:'deep', roam:true, model:kn.model, graphContext:buildGraphContext(room.path) }));
   kn.sid=sid;
   dispatchJobs[sid]={ councilRoam:true, knight:k, roomId:room.id, findings:[] };
 }
@@ -2110,6 +2264,16 @@ window.onDungeonEvent=function(sid, line){
   if(ev.t==='packing'){ toast('🗺 Cartographer mapping '+(ev.rooms>1?ev.rooms+' rooms':'the room')+'…'); return; }
   else if(ev.t==='packed'){ toast(ev.ok ? ('🗺 Map ready · ~'+(ev.tokens||0)+' tok — '+(ev.tier==='inline'?'inlined for the scout':'scout reads the map')) : ('🗺 No map ('+(ev.err||'pack failed')+') — scout will crawl')); return; }
   else if(ev.t==='hounds'){ toast('🐕 Hounds picked up '+ev.count+' scent'+(ev.count===1?'':'s')+(ev.total>ev.count?(' (+'+(ev.total-ev.count)+' more)'):'')+' — '+(ev.markers?'zero-token monsters':'candidates for the scout')); if(ev.cwd) houndCameo(ev.cwd); return; }
+  // ── Twin Lens: graph scan events ──
+  else if(ev.t==='graph-start'){ graphState.scanning=true; graphState.error=null; updateGraphChip(); return; }
+  else if(ev.t==='graph-data'){
+    graphState.scanning=false;
+    analyzeGraph(ev.graph||{});
+    var n=Object.keys(graphState.scores).length;
+    toast('⬡ Graph ready · '+n+' folder'+(n===1?'':'s')+' mapped'+(graphState.cycles.length?' · ⚠ '+graphState.cycles.length+' cycle(s)':''));
+    return;
+  }
+  else if(ev.t==='graph-error'){ graphState.scanning=false; graphState.error=ev.err||'unknown'; updateGraphChip(); toast('⬡ Graph scan failed: '+(ev.err||'').slice(0,60)); return; }
 
   // (Judge models removed — YOU are the tribunal judge now, at the round table.)
 

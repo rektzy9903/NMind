@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b77-preview-nudge';
+const BRIDGE_BUILD = 'b78-twin-lens';
 
 const net   = require('net');
 const http  = require('http');
@@ -6184,6 +6184,36 @@ function openPrintSession() {
                 try { socket.end(); } catch(_){}
                 return;
             }
+            // ── Graph scan (Twin Lens Pass 0): run madge on the project root, return dep graph ──
+            if (op === 'graph-scan') {
+                send({ t:'graph-start' });
+                const scanPath = r.cwd || cwd;
+                // Use npx madge inside proot so it runs under the guest Node, same env as Claude.
+                // --no-spinner keeps stdout clean (only JSON). 2>/dev/null drops madge's own warnings.
+                const madgeCmd = 'cd ' + JSON.stringify(scanPath) +
+                    ' && npx --yes madge --json --no-spinner . 2>/dev/null';
+                let graphOut = '', errOut = '';
+                let child;
+                try { child = prootChild(['/bin/bash', '-c', madgeCmd], { workspace: scanPath }); }
+                catch(e) { send({ t:'graph-error', err:'spawn: ' + e.message }); try{socket.end();}catch(_){} return; }
+                procs.add(child);
+                child.stdout.on('data', d => { graphOut += d.toString(); });
+                child.stderr.on('data', d => { errOut += d.toString().slice(0, 200); });
+                child.on('close', () => {
+                    procs.delete(child);
+                    try {
+                        // madge emits the JSON dep map to stdout, strip any leading junk lines
+                        const jsonStart = graphOut.indexOf('{');
+                        const clean = jsonStart >= 0 ? graphOut.slice(jsonStart) : graphOut;
+                        const graph = JSON.parse(clean.trim());
+                        send({ t:'graph-data', graph:graph });
+                    } catch(e) {
+                        send({ t:'graph-error', err:'parse: ' + e.message + ' | raw: ' + graphOut.slice(0,120) });
+                    }
+                    try { socket.end(); } catch(_) {}
+                });
+                return;
+            }
             const cwd  = r.cwd || FILES_DIR;
             // Divide mode: each member audits its OWN assigned room (per-member cwd+model).
             const assignments = Array.isArray(r.assignments) ? r.assignments.filter(a => a && a.cwd) : [];
@@ -6337,6 +6367,15 @@ function openPrintSession() {
                         'in this folder. VERIFY each against the actual source — some are false positives, keep only the ' +
                         'real ones — and ALSO find problems a regex scan cannot (logic errors, races, bad error handling, ' +
                         'security flaws):\n' + list + '\n\n' + memberTask;
+                }
+                // Twin Lens Pass 4: inject graph context (centrality, cycles, blast radius)
+                // when the dungeon has already computed a graph for this project.
+                if (r.graphContext) {
+                    memberTask = 'DEPENDENCY GRAPH CONTEXT (pre-computed, use to prioritise your audit):
+' +
+                        r.graphContext + '
+
+' + memberTask;
                 }
                 const argv = [GUEST_CLAUDE, '--output-format', 'stream-json', '--print',
                     '--dangerously-skip-permissions', '--append-system-prompt', persona, '--verbose', memberTask];
