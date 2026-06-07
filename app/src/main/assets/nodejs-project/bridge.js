@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b75-scout-hounds-p3-probe';
+const BRIDGE_BUILD = 'b76-scout-hounds-p3';
 
 const net   = require('net');
 const http  = require('http');
@@ -6033,6 +6033,61 @@ function openPrintSession() {
         });
     }
 
+    // ── DungeonPRD P3: deterministic Hounds ─────────────────────────────────────
+    // Scan a room (rg if present, else grep — always on the guest; !scout-hounds proved
+    // 3/3 on grep) BEFORE any model spawns, so obvious issues become ZERO-TOKEN monsters
+    // that appear no matter what the model does (the strongest weak-model lever — see
+    // feedback-help-weak-models). Conservative, high-signal patterns ONLY (no monster
+    // flood); findings are also injected into the scout task as candidates to VERIFY.
+    // Floor-first: the baseline never depends on an installable tool. Best-effort.
+    const HOUND_CAP = 40;
+    function houndRoom(targetCwd) {
+        return new Promise((resolve) => {
+            if (!targetCwd) return resolve({ ok:false, findings:[], total:0, scanner:'' });
+            const EXC = '--exclude-dir=.git --exclude-dir=node_modules --exclude-dir=build --exclude-dir=.gradle --exclude-dir=dist --exclude-dir=vendor --exclude-dir=.idea --exclude-dir=.next';
+            const SECRET = 'password|passwd|secret|api[_-]?key|apikey|access[_-]?key|private[_-]?key|client[_-]?secret|auth[_-]?token';
+            const DANGER = '\\beval\\(|child_process|os\\.system\\(|subprocess\\.(call|run|Popen)|Runtime\\.getRuntime\\(\\)\\.exec|\\bexec\\(';
+            const MARK   = '\\b(TODO|FIXME|HACK|XXX)\\b';
+            const cmd = [
+                'set +e',
+                'SCAN=$(command -v rg >/dev/null 2>&1 && echo rg || echo grep)',
+                'echo "::scanner:: $SCAN"',
+                'echo "::sec::"',
+                'if [ "$SCAN" = rg ]; then rg -ni --no-heading -e "(' + SECRET + ')[[:space:]]*[=:]" . 2>/dev/null | head -' + HOUND_CAP + '; else grep -rniE ' + EXC + ' "(' + SECRET + ')[[:space:]]*[=:]" . 2>/dev/null | head -' + HOUND_CAP + '; fi',
+                'echo "::danger::"',
+                'if [ "$SCAN" = rg ]; then rg -n --no-heading -e "' + DANGER + '" . 2>/dev/null | head -' + HOUND_CAP + '; else grep -rnE ' + EXC + ' "' + DANGER + '" . 2>/dev/null | head -' + HOUND_CAP + '; fi',
+                'echo "::marker::"',
+                'if [ "$SCAN" = rg ]; then rg -n --no-heading -e "' + MARK + '" . 2>/dev/null | head -' + HOUND_CAP + '; else grep -rnE ' + EXC + ' "' + MARK + '" . 2>/dev/null | head -' + HOUND_CAP + '; fi',
+                'echo "::end::"',
+            ].join('\n');
+            runProotGuest(['/bin/bash','-lc', cmd], 60000, null, { workspace: targetCwd })
+              .then(r => {
+                const out = r.out || '';
+                const scanner = (out.match(/::scanner:: (\w+)/) || [])[1] || 'grep';
+                const seg = (a, b) => { const m = out.match(new RegExp('::' + a + '::([\\s\\S]*?)::' + b + '::')); return m ? m[1] : ''; };
+                const parse = (block, sev, mk) => {
+                    const fnd = [];
+                    String(block || '').split('\n').forEach(ln => {
+                        if (/^Binary file/i.test(ln)) return;
+                        const m = ln.match(/^\.?\/?(.+?):(\d+):(.*)$/);
+                        if (!m) return;
+                        const file = m[1].replace(/^\.\//, ''), lno = m[2], text = m[3].trim().slice(0, 80);
+                        fnd.push({ file: file + ':' + lno, sev: sev, title: mk(text) });
+                    });
+                    return fnd;
+                };
+                let findings = []
+                    .concat(parse(seg('sec', 'danger'),    'major', () => 'Possible hardcoded secret/credential'))
+                    .concat(parse(seg('danger', 'marker'), 'major', t => 'Dangerous call: ' + (t.match(/eval|exec|child_process|os\.system|subprocess|getRuntime/i) || ['call'])[0]))
+                    .concat(parse(seg('marker', 'end'),    'minor', t => ((t.match(/\b(TODO|FIXME|HACK|XXX)\b/i) || [])[1] || 'TODO').toUpperCase() + ' marker'));
+                const total = findings.length;
+                if (findings.length > HOUND_CAP) findings = findings.slice(0, HOUND_CAP);
+                resolve({ ok: true, scanner, findings, total });
+              })
+              .catch(() => resolve({ ok:false, findings:[], total:0, scanner:'' }));
+        });
+    }
+
     const DEFAULT_SCOUT_TASK =
         'Audit this folder for REAL issues only, then write ./library.md. ' +
         'For each genuine bug also print a line `🪲BUG <file:line> <critical|major|minor> <title>` to stdout.';
@@ -6196,6 +6251,7 @@ function openPrintSession() {
             const memberDone = [];                 // once-only guard per member
             const memberErr = {};                  // idx → captured death cause (429 / error / etc.)
             const cwdToMap = {};                   // P1: room cwd → packRoom result (map for the Scout to Read)
+            const cwdToHound = {};                  // P3: room cwd → houndRoom result (deterministic candidates)
             // Per-member watchdogs so ONE hung/stuck member can't block all-done (→ no
             // King's Verdict / vote scene ever). STALL = max silence after warm-up; ABS = hard cap.
             const MEMBER_STALL_MS = 120000;        // 2 min of no stdout → assume hung
@@ -6270,6 +6326,17 @@ function openPrintSession() {
                         'or crawl the directory tree to discover files.' + bigHint + ' Use the map to jump straight ' +
                         'to suspicious spots, Read only those specific source files to confirm a real issue, then:\n\n' + task;
                 }
+                // P3: a deterministic pre-scan already flagged candidates — hand them to the
+                // model to VERIFY (helps weak models get a real head-start; false positives
+                // are theirs to drop). Prepended so it sits ahead of the audit instructions.
+                const hd = cwdToHound[memberCwd];
+                if (hd && hd.findings && hd.findings.length) {
+                    const list = hd.findings.slice(0, 25).map(f => '- ' + f.file + ' · ' + f.sev + ' · ' + f.title).join('\n');
+                    memberTask = 'A deterministic pre-scan (' + (hd.scanner || 'grep') + ') flagged these CANDIDATE issues ' +
+                        'in this folder. VERIFY each against the actual source — some are false positives, keep only the ' +
+                        'real ones — and ALSO find problems a regex scan cannot (logic errors, races, bad error handling, ' +
+                        'security flaws):\n' + list + '\n\n' + memberTask;
+                }
                 const argv = [GUEST_CLAUDE, '--output-format', 'stream-json', '--print',
                     '--dangerously-skip-permissions', '--append-system-prompt', persona, '--verbose', memberTask];
                 let proc;
@@ -6324,6 +6391,11 @@ function openPrintSession() {
                 ? Array.from(new Set(assignments.slice(0, members).map(a => a.cwd || cwd)))
                 : [cwd];
             send({ t:'packing', rooms: packCwds.length });
+            // P3: emit zero-token hound monsters only where the frontend writes monsters
+            // from markers AND there's no consensus vote to inflate — plain Deep Scout and
+            // Divide. Council (consensus/roam, flagged r.roam) gets the hound findings via
+            // task injection instead, so grep never counts as "a model that voted".
+            const emitHoundMarkers = (isDeep || isDivide) && !r.roam;
             (async () => {
                 for (const pc of packCwds) {
                     const res = await packRoom(pc);
@@ -6338,6 +6410,18 @@ function openPrintSession() {
                     send({ t:'packed', cwd:pc, ok:res.ok, tokens:res.tokens || 0, bytes:res.bytes || 0, tier:res.tier || '', err:res.err || '' });
                     log('[dungeon] pack ' + pc + ' → ' + (res.ok ? ('ok ~' + res.tokens + 'tok [' + (res.tier||'') + '], ' + res.bytes + 'b')
                         : ('FAILED: ' + res.err + ' — degrading to crawl')) + '\n');
+                    // ── P3 hound scan (deterministic, zero model tokens) ──
+                    const hres = await houndRoom(pc);
+                    cwdToHound[pc] = hres;
+                    if (hres.ok && hres.findings.length) {
+                        if (emitHoundMarkers) {
+                            const mem = isDivide ? Math.max(0, assignments.findIndex(a => (a.cwd || cwd) === pc)) : 0;
+                            hres.findings.forEach(f => send({ t:'bug', member:mem, file:f.file, sev:f.sev, title:f.title, src:'hound' }));
+                        }
+                        send({ t:'hounds', cwd:pc, count:hres.findings.length, total:hres.total, scanner:hres.scanner, markers:emitHoundMarkers });
+                        log('[dungeon] hounds ' + pc + ' → ' + hres.findings.length + (hres.total > hres.findings.length ? ('/' + hres.total) : '') +
+                            ' [' + hres.scanner + ']' + (emitHoundMarkers ? ' (markers)' : ' (task-only)') + '\n');
+                    }
                 }
                 for (let i = 0; i < members; i++) runMember(i);
             })();
