@@ -118,6 +118,9 @@ class AppPreferences(context: Context) {
     fun getTtsEnabled(): Boolean = prefs.getBoolean(KEY_TTS_ENABLED, false)
     fun setTtsEnabled(enabled: Boolean) = prefs.edit().putBoolean(KEY_TTS_ENABLED, enabled).apply()
 
+    fun getPreviewPort(): Int = prefs.getInt(KEY_PREVIEW_PORT, 5173)
+    fun setPreviewPort(port: Int) = prefs.edit().putInt(KEY_PREVIEW_PORT, port).apply()
+
     // ─── Live provider updates ────────────────────────────────────────────────
 
     fun getProviderRemoteUrl(): String = prefs.getString(KEY_PROVIDER_REMOTE_URL, "") ?: ""
@@ -188,6 +191,7 @@ class AppPreferences(context: Context) {
         private const val KEY_MCP_SERVERS          = "mcp_servers_json"
         private const val KEY_MCP_STDIO_SERVERS    = "mcp_stdio_servers_json"
         private const val KEY_TTS_ENABLED          = "tts_enabled"
+        private const val KEY_PREVIEW_PORT          = "preview_port"
         private const val KEY_PROVIDER_REMOTE_URL  = "provider_remote_url"
         private const val KEY_RESPONSE_NOTIFICATIONS = "response_notifications"
         private const val KEY_AUTO_START_BOOT       = "auto_start_boot"
