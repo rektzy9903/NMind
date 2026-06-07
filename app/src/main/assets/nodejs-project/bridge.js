@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b80-hero-prepass';
+const BRIDGE_BUILD = 'b81-fix-graphctx-newline';
 
 const net   = require('net');
 const http  = require('http');
@@ -6500,11 +6500,8 @@ function openPrintSession() {
                 // Twin Lens Pass 4: inject graph context (centrality, cycles, blast radius)
                 // when the dungeon has already computed a graph for this project.
                 if (r.graphContext) {
-                    memberTask = 'DEPENDENCY GRAPH CONTEXT (pre-computed, use to prioritise your audit):
-' +
-                        r.graphContext + '
-
-' + memberTask;
+                    memberTask = 'DEPENDENCY GRAPH CONTEXT (pre-computed, use to prioritise your audit):\n' +
+                        r.graphContext + '\n\n' + memberTask;
                 }
                 // Hero briefing: inject semantic pre-pass context for dispatch ops.
                 if (r.heroContext && op === 'dispatch') {
