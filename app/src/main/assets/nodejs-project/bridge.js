@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b73-scout-cartographer-p1';
+const BRIDGE_BUILD = 'b74-scout-cartographer-p2';
 
 const net   = require('net');
 const http  = require('http');
@@ -5945,6 +5945,35 @@ function openPrintSession() {
         });
     }
 
+    // ── DungeonPRD P2: pre-flight budget gate ───────────────────────────────────
+    // The map exists to let EVERY model — especially weak / low-TPM ones — audit
+    // without crawling the tree. So the gate is NEVER about denying a model the map;
+    // it only picks the CHEAPEST way to deliver one that packed OK:
+    //   ≤ INLINE_MAX  → inline the whole map into the prompt (zero Read round-trips —
+    //                   the friendliest path for weak models: no tool dance, just read).
+    //   >  INLINE_MAX  → file mode: model Reads the /tmp map (P1). Compressed, so still
+    //                   far lighter than crawling; claude-code's Read paginates it.
+    //   >  BIG          → still file mode, but the task tells the model to Read it in
+    //                   sections (offset/limit) so a huge map can't blow one request.
+    // A model is only ever left to crawl when packing actually FAILED. All tunable;
+    // model-agnostic by design (no per-model branching).
+    const P2_INLINE_MAX_TOKENS = 4000;
+    const P2_BIG_MAP_TOKENS    = 20000;        // above → add "Read it in sections" hint
+    const P2_INLINE_MAX_BYTES  = 60000;        // hard cap on inlined chars regardless
+    function pickMapTier(tokens) {
+        if (tokens && tokens > 0 && tokens <= P2_INLINE_MAX_TOKENS) return 'inline';
+        return 'file';   // every successful pack still reaches the model — never crawl-abandoned
+    }
+    // Read back a (small) guest file for inlining. repomix is cached → this is a fast
+    // `head -c` with no npx. Best-effort: empty string on any failure → caller falls
+    // back to file mode.
+    function readGuestFile(path, maxBytes) {
+        return new Promise((resolve) => {
+            runProotGuest(['/bin/bash', '-lc', 'head -c ' + (maxBytes || 60000) + ' ' + path + ' 2>/dev/null'], 30000, null, {})
+              .then(r => resolve(r.out || '')).catch(() => resolve(''));
+        });
+    }
+
     const DEFAULT_SCOUT_TASK =
         'Audit this folder for REAL issues only, then write ./library.md. ' +
         'For each genuine bug also print a line `🪲BUG <file:line> <critical|major|minor> <title>` to stdout.';
@@ -6159,17 +6188,28 @@ function openPrintSession() {
                     SHELL: '/bin/bash', IS_SANDBOX: '1',
                 };
                 if (benv.ANTHROPIC_BASE_URL) guestEnv.ANTHROPIC_BASE_URL = benv.ANTHROPIC_BASE_URL;
-                // P1: if a Cartographer map for this room packed OK, tell the model to
-                // Read it FIRST instead of crawling the tree. Degrades silently to the
-                // plain task when no map (pack failed / non-audit op).
+                // Cartographer map (P1 packed it, P2 chose how to deliver it). Always give
+                // the model the map when it packed OK — inline for small (no Read needed,
+                // weak-model friendly), else as a file to Read. Degrades to the plain task
+                // (crawl) only when packing FAILED / non-audit op.
                 let memberTask = task;
                 const mp = cwdToMap[memberCwd];
-                if (mp && mp.ok) {
+                if (mp && mp.ok && mp.tier === 'inline' && mp.content) {
+                    memberTask = 'Below is a COMPRESSED STRUCTURAL MAP of this entire folder (every file with ' +
+                        'its signatures and key code, Tree-sitter compressed). Use it to jump straight to ' +
+                        'suspicious spots — do NOT run ls/glob or crawl the tree. Read only the specific source ' +
+                        'files you need to confirm a real issue, then:\n\n' + task +
+                        '\n\n===== FOLDER MAP START =====\n' + mp.content + '\n===== FOLDER MAP END =====\n';
+                } else if (mp && mp.ok) {
+                    const bigHint = (mp.tokens > P2_BIG_MAP_TOKENS)
+                        ? ' The map is large — Read it in sections (use the Read tool\'s offset/limit) rather ' +
+                          'than all at once, so you never pull the whole thing into one request.'
+                        : '';
                     memberTask = 'A COMPRESSED STRUCTURAL MAP of this entire folder (every file with its ' +
                         'signatures and key code, Tree-sitter compressed) has already been generated at ' +
                         mp.mapPath + '. Read THAT ONE FILE FIRST to learn the layout — do NOT run ls/glob ' +
-                        'or crawl the directory tree to discover files. Use the map to jump straight to ' +
-                        'suspicious spots, Read only those specific source files to confirm a real issue, then:\n\n' + task;
+                        'or crawl the directory tree to discover files.' + bigHint + ' Use the map to jump straight ' +
+                        'to suspicious spots, Read only those specific source files to confirm a real issue, then:\n\n' + task;
                 }
                 const argv = [GUEST_CLAUDE, '--output-format', 'stream-json', '--print',
                     '--dangerously-skip-permissions', '--append-system-prompt', persona, '--verbose', memberTask];
@@ -6228,9 +6268,16 @@ function openPrintSession() {
             (async () => {
                 for (const pc of packCwds) {
                     const res = await packRoom(pc);
+                    if (res.ok) {
+                        res.tier = pickMapTier(res.tokens);
+                        if (res.tier === 'inline') {
+                            res.content = await readGuestFile(res.mapPath, P2_INLINE_MAX_BYTES);
+                            if (!res.content) res.tier = 'file';   // couldn't read back → Read the file instead
+                        }
+                    }
                     cwdToMap[pc] = res;
-                    send({ t:'packed', cwd:pc, ok:res.ok, tokens:res.tokens || 0, bytes:res.bytes || 0, err:res.err || '' });
-                    log('[dungeon] pack ' + pc + ' → ' + (res.ok ? ('ok ~' + res.tokens + 'tok, ' + res.bytes + 'b')
+                    send({ t:'packed', cwd:pc, ok:res.ok, tokens:res.tokens || 0, bytes:res.bytes || 0, tier:res.tier || '', err:res.err || '' });
+                    log('[dungeon] pack ' + pc + ' → ' + (res.ok ? ('ok ~' + res.tokens + 'tok [' + (res.tier||'') + '], ' + res.bytes + 'b')
                         : ('FAILED: ' + res.err + ' — degrading to crawl')) + '\n');
                 }
                 for (let i = 0; i < members; i++) runMember(i);

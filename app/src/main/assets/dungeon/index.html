@@ -501,7 +501,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd35-sprite-diag';
+var DUNGEON_BUILD = 'd36-p2-tier-toast';
 
 // ── Bridge ────────────────────────────────────────────────
 var A = (typeof DungeonAndroid !== 'undefined') ? DungeonAndroid : null;
@@ -1972,7 +1972,7 @@ window.onDungeonEvent=function(sid, line){
 
   // ── P1 Cartographer pre-pass: map the room(s) before scouts march ──
   if(ev.t==='packing'){ toast('🗺 Cartographer mapping '+(ev.rooms>1?ev.rooms+' rooms':'the room')+'…'); return; }
-  else if(ev.t==='packed'){ toast(ev.ok ? ('🗺 Map ready · ~'+(ev.tokens||0)+' tok — scout reads the map') : ('🗺 No map ('+(ev.err||'pack failed')+') — scout will crawl')); return; }
+  else if(ev.t==='packed'){ toast(ev.ok ? ('🗺 Map ready · ~'+(ev.tokens||0)+' tok — '+(ev.tier==='inline'?'inlined for the scout':'scout reads the map')) : ('🗺 No map ('+(ev.err||'pack failed')+') — scout will crawl')); return; }
 
   // (Judge models removed — YOU are the tribunal judge now, at the round table.)
 
