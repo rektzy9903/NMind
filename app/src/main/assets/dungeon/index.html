@@ -332,17 +332,26 @@
   .danger-critical { background:#22F87171; color:#F87171; }
   .room-purpose { font-size:11px; color:var(--ink2,#5a432a); margin:4px 0 8px; font-style:italic; }
   /* Twin Lens dependency-graph chip — OFF (dashed/dim) vs ON (solid green, filled) must be obvious */
-  .graph-chip { display:flex; align-items:center; justify-content:center; gap:5px; font-size:11px; font-weight:600;
-    padding:9px 12px; border-radius:10px; border:1px dashed var(--nborder2,#3A3A42); background:var(--nsurf2);
-    color:var(--ntext2); cursor:pointer; margin:8px 0 12px; width:100%; box-sizing:border-box; text-align:center;
+  .graph-chip { position:relative; overflow:hidden; display:flex; align-items:center; justify-content:center;
+    gap:5px; font-size:11px; font-weight:600; padding:9px 12px; border-radius:10px;
+    border:1px dashed var(--nborder2,#3A3A42); background:var(--nsurf2); color:var(--ntext2); cursor:pointer;
+    margin:8px 0 12px; width:100%; box-sizing:border-box; text-align:center;
     -webkit-tap-highlight-color:rgba(232,131,74,.3); user-select:none; transition:background .15s,border-color .15s; }
   .graph-chip:active { background:var(--nsurf,#151518); transform:scale(.99); }
   .graph-chip.ready { border:1px solid var(--ngreen,#3DD68C); background:rgba(61,214,140,.12);
     color:var(--ngreen,#3DD68C); }
-  .graph-chip.scanning { border:1px solid var(--namber,#FBBF24); background:rgba(251,191,36,.12);
+  .graph-chip.scanning { border:1px solid var(--namber,#FBBF24); background:rgba(251,191,36,.10);
     color:var(--namber,#FBBF24); }
   .graph-chip.error { border:1px solid var(--nred,#F87171); background:rgba(248,113,113,.12);
     color:var(--nred,#F87171); }
+  /* left→right progress fill behind the label while scanning */
+  .graph-chip .gc-fill { position:absolute; left:0; top:0; bottom:0; width:0; z-index:0; pointer-events:none;
+    background:rgba(251,191,36,.32); border-radius:10px 0 0 10px; }
+  .graph-chip.scanning .gc-fill { animation:gcfill 75s cubic-bezier(.15,.85,.3,1) forwards; }
+  .graph-chip.scanning .gc-fill::after { content:''; position:absolute; right:0; top:0; bottom:0; width:24px;
+    background:linear-gradient(90deg,rgba(251,191,36,0),rgba(251,191,36,.55)); }
+  .graph-chip .gc-label { position:relative; z-index:1; }
+  @keyframes gcfill { 0%{width:4%;} 60%{width:80%;} 100%{width:95%;} }
   .room-rect.has-agent { filter:drop-shadow(0 0 8px var(--gold)) drop-shadow(0 2px 0 rgba(58,40,24,.4)); }
   .room-label { font-family:'Georgia',serif; font-weight:bold; fill:var(--ink); text-anchor:middle; pointer-events:none; font-size:7px; }
   .room-label.throne-label { font-size:9px; }
@@ -428,7 +437,7 @@
   <div class="dlg-box">
     <h3>⚔ Send a Scout</h3>
     <div class="dlg-sub" id="scout-target">Scout the whole dungeon</div>
-    <div id="graph-chip" class="graph-chip" onclick="scanProjectGraph()">⬡ Scan dependencies (faster audit)</div>
+    <div id="graph-chip" class="graph-chip" onclick="scanProjectGraph()"><span class="gc-fill"></span><span class="gc-label">⬡ Dependency lens OFF · tap to scan</span></div>
     <div class="seg" id="scout-scope">
       <button class="seg-btn active" data-v="full">Full Dungeon</button>
       <button class="seg-btn" data-v="room">This Room</button>
@@ -546,7 +555,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd49-graph-chip-onoff';
+var DUNGEON_BUILD = 'd50-graph-chip-progress';
 
 // ── Bridge ────────────────────────────────────────────────
 var A = (typeof DungeonAndroid !== 'undefined') ? DungeonAndroid : null;
@@ -988,17 +997,23 @@ function loadGraph(){
 function updateGraphChip(){
   var chip=document.getElementById('graph-chip'); if(!chip) return;
   chip.classList.remove('ready','scanning','error');
+  // label lives in a child span so the absolute .gc-fill progress layer survives text updates
+  var lbl=chip.querySelector('.gc-label')||chip;
+  var fill=chip.querySelector('.gc-fill');
   if(graphState.scanning){
-    chip.textContent='◌ Scanning dependencies…'; chip.classList.add('scanning');
+    lbl.textContent='◌ Scanning dependencies…';
+    // restart the left→right fill animation from 0 each scan
+    if(fill){ fill.style.animation='none'; void fill.offsetWidth; fill.style.animation=''; }
+    chip.classList.add('scanning');
   } else if(graphState.error){
-    chip.textContent='⬡ Scan failed — tap to retry'; chip.classList.add('error');
+    lbl.textContent='⬡ Scan failed — tap to retry'; chip.classList.add('error');
   } else if(graphState.raw){
     var n=Object.keys(graphState.scores).length;
     var cyc=graphState.cycles.length;
-    chip.textContent='⬢ Dependency lens ON · '+n+' folders'+(cyc?' · '+cyc+' cycle'+(cyc>1?'s':''):'')+' · tap to rescan';
+    lbl.textContent='⬢ Dependency lens ON · '+n+' folders'+(cyc?' · '+cyc+' cycle'+(cyc>1?'s':''):'')+' · tap to rescan';
     chip.classList.add('ready');
   } else {
-    chip.textContent='⬡ Dependency lens OFF · tap to scan';
+    lbl.textContent='⬡ Dependency lens OFF · tap to scan';
   }
 }
 
