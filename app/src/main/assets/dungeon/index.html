@@ -331,9 +331,9 @@
   .danger-high     { background:#22E8834A; color:#E8834A; }
   .danger-critical { background:#22F87171; color:#F87171; }
   .room-purpose { font-size:11px; color:var(--ink2,#5a432a); margin:4px 0 8px; font-style:italic; }
-  .graph-chip { display:inline-flex; align-items:center; gap:4px; font-size:9px; padding:3px 7px;
-    border-radius:10px; border:1px solid var(--nborder); background:var(--nsurf2); color:var(--ntext2);
-    cursor:pointer; margin-top:6px; }
+  .graph-chip { display:flex; align-items:center; justify-content:center; gap:5px; font-size:11px;
+    padding:8px 12px; border-radius:10px; border:1px solid var(--nborder); background:var(--nsurf2);
+    color:var(--ntext2); cursor:pointer; margin:8px 0 12px; width:100%; box-sizing:border-box; text-align:center; }
   .graph-chip.ready { border-color:var(--ngreen,#3DD68C); color:var(--ngreen,#3DD68C); }
   .graph-chip.scanning { border-color:var(--namber,#FBBF24); color:var(--namber,#FBBF24); }
   .graph-chip.error { border-color:var(--nred,#F87171); color:var(--nred,#F87171); }
@@ -540,7 +540,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd47-fix-graphctx-newline';
+var DUNGEON_BUILD = 'd48-persist-graph';
 
 // ── Bridge ────────────────────────────────────────────────
 var A = (typeof DungeonAndroid !== 'undefined') ? DungeonAndroid : null;
@@ -953,6 +953,30 @@ function scanProjectGraph(){
   }
 }
 
+// ── Twin Lens persistence: scan the dependency graph ONCE per project, never again ──
+// The raw madge map is saved to a hidden file in the project root so it survives
+// closing/reopening the dungeon. It reloads automatically on enterDungeon(). This is
+// the graph half of Twin Lens; the repomix map (Cartographer pre-pass) is the other
+// half — both are pre-computed structural intelligence injected into scout prompts.
+var GRAPH_FILE = '.nexus-graph.json';
+function graphPath(){ return activePath ? activePath + '/' + GRAPH_FILE : ''; }
+function saveGraph(){
+  if(!activePath || !graphState.raw) return;
+  try { writeFile(graphPath(), JSON.stringify({ v:1, ts:Date.now(), raw:graphState.raw })); } catch(_){}
+}
+// Reset graph state for the active project, then reload a persisted graph if one exists.
+// Must run AFTER renderAll() so room SVG elements (_gEl) exist for updateRoomGraphVisuals.
+function loadGraph(){
+  graphState = { raw:null, scores:{}, cycles:[], dead:[], scanning:false, error:null };
+  if(!activePath) { updateGraphChip(); return; }
+  var txt=readFile(graphPath());
+  if(txt){
+    try { var obj=JSON.parse(txt); if(obj && obj.raw){ analyzeGraph(obj.raw); graphState.savedTs=obj.ts||0; } }
+    catch(_){}
+  }
+  updateGraphChip();
+}
+
 // Update the graph chip badge in the scout dialog
 function updateGraphChip(){
   var chip=document.getElementById('graph-chip'); if(!chip) return;
@@ -964,7 +988,7 @@ function updateGraphChip(){
   } else if(graphState.raw){
     var n=Object.keys(graphState.scores).length;
     var cyc=graphState.cycles.length;
-    chip.textContent='⬡ Graph ready · '+n+' folders'+(cyc?' · '+cyc+' cycle'+(cyc>1?'s':''):'');
+    chip.textContent='⬡ Graph ready · '+n+' folders'+(cyc?' · '+cyc+' cycle'+(cyc>1?'s':''):'')+' · tap to rescan';
     chip.classList.add('ready');
   } else {
     chip.textContent='⬡ Scan dependencies (faster audit)';
@@ -1041,6 +1065,7 @@ function renderAll(){
 function enterDungeon(name,path){
   activePath=path; activeName=name;
   buildWorld(); renderAll();
+  loadGraph();   // reset + reload persisted Twin Lens graph for THIS project (after _gEl exists)
   showScreen('map-screen');
   fitToScreen();
   renderAgentsPanel();
@@ -2289,8 +2314,9 @@ window.onDungeonEvent=function(sid, line){
   else if(ev.t==='graph-data'){
     graphState.scanning=false;
     analyzeGraph(ev.graph||{});
+    saveGraph();   // persist so this project is scanned ONCE — reloads on every reopen
     var n=Object.keys(graphState.scores).length;
-    toast('⬡ Graph ready · '+n+' folder'+(n===1?'':'s')+' mapped'+(graphState.cycles.length?' · ⚠ '+graphState.cycles.length+' cycle(s)':''));
+    toast('⬡ Graph ready · '+n+' folder'+(n===1?'':'s')+' mapped'+(graphState.cycles.length?' · ⚠ '+graphState.cycles.length+' cycle(s)':'')+' · saved');
     return;
   }
   else if(ev.t==='graph-error'){ graphState.scanning=false; graphState.error=ev.err||'unknown'; updateGraphChip(); toast('⬡ Graph scan failed: '+(ev.err||'').slice(0,60)); return; }
