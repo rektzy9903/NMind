@@ -147,6 +147,9 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x gradlew && chmod +x scripts/build-llamaserver.sh
 
+      - name: Syntax-check bridge.js
+        run: node --check app/src/main/assets/nodejs-project/bridge.js
+
       # ── 7. Install NDK ───────────────────────────────────────────────────────
       - name: Install NDK 25.1.8937393
         run: |
