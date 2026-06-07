@@ -501,7 +501,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd33-verdict-fits-phone';
+var DUNGEON_BUILD = 'd34-expedition-on-main-loop';
 
 // ── Bridge ────────────────────────────────────────────────
 var A = (typeof DungeonAndroid !== 'undefined') ? DungeonAndroid : null;
@@ -944,6 +944,7 @@ function tick(now){
       } else a.status='working';
     }
   });
+  expTick(now);   // step expeditions from the always-on loop (never a private rAF that can die)
   requestAnimationFrame(tick);
 }
 requestAnimationFrame(tick);
@@ -971,7 +972,7 @@ function updateRoomVisuals(){
 
 // ── Expedition animations — Scout (solo) vs War Council (party), distinct from
 //    the single-hero walk+combat. index.html-only, no bridge involvement. ──
-var expeditions={}, expRAF=null, expLast=performance.now();
+var expeditions={}, expLast=performance.now();
 var EXP_PAL=['#5a6b3a','#8b6f3f','#5a3f7a','#3a5a6b'];
 function lerp(a,b,k){ return a+(b-a)*k; }
 function spawnExpSprite(kind,color){
@@ -1007,6 +1008,9 @@ function roomForPath(p, cwd){
 function makeMember(kind,color){
   var th=getRoom('throne')||{cx:0,cy:0};
   var g=spawnExpSprite(kind,color);
+  // Paint at the throne immediately so the sprite is visible from t=0, independent of
+  // when the first expedition frame runs (don't rely on expTick for the first paint).
+  g.setAttribute('transform','translate('+th.cx.toFixed(2)+','+th.cy.toFixed(2)+')');
   return { g:g, x:th.cx, y:th.cy, atId:'throne', path:[], pidx:0, targetId:null, want:null, dwell:0,
            bob:Math.random()*6.28, blip:0, hereRoom:null, parked:false, rooms:[], color:color };
 }
@@ -1032,7 +1036,9 @@ function startExpedition(sid,kind,rootId,members){
   var fan = rooms.filter(function(r){ return r.parent===rid; });
   if(!fan.length){ var rr=getRoom(rid); if(rr && rid!=='throne') fan=[rr]; }
   if(fan.length) sprites.forEach(function(s,i){ var r=fan[i%fan.length]; s.want=r.id; spriteGoToRoom(s, r, exp); });
-  if(!expRAF){ expLast=performance.now(); expRAF=requestAnimationFrame(expTick); }
+  // Reset the dt baseline; the expedition is stepped from the always-on tick() loop
+  // (no private rAF that can be dropped mid scout-dialog close — that killed the 1st run).
+  expLast=performance.now();
 }
 function expSetCwd(sid,member,cwd){ var e=expeditions[sid]; if(e && cwd) e.cwds[member]=cwd; }
 // The member is now reading <p> → record the DESIRED room. The sprite only switches to it
@@ -1109,7 +1115,6 @@ function expTick(now){
       if(exp.fade>=1){ exp.sprites.forEach(function(s){ try{s.g.remove();}catch(_){} }); delete expeditions[sid]; if(!Object.keys(expeditions).length) refreshTitle(); }
     }
   }
-  expRAF = Object.keys(expeditions).length ? requestAnimationFrame(expTick) : null;
 }
 
 // ── Dispatch progress cards (top-right, under the project name) ──
