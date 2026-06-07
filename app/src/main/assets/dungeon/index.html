@@ -1950,6 +1950,10 @@ window.onDungeonEvent=function(sid, line){
   var ev; try{ ev=JSON.parse(line); }catch(_){ return; }
   var job=dispatchJobs[sid];
 
+  // ── P1 Cartographer pre-pass: map the room(s) before scouts march ──
+  if(ev.t==='packing'){ toast('🗺 Cartographer mapping '+(ev.rooms>1?ev.rooms+' rooms':'the room')+'…'); return; }
+  else if(ev.t==='packed'){ toast(ev.ok ? ('🗺 Map ready · ~'+(ev.tokens||0)+' tok — scout reads the map') : ('🗺 No map ('+(ev.err||'pack failed')+') — scout will crawl')); return; }
+
   // (Judge models removed — YOU are the tribunal judge now, at the round table.)
 
   // ── 🔱 Deep Scout: one room per spawn; drive the persistent deep sprite/card ──

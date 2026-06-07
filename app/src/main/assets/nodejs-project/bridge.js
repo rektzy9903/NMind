@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b72-scout-pack-probe';
+const BRIDGE_BUILD = 'b73-scout-cartographer-p1';
 
 const net   = require('net');
 const http  = require('http');
@@ -5907,6 +5907,44 @@ function openPrintSession() {
     // cwd=room + an auditor/persona --append-system-prompt. The guest writes findings
     // into each room's library.md (the dungeon re-scans to render monsters). Status is
     // streamed back as JSON lines → DungeonActivity → window.onDungeonEvent.
+
+    // ── DungeonPRD P1: Cartographer pre-pass (packRoom) ─────────────────────────
+    // Pack a room's folder into ONE Tree-sitter-compressed map (~70% token cut)
+    // BEFORE the Scout/Council models spawn, so each model reads one artifact
+    // instead of crawling the tree (kills the inv-58 discovery/TPM friction —
+    // proven viable by the !scout-pack P0 probe, b72). FILE-MODE: the map is written
+    // to a guest /tmp path (clean scratch, NOT into the project — never pollute the
+    // tree being audited); the Scout's task tells the model to Read it first. The
+    // token count is captured for the P2 pre-flight gate (not used yet in P1).
+    // Best-effort: any pack failure resolves { ok:false } and the caller silently
+    // degrades to the old crawl-the-tree behavior (never blocks a dispatch).
+    // repomix is cached in the rootfs after the first run, so a real room packs in
+    // seconds — the one-time ~30MB npm fetch already happened during P0.
+    function pathHash(s) { let h = 5381; for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0; return h.toString(36); }
+    function packRoom(targetCwd) {
+        return new Promise((resolve) => {
+            if (!targetCwd) return resolve({ ok:false, err:'no cwd' });
+            const mapPath = '/tmp/nexus-scout-' + pathHash(String(targetCwd)) + '.xml';
+            // --compress = Tree-sitter signature extraction. Leave it LOUD (no --quiet)
+            // so the "Total Tokens" summary line survives for the P2 gate; tail to bound.
+            const cmd = [
+                'set +e',
+                'rm -f ' + mapPath,
+                'npx -y repomix --compress --style xml -o ' + mapPath + ' . 2>&1 | tail -25',
+                'echo "::mapsize:: $(wc -c < ' + mapPath + ' 2>/dev/null || echo 0)"',
+            ].join('\n');
+            runProotGuest(['/bin/bash', '-lc', cmd], 120000, null, { workspace: targetCwd })
+              .then(r => {
+                const out = r.out || '';
+                const tokens  = parseInt(((out.match(/Total Tokens:?\s*([\d,]+)/i) || [])[1] || '0').replace(/,/g,''), 10) || 0;
+                const mapSize = parseInt((out.match(/::mapsize:: (\d+)/) || [])[1] || '0', 10);
+                if (mapSize > 0) resolve({ ok:true, mapPath, tokens, bytes:mapSize });
+                else resolve({ ok:false, mapPath, err: /\[timeout/.test(out) ? 'pack timed out' : 'pack produced no map' });
+              })
+              .catch(e => resolve({ ok:false, err: (e && e.message) || 'pack error' }));
+        });
+    }
+
     const DEFAULT_SCOUT_TASK =
         'Audit this folder for REAL issues only, then write ./library.md. ' +
         'For each genuine bug also print a line `🪲BUG <file:line> <critical|major|minor> <title>` to stdout.';
@@ -6069,6 +6107,7 @@ function openPrintSession() {
             let doneCount = 0;
             const memberDone = [];                 // once-only guard per member
             const memberErr = {};                  // idx → captured death cause (429 / error / etc.)
+            const cwdToMap = {};                   // P1: room cwd → packRoom result (map for the Scout to Read)
             // Per-member watchdogs so ONE hung/stuck member can't block all-done (→ no
             // King's Verdict / vote scene ever). STALL = max silence after warm-up; ABS = hard cap.
             const MEMBER_STALL_MS = 120000;        // 2 min of no stdout → assume hung
@@ -6120,8 +6159,20 @@ function openPrintSession() {
                     SHELL: '/bin/bash', IS_SANDBOX: '1',
                 };
                 if (benv.ANTHROPIC_BASE_URL) guestEnv.ANTHROPIC_BASE_URL = benv.ANTHROPIC_BASE_URL;
+                // P1: if a Cartographer map for this room packed OK, tell the model to
+                // Read it FIRST instead of crawling the tree. Degrades silently to the
+                // plain task when no map (pack failed / non-audit op).
+                let memberTask = task;
+                const mp = cwdToMap[memberCwd];
+                if (mp && mp.ok) {
+                    memberTask = 'A COMPRESSED STRUCTURAL MAP of this entire folder (every file with its ' +
+                        'signatures and key code, Tree-sitter compressed) has already been generated at ' +
+                        mp.mapPath + '. Read THAT ONE FILE FIRST to learn the layout — do NOT run ls/glob ' +
+                        'or crawl the directory tree to discover files. Use the map to jump straight to ' +
+                        'suspicious spots, Read only those specific source files to confirm a real issue, then:\n\n' + task;
+                }
                 const argv = [GUEST_CLAUDE, '--output-format', 'stream-json', '--print',
-                    '--dangerously-skip-permissions', '--append-system-prompt', persona, '--verbose', task];
+                    '--dangerously-skip-permissions', '--append-system-prompt', persona, '--verbose', memberTask];
                 let proc;
                 try { proc = prootChild(argv, { extraEnv: guestEnv, workspace: memberCwd }); }
                 catch (e) { send({ t:'start', member:idx, error:e.message }); finishMember(idx, -1, 'failed to start: ' + (e.message||'').slice(0,50)); return; }
@@ -6163,7 +6214,27 @@ function openPrintSession() {
                 proc.on('close', code => { procs.delete(proc); finishMember(idx, code, null); });
             }
             send({ t:'dispatch-start', op:op, members:members, cwd:cwd });
-            for (let i = 0; i < members; i++) runMember(i);
+            // ── P1 Cartographer pre-pass: pack each DISTINCT room cwd once, then spawn ──
+            // Audit ops only (scout incl. deep + council incl. divide). 'dispatch' (a hero
+            // doing fix work) and 'judge' keep their existing flows — no map. Packs run
+            // sequentially (repomix is cached → fast; avoids 4 concurrent npx). A failed
+            // pack just leaves cwdToMap[cwd] unset → that member crawls as before.
+            const doPack = (op === 'scout' || op === 'council');
+            if (!doPack) { for (let i = 0; i < members; i++) runMember(i); return; }
+            const packCwds = isDivide
+                ? Array.from(new Set(assignments.slice(0, members).map(a => a.cwd || cwd)))
+                : [cwd];
+            send({ t:'packing', rooms: packCwds.length });
+            (async () => {
+                for (const pc of packCwds) {
+                    const res = await packRoom(pc);
+                    cwdToMap[pc] = res;
+                    send({ t:'packed', cwd:pc, ok:res.ok, tokens:res.tokens || 0, bytes:res.bytes || 0, err:res.err || '' });
+                    log('[dungeon] pack ' + pc + ' → ' + (res.ok ? ('ok ~' + res.tokens + 'tok, ' + res.bytes + 'b')
+                        : ('FAILED: ' + res.err + ' — degrading to crawl')) + '\n');
+                }
+                for (let i = 0; i < members; i++) runMember(i);
+            })();
         }
 
         const nl0 = reqBuf.indexOf('\n');
