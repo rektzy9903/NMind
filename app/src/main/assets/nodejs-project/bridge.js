@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b71-readonly-scout-tools';
+const BRIDGE_BUILD = 'b72-scout-pack-probe';
 
 const net   = require('net');
 const http  = require('http');
@@ -5201,6 +5201,65 @@ function openPrintSession() {
                     w(rep);
                   })
                   .catch(e => { w(R + '[!test-append proot error] ' + (e && e.message) + X + '\r\n'); });
+                continue;
+            }
+
+            // ── !scout-pack — DungeonPRD P0: does Repomix run on the proot guest? ──
+            // Repomix (npx repomix --compress) is the proposed "Cartographer" pre-pass
+            // for Scouts/Council: the BRIDGE packs a room's folder into one compact,
+            // Tree-sitter-compressed map (~70% fewer tokens) BEFORE any model spawns, so
+            // a Scout reads one artifact instead of crawling the tree (kills the inv-58
+            // discovery/TPM friction). This probe is the gate for that whole feature:
+            // build a tiny throwaway src tree in the guest, `npx -y repomix --compress`
+            // it, and confirm (a) node/npx are present, (b) repomix installs+runs under
+            // proot, (c) it emits a parseable Total Tokens count (the pre-flight budget
+            // signal), (d) a non-empty map file is produced. First run downloads repomix
+            // from npm → generous 240s timeout + needs network (same path that npm-installs
+            // claude-code, so it should work). No model call, no provider — pure tooling.
+            if (line.startsWith('!scout-pack')) {
+                const w = (s) => { try { if (state.socket) state.socket.write(SYS_FENCE + s); } catch(_) {} };
+                const G='\x1b[32m', Y='\x1b[33m', R='\x1b[31m', D='\x1b[2m', X='\x1b[0m';
+                const pbCmd = [
+                    'set +e',
+                    'echo "::node:: $(node --version 2>&1 | head -1)"',
+                    'echo "::npx:: $(npx --version 2>&1 | head -1)"',
+                    'D=/tmp/scout_probe; rm -rf "$D"; mkdir -p "$D/sub"',
+                    'printf "export function add(a,b){ return a+b }\\n// helper note\\nexport const PI = 3.14\\n" > "$D/a.js"',
+                    'printf "class Foo {\\n  bar(){ return 1 }\\n  baz(x){ return x * 2 }\\n}\\n" > "$D/sub/b.js"',
+                    'cd "$D"',
+                    'echo "::run:: invoking repomix (first run downloads from npm)"',
+                    'npx -y repomix --compress --style xml -o /tmp/scout_map.xml . 2>&1 | tail -40',
+                    'echo "::mapsize:: $(wc -c < /tmp/scout_map.xml 2>/dev/null || echo 0)"',
+                ].join('\n');
+                const t0 = Date.now();
+                w(Y + '!scout-pack (DungeonPRD P0): probing Repomix on the guest — first run npm-installs it, up to 240s…' + X + '\r\n');
+                runProotGuest(['/bin/bash','-lc', pbCmd], 240000, null, { workspace: FILES_DIR })
+                  .then(r => {
+                    const out = r.out || '';
+                    const ms = Date.now() - t0;
+                    const nodeV   = (out.match(/::node:: (v[\d.]+)/) || [])[1] || '';
+                    const npxV    = (out.match(/::npx:: ([\d.]+)/) || [])[1] || '';
+                    const tokens  = (out.match(/Total Tokens:?\s*([\d,]+)/i) || [])[1] || '';
+                    const files   = (out.match(/Total Files:?\s*(\d+)/i) || [])[1] || '';
+                    const mapSize = parseInt((out.match(/::mapsize:: (\d+)/) || [])[1] || '0', 10);
+                    const timedOut= /\[timeout \d+ms\]/.test(out) || r.code === null;
+                    const ran     = mapSize > 0 || !!tokens;
+                    const works   = !timedOut && !!nodeV && ran;
+                    const mark = works ? (G+'✓') : (R+'✗');
+                    let rep = mark + ' !scout-pack (proot) exit=' + r.code + ' in ' + ms + 'ms' + X + '\r\n';
+                    rep += '  node present:    ' + (nodeV ? G+nodeV+X : R+'no — guest node missing!'+X) + '\r\n';
+                    rep += '  npx present:     ' + (npxV ? G+npxV+X : R+'no'+X) + '\r\n';
+                    rep += '  repomix ran:     ' + (ran ? G+'yes'+X : (timedOut ? R+'no — TIMED OUT (npm fetch failed? no network?)'+X : R+'no'+X)) + '\r\n';
+                    rep += '  Total Tokens:    ' + (tokens ? G+tokens+X+D+' (the pre-flight budget signal — parseable ✓)'+X : Y+'not found in output'+X) + '\r\n';
+                    rep += '  Total Files:     ' + (files ? G+files+X : D+'—'+X) + '\r\n';
+                    rep += '  compressed map:  ' + (mapSize > 0 ? G+mapSize+' bytes'+X : R+'0 bytes — no file produced'+X) + '\r\n';
+                    rep += '  verdict: ' + (works ? G+'GREEN — Repomix works on guest. P1 (packRoom pre-pass) is unblocked.'+X
+                                          : timedOut ? R+'TIMED OUT — first-run npm fetch too slow or no network. Re-run on wifi.'+X
+                                          : R+'BLOCKED — see output below. P1 needs another packer (bundled rg/semgrep) or apt-install repomix.'+X) + '\r\n';
+                    if (!works) rep += D+'stdout (last 700): ' + out.slice(-700).replace(/\r?\n/g,' ') + X + '\r\n';
+                    w(rep);
+                  })
+                  .catch(e => { w(R + '[!scout-pack proot error] ' + (e && e.message) + X + '\r\n'); });
                 continue;
             }
 
