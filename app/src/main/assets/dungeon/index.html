@@ -124,8 +124,6 @@
   .dlg-sub { font-size:11px; color:var(--ntext2); margin-bottom:12px; }
   .dlg-label { font-size:10px; color:var(--ntext3); text-transform:uppercase; letter-spacing:.5px; margin:12px 0 6px; }
   .dlg-note { font-size:10px; color:var(--ntext2); line-height:1.5; margin-top:8px; font-style:italic; }
-  .deep-skip { display:flex; align-items:center; gap:7px; font-size:11px; color:var(--ntext); margin:4px 0 2px; cursor:pointer; }
-  .deep-skip input { width:auto; accent-color:var(--naccent); }
   .dlg-box input { width:100%; padding:10px 12px; border-radius:10px; background:var(--nsurf2); border:1px solid var(--nborder); color:var(--ntext); font-size:12px; font-family:'Courier New',monospace; outline:none; }
   .dlg-box input:focus, .dlg-box textarea:focus { border-color:var(--naccent); }
   .seg { display:flex; gap:6px; }
@@ -432,7 +430,6 @@
     <div class="dlg-label">Mode</div>
     <div class="seg" id="scout-mode">
       <button class="seg-btn active" data-v="solo">🧭 Solo</button>
-      <button class="seg-btn" data-v="deep">🔱 Deep</button>
       <button class="seg-btn" data-v="council">⚖ Council</button>
     </div>
     <div id="cmode-row" style="display:none;">
@@ -441,10 +438,6 @@
         <button class="seg-btn active" data-v="consensus">🤝 Consensus</button>
         <button class="seg-btn" data-v="divide">🗺 Divide rooms</button>
       </div>
-    </div>
-    <div id="deep-row" style="display:none;">
-      <label class="deep-skip"><input type="checkbox" id="deep-skip-clean" checked /> Skip rooms already scouted clean</label>
-      <div class="dlg-note">One small scout per room, room by room (parent → sub-rooms). Each room's findings save to its own library.md and the parent's 🗺 pointer is updated. Token-light per spawn — best for weak models. Slower (one cold start per room).</div>
     </div>
     <div class="dlg-label" id="model-label">Model</div>
     <input id="model-search" class="model-search" placeholder="Search models or provider…" autocomplete="off" />
@@ -547,7 +540,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd45-room-profile';
+var DUNGEON_BUILD = 'd46-drop-deep-scout';
 
 // ── Bridge ────────────────────────────────────────────────
 var A = (typeof DungeonAndroid !== 'undefined') ? DungeonAndroid : null;
@@ -1767,11 +1760,9 @@ function segVal(id){ var a=document.querySelector('#'+id+' .seg-btn.active'); re
 function syncCouncilUi(){
   var mode = segVal('scout-mode');
   var council = mode==='council';
-  var deep = mode==='deep';
   var divide  = council && segVal('scout-cmode')==='divide';
   $('cmode-row').style.display    = council ? 'block' : 'none';
   $('scout-assign').style.display = divide ? 'flex' : 'none';
-  if($('deep-row')) $('deep-row').style.display = deep ? 'block' : 'none';
   // scope is meaningless in divide mode — each member gets its own room
   document.getElementById('scout-scope').style.display = divide ? 'none' : 'flex';
   $('council-note').style.display = (council && !divide) ? 'block' : 'none';
@@ -1867,8 +1858,8 @@ document.querySelectorAll('#scout-scope .seg-btn').forEach(function(b){
 document.querySelectorAll('#scout-mode .seg-btn').forEach(function(b){
   b.addEventListener('click', function(){
     setSeg('scout-mode', b.dataset.v);
-    // switching to a single-model mode (solo/deep): keep just the first selected model
-    if((b.dataset.v==='solo'||b.dataset.v==='deep') && scoutModelSel.length>1) scoutModelSel=[scoutModelSel[0]];
+    // switching to solo: keep just the first selected model
+    if(b.dataset.v==='solo' && scoutModelSel.length>1) scoutModelSel=[scoutModelSel[0]];
     // switching to council: drop the Solo auto-default so all seats are freely choosable
     if(b.dataset.v==='council' && scoutModelSel.length===1 && scoutModelSel[0]===scoutAutoPick){ scoutModelSel=[]; scoutAutoPick=null; }
     renderModelChips();
@@ -1882,24 +1873,6 @@ $('scout-cancel').addEventListener('click', function(){ $('scout-dialog').classL
 $('scout-begin').addEventListener('click', function(){
   var mode=segVal('scout-mode'), council=mode==='council';
   if(council && scoutModelSel.length<2){ toast('Pick at least 2 council models'); return; }
-
-  // ── 🔱 Deep Scout — one small spawn per room, room by room, write each library.md + parent pointer ──
-  if(mode==='deep'){
-    if(!scoutModelSel.length){ toast('Pick a model first'); return; }
-    var dscope=segVal('scout-scope');
-    if(dscope==='room' && !scoutRoom){ toast('Tap a room first'); return; }
-    var droot = dscope==='room' ? scoutRoom.id : 'throne';
-    // DFS order, parent before its sub-rooms (throne itself is never a scouted room)
-    var order=[];
-    (function visit(id){ var r=getRoom(id); if(r && id!=='throne') order.push(r); rooms.filter(function(x){ return x.parent===id; }).forEach(function(c){ visit(c.id); }); })(droot);
-    if(!order.length){ toast('No rooms to scout'); return; }
-    var skipClean = !!($('deep-skip-clean') && $('deep-skip-clean').checked);
-    if(skipClean) order = order.filter(function(r){ return !roomScoutedClean(r); });
-    if(!order.length){ toast('All rooms already scouted clean ✓'); $('scout-dialog').classList.remove('show'); return; }
-    startDeepScout(order, scoutModelSel[0]);
-    $('scout-dialog').classList.remove('show');
-    return;
-  }
 
   // ── War Council · Divide rooms — each member audits its own assigned room (no voting) ──
   if(council && segVal('scout-cmode')==='divide'){
@@ -1955,90 +1928,6 @@ $('scout-begin').addEventListener('click', function(){
 $('scoutBtn').addEventListener('click', function(){ openScout(openRoomId); });
 
 // ════════════════════════════════════════
-// 🔱 DEEP SCOUT — one small spawn per room, room by room (parent → sub-rooms).
-//   Each room: a single-folder markers-only scout (cwd=room.path) → write that room's
-//   library.md from the markers → update the PARENT's 🗺 Sub-rooms pointer → next room.
-//   Small scope per spawn + persisted findings + pointer navigation = weak-model friendly.
-// ════════════════════════════════════════
-var deepState=null;
-// "Scouted clean" = library.md exists, has an Open Bugs section, and it's empty.
-function roomScoutedClean(room){
-  var md=readFile(room.path+'/library.md'); if(!md) return false;
-  if(!/Open Bugs/i.test(md)) return false;
-  return parseBugs(room.path+'/library.md').length===0;
-}
-function startDeepScout(order, model){
-  deepState={ list:order, i:0, model:model, total:order.length, expSid:'deep_'+Date.now(), cardId:null, bugsTotal:0, roomsHit:0, results:[] };
-  startExpedition(deepState.expSid, 'scout', 'throne', 1);   // one persistent sprite
-  deepState.cardId=deepState.expSid+':0';
-  addDcard(deepState.cardId, '🔱 Deep · '+shortModel(model), 'starting…');
-  deepNextRoom();
-}
-function deepNextRoom(){
-  if(!deepState) return;
-  if(deepState.i>=deepState.list.length){ deepFinish(); return; }
-  var room=deepState.list[deepState.i];
-  var exp=expeditions[deepState.expSid];
-  if(exp && exp.sprites[0]){ exp.sprites[0].want=room.id; spriteGoToRoom(exp.sprites[0], room, exp); }
-  updDcard(deepState.cardId, { march:room.name, prog:Math.round(deepState.i/deepState.total*100) });
-  setScouting('🔱 Deep scout ('+(deepState.i+1)+'/'+deepState.total+') · '+room.name);
-  var sid=jDispatch(JSON.stringify({ op:'scout', cwd:room.path, mode:'deep', model:deepState.model, graphContext:buildGraphContext(room.path) }));
-  deepState.sid=sid;
-  dispatchJobs[sid]={ deep:true, roomId:room.id, member:0, findings:[] };
-}
-// Upsert a one-liner for <room> in its parent's "## 🗺 Sub-rooms" pointer section.
-function updateParentPointer(room, bugCount){
-  var parent=getRoom(room.parent); if(!parent) return;
-  var p=parent.path+'/library.md', md=readFile(p)||'# library\n';
-  var line='- '+room.name+' → '+(bugCount?(bugCount+' open bug'+(bugCount===1?'':'s')+' 🐛'):'clean ✓');
-  var header='## 🗺 Sub-rooms';
-  if(md.indexOf(header)===-1){
-    md=md.replace(/\s*$/,'')+'\n\n'+header+'\n'+line+'\n';
-  } else {
-    var re=new RegExp('^- '+room.name.replace(/[.*+?^${}()|[\\]\\\\]/g,'\\$&')+' →.*$','m');
-    md = re.test(md) ? md.replace(re,line) : md.replace(header, header+'\n'+line);
-  }
-  writeFile(p, md);
-}
-function deepFinishRoom(sid){
-  var job=dispatchJobs[sid]; if(!job||!deepState) return;
-  var room=getRoom(job.roomId);
-  if(room){
-    replaceOpenBugs(room.path, job.findings.map(plainBugLine));   // empty → marks room scouted-clean
-    deepState.bugsTotal+=job.findings.length;
-    if(job.findings.length) deepState.roomsHit++;
-    deepState.results.push({ name:room.name, bugs:job.findings.length, depth:(room.parent&&room.parent!=='throne')?'  ':'' });
-    updateParentPointer(room, job.findings.length);
-    rescanRooms([room.id]);
-    logEvent('🔱 '+room.name+' scouted · '+job.findings.length+' finding(s)'+(job.findings.length?': '+job.findings.map(function(f){return '"'+f.title+'"';}).join(', '):' (clean)'), room);
-  }
-  delete dispatchJobs[sid];
-  deepState.i++;
-  deepNextRoom();
-}
-// The King's grand index — a rolled-up survey of the whole sweep, carved into the
-// throne-room library.md so there's one readable master report on the King's desk.
-function writeThroneIndex(st){
-  var throne=getRoom('throne'); if(!throne) return;
-  var p=throne.path+'/library.md', md=readFile(p)||'# library\n';
-  var lines=st.results.map(function(r){ return '- '+r.depth+r.name+' → '+(r.bugs?(r.bugs+' open bug'+(r.bugs===1?'':'s')+' 🐛'):'clean ✓'); });
-  var header='## 🏰 Castle Survey';
-  var block=header+'\n_swept '+new Date().toISOString().slice(0,10)+' · '+st.bugsTotal+' foe(s) in '+st.roomsHit+'/'+st.total+' room(s)_\n'+lines.join('\n')+'\n';
-  if(md.indexOf(header)===-1){ md=md.replace(/\s*$/,'')+'\n\n'+block; }
-  else { md=md.replace(new RegExp(header.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'[\\s\\S]*?(?=\\n##\\s+|$)'), block.replace(/\n$/,'')); }
-  writeFile(p, md);
-}
-function deepFinish(){
-  var st=deepState; deepState=null; if(!st) return;
-  endExpedition(st.expSid);
-  doneDcard(st.cardId, 'deep scout ✓');
-  writeThroneIndex(st);                         // King's grand index on the throne desk
-  rescanRooms(rooms.map(function(r){ return r.id; }));
-  refreshTitle();
-  logEvent('🔱 Deep scout complete · '+st.total+' room(s) swept, '+st.bugsTotal+' finding(s) in '+st.roomsHit+' room(s)');
-  toast('🔱 Deep scout complete · '+st.bugsTotal+' bug(s) across '+st.roomsHit+'/'+st.total+' room(s)');
-}
-
 // ════════════════════════════════════════
 // ⚖ WAR COUNCIL — ROAMING CONSENSUS ENGINE  (the re-engine, d27)
 //   The OLD council had N knights each haul the WHOLE castle in one heavy spawn →
@@ -2438,17 +2327,6 @@ window.onDungeonEvent=function(sid, line){
   }
 
   // (Judge models removed — YOU are the tribunal judge now, at the round table.)
-
-  // ── 🔱 Deep Scout: one room per spawn; drive the persistent deep sprite/card ──
-  if(job && job.deep){
-    if(ev.t==='tool'){ updDcard(deepState&&deepState.cardId, { file:ev.path }); return; }   // sprite stays at the room; just show live file
-    else if(ev.t==='bug'){ if(ev.file) job.findings.push({ file:ev.file, sev:ev.sev, title:ev.title }); return; }
-    else if(ev.t==='start'){ if(deepState) expSetCwd(deepState.expSid, 0, ev.cwd); return; }
-    else if(ev.t==='done'){ if(ev.ok===false){ var rm=getRoom(job.roomId); logEvent('💀 '+(rm?rm.name:'room')+' scout assassinated · '+(ev.reason||'unknown'), rm); } return; }
-    else if(ev.t==='all-done'){ deepFinishRoom(sid); return; }
-    else if(ev.t==='error'){ deepFinishRoom(sid); return; }
-    return;   // result / closed / start → ignore
-  }
 
   // ── ⚖ Roaming War Council: one room per knight-spawn; drive THAT knight's sprite/card ──
   if(job && job.councilRoam){
