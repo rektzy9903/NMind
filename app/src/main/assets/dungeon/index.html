@@ -633,7 +633,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd54-roundtable-avatars';
+var DUNGEON_BUILD = 'd55-fit-fill-screen';
 
 // ── Bridge ────────────────────────────────────────────────
 var A = (typeof DungeonAndroid !== 'undefined') ? DungeonAndroid : null;
@@ -1179,9 +1179,11 @@ var world=$('world'), stage=$('stage');
 var vw={x:0,y:0,scale:1};
 function fitToScreen(){
   var W=window.innerWidth, H=window.innerHeight;
-  var maxR=rooms.reduce(function(m,r){ return Math.max(m, Math.abs(r.cx)+r.w, Math.abs(r.cy)+r.h); },120);
-  var content=maxR*2.2;
-  vw.scale=Math.max(0.55, Math.min((W*0.9)/content, (H*0.66)/content, 2.2));
+  // half-extent of the room cluster (use w/2,h/2 = true room edge, not full w)
+  var maxR=rooms.reduce(function(m,r){ return Math.max(m, Math.abs(r.cx)+r.w/2, Math.abs(r.cy)+r.h/2); },90);
+  var content=maxR*2.1;   // just enough margin past the outermost room (was 2.2× of an over-estimated radius)
+  // fill far more of the screen: 96% width / 86% height (was 90% / 66% → big empty bands)
+  vw.scale=Math.max(0.6, Math.min((W*0.96)/content, (H*0.86)/content, 2.8));
   vw.x=0; vw.y=0; applyView();
 }
 function applyView(){ world.style.transform='translate('+vw.x+'px,'+vw.y+'px) scale('+vw.scale+')'; }
