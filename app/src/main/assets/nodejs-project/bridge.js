@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b74-scout-cartographer-p2';
+const BRIDGE_BUILD = 'b75-scout-hounds-p3-probe';
 
 const net   = require('net');
 const http  = require('http');
@@ -5260,6 +5260,65 @@ function openPrintSession() {
                     w(rep);
                   })
                   .catch(e => { w(R + '[!scout-pack proot error] ' + (e && e.message) + X + '\r\n'); });
+                continue;
+            }
+
+            // ── !scout-hounds — DungeonPRD P3: do deterministic scanners run on the guest? ──
+            // P3 "Hounds" = run rg/semgrep (or plain grep as the floor) over a room BEFORE
+            // any model spawns, turning obvious issues into ZERO-TOKEN monsters. This is the
+            // strongest weak-model lever (see feedback-help-weak-models): even a model that
+            // audits nothing still gets the easy bugs caught for it, and it patches the
+            // dead-Grep gap. This probe gates the feature: confirm (a) which scanners exist
+            // on the proot guest, (b) rg is apt-installable if missing, (c) grep is always
+            // there as the floor, (d) the chosen scanner emits parseable file:line hits on a
+            // planted-bug tree. No model, no provider — pure tooling.
+            if (line.startsWith('!scout-hounds')) {
+                const w = (s) => { try { if (state.socket) state.socket.write(SYS_FENCE + s); } catch(_) {} };
+                const G='\x1b[32m', Y='\x1b[33m', R='\x1b[31m', D='\x1b[2m', X='\x1b[0m';
+                const hbCmd = [
+                    'set +e',
+                    'echo "::rg:: $(rg --version 2>/dev/null | head -1)"',
+                    'echo "::semgrep:: $(semgrep --version 2>/dev/null | head -1)"',
+                    'echo "::grep:: $(grep --version 2>/dev/null | head -1)"',
+                    'if ! command -v rg >/dev/null 2>&1; then echo "::rg-install:: apt-get install ripgrep"; apt-get install -y ripgrep >/dev/null 2>&1; echo "::rg-after:: $(rg --version 2>/dev/null | head -1)"; fi',
+                    'D=/tmp/hound_probe; rm -rf "$D"; mkdir -p "$D"',
+                    'printf "const password = \\"hunter2\\"\\neval(userInput)\\n// TODO: fix this\\n" > "$D/bad.js"',
+                    'cd "$D"',
+                    'SCAN=$(command -v rg >/dev/null 2>&1 && echo rg || echo grep)',
+                    'echo "::scanner:: $SCAN"',
+                    'echo "::hits-start::"',
+                    'if [ "$SCAN" = rg ]; then rg -n --no-heading -e "eval\\(" -e "password|secret|token" -e "TODO|FIXME|HACK" . 2>&1; else grep -rnE "eval\\(|password|secret|token|TODO|FIXME|HACK" . 2>&1; fi',
+                    'echo "::hits-end::"',
+                ].join('\n');
+                const t0 = Date.now();
+                w(Y + '!scout-hounds (DungeonPRD P3): probing deterministic scanners on the guest (apt-installs ripgrep if missing, up to 180s)…' + X + '\r\n');
+                runProotGuest(['/bin/bash','-lc', hbCmd], 180000, null, { workspace: FILES_DIR })
+                  .then(r => {
+                    const out = r.out || '';
+                    const ms = Date.now() - t0;
+                    const rgV     = (out.match(/::rg:: (ripgrep [\d.]+)/) || out.match(/::rg-after:: (ripgrep [\d.]+)/) || [])[1] || '';
+                    const semV    = (out.match(/::semgrep:: ([\d.]+)/) || [])[1] || '';
+                    const grepV   = (out.match(/::grep:: (grep [^\r\n]+)/) || [])[1] || '';
+                    const scanner = (out.match(/::scanner:: (\w+)/) || [])[1] || '';
+                    const triedInstall = /::rg-install::/.test(out);
+                    const hitsBlock = (out.match(/::hits-start::([\s\S]*?)::hits-end::/) || [])[1] || '';
+                    const hits = (hitsBlock.match(/bad\.js:\d+:/g) || []).length;
+                    const timedOut= /\[timeout \d+ms\]/.test(out) || r.code === null;
+                    const works   = !timedOut && !!scanner && hits >= 1;
+                    const mark = works ? (G+'✓') : (R+'✗');
+                    let rep = mark + ' !scout-hounds (proot) exit=' + r.code + ' in ' + ms + 'ms' + X + '\r\n';
+                    rep += '  ripgrep (rg):    ' + (rgV ? G+rgV+X+(triedInstall?D+' (apt-installed just now)'+X:'') : Y+'not present'+(triedInstall?' — apt install failed':'')+X) + '\r\n';
+                    rep += '  semgrep:         ' + (semV ? G+semV+X : D+'not present (optional — pip install semgrep; heavy on phone)'+X) + '\r\n';
+                    rep += '  grep (floor):    ' + (grepV ? G+grepV+X : R+'MISSING?!'+X) + '\r\n';
+                    rep += '  chosen scanner:  ' + (scanner ? G+scanner+X+D+(scanner==='rg'?' (fast)':' (floor fallback)')+X : R+'none'+X) + '\r\n';
+                    rep += '  planted hits:    ' + (hits ? G+hits+'/3 found'+X+D+' (parseable file:line ✓ → zero-token monsters feasible)'+X : R+hits+'/3 — scanner produced no parseable hits'+X) + '\r\n';
+                    rep += '  verdict: ' + (works ? G+'GREEN — deterministic hounds work on guest ('+scanner+'). P3 (pre-spawn scan → 0-token monsters) is unblocked.'+X
+                                          : timedOut ? R+'TIMED OUT — apt fetch too slow / no network. Re-run on wifi (grep floor needs no install).'+X
+                                          : R+'BLOCKED — see output below.'+X) + '\r\n';
+                    if (!works) rep += D+'stdout (last 700): ' + out.slice(-700).replace(/\r?\n/g,' ') + X + '\r\n';
+                    w(rep);
+                  })
+                  .catch(e => { w(R + '[!scout-hounds proot error] ' + (e && e.message) + X + '\r\n'); });
                 continue;
             }
 
