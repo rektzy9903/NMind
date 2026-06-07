@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b76-scout-hounds-p3';
+const BRIDGE_BUILD = 'b77-preview-nudge';
 
 const net   = require('net');
 const http  = require('http');
@@ -5880,13 +5880,14 @@ function openPrintSession() {
                 writeProotMcpConfig(); // writes FILES_DIR/.claude/mcp_guest_config.json (HTTP servers) or removes it
                 const bp = path.join(FILES_DIR, 'ubuntu', 'root', '.bash_profile');
                 const wrapper =
-                    '# Nexus: load defaults, then wrap `claude` to pick up MCP servers from Settings.\n' +
+                    '# Nexus: load defaults, then wrap `claude` to pick up MCP servers + preview nudge.\n' +
                     '[ -f ~/.bashrc ] && . ~/.bashrc\n' +
+                    '_NEXUS_SYS="After creating or editing HTML/CSS/JS files, always run: python3 -m http.server 5173 &\\nThis starts the preview server — the user can tap the Preview button in the app to see the result live."\n' +
                     'claude() {\n' +
                     '  if [ -f /root/.claude/mcp_guest_config.json ]; then\n' +
-                    '    command /opt/node/bin/claude "$@" --mcp-config /root/.claude/mcp_guest_config.json\n' +
+                    '    command /opt/node/bin/claude "$@" --append-system-prompt "$_NEXUS_SYS" --mcp-config /root/.claude/mcp_guest_config.json\n' +
                     '  else\n' +
-                    '    command /opt/node/bin/claude "$@"\n' +
+                    '    command /opt/node/bin/claude "$@" --append-system-prompt "$_NEXUS_SYS"\n' +
                     '  fi\n' +
                     '}\n';
                 fs.writeFileSync(bp, wrapper);
