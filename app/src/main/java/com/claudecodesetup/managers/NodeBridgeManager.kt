@@ -298,12 +298,26 @@ class NodeBridgeManager(private val context: Context) {
             // can't brick the bridge; falls back to the bundled asset otherwise.
             // DEBUG-only — release always ships the audited bundled bridge.js.
             val devBridge = File(context.filesDir, "bridge_dev.js")
-            val useDev = com.claudecodesetup.BuildConfig.DEBUG && devBridge.exists() &&
-                devBridge.length() > 5000 && devBridge.readText().contains("SYS_FENCE")
+            val buildNumRe = Regex("""BRIDGE_BUILD\s*=\s*'b(\d+)""")
+            fun bridgeBuildNum(text: String) =
+                buildNumRe.find(text)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+            val bundledBuildNum = context.assets.open("nodejs-project/bridge.js")
+                .bufferedReader().use { r -> buildNumRe.find(r.readLines().take(30).joinToString("\n"))
+                    ?.groupValues?.get(1)?.toIntOrNull() ?: 0 }
+            val devText = if (com.claudecodesetup.BuildConfig.DEBUG && devBridge.exists() &&
+                devBridge.length() > 5000) devBridge.readText() else null
+            val devBuildNum = if (devText != null) bridgeBuildNum(devText) else 0
+            // Only prefer bridge_dev.js when it is strictly newer than the bundled asset.
+            // This prevents a stale hotload (older build number) from shadowing a fixed
+            // bundled bridge.js after an in-place APK update.
+            val useDev = devText != null && devText.contains("SYS_FENCE") &&
+                devBuildNum > bundledBuildNum
             if (useDev) {
                 devBridge.copyTo(dest, overwrite = true)
-                Log.i(TAG, "bridge.js hot-loaded from bridge_dev.js (${devBridge.length()} bytes)")
+                Log.i(TAG, "bridge.js hot-loaded from bridge_dev.js (b$devBuildNum > bundled b$bundledBuildNum)")
             } else {
+                if (devText != null && devBuildNum <= bundledBuildNum)
+                    Log.i(TAG, "bridge_dev.js skipped — b$devBuildNum <= bundled b$bundledBuildNum; using bundled")
                 context.assets.open("nodejs-project/bridge.js").use { src ->
                     dest.outputStream().use { src.copyTo(it) }
                 }
