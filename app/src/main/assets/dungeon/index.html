@@ -633,7 +633,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd55-fit-fill-screen';
+var DUNGEON_BUILD = 'd56-king-in-throne';
 
 // ── Bridge ────────────────────────────────────────────────
 var A = (typeof DungeonAndroid !== 'undefined') ? DungeonAndroid : null;
@@ -828,7 +828,7 @@ function colorFor(s){ var h=0; for(var i=0;i<s.length;i++) h=(h*31+s.charCodeAt(
 
 function buildWorld(){
   rooms=[];
-  var throne={ id:'throne', name:activeName, type:'throne', parent:null, cx:0, cy:0, w:62, h:46, path:activePath };
+  var throne={ id:'throne', name:activeName, type:'throne', parent:null, cx:0, cy:0, w:80, h:66, path:activePath };
   throne.bugs=mkBugs(parseBugs(activePath+'/library.md'));
   var throneProf=parseRoomProfile(activePath+'/library.md'); if(throneProf) roomReports['throne']=throneProf;
   rooms.push(throne);
@@ -1106,14 +1106,15 @@ function renderRooms(){
     rect.addEventListener('click', function(e){ e.stopPropagation(); openRoomPanel(r.id); });
     g.appendChild(rect);
     g.appendChild(el('rect',{ x:r.cx-2.5, y:r.cy-r.h/2-1, width:5, height:2, fill:'#8b6f3f', stroke:'#3a2818','stroke-width':0.4 }));
-    if(r.type==='throne'){ var kingG=el('g',{'class':'throne-king'}); svgInto(kingG, wrap(KING_DESIGN, 0.5, 32, 52)); kingG.setAttribute('transform','translate('+r.cx+','+(r.cy-r.h/2+2)+')'); g.appendChild(kingG); }
+    if(r.type==='throne'){ var kingG=el('g',{'class':'throne-king'}); svgInto(kingG, wrap(KING_DESIGN, 0.52, 32, 52)); kingG.setAttribute('transform','translate('+r.cx+','+(r.cy+r.h/2-6)+')'); g.appendChild(kingG); }
     // multi-line label that stays inside the box. Throne shows "Throne Room" (project name lives top-right).
     var F = r.type==='throne'?6 : r.w>=50?6 : 5.2;
     var maxChars = Math.max(4, Math.floor((r.w-6)/(F*0.52)));
     var nameStr = r.type==='throne' ? 'Throne Room'
                 : r.name + (r._moreSubs?(' (+'+r._moreSubs+')'):'');
     var lines = wrapLabel(nameStr, maxChars, 2);
-    var LH = F*1.12, startY = r.cy - (lines.length-1)*LH/2;
+    // throne label sits at the TOP of the (bigger) box so the King sits in the seat below it
+    var LH = F*1.12, startY = r.type==='throne' ? (r.cy - r.h/2 + F + 4) : (r.cy - (lines.length-1)*LH/2);
     var lbl=el('text',{ 'class':'room-label'+(r.type==='throne'?' throne-label':''),
       'text-anchor':'middle', 'dominant-baseline':'central' });
     lbl.style.fontSize = F+'px';   // inline beats the .room-label stylesheet rule
