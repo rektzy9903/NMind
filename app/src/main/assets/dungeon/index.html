@@ -562,7 +562,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd51-scan-wire-fix+status-pill';
+var DUNGEON_BUILD = 'd52-council-room-routing';
 
 // ── Bridge ────────────────────────────────────────────────
 var A = (typeof DungeonAndroid !== 'undefined') ? DungeonAndroid : null;
@@ -2080,7 +2080,10 @@ function knightDone(k){
 function consensusVerdict(){
   var st=councilState; councilState=null; if(!st) return;
   var flat=[];
-  st.rooms.forEach(function(r){ (st.byRoom[r.id]||[]).forEach(function(f){ flat.push(f); }); });
+  // Tag each finding with the room it was actually found in — the byRoom key is the
+  // authoritative association; without this the writeback re-guesses from cwd+filename
+  // and dumps every room's findings into one room (the "all bugs in api" bug).
+  st.rooms.forEach(function(r){ (st.byRoom[r.id]||[]).forEach(function(f){ f._roomId=r.id; flat.push(f); }); });
   var job={ cwd:st.cwd, roomIds:st.roomIds, members:st.N, models:st.models, findings:flat };
   refreshTitle();
   logEvent('⚖ Council roam complete · '+flat.length+' finding(s) across '+st.rooms.length+' room(s) — the round table convenes');
@@ -2164,7 +2167,8 @@ function beginTribunal(job){
   var members=job.members||1;
   var list=job.findings.map(function(f,i){
     return { id:'f'+i, file:f.file, sev:f.sev, title:f.title,
-             foundBy:f.foundBy, support:Object.keys(f.foundBy).length, total:members, ruling:null };
+             foundBy:f.foundBy, support:Object.keys(f.foundBy).length, total:members, ruling:null,
+             _roomId:f._roomId };   // carry the source room through to the writeback
   });
   var trib={ cwd:job.cwd, roomIds:job.roomIds, models:job.models||[], list:list };
   if(!list.length){ finalizeTribunal(trib); return; }
@@ -2210,7 +2214,9 @@ function writeVotedLibraries(trib){
   var fallback=getRoom((trib.roomIds||[])[0]) || getRoom('throne');
   var byRoom={};
   trib.list.forEach(function(f){
-    var r=roomForFinding(trib.roomIds, trib.cwd, f.file) || fallback;
+    // Prefer the room the finding was actually scouted in (roaming council tags _roomId);
+    // fall back to path-based guessing only when that's absent (e.g. solo/divide).
+    var r=(f._roomId && getRoom(f._roomId)) || roomForFinding(trib.roomIds, trib.cwd, f.file) || fallback;
     if(!r) return;
     (byRoom[r.path]=byRoom[r.path]||[]).push(f);
   });
