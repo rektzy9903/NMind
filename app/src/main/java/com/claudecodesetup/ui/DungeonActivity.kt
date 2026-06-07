@@ -67,11 +67,14 @@ class DungeonActivity : AppCompatActivity() {
 
     private fun loadDungeon() {
         val devFile = File(filesDir, "dungeon_dev.html")
-        val html = if (devFile.exists() && devFile.length() > 500) {
-            devFile.readText()
-        } else {
-            assets.open("dungeon/index.html").bufferedReader().readText()
-        }
+        val buildRe = Regex("""DUNGEON_BUILD\s*=\s*'d(\d+)""")
+        fun buildNum(text: String) = buildRe.find(text)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+        val bundledText = assets.open("dungeon/index.html").bufferedReader().readText()
+        val devText = if (devFile.exists() && devFile.length() > 500) devFile.readText() else null
+        val useDev = devText != null && buildNum(devText) > buildNum(bundledText)
+        if (!useDev && devText != null)
+            android.util.Log.i("DungeonActivity", "dungeon_dev.html skipped — build d${buildNum(devText)} <= bundled d${buildNum(bundledText)}")
+        val html = if (useDev) devText!! else bundledText
         webView.loadDataWithBaseURL(
             "file:///android_asset/dungeon/",
             html, "text/html", "utf-8", null
