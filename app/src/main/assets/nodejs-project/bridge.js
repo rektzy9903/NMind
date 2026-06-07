@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b82-twinlens-combine';
+const BRIDGE_BUILD = 'b83-council-deliberate';
 
 const net   = require('net');
 const http  = require('http');
@@ -6175,14 +6175,24 @@ function openPrintSession() {
             READONLY_SCOUT_SENTINEL
         ].join('\n');
     }
-    const JUDGE_PERSONA = [
-        'You are a tribunal JUDGE reviewing bug claims made by other auditors of this project.',
-        'For each claim you are given (id :: title :: file), READ the referenced file/line and decide:',
-        '  real   — you can confirm the bug is genuine',
-        '  false  — the code is actually fine / the claim is wrong',
-        '  unsure — you cannot determine it',
-        'Be skeptical and evidence-based. Do NOT write or edit any file.',
-        'Output exactly one line per claim: `🗳VOTE <id> real|false|unsure`.'
+    // War Council Round 2 (deliberation): a finder defends its contested findings, then
+    // the non-finders re-vote on the evidence + argument.
+    const ARG_PERSONA = [
+        'You are a code auditor defending bug findings you reported in this project.',
+        'For EACH bug listed (id :: title :: file), READ the referenced file and write ONE short,',
+        'concrete sentence arguing WHY it is a real bug — name the mechanism and the impact.',
+        'No hedging, no preamble, no markdown. Do NOT write or edit any file.',
+        'Output exactly one line per bug: 🗣ARG <id> <one sentence>.'
+    ].join('\n');
+    const VOTE_PERSONA = [
+        'You are a code auditor on a review council. A fellow auditor flagged bugs you did not report,',
+        'each with a short argument. For EACH (id :: title :: file :: argument), READ the file and judge',
+        'the argument on the evidence:',
+        '  for       — the argument is sound; it IS a real bug',
+        '  against   — the argument is wrong / the code is actually fine',
+        '  undecided — you cannot confirm either way',
+        'Be evidence-based, not deferential. Do NOT write or edit any file.',
+        'Output exactly one line per bug: 🗳VOTE <id> for|against|undecided.'
     ].join('\n');
     function attachDungeonSession(sid, socket, leftover) {
         let reqBuf = leftover ? Buffer.from(leftover, 'binary').toString() : '';
@@ -6343,37 +6353,78 @@ function openPrintSession() {
                 : 1;
             const benv = buildEnv();
 
-            // ── Tribunal judge: one spawn votes on a list of claimed bugs ──
-            if (op === 'judge') {
-                const findings = Array.isArray(r.findings) ? r.findings : [];
-                const guestEnv = {
-                    ANTHROPIC_API_KEY: benv.ANTHROPIC_API_KEY,
-                    ANTHROPIC_MODEL:   r.model || benv.ANTHROPIC_MODEL,
-                    DISABLE_AUTOUPDATER:'1', MCP_TIMEOUT:'30000', MCP_TOOL_TIMEOUT:'30000',
-                    SHELL:'/bin/bash', IS_SANDBOX:'1',
+            // ── War Council Round 2: deliberation ──
+            // Sub-majority findings (2/4, 1/4) didn't reach independent consensus. Each finder
+            // argues its findings (Pass 1); the non-finders read the argument + re-vote (Pass 2).
+            // The dungeon re-tallies (FOR raises support) and re-tiers; true stalemates fall to
+            // the King in Round 3. Cost is bounded at ~2× members spawns (batched per member),
+            // independent of the number of findings, and only contested findings get here.
+            if (op === 'deliberate') {
+                const dfindings = Array.isArray(r.findings) ? r.findings : [];
+                const dmodels   = Array.isArray(r.models) ? r.models : [];
+                send({ t:'delib-start', count: dfindings.length });
+                const mkEnv = (model) => {
+                    const e = {
+                        ANTHROPIC_API_KEY: benv.ANTHROPIC_API_KEY,
+                        ANTHROPIC_MODEL:   model || benv.ANTHROPIC_MODEL,
+                        DISABLE_AUTOUPDATER:'1', MCP_TIMEOUT:'30000', MCP_TOOL_TIMEOUT:'30000',
+                        SHELL:'/bin/bash', IS_SANDBOX:'1',
+                    };
+                    if (benv.ANTHROPIC_BASE_URL) e.ANTHROPIC_BASE_URL = benv.ANTHROPIC_BASE_URL;
+                    return e;
                 };
-                if (benv.ANTHROPIC_BASE_URL) guestEnv.ANTHROPIC_BASE_URL = benv.ANTHROPIC_BASE_URL;
-                const listTxt = findings.map(f => f.id + ' :: ' + f.title + ' :: ' + (f.file || '?')).join('\n');
-                const jtask = 'Review these claimed bugs in this project:\n\n' + listTxt +
-                    '\n\nFor EACH, read the file and output one line: 🗳VOTE <id> real|false|unsure';
-                const jargv = [GUEST_CLAUDE, '--output-format', 'stream-json', '--print',
-                    '--dangerously-skip-permissions', '--append-system-prompt', JUDGE_PERSONA, '--verbose', jtask];
-                let jp; try { jp = prootChild(jargv, { extraEnv: guestEnv, workspace: cwd }); }
-                catch (e) { send({ t:'judge-done', error:e.message }); try{socket.end();}catch(_){} return; }
-                procs.add(jp); try { jp.stdin.end(); } catch(_){}
-                send({ t:'judge-start', model: guestEnv.ANTHROPIC_MODEL || '' });
-                let jbuf = '';
-                const scanVotes = txt => { const re=/🗳VOTE\s+(\S+)\s+(real|false|unsure)/gi; let m; while ((m=re.exec(txt))) send({ t:'vote', id:m[1], verdict:m[2].toLowerCase() }); };
-                jp.stdout.on('data', d => {
-                    jbuf += d.toString(); let nl;
-                    while ((nl = jbuf.indexOf('\n')) !== -1) {
-                        const line = jbuf.slice(0,nl); jbuf = jbuf.slice(nl+1); if (!line.trim()) continue;
-                        try { const ev = JSON.parse(line); if (ev.type==='assistant' && ev.message && Array.isArray(ev.message.content)) ev.message.content.forEach(c => { if (c.type==='text' && c.text) scanVotes(c.text); }); }
-                        catch(_) { scanVotes(line); }
-                    }
+                // One guest spawn; each assistant text block is fed to onText; resolves on close.
+                const runSpawn = (model, persona, task, onText) => new Promise((resolve) => {
+                    const argv = [GUEST_CLAUDE, '--output-format','stream-json','--print',
+                        '--dangerously-skip-permissions','--append-system-prompt', persona, '--verbose', task];
+                    let p;
+                    try { p = prootChild(argv, { extraEnv: mkEnv(model), workspace: cwd }); }
+                    catch(e){ resolve(); return; }
+                    procs.add(p); try { p.stdin.end(); } catch(_){}
+                    let buf='';
+                    p.stdout.on('data', d => {
+                        buf += d.toString(); let nl;
+                        while ((nl = buf.indexOf('\n')) !== -1) {
+                            const line = buf.slice(0,nl); buf = buf.slice(nl+1); if (!line.trim()) continue;
+                            try { const ev = JSON.parse(line); if (ev.type==='assistant' && ev.message && Array.isArray(ev.message.content)) ev.message.content.forEach(c => { if (c.type==='text' && c.text) onText(c.text); }); }
+                            catch(_) { onText(line); }
+                        }
+                    });
+                    p.stderr.on('data', d => log('[delib] ' + d.toString().slice(0,120) + '\n'));
+                    p.on('close', () => { procs.delete(p); resolve(); });
                 });
-                jp.stderr.on('data', d => log('[judge] ' + d.toString().slice(0,160) + '\n'));
-                jp.on('close', code => { procs.delete(jp); send({ t:'judge-done', code:code }); try{socket.end();}catch(_){} });
+                (async () => {
+                    // Pass 1 — each finder argues its contested findings (members run in parallel).
+                    const byFinder = {};
+                    dfindings.forEach(f => { const k = f.finder; (byFinder[k]=byFinder[k]||[]).push(f); });
+                    const argMap = {};
+                    await Promise.all(Object.keys(byFinder).map(k => {
+                        const grp = byFinder[k], model = dmodels[k] || '';
+                        const listTxt = grp.map(f => f.id + ' :: ' + f.title + ' :: ' + (f.file || '?')).join('\n');
+                        const task = 'Defend these bug(s) you reported in this project:\n\n' + listTxt;
+                        return runSpawn(model, ARG_PERSONA, task, txt => {
+                            const re = /🗣ARG\s+(\S+)\s+(.+)/g; let m;
+                            while ((m = re.exec(txt))) {
+                                const id = m[1], a = (m[2]||'').trim();
+                                if (a && !argMap[id]) { argMap[id] = a; send({ t:'delib-arg', id:id, member:Number(k), text:a.slice(0,200) }); }
+                            }
+                        });
+                    }));
+                    // Pass 2 — each non-finder re-votes with the argument in hand (members run in parallel).
+                    const byVoter = {};
+                    dfindings.forEach(f => (f.voters||[]).forEach(v => { (byVoter[v]=byVoter[v]||[]).push(f); }));
+                    await Promise.all(Object.keys(byVoter).map(v => {
+                        const grp = byVoter[v], model = dmodels[v] || '';
+                        const listTxt = grp.map(f => f.id + ' :: ' + f.title + ' :: ' + (f.file || '?') + ' :: ' + (argMap[f.id] || '(no argument given)')).join('\n');
+                        const task = 'A fellow council member argues these findings are real bugs. Judge each on the evidence:\n\n' + listTxt;
+                        return runSpawn(model, VOTE_PERSONA, task, txt => {
+                            const re = /🗳VOTE\s+(\S+)\s+(for|against|undecided)/gi; let m;
+                            while ((m = re.exec(txt))) send({ t:'delib-vote', id:m[1], member:Number(v), verdict:m[2].toLowerCase() });
+                        });
+                    }));
+                    send({ t:'delib-done' });
+                    try { socket.end(); } catch(_){}
+                })().catch(e => { send({ t:'delib-done', error:(e&&e.message)||'deliberation failed' }); try{socket.end();}catch(_){} });
                 return;
             }
 
