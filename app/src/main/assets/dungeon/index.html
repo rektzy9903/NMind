@@ -205,6 +205,13 @@
   .dcard.dead .dc-room { color:#e88; font-weight:bold; }
   .dcard.dead .dc-file { color:#c88; direction:ltr; }
   .dcard.dead .dc-fill { width:100%; background:linear-gradient(90deg,#6a2020,#a83232); }
+  /* overall scouting status pill — sits above the per-scout cards, NOT in the project name */
+  #scout-status { display:none; align-self:flex-end; max-width:100%; box-sizing:border-box;
+    padding:4px 10px; margin-bottom:2px; border-radius:12px;
+    background:linear-gradient(180deg,#efe0bb,#dcc79a); border:1.5px solid var(--ink);
+    font-family:'Georgia',serif; font-weight:bold; font-size:10.5px; color:var(--ink);
+    box-shadow:0 2px 0 var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #scout-status.show { display:block; }
   /* chronicle / history log rows */
   .log-row { display:flex; gap:8px; padding:8px 4px; border-bottom:1px solid var(--nborder); font-family:'Courier New',monospace; }
   .log-row:last-child { border-bottom:none; }
@@ -437,7 +444,7 @@
   <div class="dlg-box">
     <h3>⚔ Send a Scout</h3>
     <div class="dlg-sub" id="scout-target">Scout the whole dungeon</div>
-    <div id="graph-chip" class="graph-chip" onclick="scanProjectGraph()"><span class="gc-fill"></span><span class="gc-label">⬡ Dependency lens OFF · tap to scan</span></div>
+    <div id="graph-chip" class="graph-chip"><span class="gc-fill"></span><span class="gc-label">⬡ Dependency lens OFF · tap to scan</span></div>
     <div class="seg" id="scout-scope">
       <button class="seg-btn active" data-v="full">Full Dungeon</button>
       <button class="seg-btn" data-v="room">This Room</button>
@@ -528,7 +535,7 @@
     <button class="pbtn" id="scoutBtn">Scout</button>
     <div id="map-title">⚜ Dungeon</div>
   </div>
-  <div id="dispatch-cards"></div>
+  <div id="dispatch-cards"><div id="scout-status"></div></div>
   <div id="agentsPanel"></div>
   <aside id="roomPanel">
     <header>
@@ -555,7 +562,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd50-graph-chip-progress';
+var DUNGEON_BUILD = 'd51-scan-wire-fix+status-pill';
 
 // ── Bridge ────────────────────────────────────────────────
 var A = (typeof DungeonAndroid !== 'undefined') ? DungeonAndroid : null;
@@ -724,6 +731,9 @@ function confirmAdd(){
 
 $('home-back').addEventListener('click', function(){ if(A && typeof A.finishActivity==='function') A.finishActivity(); });
 $('add-btn').addEventListener('click', startAddDungeon);
+// graph-chip is inside this IIFE, so an inline onclick (resolved against window) could
+// never reach scanProjectGraph — wire it via addEventListener like every other control.
+var _gchip=$('graph-chip'); if(_gchip) _gchip.addEventListener('click', scanProjectGraph);
 $('name-cancel').addEventListener('click', cancelAdd);
 $('name-confirm').addEventListener('click', confirmAdd);
 $('name-input').addEventListener('keydown', function(e){ if(e.key==='Enter') confirmAdd(); });
@@ -2079,8 +2089,18 @@ function consensusVerdict(){
   beginTribunal(job);    // support/total → 👑 Overlord / 👹 Beast / 👻 Wraith → King's Verdict (you rule the Wraiths)
 }
 
-function setScouting(label){ $('map-title').textContent = label ? ('⚜ '+activeName+' · '+label) : refreshTitle(); }
-function refreshTitle(){ var t='⚜ '+activeName; $('map-title').textContent=t; return t; }   // top-right = project name only
+// Scouting status now lives in its own pill above the dispatch cards — it must NOT
+// hijack the project-name title (#map-title) any more.
+function setScouting(label){
+  var s=$('scout-status'); if(!s) return;
+  if(label){ s.textContent=label; s.classList.add('show'); }
+  else { s.classList.remove('show'); s.textContent=''; }
+}
+function refreshTitle(){
+  var t='⚜ '+activeName; $('map-title').textContent=t;     // top-right = project name ONLY
+  var s=$('scout-status'); if(s){ s.classList.remove('show'); s.textContent=''; }   // clear status pill
+  return t;
+}
 function rescanRooms(ids){
   (ids||[]).forEach(function(id){ var r=getRoom(id); if(r){ r.bugs=mkBugs(parseBugs(r.path+'/library.md')); } });
   renderMonsters(); updateRoomVisuals(); refreshTitle();
