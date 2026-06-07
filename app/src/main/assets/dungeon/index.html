@@ -221,37 +221,85 @@
   #log-list .log-empty { font-size:11px; color:var(--ntext3); font-style:italic; padding:14px 4px; text-align:center; }
   /* ── War Council roundtable vote scene ── */
   #rt-overlay { position:fixed; inset:0; z-index:120; display:none; align-items:center; justify-content:center;
-    background:radial-gradient(circle at 50% 42%, rgba(40,26,12,.86), rgba(8,5,2,.95)); }
+    background:radial-gradient(circle at 50% 38%, rgba(44,36,24,.9), rgba(8,6,3,.97)); }
   #rt-overlay.show { display:flex; }
-  .rt-stage { position:relative; width:min(96vw,520px); height:min(82vh,580px); }
-  .rt-title { position:absolute; top:2px; left:0; right:0; text-align:center; font-family:'Georgia',serif; font-weight:bold;
+  .rt-stage { position:relative; width:min(96vw,440px); height:min(86vh,600px); }
+  .rt-title { position:absolute; top:0; left:0; right:0; text-align:center; font-family:'Georgia',serif; font-weight:bold;
     font-size:16px; color:#f0d9a8; text-shadow:0 2px 8px #000; }
-  .rt-sub { position:absolute; top:26px; left:0; right:0; text-align:center; font-family:'Georgia',serif; font-size:10px; color:#caa873; }
-  .rt-table { position:absolute; left:50%; top:42%; transform:translate(-50%,-50%); width:158px; height:158px; border-radius:50%;
-    background:radial-gradient(circle at 50% 38%, #7a5630, #3a2814 70%); border:4px solid #241708;
-    box-shadow:0 10px 40px rgba(0,0,0,.7), inset 0 0 34px rgba(0,0,0,.55); }
-  .rt-center { position:absolute; left:50%; top:42%; transform:translate(-50%,-50%); width:140px; text-align:center;
-    font-family:'Georgia',serif; color:#f0d9a8; pointer-events:none; }
-  .rt-center .rt-vt { font-size:11px; font-weight:bold; line-height:1.3; max-height:46px; overflow:hidden; }
-  .rt-center .rt-tally { font-size:9px; color:#e0b25a; margin-top:3px; }
-  .rt-center .rt-verdict { margin-top:5px; font-size:13px; font-weight:bold; opacity:0; transform:scale(1.6) rotate(-8deg); transition:opacity .25s, transform .25s; }
-  .rt-center .rt-verdict.in { opacity:1; transform:none; }
-  .rt-center .rt-boss { color:#f5c542; } .rt-center .rt-normal { color:#e88a4a; } .rt-center .rt-phantom { color:#9aa0c0; }
-  .rt-center .rt-delib { font-size:10px; color:#caa873; font-style:italic; }
-  .rt-center .rt-spin { width:22px;height:22px;margin:6px auto 0;border:3px solid #5a4324;border-top-color:#f0d9a8;border-radius:50%;animation:rtspin 1s linear infinite; }
-  @keyframes rtspin { to{ transform:rotate(360deg);} }
-  .rt-seat { position:absolute; width:96px; transform:translate(-50%,-50%); transition:transform .3s; }
-  .rt-card { background:linear-gradient(180deg,#efe0bb,#d4be8c); border:2px solid #241708; border-radius:8px; padding:6px 8px;
-    box-shadow:0 4px 10px rgba(0,0,0,.55); }
-  .rt-card .rt-name { font-family:'Georgia',serif; font-weight:bold; font-size:11px; color:#2a1c0e; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .rt-card .rt-found { font-size:8.5px; color:#6a4a28; margin-top:2px; line-height:1.35; max-height:30px; overflow:hidden; }
-  .rt-seat.vote .rt-card { box-shadow:0 0 16px 4px #f0c860, 0 4px 10px rgba(0,0,0,.55); border-color:#a06a1f; }
-  .rt-seat.vote { transform:translate(-50%,-50%) scale(1.08); }
-  .rt-sword { position:absolute; top:-12px; left:50%; transform:translateX(-50%); font-size:13px; opacity:0; transition:opacity .25s; }
-  .rt-seat.vote .rt-sword { opacity:1; }
-  .rt-prompt { position:absolute; bottom:54px; left:0; right:0; text-align:center; font-family:'Georgia',serif; padding:0 10px; }
-  .rt-prompt .rt-claim { color:#f0d9a8; font-size:12px; font-weight:bold; line-height:1.35; margin-bottom:3px; text-shadow:0 1px 4px #000; }
-  .rt-prompt .rt-claim-sub { color:#caa873; font-size:10px; margin-bottom:10px; }
+  .rt-sub { position:absolute; top:23px; left:0; right:0; text-align:center; font-family:'Georgia',serif; font-size:10px; color:#caa873; }
+  /* table */
+  .rt-table { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); width:50%; height:34%; border-radius:50%;
+    background:radial-gradient(58% 58% at 50% 36%, #7a5a32, #4a3622 55%, #2f2113); box-shadow:0 16px 34px #000b, inset 0 4px 12px #0006; }
+  .rt-rim { position:absolute; inset:0; border-radius:50%; border:6px solid #2c1d10;
+    box-shadow:inset 0 0 0 2px #caa23c55, inset 0 6px 16px #ffd98a18, 0 0 22px #ffcf7018; }
+  .rt-felt { position:absolute; inset:15% 16%; border-radius:50%; background:radial-gradient(70% 70% at 50% 34%, #6a2030, #3a1018);
+    border:2px solid #1c0a0e; box-shadow:inset 0 4px 14px #0008; }
+  .rt-emblem { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); font-size:26px; color:#f2c14e; opacity:.5;
+    filter:drop-shadow(0 0 6px #ffcf7055); transition:opacity .4s; }
+  .rt-stud { position:absolute; width:5px; height:5px; border-radius:50%; background:radial-gradient(circle at 35% 30%, #ffe9a8, #c89a32);
+    box-shadow:0 0 3px #ffcf70aa; }
+  .rt-candle { position:absolute; width:6px; height:12px; border-radius:2px; background:linear-gradient(#f3e7c6,#cbb27e); }
+  .rt-candle::before { content:''; position:absolute; left:50%; top:-8px; transform:translateX(-50%); width:7px; height:10px;
+    border-radius:50%; background:radial-gradient(circle at 50% 70%, #fff3c0, #ffae3f 55%, #ff7a2f 90%);
+    box-shadow:0 0 9px #ffae3faa; animation:rtflame .35s ease-in-out infinite alternate; }
+  @keyframes rtflame { from{ transform:translateX(-50%) scaleY(1);} to{ transform:translateX(-52%) scaleY(1.22);} }
+  /* centre ballot */
+  .rt-ballot { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%) scale(.9); width:42%; z-index:6; opacity:0;
+    background:linear-gradient(180deg,#f7eccb,#e4d1a2); color:#2a1c08; border:1.5px solid #2a1d10; border-radius:10px;
+    padding:7px 8px 8px; text-align:center; box-shadow:0 5px 14px #000a; transition:opacity .2s, transform .2s; font-family:'Georgia',serif; }
+  .rt-ballot.show { opacity:1; transform:translate(-50%,-50%) scale(1); }
+  .rt-ballot .bt { font-size:10px; font-weight:bold; line-height:1.18; }
+  .rt-ballot .bf { font-size:8px; opacity:.65; font-family:ui-monospace,monospace; margin-top:1px; }
+  .rt-ballot .btally { font-size:12px; font-weight:bold; margin-top:3px; letter-spacing:2px; color:#7d5631; }
+  .rt-ballot .bres { font-size:9.5px; font-weight:bold; margin-top:2px; min-height:11px; }
+  .rt-ballot .bres.ok { color:#16633a; } .rt-ballot .bres.wr { color:#8b2a1f; }
+  .rt-mon { width:40px; height:40px; display:block; margin:3px auto 0; overflow:visible; animation:rtspawn .42s cubic-bezier(.3,1.55,.5,1); }
+  .rt-mon.wr { opacity:.55; }
+  @keyframes rtspawn { 0%{ transform:scale(0) rotate(-18deg); opacity:0;} 100%{ transform:scale(1) rotate(0); opacity:1;} }
+  .rt-verdict { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); width:46%; text-align:center; z-index:6;
+    font-family:'Georgia',serif; color:#f7ead0; font-size:11px; line-height:1.4; text-shadow:0 1px 3px #000; opacity:0; transition:opacity .45s; pointer-events:none; }
+  .rt-verdict.show { opacity:1; }
+  .rt-verdict b { display:block; font-size:13px; color:#f2c14e; margin-bottom:3px; }
+  /* seats */
+  .rt-seat { position:absolute; width:120px; transform:translate(-50%,-50%); text-align:center; z-index:3;
+    transition:transform .42s cubic-bezier(.34,1.4,.5,1); }
+  .rt-seat .rt-av { width:74px; height:70px; margin:0 auto; position:relative; }
+  .rt-seat.king .rt-av { width:88px; height:84px; }
+  .rt-seat svg.rt-svg { width:100%; height:100%; overflow:visible; display:block; }
+  .rt-sprite { transform-box:fill-box; transform-origin:50% 100%; animation:rtbreathe 2.6s ease-in-out infinite; }
+  @keyframes rtbreathe { 0%,100%{ transform:translateY(0) scaleY(1);} 50%{ transform:translateY(-1.5px) scaleY(1.03);} }
+  .rt-nm { font-size:11px; font-weight:bold; margin-top:-3px; color:#f3e7c6; text-shadow:0 1px 2px #000; font-family:'Georgia',serif; }
+  .rt-seat.king .rt-nm { color:#f2c14e; font-size:12px; }
+  .rt-role { font-size:8.5px; opacity:.6; color:#e7d6ac; }
+  /* finding bubble */
+  .rt-bubble { position:relative; margin:0 auto 3px; width:110px; padding:5px 7px 6px; border-radius:10px;
+    background:linear-gradient(180deg,#f3e7c6,#e0cf9f); color:#2a1c08; border:1.5px solid #2a1d10; box-shadow:0 3px 8px #0008;
+    cursor:pointer; font-family:'Georgia',serif; }
+  .rt-bubble:active { transform:scale(.96); }
+  .rt-bubble::after { content:''; position:absolute; left:50%; bottom:-7px; transform:translateX(-50%); border:6px solid transparent; border-top-color:#e0cf9f; }
+  .rt-bubble .bc { font-size:11px; font-weight:bold; }
+  .rt-bubble .bs { font-size:9px; font-weight:bold; color:#8b2a1f; margin-top:1px; }
+  .rt-bubble .bs.none { color:#5a7a45; }
+  .rt-bubble .bt2 { font-size:7.5px; opacity:.5; margin-top:1px; }
+  .rt-seat.king .rt-bubble { background:linear-gradient(180deg,#fff0c4,#f2d98a); }
+  .rt-seat.king .rt-bubble::after { border-top-color:#f2d98a; }
+  /* vote token over avatar */
+  .rt-vote { position:absolute; left:50%; top:6px; transform:translate(-50%,-6px) scale(.4); font-family:'Georgia',serif;
+    font-weight:bold; font-size:10px; padding:3px 7px; border-radius:18px; opacity:0; z-index:7; white-space:nowrap; box-shadow:0 2px 6px #0007; }
+  .rt-vote.show { opacity:1; transform:translate(-50%,-14px) scale(1); transition:opacity .3s, transform .3s cubic-bezier(.34,1.6,.5,1); }
+  .rt-vote.for { background:#3DD68C; color:#06321f; } .rt-vote.rule { background:#f2c14e; color:#2a1c08; }
+  /* presenting / voting / abstain motion */
+  .rt-seat.presenting { z-index:8; }
+  .rt-seat.presenting .rt-av { filter:drop-shadow(0 0 10px #ffcf70cc); }
+  .rt-seat.presenting .rt-sprite { animation:rtpresent .55s ease-in-out infinite alternate; }
+  @keyframes rtpresent { from{ transform:translateY(0);} to{ transform:translateY(-3.5px);} }
+  .rt-seat.voting .rt-sprite { animation:rthop .5s ease-in-out 2; }
+  @keyframes rthop { 0%,100%{ transform:translateY(0);} 35%{ transform:translateY(-7px) rotate(-3deg);} 65%{ transform:translateY(-2px) rotate(3deg);} }
+  .rt-seat.abstain { opacity:.4; }
+  .rt-seat.king.sealing .rt-sprite { animation:rtseal .9s ease-in-out 1; }
+  @keyframes rtseal { 0%{ transform:translateY(0);} 25%{ transform:translateY(-9px) scale(1.06);} 55%{ transform:translateY(2px);} 100%{ transform:translateY(0);} }
+  /* King's ruling prompt */
+  .rt-prompt { position:absolute; bottom:50px; left:0; right:0; text-align:center; font-family:'Georgia',serif; padding:0 10px; z-index:9; }
   .rt-prompt .rt-judge-btns { display:flex; gap:10px; justify-content:center; }
   .rt-prompt .rt-judge-btns button { flex:1; max-width:150px; border:2px solid #241708; border-radius:6px; padding:8px 6px; cursor:pointer;
     font-family:'Georgia',serif; font-weight:bold; font-size:12px; box-shadow:0 3px 0 #241708; line-height:1.2; }
@@ -262,6 +310,24 @@
     border:2px solid #241708; color:#2a1c0e; font-family:'Georgia',serif; font-weight:bold; font-size:13px; padding:9px 20px;
     border-radius:5px; box-shadow:0 3px 0 #241708; cursor:pointer; opacity:0; pointer-events:none; transition:opacity .3s; }
   #rt-enter.show { opacity:1; pointer-events:auto; }
+  /* finding-list modal (tap a bubble) */
+  .rt-modal { position:fixed; inset:0; background:#000a; display:none; align-items:center; justify-content:center; z-index:130; padding:18px; }
+  .rt-modal.show { display:flex; }
+  .rt-scroll { width:100%; max-width:330px; max-height:74vh; display:flex; flex-direction:column;
+    background:linear-gradient(180deg,#f3e7c6,#e7d6ac); color:#2a1c08; border:2px solid #2a1d10; border-radius:14px; overflow:hidden; box-shadow:0 14px 40px #000c; }
+  .rt-scroll-h { padding:11px 13px; background:#2a1d10; color:#f2c14e; font-weight:bold; font-size:13px; font-family:'Georgia',serif; display:flex; gap:7px; align-items:center; }
+  .rt-scroll-h .sm { font-weight:normal; font-size:10px; color:#e7d6ac; opacity:.85; margin-left:auto; }
+  .rt-scroll-list { overflow:auto; padding:6px 8px 10px; }
+  .rt-frow { display:flex; gap:8px; padding:8px 6px; border-bottom:1px solid #00000018; align-items:flex-start; }
+  .rt-frow:last-child { border-bottom:0; }
+  .rt-ficon { font-size:14px; }
+  .rt-fmid { flex:1; min-width:0; }
+  .rt-ft { font-size:11.5px; font-weight:bold; }
+  .rt-ff { font-size:10px; opacity:.7; font-family:ui-monospace,monospace; }
+  .rt-fbadge { font-size:9.5px; font-weight:bold; padding:2px 7px; border-radius:10px; white-space:nowrap; align-self:center; }
+  .rt-fbadge.ok { background:#cdeed8; color:#16633a; } .rt-fbadge.solo { background:#f3d2c6; color:#8b2a1f; }
+  .rt-scroll-f { padding:9px; }
+  .rt-scroll-f button { width:100%; border:0; border-radius:8px; padding:10px; font-weight:bold; cursor:pointer; background:#E8834A; color:#1a1208; font-family:'Georgia',serif; }
 
   #agentsPanel {
     position:fixed; top:calc(54px + env(safe-area-inset-top)); left:10px;
@@ -517,6 +583,7 @@
 
 <!-- War Council roundtable vote scene -->
 <div id="rt-overlay"><div class="rt-stage" id="rt-stage"></div></div>
+<div id="rt-modal" class="rt-modal"><div class="rt-scroll"><div class="rt-scroll-h" id="rt-mh"></div><div class="rt-scroll-list" id="rt-ml"></div><div class="rt-scroll-f"><button id="rt-mclose">Close</button></div></div></div>
 
 <!-- Hero picker (which hero → which bug) -->
 <div id="hero-dialog" class="dlg">
@@ -566,7 +633,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd53-king-throne-avatar';
+var DUNGEON_BUILD = 'd54-roundtable-avatars';
 
 // ── Bridge ────────────────────────────────────────────────
 var A = (typeof DungeonAndroid !== 'undefined') ? DungeonAndroid : null;
@@ -2260,86 +2327,166 @@ var rtState=null;
 // Radii kept narrow (32% / 30%) + 96px cards so left/right seats never clip on phones,
 // and the bottom seat clears the Vanquish/Release buttons.
 function rtSeatPos(i,n){ var ang=(-90 + i*360/n)*Math.PI/180; return { left:50+32*Math.cos(ang), top:42+28*Math.sin(ang) }; }
+var rtFindings=[];   // findings for the current roundtable (for the bubble-tap modal)
+function rtMkSeat(pos, name, spriteSvg, bub, isKing){
+  var seat=document.createElement('div');
+  seat.className='rt-seat'+(isKing?' king':'');
+  seat.style.left=pos.left+'%'; seat.style.top=pos.top+'%';
+  var bubbleHtml;
+  if(isKing){
+    bubbleHtml='<div class="bc">\u2696 The Judge</div><div class="bs none">rules the contested</div>';
+  } else {
+    bubbleHtml='<div class="bc">'+bub.count+' finding'+(bub.count===1?'':'s')+'</div>'+
+      '<div class="bs'+(bub.solo?'':' none')+'">'+(bub.solo?('\u2696 '+bub.solo+' solo'):'all shared \u2713')+'</div>'+
+      '<div class="bt2">tap to read</div>';
+  }
+  seat.innerHTML='<div class="rt-bubble">'+bubbleHtml+'</div>'+
+    '<div class="rt-av"><svg class="rt-svg" viewBox="0 0 64 64"><ellipse cx="32" cy="55" rx="13" ry="3.2" fill="#00000055"/><g class="rt-sprite"></g></svg><div class="rt-vote"></div></div>'+
+    '<div class="rt-nm">'+esc(name)+'</div><div class="rt-role">'+(isKing?'\u2696 the judge':'\ud83e\udded scout')+'</div>';
+  svgInto(seat.querySelector('.rt-sprite'), spriteSvg);   // sprite art is native 0-64, no wrap needed
+  if(!isKing){ seat.querySelector('.rt-bubble').addEventListener('click', function(){ rtOpenList(bub.idx, name); }); }
+  return { el:seat, vote:seat.querySelector('.rt-vote') };
+}
+
 function openRoundtable(job){
   var stage=$('rt-stage'); if(!stage || !job || !job.findings.length) return;
   var n=job.members || ((job.models&&job.models.length)||2);
-  stage.innerHTML='<div class="rt-title">👑 The King’s Verdict</div>'
-    +'<div class="rt-sub">'+job.findings.length+' finding(s) gathered · the round table shall vote</div>'
-    +'<div class="rt-table"></div>'
-    +'<div class="rt-center" id="rt-center"><div class="rt-delib">The council presents its findings…</div></div>'
+  rtFindings=job.findings;
+  var total=n+1;
+  stage.innerHTML='<div class="rt-title">\ud83d\udc51 The King\u2019s Verdict</div>'
+    +'<div class="rt-sub">'+job.findings.length+' finding(s) gathered \u00b7 the round table shall vote</div>'
+    +'<div class="rt-table"><div class="rt-rim"></div><div class="rt-felt"></div><div class="rt-emblem">\u265b</div></div>'
+    +'<div class="rt-ballot" id="rt-ballot"></div>'
+    +'<div class="rt-verdict" id="rt-verdict"></div>'
     +'<div class="rt-prompt" id="rt-prompt"></div>'
-    +'<button id="rt-enter">Enter the Dungeon ⚔</button>';
+    +'<button id="rt-enter">Enter the Dungeon \u2694</button>';
+  // table studs + candles
+  var table=stage.querySelector('.rt-table');
+  for(var k=0;k<14;k++){ var a=k/14*Math.PI*2, d=document.createElement('div'); d.className='rt-stud';
+    d.style.left=(50+48*Math.cos(a))+'%'; d.style.top=(50+48*Math.sin(a))+'%'; d.style.transform='translate(-50%,-50%)'; table.appendChild(d); }
+  [[50,1],[93,50],[50,99],[7,50]].forEach(function(p){ var c=document.createElement('div'); c.className='rt-candle';
+    c.style.left=p[0]+'%'; c.style.top=p[1]+'%'; c.style.transform='translate(-50%,-50%)'; table.appendChild(c); });
+  // King at the head (slot 0 = top), models fill the rest
+  var kpos=rtSeatPos(0,total);
+  var king=rtMkSeat(kpos,'You \u00b7 The King',KING_DESIGN,null,true);
+  stage.appendChild(king.el);
   var seats=[];
   for(var i=0;i<n;i++){
-    var pos=rtSeatPos(i,n);
+    var pos=rtSeatPos(i+1,total);
     var mine=job.findings.filter(function(f){ return f.foundBy[i]; });
+    var solo=mine.filter(function(f){ return Object.keys(f.foundBy).length===1; }).length;
     var nm=(job.models&&job.models.length)? shortModel(job.models[i%job.models.length]) : ('Scout '+(i+1));
-    var titles=mine.slice(0,2).map(function(f){ var t=f.title||''; return '• '+esc(t.length>30?t.slice(0,29)+'…':t); }).join('<br>');
-    var seat=document.createElement('div'); seat.className='rt-seat'; seat.style.left=pos.left+'%'; seat.style.top=pos.top+'%';
-    seat.innerHTML='<div class="rt-sword">⚔</div><div class="rt-card"><div class="rt-name">'+esc(nm)+'</div>'
-      +'<div class="rt-found">'+mine.length+' finding'+(mine.length===1?'':'s')+(titles?('<br>'+titles):'')+'</div></div>';
-    stage.appendChild(seat); seats.push(seat);
+    var seat=rtMkSeat(pos, nm, SCOUT_DESIGNS[i%4], {count:mine.length, solo:solo, idx:i}, false);
+    stage.appendChild(seat.el); seats[i]=seat;
   }
-  rtState={ open:true, seats:seats };
+  rtState={ open:true, seats:seats, king:king, members:n };
   $('rt-overlay').classList.add('show');
   $('rt-enter').addEventListener('click', closeRoundtable);
 }
-function closeRoundtable(){ $('rt-overlay').classList.remove('show'); rtState=null; refreshTitle(); }
-function rtShort(t){ t=t||''; return esc(t.length>52?t.slice(0,51)+'…':t); }
+function closeRoundtable(){ $('rt-overlay').classList.remove('show'); var m=$('rt-modal'); if(m) m.classList.remove('show'); rtState=null; refreshTitle(); }
+function rtShort(t){ t=t||''; return esc(t.length>52?t.slice(0,51)+'\u2026':t); }
+
+// tap a scout's bubble -> scrollable list of every bug they found (shared vs solo)
+function rtOpenList(idx, name){
+  var mine=rtFindings.filter(function(f){ return f.foundBy[idx]; });
+  var solo=mine.filter(function(f){ return Object.keys(f.foundBy).length===1; }).length;
+  $('rt-mh').innerHTML='\ud83e\udded '+esc(name)+' <span class="sm">'+mine.length+' findings \u00b7 '+solo+' solo</span>';
+  $('rt-ml').innerHTML=mine.map(function(f){
+    var sl=Object.keys(f.foundBy).length===1;
+    return '<div class="rt-frow"><span class="rt-ficon">'+(sl?'\u2696':'\u2713')+'</span>'+
+      '<div class="rt-fmid"><div class="rt-ft">'+esc(f.title||'')+'</div><div class="rt-ff">'+esc(f.file||'')+'</div></div>'+
+      '<span class="rt-fbadge '+(sl?'solo':'ok')+'">'+(sl?'solo \u00b7 vote':(f.support+'/'+f.total))+'</span></div>';
+  }).join('') || '<p style="padding:10px">No findings.</p>';
+  $('rt-modal').classList.add('show');
+}
+// one-time modal close wiring (elements are static in the DOM)
+(function(){ var mc=document.getElementById('rt-mclose'); if(mc) mc.addEventListener('click', function(){ var m=$('rt-modal'); if(m) m.classList.remove('show'); });
+  var mm=document.getElementById('rt-modal'); if(mm) mm.addEventListener('click', function(e){ if(e.target===mm) mm.classList.remove('show'); }); })();
+
 function rtRunVotes(trib){
   if(!rtState || !rtState.open) return;
-  var center=$('rt-center'), prompt=$('rt-prompt'), seats=rtState.seats;
-  var auto = trib.list.filter(function(f){ return tribType(f)!=='phantom'; });   // unanimous/majority → auto-confirmed
-  var phantoms = trib.list.filter(function(f){ return tribType(f)==='phantom'; });// contested → YOU rule
-  function clearSeats(){ seats.forEach(function(s){ s.classList.remove('vote'); }); }
-  function glow(f){ clearSeats(); Object.keys(f.foundBy||{}).forEach(function(mi){ var s=seats[+mi]; if(s) s.classList.add('vote'); }); }
+  var ballot=$('rt-ballot'), verdict=$('rt-verdict'), prompt=$('rt-prompt');
+  var emblem=document.querySelector('#rt-overlay .rt-emblem');
+  var seats=rtState.seats, king=rtState.king;
+  function clearMarks(){ seats.forEach(function(s){ s.el.classList.remove('presenting','voting','abstain'); s.vote.className='rt-vote'; s.vote.textContent=''; }); }
+  function presenterIdx(f){ var ks=Object.keys(f.foundBy||{}).map(Number).sort(function(a,b){ return a-b; }); return ks.length?ks[0]:0; }
+  function dots(sup,total){ var d=''; for(var i=0;i<total;i++) d+=(i<sup?'\u25cf':'\u25cb'); return d; }
+  function monFor(ty){ var mt = ty==='boss'?'boss' : ty==='phantom'?'phantom' : 'normal';
+    return '<svg class="rt-mon'+(ty==='phantom'?' wr':'')+'" viewBox="0 0 64 64">'+(MON_DESIGN[mt]||MON_DESIGN.normal)+'</svg>'; }
 
-  // Phase A — auto-reveal the findings the council already agrees on.
-  var ai=0;
-  function stepAuto(){
+  var confirmed = trib.list.filter(function(f){ return tribType(f)!=='phantom'; });  // unanimous/majority
+  var phantoms  = trib.list.filter(function(f){ return tribType(f)==='phantom'; });  // contested -> YOU rule
+  confirmed.sort(function(a,b){ return presenterIdx(a)-presenterIdx(b); });          // present in turn order
+
+  // Phase A — each confirmed finding is presented once by its earliest finder; the
+  // others who found it agree (avatars move, no box glow); its monster spawns.
+  var ci=0;
+  function stepConfirmed(){
     if(!rtState || !rtState.open) return;
-    if(ai>=auto.length){ clearSeats(); startPhantoms(); return; }
-    var f=auto[ai]; f.ruling='keep'; glow(f);
-    var ty=tribType(f);
-    center.innerHTML='<div class="rt-vt">"'+rtShort(f.title)+'"</div>'
-      +'<div class="rt-tally">'+f.support+' / '+f.total+' agree</div>'
-      +'<div class="rt-verdict rt-'+ty+'">'+tierIcon(ty)+' '+tierName(ty).toUpperCase()+'</div>';
-    var v=center.querySelector('.rt-verdict'); setTimeout(function(){ if(v) v.classList.add('in'); }, 300);
-    ai++; setTimeout(stepAuto, 1500);
+    if(ci>=confirmed.length){ clearMarks(); startPhantoms(); return; }
+    var f=confirmed[ci]; f.ruling='keep';
+    var sup=f.support, total=f.total, pres=presenterIdx(f);
+    clearMarks();
+    seats.forEach(function(s,i){ if(i===pres) s.el.classList.add('presenting'); else if(!f.foundBy[i]) s.el.classList.add('abstain'); });
+    ballot.classList.add('show');
+    ballot.innerHTML='<div class="bt">'+rtShort(f.title)+'</div><div class="bf">'+esc(f.file||'')+'</div>'
+      +'<div class="btally">'+dots(0,total)+'</div><div class="bres"></div>';
+    if(seats[pres]){ seats[pres].vote.className='rt-vote show for'; seats[pres].vote.textContent='\ud83d\udcdc mine'; }
+    setTimeout(function(){
+      if(!rtState || !rtState.open) return;
+      Object.keys(f.foundBy).map(Number).forEach(function(mi){ if(mi===pres) return; var s=seats[mi]; if(s){ s.el.classList.add('voting'); s.vote.className='rt-vote show for'; s.vote.textContent='\u2713 agree'; } });
+      var t=ballot.querySelector('.btally'); if(t) t.textContent=dots(sup,total)+'  '+sup+'/'+total;
+    }, 480);
+    setTimeout(function(){
+      if(!rtState || !rtState.open) return;
+      var ty=tribType(f), br=ballot.querySelector('.bres');
+      if(br){ br.className='bres ok'; br.innerHTML=monFor(ty)+tierIcon(ty)+' '+tierName(ty)+' \u00b7 confirmed'; }
+      ci++; setTimeout(stepConfirmed, 640);
+    }, 1180);
   }
 
-  // Phase B — YOU judge each contested (phantom) claim.
+  // Phase B — YOU judge each contested (phantom) claim; the King avatar acts.
   var pi=0;
   function startPhantoms(){ if(!phantoms.length){ rtFinish(); } else judgeNext(); }
   function judgeNext(){
     if(!rtState || !rtState.open) return;
     if(pi>=phantoms.length){ prompt.innerHTML=''; rtFinish(); return; }
-    var f=phantoms[pi]; glow(f);
-    center.innerHTML='<div class="rt-vt">🗣 A whispered rumor</div><div class="rt-tally">only '+f.support+' of '+f.total+' scouts saw it</div>';
-    prompt.innerHTML='<div class="rt-claim">"'+rtShort(f.title)+'"</div>'
-      +'<div class="rt-claim-sub">'+esc(f.file||'')+' · your ruling, my liege?</div>'
-      +'<div class="rt-judge-btns"><button class="rt-vanquish">⚔ Vanquish<br><small>it IS a bug</small></button>'
-      +'<button class="rt-release">🕊 Let it out<br><small>not a bug</small></button></div>';
+    var f=phantoms[pi], pres=presenterIdx(f);
+    clearMarks();
+    seats.forEach(function(s,i){ if(i===pres) s.el.classList.add('presenting'); else s.el.classList.add('abstain'); });
+    if(seats[pres]){ seats[pres].vote.className='rt-vote show for'; seats[pres].vote.textContent='\ud83d\udcdc lone claim'; }
+    ballot.classList.add('show');
+    ballot.innerHTML='<div class="bt">\ud83d\udde3 '+rtShort(f.title)+'</div><div class="bf">'+esc(f.file||'')+'</div>'
+      +'<div class="btally">only '+f.support+' of '+f.total+' saw it</div><div class="bres wr">\u2696 your ruling, my liege</div>';
+    prompt.innerHTML='<div class="rt-judge-btns"><button class="rt-vanquish">\u2694 Vanquish<br><small>it IS a bug</small></button>'
+      +'<button class="rt-release">\ud83d\udd4a Let it out<br><small>not a bug</small></button></div>';
     prompt.querySelector('.rt-vanquish').addEventListener('click', function(){ rule(f,'keep'); });
     prompt.querySelector('.rt-release').addEventListener('click', function(){ rule(f,'drop'); });
   }
   function rule(f, kind){
+    if(!rtState || !rtState.open) return;
     f.ruling=kind; pi++;
-    prompt.innerHTML='<div class="rt-claim rt-'+(kind==='keep'?'phantom':'normal')+'">'+(kind==='keep'?'⚔ Vanquished — a Wraith rises':'🕊 Released — cleared of all charges')+'</div>';
-    setTimeout(judgeNext, 1050);
+    king.el.classList.add('sealing'); king.vote.className='rt-vote show rule'; king.vote.textContent=(kind==='keep'?'\u2694':'\ud83d\udd4a');
+    if(kind==='keep'){ ballot.innerHTML='<div class="bt">'+rtShort(f.title)+'</div><div class="bf">'+esc(f.file||'')+'</div><div class="bres wr">'+monFor('phantom')+'\ud83d\udc7b Wraith rises</div>'; }
+    else { ballot.innerHTML='<div class="bt">'+rtShort(f.title)+'</div><div class="bres ok">\ud83d\udd4a Released \u00b7 cleared of all charges</div>'; }
+    prompt.innerHTML='';
+    setTimeout(function(){ if(king&&king.el) king.el.classList.remove('sealing'); judgeNext(); }, 1150);
   }
 
   function rtFinish(){
-    clearSeats(); prompt.innerHTML='';
-    trib.list = trib.list.filter(function(f){ return f.ruling!=='drop'; });   // released phantoms are dropped
-    finalizeTribunal(trib);                                                   // write libraries + render monsters
+    clearMarks(); prompt.innerHTML=''; ballot.classList.remove('show');
+    trib.list = trib.list.filter(function(f){ return f.ruling!=='drop'; });   // released phantoms dropped
+    finalizeTribunal(trib);                                                    // write libraries + render monsters
     var bosses=trib.list.filter(function(f){ return tribType(f)==='boss'; }).length;
     var ph=trib.list.filter(function(f){ return tribType(f)==='phantom'; }).length;
-    center.innerHTML='<div class="rt-vt">⚜ The verdict is sealed</div><div class="rt-tally">'+trib.list.length+' foe(s) · '+bosses+' 👑 Overlord · '+ph+' 👻 Wraith</div>';
+    if(king&&king.el){ king.el.classList.add('sealing'); king.vote.className='rt-vote show rule'; king.vote.textContent='\ud83d\udc51 VERDICT'; }
+    if(emblem) emblem.style.opacity='0';
+    verdict.innerHTML='<b>\u269c The verdict is sealed</b>'+trib.list.length+' foe(s) \u00b7 '+bosses+' \ud83d\udc51 Overlord \u00b7 '+ph+' \ud83d\udc7b Wraith';
+    verdict.classList.add('show');
     $('rt-enter').classList.add('show');
   }
 
-  if(auto.length){ center.innerHTML='<div class="rt-vt">The council casts its votes…</div>'; setTimeout(stepAuto, 700); }
+  if(confirmed.length){ setTimeout(stepConfirmed, 600); }
   else startPhantoms();
 }
 
