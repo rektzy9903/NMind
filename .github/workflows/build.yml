@@ -150,6 +150,25 @@ jobs:
       - name: Syntax-check bridge.js
         run: node --check app/src/main/assets/nodejs-project/bridge.js
 
+      - name: Syntax-check embedded HTML <script> blocks (dungeon + terminal)
+        run: |
+          node -e '
+            const fs=require("fs"),vm=require("vm");
+            const files=["app/src/main/assets/dungeon/index.html","app/src/main/assets/terminal/index.html"];
+            let bad=0;
+            for(const f of files){
+              const html=fs.readFileSync(f,"utf8");
+              const re=/<script>([\s\S]*?)<\/script>/g; let m,i=0;
+              while((m=re.exec(html))){
+                i++;
+                try{ new vm.Script(m[1]); }
+                catch(e){ console.error(`SYNTAX ERROR in ${f} <script> #${i}: ${e.message}`); bad++; }
+              }
+            }
+            if(bad){ process.exit(1); }
+            console.log("embedded <script> blocks OK");
+          '
+
       # ── 7. Install NDK ───────────────────────────────────────────────────────
       - name: Install NDK 25.1.8937393
         run: |
