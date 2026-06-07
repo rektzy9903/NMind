@@ -326,6 +326,13 @@
   .room-rect.has-bug { fill:#d9a59a; }
   .room-rect.has-cycle { filter:drop-shadow(0 0 4px #F8717199) drop-shadow(0 2px 0 rgba(58,40,24,.4)); }
   .room-rect.is-dead   { opacity:0.5; filter:drop-shadow(0 2px 0 rgba(58,40,24,.25)); }
+  .danger-badge { display:inline-block; font-size:9px; font-weight:700; padding:2px 6px;
+    border-radius:3px; letter-spacing:.04em; text-transform:uppercase; margin-left:6px; vertical-align:middle; }
+  .danger-low      { background:#183DD68C; color:#3DD68C; }
+  .danger-medium   { background:#22FBBF24; color:#FBBF24; }
+  .danger-high     { background:#22E8834A; color:#E8834A; }
+  .danger-critical { background:#22F87171; color:#F87171; }
+  .room-purpose { font-size:11px; color:var(--ink2,#5a432a); margin:4px 0 8px; font-style:italic; }
   .graph-chip { display:inline-flex; align-items:center; gap:4px; font-size:9px; padding:3px 7px;
     border-radius:10px; border:1px solid var(--nborder); background:var(--nsurf2); color:var(--ntext2);
     cursor:pointer; margin-top:6px; }
@@ -540,7 +547,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd42-twin-lens';
+var DUNGEON_BUILD = 'd43-report-parser';
 
 // ── Bridge ────────────────────────────────────────────────
 var A = (typeof DungeonAndroid !== 'undefined') ? DungeonAndroid : null;
@@ -671,6 +678,8 @@ var activePath='', activeName='';
 var rooms=[], agents=[];
 // ── Twin Lens: graph analysis state ──────────────────────────────────────────
 var graphState = { raw:null, scores:{}, cycles:[], dead:[], scanning:false, error:null };
+// Pass 6: structured report per room (keyed by room id)
+var roomReports = {};   // roomId → {purpose, danger, complexity, dependsOn, exposesTo}
 var svg=$('svgMap'), SVGNS='http://www.w3.org/2000/svg';
 function el(tag,attrs){ var e=document.createElementNS(SVGNS,tag); attrs=attrs||{}; for(var k in attrs) e.setAttribute(k,attrs[k]); return e; }
 function getRoom(id){ return rooms.find(function(r){ return r.id===id; }); }
@@ -831,6 +840,15 @@ function analyzeGraph(raw){
   updateRoomGraphVisuals();
   updateGraphChip();
   return rs;
+}
+
+// Pass 6: update room rect danger-level tint from structured report
+function updateRoomReportVisuals(roomId){
+  var r=getRoom(roomId); if(!r||!r._gEl) return;
+  var rect=r._gEl.querySelector('rect.room-rect'); if(!rect) return;
+  var rep=roomReports[roomId];
+  ['danger-low','danger-medium','danger-high','danger-critical'].forEach(function(c){ rect.classList.remove(c); });
+  if(rep && rep.danger) rect.classList.add('danger-'+rep.danger);
 }
 
 // Pass 2: apply cycle/dead CSS classes to room SVG rects
@@ -1555,6 +1573,34 @@ function miniMd(md){
 function renderRoomPanel(){
   var r=getRoom(openRoomId); if(!r) return;
   $('roomTitle').textContent=r.name;
+  // Pass 6: inject danger badge + purpose into panel header if report exists
+  var rep=roomReports[r.id];
+  var badgeHtml='', purposeHtml='';
+  if(rep){
+    var swords='⚔'.repeat(rep.complexity||1);
+    badgeHtml='<span class="danger-badge danger-'+(rep.danger||'low')+'">'+(rep.danger||'low')+'</span>'
+      +'<span style="font-size:9px;opacity:.6;margin-left:6px">'+swords+'</span>';
+    purposeHtml='<div class="room-purpose">'+esc(rep.purpose||'')+'</div>';
+  }
+  var titleEl=$('roomTitle');
+  // append badge sibling to title
+  var existBadge=titleEl.parentNode.querySelector('.danger-badge');
+  if(existBadge) existBadge.remove();
+  var existSwords=titleEl.parentNode.querySelector('.sword-chip');
+  if(existSwords) existSwords.remove();
+  if(rep){
+    var bd=document.createElement('span');
+    bd.className='danger-badge danger-'+(rep.danger||'low');
+    bd.textContent=rep.danger||'low';
+    titleEl.parentNode.insertBefore(bd, titleEl.nextSibling);
+  }
+  var purposeDiv=$('room-purpose-line');
+  if(!purposeDiv){
+    purposeDiv=document.createElement('div');
+    purposeDiv.id='room-purpose-line'; purposeDiv.className='room-purpose';
+    titleEl.closest('header').after(purposeDiv);
+  }
+  purposeDiv.textContent=rep?(rep.purpose||''):'';
   var c=$('roomContent');
   if(openTab==='library'){
     c.innerHTML=miniMd(readFile(r.path+'/library.md')) + '<p class="muted" style="margin-top:10px">📂 '+esc(r.path)+'</p>';
@@ -2274,6 +2320,18 @@ window.onDungeonEvent=function(sid, line){
     return;
   }
   else if(ev.t==='graph-error'){ graphState.scanning=false; graphState.error=ev.err||'unknown'; updateGraphChip(); toast('⬡ Graph scan failed: '+(ev.err||'').slice(0,60)); return; }
+  // Pass 6: structured report — store per room, refresh panel if open
+  else if(ev.t==='report'){
+    if(!job) return;
+    var repRoomId = job.roomId || (job.roomIds && job.roomIds[0]) || openRoomId;
+    if(repRoomId){
+      roomReports[repRoomId] = { purpose:ev.purpose, danger:ev.danger||'low',
+        complexity:ev.complexity||1, dependsOn:ev.dependsOn||[], exposesTo:ev.exposesTo||[] };
+      if(openRoomId===repRoomId) renderRoomPanel();
+      updateRoomReportVisuals(repRoomId);
+    }
+    return;
+  }
 
   // (Judge models removed — YOU are the tribunal judge now, at the round table.)
 

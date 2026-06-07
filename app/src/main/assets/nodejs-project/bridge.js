@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b78-twin-lens';
+const BRIDGE_BUILD = 'b79-filter-structured';
 
 const net   = require('net');
 const http  = require('http');
@@ -5987,10 +5987,25 @@ function openPrintSession() {
             const mapPath = '/tmp/nexus-scout-' + pathHash(String(targetCwd)) + '.xml';
             // --compress = Tree-sitter signature extraction. Leave it LOUD (no --quiet)
             // so the "Total Tokens" summary line survives for the P2 gate; tail to bound.
+            // Pass 3 — filter engine: strip noise before packing so Claude's attention
+            // goes to real code, not lockfiles/dist/vendor/sourcemaps.
+            // Tests and manifests are KEPT — they reveal coverage gaps and dep CVEs.
+            const FILTER_IGNORE = [
+                'package-lock.json','yarn.lock','pnpm-lock.yaml','*.lock',
+                'dist/**','build/**','.next/**','out/**','.nuxt/**','_output/**',
+                '*.min.js','*.min.css','*.min.mjs',
+                '*.map','*.d.ts',
+                'vendor/**','third_party/**',
+                '__pycache__/**','*.pyc','*.pyo',
+                '.gradle/**','*.class','*.jar',
+                'coverage/**','.nyc_output/**','storybook-static/**',
+                '*.pb.go','*_generated.go','*_gen.go',
+                'migrations/**/*.sql',   // keep schema files, skip raw migration blobs
+            ].join(',');
             const cmd = [
                 'set +e',
                 'rm -f ' + mapPath,
-                'npx -y repomix --compress --style xml -o ' + mapPath + ' . 2>&1 | tail -25',
+                'npx -y repomix --compress --style xml --ignore ' + JSON.stringify(FILTER_IGNORE) + ' -o ' + mapPath + ' . 2>&1 | tail -25',
                 'echo "::mapsize:: $(wc -c < ' + mapPath + ' 2>/dev/null || echo 0)"',
             ].join('\n');
             runProotGuest(['/bin/bash', '-lc', cmd], 120000, null, { workspace: targetCwd })
@@ -6117,6 +6132,9 @@ function openPrintSession() {
             '(drop the ones that are now fixed, keep/add the ones still present).',
             '',
             'For EACH real bug ALSO print to stdout: `🪲BUG <file:line> <critical|major|minor> <title>`.',
+            'BEFORE writing library.md, print ONE structured summary line to stdout:',
+            '`📊REPORT PURPOSE=<one sentence> DANGER=<low|medium|high|critical> COMPLEXITY=<1-5> DEPENDS_ON=<folders> EXPOSES_TO=<folders>`',
+            '(DEPENDS_ON and EXPOSES_TO are comma-separated folder names this room imports from / is imported by; use none if unknown.)',
             'When the library.md is written, stop.'
         ].join('\n');
     }
@@ -6137,7 +6155,9 @@ function openPrintSession() {
             'GOAL: find REAL problems in THIS folder only — bugs, crashes, security risks, broken logic.',
             'Do NOT recurse into sub-folders (those are separate rooms, scouted on their own).',
             'Do NOT invent issues. Use Read / Glob / Bash to inspect. Be concise.',
-            'Do NOT create or edit any file. Your only output is `🪲BUG <file:line> <sev> <title>` lines.',
+            'Do NOT create or edit any file.',
+            'Print ONE summary line: `📊REPORT PURPOSE=<one sentence> DANGER=<low|medium|high|critical> COMPLEXITY=<1-5> DEPENDS_ON=<folders> EXPOSES_TO=<folders>`',
+            'Then for each real bug: `🪲BUG <file:line> <sev> <title>`',
             'When done, stop.',
             READONLY_SCOUT_SENTINEL
         ].join('\n');
@@ -6150,6 +6170,7 @@ function openPrintSession() {
             'Use Read / Glob / Bash to inspect code. Cover as much of the project as you can.',
             'IMPORTANT: do NOT create or edit any file (no library.md). Your only output is markers.',
             'For EACH real bug print exactly: `🪲BUG <file:line> <critical|major|minor> <title>`.',
+            'Also print ONE summary line: `📊REPORT PURPOSE=<one sentence> DANGER=<low|medium|high|critical> COMPLEXITY=<1-5> DEPENDS_ON=<folders> EXPOSES_TO=<folders>`',
             'When done, stop.',
             READONLY_SCOUT_SENTINEL
         ].join('\n');
@@ -6320,6 +6341,22 @@ function openPrintSession() {
                 const re = /🪲BUG\s+(\S+)\s+(critical|major|minor)\s+(.+)/gi; let m;
                 while ((m = re.exec(text))) send({ t:'bug', member:idx, file:m[1], sev:m[2].toLowerCase(), title:m[3].trim().slice(0,120) });
             }
+            // Pass 6: parse 📊REPORT structured line emitted by the scout persona
+            function scanReport(text, idx) {
+                const m = text.match(/📊REPORT\s+(.+)/);
+                if (!m) return;
+                const raw = m[1];
+                function field(key) {
+                    const fm = raw.match(new RegExp(key + '=([^\s]+(?:\s+[^A-Z=\s][^=\s]*)*)', 'i'));
+                    return fm ? fm[1].replace(/[,\s]+$/, '').trim() : '';
+                }
+                const purpose    = field('PURPOSE');
+                const danger     = (field('DANGER') || 'low').toLowerCase();
+                const complexity = parseInt(field('COMPLEXITY'), 10) || 1;
+                const dependsOn  = field('DEPENDS_ON').split(',').map(x => x.trim()).filter(Boolean);
+                const exposesTo  = field('EXPOSES_TO').split(',').map(x => x.trim()).filter(Boolean);
+                send({ t:'report', member:idx, purpose, danger, complexity, dependsOn, exposesTo });
+            }
             function runMember(idx) {
                 // divide → per-member assigned room+model; council → models[idx]; solo/dispatch → r.model
                 const memberCwd = isDivide ? (assignments[idx].cwd || cwd) : cwd;
@@ -6407,13 +6444,13 @@ function openPrintSession() {
                                         const tp = ti.file_path || ti.path || ti.notebook_path || ti.pattern || '';
                                         send({ t:'tool', member:idx, name:c.name, path: (typeof tp === 'string' ? tp : '') });
                                     }
-                                    if (c.type === 'text' && c.text) { scanBugs(c.text, idx); if (/api error|rate.?limit|\b429\b|overloaded/i.test(c.text)) noteErr(idx, c.text); }
+                                    if (c.type === 'text' && c.text) { scanBugs(c.text, idx); scanReport(c.text, idx); if (/api error|rate.?limit|\b429\b|overloaded/i.test(c.text)) noteErr(idx, c.text); }
                                 });
                             } else if (ev.type === 'result') {
                                 if (ev.is_error || (ev.subtype && ev.subtype !== 'success')) noteErr(idx, (ev.subtype || 'error') + ' ' + (typeof ev.result === 'string' ? ev.result : ''));
                                 send({ t:'result', member:idx });
                             }
-                        } catch(_) { scanBugs(line, idx); }
+                        } catch(_) { scanBugs(line, idx); scanReport(line, idx); }
                     }
                 });
                 proc.stderr.on('data', d => { const s = d.toString(); log('[dungeon] m' + idx + ' ' + s.slice(0,160) + '\n'); noteErr(idx, s); });
