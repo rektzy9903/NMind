@@ -14,6 +14,15 @@
     --blood: #8b2a1f;
     --gold: #c89b3c;
     --moss: #5a6b3a;
+    /* sprite-concept palette (d41) */
+    --gold2:#f2c14e;
+    --steel:#9fb0c0; --steel2:#6f8294; --steelD:#48586a;
+    --green:#5aa64a; --green2:#3f7a32; --greenD:#2c5524;
+    --amber:#FBBF24; --amberD:#E8834A;
+    --brown:#a87b4a; --brown2:#7d5631; --brownD:#553a20;
+    --maroon:#8b2a1f; --maroon2:#6a1f17; --beast:#a5392b;
+    --purple:#8a78b0; --purpleD:#5a4a7a;
+    --skin:#e8c89a;
     /* Nexus chrome (home screen) */
     --nbg:#0C0C0F; --nsurf:#151518; --nsurf2:#1E1E22; --nborder:#2A2A30;
     --naccent:#E8834A; --ntext:#F0F0F2; --ntext2:#9090A0; --ntext3:#60606E;
@@ -327,10 +336,31 @@
   .agent-label-bg { fill:var(--parchment); stroke:var(--ink); stroke-width:.3; opacity:.95; }
   .exp-sprite,.exp-ring,.exp-line,.exp-torch,.exp-burst { pointer-events:none; }
   .monster { cursor:pointer; }
-  .monster-body { fill:var(--blood); stroke:var(--ink); stroke-width:.6; }
+  /* .monster-body: visuals now carried by each sprite design; the fight flash sets fill inline */
   .hp-bar-bg { fill:var(--ink); }
   .hp-bar { fill:#4a8a3a; }
   .hp-text { font-family:'Georgia',serif; font-size:3.5px; fill:var(--parchment); text-anchor:middle; pointer-events:none; }
+  /* ── dungeon sprite sub-animations (ported from sprite-concept gallery, d41) ── */
+  .legL{ transform-box:fill-box; transform-origin:50% 0; animation:splegA .46s ease-in-out infinite; }
+  .legR{ transform-box:fill-box; transform-origin:50% 0; animation:splegB .46s ease-in-out infinite; }
+  @keyframes splegA{ 0%,100%{ transform:rotate(16deg) } 50%{ transform:rotate(-16deg) } }
+  @keyframes splegB{ 0%,100%{ transform:rotate(-16deg) } 50%{ transform:rotate(16deg) } }
+  .flick{ transform-box:fill-box; transform-origin:center bottom; animation:spflick .28s ease-in-out infinite alternate; }
+  @keyframes spflick{ from{ transform:scale(1) } to{ transform:scale(1.18,1.32) } }
+  .glow{ animation:spglow 1.1s ease-in-out infinite; }
+  @keyframes spglow{ 0%,100%{ opacity:.55 } 50%{ opacity:1 } }
+  .crownshine{ animation:spglow .9s ease-in-out infinite; }
+  .tail{ transform-box:fill-box; transform-origin:0% 50%; animation:spwag .3s ease-in-out infinite alternate; }
+  @keyframes spwag{ from{ transform:rotate(-18deg) } to{ transform:rotate(18deg) } }
+  .wing{ transform-box:fill-box; transform-origin:90% 50%; animation:spflap .18s ease-in-out infinite alternate; }
+  .wingR{ transform-box:fill-box; transform-origin:10% 50%; animation:spflap .18s ease-in-out infinite alternate; }
+  @keyframes spflap{ from{ transform:rotate(-26deg) } to{ transform:rotate(20deg) } }
+  .pulse{ transform-box:fill-box; transform-origin:center; animation:sppz 1.1s ease-in-out infinite; }
+  @keyframes sppz{ 0%,100%{ transform:scale(1) } 50%{ transform:scale(1.06) } }
+  .phase{ animation:spphase 2.4s ease-in-out infinite; }
+  @keyframes spphase{ 0%,100%{ opacity:.85 } 50%{ opacity:.3 } }
+  .blink{ animation:spblink 2.4s steps(1) infinite; }
+  @keyframes spblink{ 0%,94%,100%{ opacity:1 } 96%{ opacity:0 } }
 </style>
 </head>
 <body>
@@ -501,7 +531,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd40-maxpath-diag';
+var DUNGEON_BUILD = 'd41-new-sprites';
 
 // ── Bridge ────────────────────────────────────────────────
 var A = (typeof DungeonAndroid !== 'undefined') ? DungeonAndroid : null;
@@ -756,21 +786,13 @@ function renderMonsters(){
       var slots=r.bugs.length, spacing=Math.min(13,(r.w-10)/Math.max(slots,1));
       var mx=r.cx+(i-(slots-1)/2)*spacing, my=r.cy+r.h*0.15;
       // tribunal confidence → monster nature (PRD §9.5): boss bigger+crowned, phantom faint+dashed
-      var mt=b.type||'normal', mscale=mt==='boss'?1.45:mt==='phantom'?0.8:1;
+      // tribunal confidence → monster sprite (PRD §9.5): boss bigger (Crowned Beast),
+      // phantom faint (Shade), normal = Imp. Body art carried by MON_DESIGN.
+      var mt=b.type||'normal', mscale=mt==='boss'?1.4:mt==='phantom'?0.85:1;
       var g=el('g',{'class':'monster monster-'+mt,'data-room':r.id,'data-bug':b.id,
         transform:'translate('+mx+','+my+') scale('+mscale+')'});
-      if(mt==='phantom') g.setAttribute('opacity','0.45');
-      var body=el('path',{ d:'M -4 2.5 Q -4 -4 0 -4 Q 4 -4 4 2.5 L 2.5 4 L 1.2 2.5 L 0 4 L -1.2 2.5 L -2.5 4 Z','class':'monster-body' });
-      if(mt==='boss') body.setAttribute('fill','#8b1a12');
-      if(mt==='phantom'){ body.setAttribute('fill','#6a5a7a'); body.setAttribute('stroke-dasharray','1 0.8'); }
-      g.appendChild(body);
-      if(mt==='boss'){ var cr=el('text',{x:0,y:-5.6,'text-anchor':'middle','font-size':4,fill:'#f2c14e'}); cr.textContent='♛'; g.appendChild(cr); }
-      g.appendChild(el('circle',{cx:-1.5,cy:-1.2,r:0.6,fill:'#fff'}));
-      g.appendChild(el('circle',{cx:1.5,cy:-1.2,r:0.6,fill:'#fff'}));
-      g.appendChild(el('circle',{cx:-1.5,cy:-1.2,r:0.3,fill:'#000'}));
-      g.appendChild(el('circle',{cx:1.5,cy:-1.2,r:0.3,fill:'#000'}));
-      g.appendChild(el('path',{d:'M -3 -3.2 L -4 -5.6 L -2 -4 Z',fill:'#3a2818'}));
-      g.appendChild(el('path',{d:'M 3 -3.2 L 4 -5.6 L 2 -4 Z',fill:'#3a2818'}));
+      if(mt==='phantom') g.setAttribute('opacity','0.5');
+      var subG=el('g',{}); svgInto(subG, wrap(MON_DESIGN[mt]||MON_DESIGN.normal, 0.3, 32, 40)); g.appendChild(subG);
       g.appendChild(el('rect',{x:-6.5,y:-9,width:13,height:2.4,'class':'hp-bar-bg',rx:0.4}));
       var hpRect=el('rect',{x:-6,y:-8.6,width:12*(b.hp/b.maxHp),height:1.6,'class':'hp-bar',rx:0.2}); hpRect.setAttribute('data-hp',b.id); g.appendChild(hpRect);
       var hpText=el('text',{x:0,y:-10,'class':'hp-text'}); hpText.textContent=Math.ceil(b.hp)+'/'+b.maxHp; hpText.setAttribute('data-hptext',b.id); g.appendChild(hpText);
@@ -780,14 +802,15 @@ function renderMonsters(){
 }
 function renderAgents(){
   svg.querySelectorAll('.agent-sprite').forEach(function(n){ n.remove(); });
-  agents.forEach(function(a){
+  agents.forEach(function(a,i){
     var g=el('g',{'class':'agent-sprite','data-id':a.id,transform:'translate('+a.x+','+a.y+')'});
-    g.appendChild(el('rect',{x:-2,y:-0.8,width:4,height:4,rx:0.4,'class':'agent-body',fill:a.color}));
-    g.appendChild(el('circle',{cx:0,cy:-2.4,r:1.6,'class':'agent-head'}));
-    g.appendChild(el('line',{x1:2.4,y1:0,x2:3.6,y2:-1.6,stroke:'#3a2818','stroke-width':0.5}));
+    // Hero by index → A/B/C/D class; beyond 4, hue-rotate the whole body for a fresh tint.
+    var bodyG=el('g',{}); var tier=Math.floor(i/4);
+    if(tier) bodyG.setAttribute('style','filter:hue-rotate('+(tier*55)+'deg)');
+    svgInto(bodyG, wrap(HERO_DESIGNS[i%4], 0.2, 32, 52)); g.appendChild(bodyG);
     var lw=a.name.length*2+2.5;
-    g.appendChild(el('rect',{x:-lw/2,y:-7.2,width:lw,height:3,rx:0.4,'class':'agent-label-bg'}));
-    var lbl=el('text',{x:0,y:-5,'class':'agent-label'}); lbl.textContent=a.name; g.appendChild(lbl);
+    g.appendChild(el('rect',{x:-lw/2,y:-13,width:lw,height:3,rx:0.4,'class':'agent-label-bg'}));
+    var lbl=el('text',{x:0,y:-10.8,'class':'agent-label'}); lbl.textContent=a.name; g.appendChild(lbl);
     a._gEl=g; svg.appendChild(g);
   });
 }
@@ -975,17 +998,132 @@ function updateRoomVisuals(){
 var expeditions={}, expLast=performance.now();
 var EXP_PAL=['#5a6b3a','#8b6f3f','#5a3f7a','#3a5a6b'];
 function lerp(a,b,k){ return a+(b-a)*k; }
-function spawnExpSprite(kind,color){
+/* ── Sprite design library (ported from /sdcard/design/dungeon-sprite-concepts.html, d41).
+   Concept SVGs are viewBox 0 0 64 64 (feet ~y52, monster center ~(32,40)); wrap()+svgInto()
+   scale them down into the tiny dungeon world. Position/walk stay JS-driven; only the
+   sub-animations (legs, flicker, wings, pulse, phase…) are CSS. ── */
+function wrap(inner,sc,cx,cy){ return '<g transform="scale('+sc+') translate('+(-cx)+','+(-cy)+')">'+inner+'</g>'; }
+function svgInto(g,str){
+  var doc=new DOMParser().parseFromString('<svg xmlns="http://www.w3.org/2000/svg">'+str+'</svg>','image/svg+xml');
+  var kids=doc.documentElement.childNodes;
+  for(var i=0;i<kids.length;i++){ if(kids[i].nodeType===1) g.appendChild(document.importNode(kids[i],true)); }
+}
+function head(cx,cy,r,fill){ return '<circle cx="'+cx+'" cy="'+cy+'" r="'+r+'" fill="'+(fill||'var(--skin)')+'" stroke="var(--ink)" stroke-width="1.4"/>'; }
+function eyes(cx,cy){ return '<circle class="blink" cx="'+(cx-2)+'" cy="'+cy+'" r="1" fill="var(--ink)"/><circle class="blink" cx="'+(cx+2)+'" cy="'+cy+'" r="1" fill="var(--ink)"/>'; }
+
+var SCOUT_DESIGNS=[
+ /* Scout-A Lanternbearer */
+ '<g class="legL"><rect x="27" y="44" width="4" height="9" rx="1.5" fill="var(--greenD)"/></g>'+
+ '<g class="legR"><rect x="33" y="44" width="4" height="9" rx="1.5" fill="var(--greenD)"/></g>'+
+ '<rect x="25" y="31" width="14" height="15" rx="3" fill="var(--green)" stroke="var(--ink)" stroke-width="1.4"/>'+
+ head(32,26,5)+eyes(32,26)+
+ '<line x1="40" y1="34" x2="46" y2="22" stroke="var(--ink)" stroke-width="1.2"/>'+
+ '<rect x="43" y="20" width="6" height="7" rx="1" fill="#5a432a" stroke="var(--ink)" stroke-width="1"/>'+
+ '<circle class="flick" cx="46" cy="23.5" r="3" fill="var(--amber)"/><circle cx="46" cy="23.5" r="1.3" fill="#fff7d6"/>',
+ /* Scout-B Pathfinder */
+ '<g class="legL"><rect x="27" y="44" width="4" height="9" rx="1.5" fill="var(--greenD)"/></g>'+
+ '<g class="legR"><rect x="33" y="44" width="4" height="9" rx="1.5" fill="var(--greenD)"/></g>'+
+ '<rect x="25" y="31" width="14" height="15" rx="3" fill="var(--green2)" stroke="var(--ink)" stroke-width="1.4"/>'+
+ head(31,26,5)+
+ '<g class="pulse" style="transform-box:fill-box;transform-origin:36px 26px"><rect x="35" y="24.5" width="13" height="3.2" rx="1.6" fill="#caa15a" stroke="var(--ink)" stroke-width="1"/><circle cx="48" cy="26.1" r="2.4" fill="#bfe9ff" stroke="var(--ink)" stroke-width="1"/></g>'+
+ '<path d="M27 22 Q32 19 36 22" fill="none" stroke="var(--ink)" stroke-width="1.2"/>',
+ /* Scout-C Cartographer */
+ '<g class="legL"><rect x="27" y="44" width="4" height="9" rx="1.5" fill="var(--greenD)"/></g>'+
+ '<g class="legR"><rect x="33" y="44" width="4" height="9" rx="1.5" fill="var(--greenD)"/></g>'+
+ '<rect x="25" y="30" width="14" height="14" rx="3" fill="var(--green)" stroke="var(--ink)" stroke-width="1.4"/>'+
+ head(32,25,5)+eyes(32,25.5)+
+ '<g class="pulse" style="transform-box:fill-box;transform-origin:32px 42px"><rect x="22" y="38" width="20" height="11" rx="1.5" fill="#f0e2bd" stroke="var(--ink)" stroke-width="1.2"/><path d="M26 41 h12 M26 44 h9 M26 46.5 h13" stroke="#9a7b45" stroke-width="1"/><circle cx="38" cy="46" r="1.4" fill="var(--maroon)"/></g>',
+ /* Scout-D Torchrunner */
+ '<g class="legL" style="animation-duration:.3s"><rect x="26" y="43" width="4" height="10" rx="1.5" fill="var(--greenD)"/></g>'+
+ '<g class="legR" style="animation-duration:.3s"><rect x="34" y="43" width="4" height="10" rx="1.5" fill="var(--greenD)"/></g>'+
+ '<rect x="24" y="30" width="15" height="14" rx="3" fill="var(--green2)" stroke="var(--ink)" stroke-width="1.4" transform="rotate(6 32 37)"/>'+
+ head(34,25,5)+
+ '<line x1="42" y1="30" x2="48" y2="18" stroke="var(--brown2)" stroke-width="2"/>'+
+ '<path class="flick" d="M48 20 q-4 -6 0 -11 q4 5 4 9 q3 -3 2 -7 q4 6 -1 12 z" fill="var(--amberD)"/>'+
+ '<path class="flick" d="M48 18 q-2 -4 0 -7 q2 3 2 5 z" fill="var(--amber)"/>'
+];
+
+var HERO_DESIGNS=[
+ /* Hero-A Squire */
+ '<g class="legL"><rect x="27" y="44" width="4" height="9" rx="1.5" fill="var(--steelD)"/></g>'+
+ '<g class="legR"><rect x="33" y="44" width="4" height="9" rx="1.5" fill="var(--steelD)"/></g>'+
+ '<rect x="25" y="30" width="14" height="16" rx="3" fill="var(--steel)" stroke="var(--ink)" stroke-width="1.4"/>'+
+ '<rect x="29" y="33" width="6" height="11" fill="var(--steel2)"/>'+
+ head(32,25,5)+'<rect x="27" y="20" width="10" height="4" rx="2" fill="var(--steel2)" stroke="var(--ink)" stroke-width="1"/>'+
+ '<g style="transform-box:fill-box;transform-origin:42px 40px" class="pulse"><rect x="41" y="14" width="2.6" height="22" rx="1" fill="#dfe6ee" stroke="var(--ink)" stroke-width="1"/><path d="M40 14 l2.3 -5 l2.3 5 z" fill="#fff"/></g>'+
+ '<rect x="39" y="34" width="8" height="2.4" rx="1" fill="var(--gold)"/>',
+ /* Hero-B Battlemage */
+ '<path d="M22 53 L32 30 L42 53 Z" fill="#3b5ca8" stroke="var(--ink)" stroke-width="1.4"/>'+
+ '<path d="M27 44 L37 44 L40 53 L24 53 Z" fill="#2f4a86"/>'+
+ head(32,25,5)+'<path d="M24 24 Q32 4 40 24 Z" fill="#3b5ca8" stroke="var(--ink)" stroke-width="1.3"/><circle cx="32" cy="10" r="1.6" fill="var(--gold)"/>'+
+ '<rect x="43" y="16" width="2.4" height="34" rx="1.2" fill="var(--brown2)" stroke="var(--ink)" stroke-width="1"/>'+
+ '<circle class="glow" cx="44.2" cy="15" r="4.6" fill="#7fd0ff"/><circle cx="44.2" cy="15" r="2.2" fill="#eaffff"/>',
+ /* Hero-C Ranger */
+ '<g class="legL"><rect x="27" y="44" width="4" height="9" rx="1.5" fill="var(--brownD)"/></g>'+
+ '<g class="legR"><rect x="33" y="44" width="4" height="9" rx="1.5" fill="var(--brownD)"/></g>'+
+ '<path d="M24 30 L40 30 L37 46 L27 46 Z" fill="var(--green2)" stroke="var(--ink)" stroke-width="1.4"/>'+
+ '<path d="M24 30 Q22 40 26 48 L30 46 Z" fill="var(--greenD)"/>'+
+ head(32,25,5)+'<path d="M27 22 Q32 18 37 22 L37 24 L27 24 Z" fill="var(--green2)" stroke="var(--ink)" stroke-width="1"/>'+
+ '<path d="M44 18 Q52 32 44 46" fill="none" stroke="var(--brown2)" stroke-width="2"/><line x1="44" y1="18" x2="44" y2="46" stroke="#eee" stroke-width="0.8"/>'+
+ '<line class="pulse" x1="38" y1="32" x2="48" y2="32" stroke="var(--ink)" stroke-width="1.4"/>',
+ /* Hero-D Paladin */
+ '<g class="legL"><rect x="26" y="44" width="4.5" height="9" rx="1.5" fill="var(--steelD)"/></g>'+
+ '<g class="legR"><rect x="33.5" y="44" width="4.5" height="9" rx="1.5" fill="var(--steelD)"/></g>'+
+ '<rect x="23" y="29" width="18" height="17" rx="3" fill="var(--steel)" stroke="var(--ink)" stroke-width="1.4"/>'+
+ '<rect x="22" y="27" width="20" height="4" rx="2" fill="var(--gold)" stroke="var(--ink)" stroke-width="1"/>'+
+ head(32,23,5)+'<rect x="27" y="18" width="10" height="4" rx="1.5" fill="var(--steel2)" stroke="var(--ink)" stroke-width="1"/><rect x="31" y="13" width="2" height="5" fill="var(--gold)"/>'+
+ '<g class="pulse" style="transform-box:fill-box;transform-origin:18px 38px"><path d="M12 30 L24 30 L24 42 L18 47 L12 42 Z" fill="#c0492f" stroke="var(--ink)" stroke-width="1.3"/><path d="M18 33 L18 43 M14 37 L22 37" stroke="var(--gold)" stroke-width="1.4"/></g>'+
+ '<rect x="44" y="16" width="2.6" height="24" rx="1" fill="#dfe6ee" stroke="var(--ink)" stroke-width="1"/><rect x="42" y="38" width="7" height="2.4" fill="var(--gold)"/>'
+];
+
+/* Hound-D Feral Stalker (P3 deterministic pre-scan cameo) */
+var HOUND_DESIGN=
+ '<g class="legL"><rect x="42" y="43" width="3.8" height="10" rx="1.5" fill="#5a4a3a"/></g>'+
+ '<g class="legR"><rect x="20" y="44" width="3.8" height="9" rx="1.5" fill="#5a4a3a"/></g>'+
+ '<rect x="36" y="44" width="3.4" height="9" rx="1.5" fill="#6a5848"/>'+
+ '<rect x="26" y="45" width="3.4" height="8" rx="1.5" fill="#6a5848"/>'+
+ '<path class="tail" d="M14 36 q-10 -3 -9 -11" fill="none" stroke="#6a5848" stroke-width="3.6" stroke-linecap="round"/>'+
+ '<path d="M16 40 q10 -6 24 -4 q8 1 8 7 q-1 5 -8 5 q-14 1 -24 -2 z" fill="#7a6552" stroke="var(--ink)" stroke-width="1.6"/>'+
+ '<path d="M30 35 l2 4 l3 -5 l2 5 l3 -5" fill="none" stroke="#5a4a3a" stroke-width="2"/>'+
+ '<path d="M44 40 q9 -3 13 3 q2 5 -3 8 q-6 2 -10 -2 q-3 -6 0 -9 z" fill="#7a6552" stroke="var(--ink)" stroke-width="1.5"/>'+
+ '<path d="M45 39 l-1 -7 l5 4 z" fill="#5a4a3a" stroke="var(--ink)" stroke-width="1"/>'+
+ '<path d="M53 47 q4 1 6 4 l-2 1 q-3 0 -5 -2 z" fill="#5a4a3a" stroke="var(--ink)" stroke-width="1"/>'+
+ '<path d="M54 50 l1 3 l1.5 -2 z m3 -1 l1 3 l1.5 -2 z" fill="#fff"/>'+
+ '<circle cx="50" cy="44" r="1.5" fill="#ff5a3c"/>';
+
+/* Monsters by tier: normal=Beast-B Imp, boss=Boss-A Crowned Beast, phantom=Wraith-B Shade.
+   Each carries class="monster-body" on its primary body shape (fight-flash querySelector). */
+var MON_DESIGN={
+ normal:
+   '<g class="wing"><path d="M22 34 Q8 28 10 42 Q18 40 24 42 Z" fill="#6a1f17" stroke="var(--ink)" stroke-width="1.2"/></g>'+
+   '<g class="wingR"><path d="M42 34 Q56 28 54 42 Q46 40 40 42 Z" fill="#6a1f17" stroke="var(--ink)" stroke-width="1.2"/></g>'+
+   '<ellipse class="monster-body" cx="32" cy="42" rx="9" ry="10" fill="var(--beast)" stroke="var(--ink)" stroke-width="1.5"/>'+
+   '<path d="M25 33 l-2 -6 l5 4 z" fill="var(--maroon2)" stroke="var(--ink)" stroke-width="1"/>'+
+   '<path d="M39 33 l2 -6 l-5 4 z" fill="var(--maroon2)" stroke="var(--ink)" stroke-width="1"/>'+
+   '<circle cx="28" cy="40" r="1.6" fill="#ffd23f"/><circle cx="36" cy="40" r="1.6" fill="#ffd23f"/>'+
+   '<path d="M28 46 q4 3 8 0" fill="none" stroke="var(--ink)" stroke-width="1.3"/>'+
+   '<path class="tail" d="M40 50 q8 0 9 -6" fill="none" stroke="var(--maroon2)" stroke-width="2" stroke-linecap="round"/>',
+ boss:
+   '<ellipse class="pulse monster-body" cx="32" cy="42" rx="15" ry="13" fill="var(--maroon)" stroke="var(--ink)" stroke-width="1.8"/>'+
+   '<path d="M22 34 l-3 -8 l7 5 z" fill="var(--maroon2)" stroke="var(--ink)" stroke-width="1.2"/>'+
+   '<path d="M42 34 l3 -8 l-7 5 z" fill="var(--maroon2)" stroke="var(--ink)" stroke-width="1.2"/>'+
+   '<circle cx="27" cy="40" r="2.4" fill="#ffd23f"/><circle cx="37" cy="40" r="2.4" fill="#ffd23f"/>'+
+   '<circle cx="27" cy="40" r="1" fill="var(--ink)"/><circle cx="37" cy="40" r="1" fill="var(--ink)"/>'+
+   '<path d="M25 47 l3 -2 l3 2 l3 -2 l3 2" fill="none" stroke="#fff" stroke-width="1.6"/>'+
+   '<path class="crownshine" d="M22 24 L26 18 L32 23 L38 18 L42 24 Z" fill="var(--gold)" stroke="var(--ink)" stroke-width="1.3"/>'+
+   '<circle cx="32" cy="22" r="1.3" fill="var(--maroon)"/>',
+ phantom:
+   '<g class="phase"><path class="monster-body" d="M22 50 Q18 26 32 24 Q46 26 42 50 L36 46 L32 50 L28 46 Z" fill="#3a3550" stroke="var(--purpleD)" stroke-width="1.4"/>'+
+   '<path d="M26 30 Q32 24 38 30 L38 36 Q32 33 26 36 Z" fill="#16121f"/>'+
+   '<circle class="glow" cx="28" cy="34" r="1.6" fill="#c89bff"/><circle class="glow" cx="36" cy="34" r="1.6" fill="#c89bff"/></g>'
+};
+
+// Scout/council members share the SCOUT_DESIGNS pool (variant = member index → A/B/C/D look);
+// the deterministic pre-scan cameo uses the Hound design. Walk/position is JS-driven (expTick).
+function spawnExpSprite(kind,variant){
   var g=el('g',{'class':'exp-sprite'});
-  g.appendChild(el('rect',{x:-2,y:-0.8,width:4,height:4,rx:0.6,fill:color,stroke:'#3a2818','stroke-width':0.5}));
-  g.appendChild(el('circle',{cx:0,cy:-2.4,r:1.6,fill:'#e8c89a',stroke:'#3a2818','stroke-width':0.5}));
-  if(kind==='scout'){
-    g.appendChild(el('line',{x1:2,y1:-1,x2:3.4,y2:-3,stroke:'#3a2818','stroke-width':0.5}));
-    var fl=el('circle',{cx:3.6,cy:-3.4,r:1.2,fill:'#FBBF24','class':'exp-torch'}); g.appendChild(fl);
-  } else {
-    g.appendChild(el('rect',{x:2,y:-5.2,width:0.4,height:5,fill:'#3a2818'}));
-    g.appendChild(el('path',{d:'M2.4,-5.2 L5.2,-4.4 L2.4,-3.6 Z',fill:color}));
-  }
+  var inner = kind==='hound' ? HOUND_DESIGN : SCOUT_DESIGNS[(variant||0)%4];
+  svgInto(g, wrap(inner, 0.2, 32, 52));
   svg.appendChild(g); return g;
 }
 // Map an absolute-or-cwd-relative file path → the deepest room whose folder contains it.
@@ -1005,9 +1143,9 @@ function roomForPath(p, cwd){
 // Throne and is TARGET-DRIVEN: live tool/bug events say which file the model is reading,
 // we map that file → its room and walk the sprite there along corridors, scanning on
 // arrival. No pre-baked tour, no loop, no fly-across.
-function makeMember(kind,color){
+function makeMember(kind,color,variant){
   var th=getRoom('throne')||{cx:0,cy:0};
-  var g=spawnExpSprite(kind,color);
+  var g=spawnExpSprite(kind,variant);
   // Paint at the throne immediately so the sprite is visible from t=0, independent of
   // when the first expedition frame runs (don't rely on expTick for the first paint).
   g.setAttribute('transform','translate('+th.cx.toFixed(2)+','+th.cy.toFixed(2)+')');
@@ -1027,7 +1165,7 @@ function spriteGoToRoom(s, room, exp){
 function startExpedition(sid,kind,rootId,members){
   var n = kind==='council' ? Math.max(2,Math.min(4,members||2)) : 1;
   var sprites=[];
-  for(var i=0;i<n;i++) sprites.push(makeMember(kind, kind==='council'?EXP_PAL[i%EXP_PAL.length]:'#4a8a3a'));
+  for(var i=0;i<n;i++){ var col = kind==='council'?EXP_PAL[i%EXP_PAL.length]:'#4a8a3a'; sprites.push(makeMember(kind, col, i)); }
   var exp={ kind:kind, sprites:sprites, active:true, fade:0, label:'', cwds:{} };
   expeditions[sid]=exp;
   // Immediate fan-out so there's visible motion from t=0 (real tool events refine the
@@ -1074,34 +1212,25 @@ function expBurst(x,y,color){
 }
 var EXP_SPEED=42;     // world units/sec along corridors
 var AUDIT_DWELL=2.6;  // sec a sprite audits (scans in place) a room before it may move on
-// ── one-shot sprite-motion diagnostic (d35) — REMOVE once first-dispatch motion verified ──
-var __expFrames=0, __dbgLast=0, __dbgEl=null, __lastDt=0;
-function __fmt(n){ return (typeof n==='number'&&isFinite(n))?String(Math.round(n)):String(n); }
-function __dbgRender(){
-  if(!__dbgEl){ __dbgEl=document.createElement('div');
-    __dbgEl.style.cssText='position:fixed;left:4px;bottom:4px;z-index:9999;font:9px/1.3 monospace;background:rgba(0,0,0,.8);color:#3DD68C;padding:3px 5px;border-radius:4px;max-width:96vw;white-space:pre;pointer-events:none;';
-    document.body.appendChild(__dbgEl); }
-  var sids=Object.keys(expeditions);
-  var s='f:'+__expFrames+' exp:'+sids.length+' dt:'+(+__lastDt).toFixed(4);
-  sids.forEach(function(sid){ var e=expeditions[sid];
-    s+='\n'+sid.slice(-6)+' n:'+e.sprites.length+' act:'+(e.active?1:0)+' fade:'+e.fade.toFixed(1);
-    e.sprites.forEach(function(s0,k){ var p1=(s0.path&&s0.path[s0.pidx]);
-      s+='\n ['+k+']'+(s0.g&&s0.g.parentNode?'D':'-')+' xy:'+__fmt(s0.x)+','+__fmt(s0.y)+
-         ' p:'+(s0.path?s0.path.length:0)+'/'+s0.pidx+' mp:'+(s0.maxP||0)+' wp:'+(p1?(__fmt(p1.x)+','+__fmt(p1.y)):'-')+' t:'+(s0.targetId||'-'); });
-  });
-  __dbgEl.textContent=s;
+// Deterministic pre-scan (P3 Hounds) cameo: a lone Hound sprite trots from the throne to
+// the just-sniffed room, then fades — purely cosmetic flavour for the 🐕 hounds event.
+function houndCameo(cwd){
+  var room=roomForPath(cwd,activePath)||getRoom('throne'); if(!room) return;
+  var sid='hound_'+Date.now();
+  startExpedition(sid,'hound','throne',1);
+  var exp=expeditions[sid];
+  if(exp && exp.sprites[0]){ exp.sprites[0].want=room.id; spriteGoToRoom(exp.sprites[0], room, exp); }
+  setTimeout(function(){ endExpedition(sid); },6000);
 }
 function expTick(now){
   // dt guard: a NaN/0/negative timestep made step=EXP_SPEED*dt NaN/0, which froze the
   // sprite at the throne (translate(NaN,..) is ignored) — the "first dispatch never
   // animates" bug. Clamp to one frame on any bad value so motion can never stall.
   var dt=(now-expLast)/1000; if(!(dt>0)) dt=0.016; dt=Math.min(0.05,dt); expLast=now;
-  __lastDt=dt; __expFrames++; if(now-__dbgLast>250){ __dbgLast=now; __dbgRender(); }
   for(var sid in expeditions){
     var exp=expeditions[sid];
     if(exp.active){
       exp.sprites.forEach(function(s){
-        if(s.path.length>(s.maxP||0)) s.maxP=s.path.length;   // diag: biggest path it ever held
         if(s.path.length && s.pidx < s.path.length){
           // TRAVELING — walk the corridor toward the room (no auditing yet)
           var t=s.path[s.pidx];
@@ -1980,7 +2109,7 @@ window.onDungeonEvent=function(sid, line){
   // ── P1 Cartographer pre-pass: map the room(s) before scouts march ──
   if(ev.t==='packing'){ toast('🗺 Cartographer mapping '+(ev.rooms>1?ev.rooms+' rooms':'the room')+'…'); return; }
   else if(ev.t==='packed'){ toast(ev.ok ? ('🗺 Map ready · ~'+(ev.tokens||0)+' tok — '+(ev.tier==='inline'?'inlined for the scout':'scout reads the map')) : ('🗺 No map ('+(ev.err||'pack failed')+') — scout will crawl')); return; }
-  else if(ev.t==='hounds'){ toast('🐕 Hounds picked up '+ev.count+' scent'+(ev.count===1?'':'s')+(ev.total>ev.count?(' (+'+(ev.total-ev.count)+' more)'):'')+' — '+(ev.markers?'zero-token monsters':'candidates for the scout')); return; }
+  else if(ev.t==='hounds'){ toast('🐕 Hounds picked up '+ev.count+' scent'+(ev.count===1?'':'s')+(ev.total>ev.count?(' (+'+(ev.total-ev.count)+' more)'):'')+' — '+(ev.markers?'zero-token monsters':'candidates for the scout')); if(ev.cwd) houndCameo(ev.cwd); return; }
 
   // (Judge models removed — YOU are the tribunal judge now, at the round table.)
 
