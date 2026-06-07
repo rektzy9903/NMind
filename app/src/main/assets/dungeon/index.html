@@ -547,7 +547,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd44-hero-briefing';
+var DUNGEON_BUILD = 'd45-room-profile';
 
 // ── Bridge ────────────────────────────────────────────────
 var A = (typeof DungeonAndroid !== 'undefined') ? DungeonAndroid : null;
@@ -596,6 +596,54 @@ function parseBugs(libPath){
     }
   });
   return bugs;
+}
+
+// Read the ## 📊 Room Profile section from library.md back into a roomReports entry.
+// Called at buildWorld() time so structural intelligence survives session reloads.
+function parseRoomProfile(libPath){
+  var text=readFile(libPath); if(!text) return null;
+  var inSection=false, lines=[];
+  text.split('\n').forEach(function(line){
+    if(/^##\s+📊\s+Room Profile/i.test(line)){ inSection=true; return; }
+    if(/^##\s+/.test(line) && inSection){ inSection=false; }
+    if(inSection) lines.push(line);
+  });
+  if(!lines.length) return null;
+  var raw=lines.join('\n');
+  function field(k){ var m=raw.match(new RegExp(k+':\\s*(.+)','i')); return m?m[1].trim():''; }
+  var dangerRaw=field('DANGER').split('·')[0].trim()||'low';
+  var compM=field('COMPLEXITY').match(/(\d)/);
+  return {
+    purpose:    field('PURPOSE'),
+    danger:     dangerRaw,
+    complexity: compM ? parseInt(compM[1],10) : 1,
+    dependsOn:  field('DEPENDS_ON').split(',').map(function(x){ return x.trim(); }).filter(Boolean),
+    exposesTo:  field('EXPOSES_TO').split(',').map(function(x){ return x.trim(); }).filter(Boolean),
+  };
+}
+
+// Upsert the ## 📊 Room Profile section in library.md.
+// Called by the dungeon (not the scout) when a {t:'report'} event arrives — zero scout friction.
+function writeRoomProfile(roomPath, rep){
+  var p=roomPath+'/library.md';
+  var md=readFile(p)||('# library\n\n');
+  var today=new Date().toISOString().slice(0,10);
+  var block='## 📊 Room Profile\n'+
+    'PURPOSE: '+(rep.purpose||'')+'\n'+
+    'DANGER: '+(rep.danger||'low')+' · COMPLEXITY: '+(rep.complexity||1)+'/5\n'+
+    'DEPENDS_ON: '+(rep.dependsOn||[]).join(', ')+'\n'+
+    'EXPOSES_TO: '+(rep.exposesTo||[]).join(', ')+'\n'+
+    'Last scouted: '+today+'\n';
+  if(/^##\s+📊\s+Room Profile/im.test(md)){
+    // Replace existing — match from heading to (but not including) next ## heading or end
+    md=md.replace(/^##\s+📊\s+Room Profile[\s\S]*?(?=\n##\s+|\s*$)/im, block);
+  } else {
+    // Insert before the first ## section (after the title line) — profile sits at the top
+    var firstSec=md.indexOf('\n## ');
+    if(firstSec!==-1){ md=md.slice(0,firstSec)+'\n\n'+block+md.slice(firstSec); }
+    else { md=md.replace(/^(#[^\n]*\n)/,'$1\n'+block+'\n'); }
+  }
+  writeFile(p, md);
 }
 
 function countBugs(projectPath){
@@ -693,6 +741,7 @@ function buildWorld(){
   rooms=[];
   var throne={ id:'throne', name:activeName, type:'throne', parent:null, cx:0, cy:0, w:62, h:46, path:activePath };
   throne.bugs=mkBugs(parseBugs(activePath+'/library.md'));
+  var throneProf=parseRoomProfile(activePath+'/library.md'); if(throneProf) roomReports['throne']=throneProf;
   rooms.push(throne);
 
   var dirs=listDir(activePath).filter(isVisibleDir);
@@ -708,6 +757,7 @@ function buildWorld(){
     var room={ id:e.name, name:e.name, type:'feature', parent:'throne',
       cx:ux*R, cy:uy*R, w:52, h:38, path:rp };
     room.bugs=mkBugs(parseBugs(rp+'/library.md'));
+    var rProf=parseRoomProfile(rp+'/library.md'); if(rProf) roomReports[e.name]=rProf;
     rooms.push(room);
     // sub-rooms: neat grid fanned OUTWARD from the feature (never over the parent)
     var subs=listDir(rp).filter(isVisibleDir);
@@ -722,6 +772,7 @@ function buildWorld(){
       var sub={ id:e.name+'/'+s.name, name:s.name, type:'subroom', parent:e.name,
         cx:room.cx+ux*rad+px*colOff, cy:room.cy+uy*rad+py*colOff, w:42, h:30, path:sp };
       sub.bugs=mkBugs(parseBugs(sp+'/library.md'));
+      var sProf=parseRoomProfile(sp+'/library.md'); if(sProf) roomReports[e.name+'/'+s.name]=sProf;
       rooms.push(sub);
     });
   });
@@ -2378,6 +2429,8 @@ window.onDungeonEvent=function(sid, line){
     if(repRoomId){
       roomReports[repRoomId] = { purpose:ev.purpose, danger:ev.danger||'low',
         complexity:ev.complexity||1, dependsOn:ev.dependsOn||[], exposesTo:ev.exposesTo||[] };
+      // Scribe copies the Field Report into the room's Tome — survives reloads, zero scout friction.
+      var repRoom=getRoom(repRoomId); if(repRoom) writeRoomProfile(repRoom.path, roomReports[repRoomId]);
       if(openRoomId===repRoomId) renderRoomPanel();
       updateRoomReportVisuals(repRoomId);
     }
