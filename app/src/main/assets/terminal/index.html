@@ -232,16 +232,33 @@ html, body {
   font-size: calc(12px * var(--cfs, 1));
   color: #7dd3fc;
 }
+/* Wide tables (USGS-style data with many columns) need min-content wider than the
+   bubble — width:100% alone clips the rightmost columns off-screen with no way to
+   reach them. Wrap in a horizontally-scrollable pane: fits → fills width; too wide
+   → swipe sideways. touch-action:pan-x lets the horizontal drag beat the vertical
+   page scroll inside the table. Hotloadable via !hotload-ui. */
+.md-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x;
+  overscroll-behavior-x: contain;
+  margin: 6px 0;
+  border-radius: 6px;
+}
+.md-table-wrap::-webkit-scrollbar { height: 4px; }
+.md-table-wrap::-webkit-scrollbar-thumb { background: rgba(232,131,74,0.35); border-radius: 2px; }
 .md-table {
   border-collapse: collapse;
   width: 100%;
-  margin: 6px 0;
+  margin: 0;
   font-size: calc(12px * var(--cfs, 1));
 }
 .md-table th, .md-table td {
   border: 1px solid rgba(255,255,255,0.15);
-  padding: 5px 10px;
+  padding: 5px 9px;
   text-align: left;
+  white-space: nowrap;
 }
 .md-table th {
   background: rgba(255,255,255,0.08);
@@ -2251,7 +2268,7 @@ function renderMarkdown(raw){
       const headers=parseTableRow(line);i+=2;
       let rows=[];
       while(i<lines.length&&lines[i].indexOf('|')!==-1){rows.push(parseTableRow(lines[i]));i++;}
-      html+='<table class="md-table"><thead><tr>'+headers.map(function(h){return'<th>'+renderInline(escHtml(h))+'</th>';}).join('')+'</tr></thead><tbody>'+rows.map(function(r){return'<tr>'+r.map(function(c){return'<td>'+renderInline(escHtml(c))+'</td>';}).join('')+'</tr>';}).join('')+'</tbody></table>';
+      html+='<div class="md-table-wrap"><table class="md-table"><thead><tr>'+headers.map(function(h){return'<th>'+renderInline(escHtml(h))+'</th>';}).join('')+'</tr></thead><tbody>'+rows.map(function(r){return'<tr>'+r.map(function(c){return'<td>'+renderInline(escHtml(c))+'</td>';}).join('')+'</tr>';}).join('')+'</tbody></table></div>';
       continue;
     }
     // Headings
