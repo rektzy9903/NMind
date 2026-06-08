@@ -4,7 +4,7 @@
     android:layout_height="match_parent"
     android:orientation="vertical"
     android:gravity="center"
-    android:background="@color/bg_dark">
+    android:background="@drawable/aurora_bg">
 
     <ImageView
         android:layout_width="96dp"

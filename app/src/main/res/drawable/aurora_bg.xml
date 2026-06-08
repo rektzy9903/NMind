@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Static color-rich aurora for native (XML) screens, matching the Compose
+     AuroraBackground. Dark base + four soft radial blobs (amber/pink/blue/teal,
+     warm-led, no purple/cyan). Cards over this read as frosted glass. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/bg_dark" />
+    <item android:gravity="fill">
+        <shape android:shape="rectangle">
+            <gradient
+                android:type="radial"
+                android:centerX="0.12" android:centerY="0.08"
+                android:gradientRadius="520dp"
+                android:startColor="#3DE8834A"
+                android:endColor="#00E8834A" />
+        </shape>
+    </item>
+    <item android:gravity="fill">
+        <shape android:shape="rectangle">
+            <gradient
+                android:type="radial"
+                android:centerX="0.92" android:centerY="0.12"
+                android:gradientRadius="460dp"
+                android:startColor="#30F472B6"
+                android:endColor="#00F472B6" />
+        </shape>
+    </item>
+    <item android:gravity="fill">
+        <shape android:shape="rectangle">
+            <gradient
+                android:type="radial"
+                android:centerX="0.86" android:centerY="0.92"
+                android:gradientRadius="560dp"
+                android:startColor="#3060A5FA"
+                android:endColor="#0060A5FA" />
+        </shape>
+    </item>
+    <item android:gravity="fill">
+        <shape android:shape="rectangle">
+            <gradient
+                android:type="radial"
+                android:centerX="0.08" android:centerY="0.96"
+                android:gradientRadius="460dp"
+                android:startColor="#2C2DD4BF"
+                android:endColor="#002DD4BF" />
+        </shape>
+    </item>
+</layer-list>
