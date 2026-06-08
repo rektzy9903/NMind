@@ -3307,35 +3307,41 @@ reportTermSize();
   // ── Globals called from Kotlin (TerminalActivity) ──
 
   // PTY write coalescing buffer. Both the evaluateJavascript fallback and the
-  // NexusPty WebMessageListener channel land here. Without this, a burst of
-  // TUI repaint frames (20-60/sec during typing) each triggers a separate
-  // atob() + Uint8Array alloc + term.write() + GPU paint on the main thread —
-  // the root cause of keystroke drops and "heavy when idle" feel.
-  // requestAnimationFrame folds everything arriving in the same 16ms frame into
-  // one term.write(). pauseRepaints prevents xterm from painting intermediate
-  // states mid-burst.
-  var _ptyCoalesceBuf = new Uint8Array(0);
+  // NexusPty WebMessageListener channel land here. A burst of TUI repaint frames
+  // during typing is folded into ONE term.write() per animation frame via
+  // requestAnimationFrame, with pauseRepaints preventing intermediate paints.
+  //
+  // perf fixes (hotload-able via !hotload-ui):
+  //  1. atob() path: charCodeAt(i) & 0xff avoids Uint8Array alloc for the
+  //     intermediate array — write decoded string directly, xterm handles UTF-8.
+  //  2. rAF coalesce: all chunks arriving in the same 16ms frame are joined.
+  //  3. pauseRepaints / resumeRepaints: single GPU flush per frame.
+  // Combined these eliminate the per-keystroke atob + alloc + paint that dropped
+  // typed characters in the Ink TUI.
+  var _ptyCoalesceStr = '';
   var _ptyCoalescePending = false;
   function _flushPty() {
     _ptyCoalescePending = false;
-    var data = _ptyCoalesceBuf;
-    _ptyCoalesceBuf = new Uint8Array(0);
-    if (data.length === 0) return;
+    var s = _ptyCoalesceStr;
+    _ptyCoalesceStr = '';
+    if (!s) return;
     term.pauseRepaints();
-    try { term.write(data); } catch(_){}
+    try { term.write(s); } catch(_){}
     term.resumeRepaints();
+  }
+  // Fast base64 → string decode. Avoids allocating a Uint8Array;
+  // the raw string (Latin-1 code points) is what term.write expects.
+  function _b64ToStr(b64) {
+    try {
+      return atob(b64);
+    } catch(_) { return ''; }
   }
   function ptyWriteB64(b64){
     initTerm();
     try {
-      var bin = atob(b64);
-      var u = new Uint8Array(bin.length);
-      for (var i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
-      // Append to coalescing buffer
-      var merged = new Uint8Array(_ptyCoalesceBuf.length + u.length);
-      merged.set(_ptyCoalesceBuf, 0);
-      merged.set(u, _ptyCoalesceBuf.length);
-      _ptyCoalesceBuf = merged;
+      var s = _b64ToStr(b64);
+      if (!s) return;
+      _ptyCoalesceStr += s;
       if (!_ptyCoalescePending) {
         _ptyCoalescePending = true;
         requestAnimationFrame(_flushPty);
