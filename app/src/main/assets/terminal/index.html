@@ -732,6 +732,12 @@ html, body {
 body.ubuntu-mode #input-bar,body.ubuntu-mode #token-counter,body.ubuntu-mode #ctx-bar-wrap,body.ubuntu-mode #mcp-chip,body.ubuntu-mode #mcp-popover,body.ubuntu-mode #agent-chip,body.ubuntu-mode #cwd-bar,body.ubuntu-mode #img-preview{display:none !important;}
 /* The unified toolbar stays visible in Ubuntu mode (it carries the terminal keys). */
 body.ubuntu-mode #toolbar{display:flex !important;}
+/* Terminal-lag fix: the opaque #ubuntu-view (z-80) fully covers the aurora blobs,
+   but their infinite transform+blur animations keep repainting a GPU layer and
+   contend for the same WebView UI/compositor thread the PTY frame relay needs.
+   Freeze them (and hide them outright) while the terminal is up — zero visual
+   change (they're hidden anyway), frees the thread for xterm. Hotloadable. */
+body.ubuntu-mode .blob{animation:none !important;display:none !important;}
 </style>
 </head>
 <body>
