@@ -3,7 +3,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="@color/terminal_bg"
+    android:background="@drawable/aurora_bg"
     android:fitsSystemWindows="true">
 
     <!-- ── Header bar ───────────────────────────────────────────────────── -->
@@ -11,7 +11,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:background="@color/toolbar_bg"
+        android:background="@color/glass_bar"
         android:gravity="center_vertical"
         android:minHeight="52dp"
         android:paddingStart="14dp"
@@ -109,7 +109,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:background="@color/bg_dark">
+        android:background="@color/glass_bar_2">
 
         <!-- Thin top divider -->
         <View

@@ -9,6 +9,11 @@
     <color name="surface2">#1FFFFFFF</color>
     <color name="toolbar_bg">#0C0C0F</color>
     <color name="terminal_bg">#0C0C0F</color>
+    <!-- Translucent glass bars (header + session-tab strip) so the aurora_bg behind
+         the terminal glows through instead of reading as flat solid black. ~72% dark
+         keeps header text legible over the aurora. -->
+    <color name="glass_bar">#B80A0A0C</color>
+    <color name="glass_bar_2">#990A0A0C</color>
 
     <!-- ── Borders ── -->
     <color name="border">#24FFFFFF</color>
