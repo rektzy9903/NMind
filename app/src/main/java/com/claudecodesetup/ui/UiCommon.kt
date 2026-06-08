@@ -102,11 +102,14 @@ fun Modifier.glowShadow(color: Color, blurRadius: Dp, cornerRadius: Dp): Modifie
     }
 
 // Design system color tokens
+// Glass reskin (feat/glass-ui): the surface/border tokens are now translucent
+// so every card that uses them reads as frosted glass over the AuroraBackground.
+// (Originals: Surface #151518, Surface2 #1E1E22, Border #2A2A30, Border2 #3A3A42.)
 val NexusBg      = Color(0xFF0C0C0F)
-val NexusSurface = Color(0xFF151518)
-val NexusSurface2 = Color(0xFF1E1E22)
-val NexusBorder  = Color(0xFF2A2A30)
-val NexusBorder2 = Color(0xFF3A3A42)
+val NexusSurface = Color(0x14FFFFFF)   // ~8% white — glass card fill
+val NexusSurface2 = Color(0x1FFFFFFF)  // ~12% white — elevated glass
+val NexusBorder  = Color(0x24FFFFFF)   // ~14% white — hairline glass border
+val NexusBorder2 = Color(0x33FFFFFF)   // ~20% white — stronger glass border
 val NexusAccent  = Color(0xFFE8834A)   // amber — primary
 val NexusAccentDim = Color(0x22E8834A)
 val NexusGreen   = Color(0xFF3DD68C)
@@ -118,16 +121,9 @@ val NexusText    = Color(0xFFF0F0F2)
 val NexusText2   = Color(0xFF9090A0)
 val NexusText3   = Color(0xFF60606E)
 
+// Every screen that wraps in AppBackground now gets the aurora automatically.
 @Composable
-fun AppBackground(content: @Composable () -> Unit) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(NexusBg)
-    ) {
-        content()
-    }
-}
+fun AppBackground(content: @Composable () -> Unit) = AuroraBackground(content)
 
 // ── Glass design layer (feat/glass-ui) ──────────────────────────────────────
 // A slow, color-rich "aurora" behind the UI + translucent frosted cards.

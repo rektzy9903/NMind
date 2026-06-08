@@ -1,15 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- ── Background layers ── -->
+    <!-- Glass reskin: surface/surface2/border are translucent white so XML cards
+         read as glass; dark base layers stay opaque.
+         (Originals: surface #151518, surface2 #1E1E22, border #2A2A30, border2 #3A3A42.) -->
     <color name="bg_dark">#0C0C0F</color>
-    <color name="surface">#151518</color>
-    <color name="surface2">#1E1E22</color>
+    <color name="surface">#14FFFFFF</color>
+    <color name="surface2">#1FFFFFFF</color>
     <color name="toolbar_bg">#0C0C0F</color>
     <color name="terminal_bg">#0C0C0F</color>
 
     <!-- ── Borders ── -->
-    <color name="border">#2A2A30</color>
-    <color name="border2">#3A3A42</color>
+    <color name="border">#24FFFFFF</color>
+    <color name="border2">#33FFFFFF</color>
 
     <!-- ── Text ── -->
     <color name="text_primary">#F0F0F2</color>
