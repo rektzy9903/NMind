@@ -2700,7 +2700,12 @@ let inputBuffer='';
 
 function updateInputDisp(){
   inputDisp.textContent=inputBuffer;
-  scrollToBottom();
+  // NB: no scrollToBottom() here. This runs on EVERY keystroke (input handler) and
+  // #input-bar is position:fixed (independent of #msgs scroll), so scrolling the
+  // message list per-key bought nothing but jank — it forced a layout pass that
+  // competed with the soft keyboard, and snapped the user back down when they'd
+  // scrolled up to read mid-response. Callers that need a scroll do it themselves
+  // (bubble-add paths) or via ghost.focus() (history nav / termSetInput).
 }
 
 // Strip Android IME artifacts so they don't break !command / $cmd matching:
@@ -3121,7 +3126,11 @@ reportTermSize();
     if (term) return;
     term = new Terminal({
       fontFamily:"'Space Mono','Courier New',monospace",
-      fontSize:11, cursorBlink:true, scrollback:2000, convertEol:false, letterSpacing:0,
+      // cursorBlink:false on purpose — a blinking cursor keeps xterm's render loop
+      // warm forever (a GPU redraw every ~600ms even when fully idle), which is the
+      // "feels heavy when nothing's happening" tax on a mobile WebView. Solid cursor
+      // lets the WebGL pipeline go quiescent between writes (Termux does the same).
+      fontSize:11, cursorBlink:false, scrollback:2000, convertEol:false, letterSpacing:0,
       // The default DOM renderer is the only one bundled (no WebGL/Canvas addon),
       // so keep the buffer modest — a huge scrollback makes scroll + reflow heavy
       // on a mobile WebView. fastScrollModifier helps flick-scrolling feel lighter.
@@ -3179,10 +3188,25 @@ reportTermSize();
         ta.setAttribute('inputmode','text');
       }
     } catch(_){}
+    // Alt-screen handling: swallow DECSET/DECRST ?1049/?1047/?47 so Claude's TUI
+    // renders in the normal buffer (which has scrollback). The alt buffer has zero
+    // scrollback by spec, making touch-drag scroll dead inside any full-screen TUI.
+    // With the WebGL renderer + coalesced writes (see ptyWriteB64 below), normal-
+    // buffer TUI rendering is smooth enough — the old "stuck animation" complaint was
+    // from the DOM renderer era. Freeze xterm's auto-scroll during user drag so the
+    // viewport stays put while reading scrollback (see _viewportFrozen below).
+    term.parser.registerCsiHandler({prefix:'?', final:'h'}, function(params){
+      if(params && params.length && (params[0]===47||params[0]===1047||params[0]===1049)) return true;
+      return false;
+    });
+    term.parser.registerCsiHandler({prefix:'?', final:'l'}, function(params){
+      if(params && params.length && (params[0]===47||params[0]===1047||params[0]===1049)) return true;
+      return false;
+    });
     // Diagnostic: proves xterm renders locally. If you SEE this line but no bash
     // prompt → the Kotlin byte-relay (sendPty/onPtyOutput) is the problem (rebuild).
     // If you DON'T see it → xterm render/layout (this file, hotload-able).
-    try { term.write('\x1b[2m[ubuntu terminal ready ('+(window.__termRenderer||'dom')+') — connecting shell…]\x1b[0m\r\n'); } catch(_){}
+    try { term.write('\x1b[2m[ubuntu terminal ready ('+(window.__termRenderer||'dom')+') — scrollback enabled — connecting shell…]\x1b[0m\r\n'); } catch(_){}
     // Android: a tap inside the terminal is the user-gesture that focuses xterm's
     // hidden textarea and raises the soft keyboard (programmatic focus alone often
     // won't show the IME in a WebView).
@@ -3197,12 +3221,22 @@ reportTermSize();
       }
       if(typeof Android!=='undefined'&&Android.sendPty) Android.sendPty(d);
     });
+    // Viewport freeze: when the user is drag-scrolling to read scrollback, suppress
+    // xterm's auto-scroll-to-bottom so the viewport stays under their finger.
+    // Without this, any new PTY output (Claude TUI repaint, bash prompt) snaps the
+    // viewport back to the bottom the instant the user lifts their finger.
+    var _viewportFrozen = false;
+    var _freezeTimer = null;
+    var _origScrollToBottom = term.scrollToBottom.bind(term);
+    term.scrollToBottom = function(){
+      if (_viewportFrozen) return;   // user is reading scrollback — don't yank them down
+      _origScrollToBottom();
+    };
+
     // Mobile touch-drag scrollback. With the WebGL/Canvas renderer the .xterm-screen
     // canvas sits OVER the native-scroll .xterm-viewport and swallows touch drags, so
     // the viewport never scrolls (the translateZ/will-change layer promotion from the
-    // perf pass made the hit-test miss worse). This is why scrollback is dead INSIDE
-    // the interactive claude TUI — its conversation lives in the terminal's main-buffer
-    // scrollback, but the drag never reaches the scroller. Bind an explicit handler
+    // perf pass made the hit-test miss worse). Bind an explicit handler
     // that converts vertical travel into term.scrollLines(): renderer- and z-order-
     // independent. Tap-to-focus is preserved — we only treat it as a scroll once travel
     // passes the slop threshold, and never preventDefault on a stationary tap.
@@ -3224,6 +3258,9 @@ reportTermSize();
         var y=e.touches[0].clientY; accum+=(y-sy); sy=y;
         if(!dragging && Math.abs(accum)<8) return;   // slop: let a tap stay a tap
         dragging=true;
+        // Freeze auto-scroll the moment the user starts dragging
+        _viewportFrozen = true;
+        if (_freezeTimer) { clearTimeout(_freezeTimer); _freezeTimer = null; }
         var whole=(accum>0)?Math.floor(accum/rowH):Math.ceil(accum/rowH);
         if(whole!==0){
           try{ term.scrollLines(-whole); }catch(_){}   // finger down ⇒ reveal older ⇒ scroll up
@@ -3231,6 +3268,15 @@ reportTermSize();
         }
         e.preventDefault();   // we own the vertical gesture — no native scroll/zoom on top
       }, {passive:false});
+      mount.addEventListener('touchend', function(){
+        if (!dragging) return;
+        dragging=false;
+        // Keep the viewport frozen for 3 s after the user lifts their finger so
+        // incoming PTY output doesn't immediately snap them back to the bottom.
+        // If they start a new drag, the timer resets.
+        if (_freezeTimer) clearTimeout(_freezeTimer);
+        _freezeTimer = setTimeout(function(){ _viewportFrozen = false; _freezeTimer = null; }, 3000);
+      }, {passive:true});
     })();
   }
 
@@ -3259,12 +3305,41 @@ reportTermSize();
   }
 
   // ── Globals called from Kotlin (TerminalActivity) ──
+
+  // PTY write coalescing buffer. Both the evaluateJavascript fallback and the
+  // NexusPty WebMessageListener channel land here. Without this, a burst of
+  // TUI repaint frames (20-60/sec during typing) each triggers a separate
+  // atob() + Uint8Array alloc + term.write() + GPU paint on the main thread —
+  // the root cause of keystroke drops and "heavy when idle" feel.
+  // requestAnimationFrame folds everything arriving in the same 16ms frame into
+  // one term.write(). pauseRepaints prevents xterm from painting intermediate
+  // states mid-burst.
+  var _ptyCoalesceBuf = new Uint8Array(0);
+  var _ptyCoalescePending = false;
+  function _flushPty() {
+    _ptyCoalescePending = false;
+    var data = _ptyCoalesceBuf;
+    _ptyCoalesceBuf = new Uint8Array(0);
+    if (data.length === 0) return;
+    term.pauseRepaints();
+    try { term.write(data); } catch(_){}
+    term.resumeRepaints();
+  }
   function ptyWriteB64(b64){
     initTerm();
     try {
-      var bin=atob(b64), u=new Uint8Array(bin.length);
-      for(var i=0;i<bin.length;i++) u[i]=bin.charCodeAt(i);
-      term.write(u);
+      var bin = atob(b64);
+      var u = new Uint8Array(bin.length);
+      for (var i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+      // Append to coalescing buffer
+      var merged = new Uint8Array(_ptyCoalesceBuf.length + u.length);
+      merged.set(_ptyCoalesceBuf, 0);
+      merged.set(u, _ptyCoalesceBuf.length);
+      _ptyCoalesceBuf = merged;
+      if (!_ptyCoalescePending) {
+        _ptyCoalescePending = true;
+        requestAnimationFrame(_flushPty);
+      }
     } catch(e){ try{ term.write(b64); }catch(_){} }
   }
   window.ptyWrite = ptyWriteB64;   // evaluateJavascript fallback path (always defined)
@@ -3300,11 +3375,36 @@ reportTermSize();
     var ub=(mode==='ubuntu');
     ptyMode=ub;
     window.__nexusMode = ub ? 'ubuntu' : 'chat';
+    // Clear ctrl armed state on mode switch — prevents stuck glow / phantom chord
+    window.__ctrlArmed = false;
+    if(window.__updateCtrlGlow) window.__updateCtrlGlow();
     if(window.updateToolbarMode) window.updateToolbarMode(ub);
     document.body.classList.toggle('ubuntu-mode', ub);
     document.getElementById('ubuntu-view').classList.toggle('show', ub);
     document.getElementById('mode-ubuntu').classList.toggle('active', ub);
     document.getElementById('mode-claude').classList.toggle('active', !ub);
+    // Kill blob GPU compositor layers when entering ubuntu-mode.
+    // display:none alone doesn't release the GPU layer on some Android WebView
+    // builds — the infinite blur+transform animation keeps repainting and contends
+    // for the compositor thread the PTY frame relay needs.
+    if(ub){
+      var blobs = document.querySelectorAll('.blob');
+      for(var i=0;i<blobs.length;i++){
+        blobs[i].style.willChange = 'auto';
+        blobs[i].style.filter = 'none';
+        blobs[i].style.transform = 'none';
+        blobs[i].style.display = 'none';
+      }
+    } else {
+      // Restore blobs when switching back to chat mode
+      var blobs2 = document.querySelectorAll('.blob');
+      for(var j=0;j<blobs2.length;j++){
+        blobs2[j].style.willChange = '';
+        blobs2[j].style.filter = '';
+        blobs2[j].style.transform = '';
+        blobs2[j].style.display = '';
+      }
+    }
     if(ub){
       initTerm();
       // Robust fit: xterm mis-measures cell size if it runs before the view is laid
