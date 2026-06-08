@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b84-deliberate-timeout';
+const BRIDGE_BUILD = 'b85-harmony-toolname';
 
 const net   = require('net');
 const http  = require('http');
@@ -1877,6 +1877,21 @@ function flattenToolHistory(messages) {
     return out;
 }
 
+// Strip provider format-leakage from a tool-call function name. gpt-oss/harmony
+// models (e.g. openai/gpt-oss-* on NVIDIA NIM) leak channel control tokens into
+// the function name — "Bash<|channel|>commentary" instead of "Bash" — which makes
+// claude-code reject EVERY tool call with "No such tool available: Bash<|channel|>…".
+// Real tool names are strictly [A-Za-z0-9_-] (incl. mcp__ servers), so cut at the
+// first harmony token / illegal char. Returns '' only if nothing salvageable.
+function cleanToolName(n) {
+    if (!n || typeof n !== 'string') return n || '';
+    // truncate at the first harmony control token ("<|…")
+    let s = n.split('<|')[0];
+    // keep only the leading valid tool-name characters
+    const m = s.match(/^[A-Za-z0-9_-]+/);
+    return m ? m[0] : s.trim();
+}
+
 // Convert OpenAI Chat Completions response → Anthropic Messages response
 function oaiToAnth(oai, model) {
     const choice = (oai.choices || [])[0] || {};
@@ -1890,7 +1905,7 @@ function oaiToAnth(oai, model) {
         for (const tc of msg.tool_calls) {
             let input = {};
             try { input = JSON.parse(tc.function.arguments || '{}'); } catch (_) {}
-            content.push({ type: 'tool_use', id: tc.id, name: tc.function.name, input });
+            content.push({ type: 'tool_use', id: tc.id, name: cleanToolName(tc.function.name), input });
             const sig = extractThoughtSig(tc, null, choice);
             if (sig) storeThoughtSig(tc.id, sig);
         }
@@ -2249,7 +2264,7 @@ function sendToProvider(baseUrl, apiKey, oaiReq, stream, res, onBadRequest, on42
                         for (const tc of delta.tool_calls) {
                             const tcIdx = tc.index !== undefined ? tc.index : 0;
                             if (!tcBlocks[tcIdx]) {
-                                const nm = (tc.function || {}).name || '';
+                                const nm = cleanToolName((tc.function || {}).name || '');
                                 // SUPPRESS tool_search: it's our synthetic discovery tool —
                                 // claude-code never declared it, so it must NOT be streamed
                                 // as a tool_use (else "No such tool available: tool_search").
