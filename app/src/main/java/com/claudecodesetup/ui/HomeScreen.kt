@@ -23,6 +23,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
@@ -69,7 +70,7 @@ fun HomeScreen(
         delay(110L); card3Visible = true
     }
 
-    AppBackground {
+    AuroraBackground {
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -87,8 +88,9 @@ fun HomeScreen(
                 modifier = Modifier
                     .size(76.dp)
                     .glowShadow(Color(0x40E8834A), 24.dp, 20.dp)
-                    .background(Color(0xFF151518), RoundedCornerShape(20.dp))
-                    .border(1.dp, Color(0xFF2A2A30), RoundedCornerShape(20.dp)),
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(GlassFillStrong)
+                    .border(1.dp, GlassStroke2, RoundedCornerShape(20.dp)),
                 contentAlignment = Alignment.Center
             ) {
                 ConvergenceLogo(modifier = Modifier.size(70.dp))
@@ -272,8 +274,9 @@ private fun IconBox(
     Box(
         modifier = modifier
             .size(56.dp)
-            .background(NexusSurface2, RoundedCornerShape(13.dp))
-            .border(1.dp, NexusBorder2, RoundedCornerShape(13.dp)),
+            .clip(RoundedCornerShape(13.dp))
+            .background(GlassFillStrong)
+            .border(1.dp, GlassStroke2, RoundedCornerShape(13.dp)),
         contentAlignment = Alignment.Center,
         content = content
     )
@@ -468,12 +471,12 @@ private fun MenuCard(
     var pressed by remember { mutableStateOf(false) }
 
     val bgColor by animateColorAsState(
-        targetValue = if (pressed) accentColor.copy(alpha = 0.10f) else NexusSurface,
+        targetValue = if (pressed) accentColor.copy(alpha = 0.16f) else GlassFill,
         animationSpec = tween(150),
         label = "bg"
     )
     val borderColor by animateColorAsState(
-        targetValue = if (pressed) accentColor.copy(alpha = 0.45f) else NexusBorder,
+        targetValue = if (pressed) accentColor.copy(alpha = 0.45f) else GlassStroke,
         animationSpec = tween(150),
         label = "border"
     )
@@ -483,6 +486,12 @@ private fun MenuCard(
             .fillMaxWidth()
             .clip(RoundedCornerShape(18.dp))
             .background(bgColor)
+            .background(
+                Brush.linearGradient(
+                    colors = listOf(GlassSheen, Color.Transparent),
+                    start = Offset.Zero, end = Offset(260f, 260f),
+                )
+            )
             .border(1.dp, borderColor, RoundedCornerShape(18.dp))
             .pointerInput(Unit) {
                 detectTapGestures(
@@ -500,7 +509,7 @@ private fun MenuCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(1.dp)
-                .background(NexusBorder2)
+                .background(GlassStroke2)
                 .align(Alignment.TopCenter)
         )
 
