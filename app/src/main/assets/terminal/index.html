@@ -703,7 +703,16 @@ html, body {
 #mode-toggle button{display:flex;align-items:center;gap:5px;padding:5px 12px;background:transparent;border:none;color:#9090A0;font-size:11px;font-weight:700;cursor:pointer;letter-spacing:.5px;}
 #mode-toggle button.active{background:#22E8834A;color:#E8834A;}
 #mode-toggle svg{width:13px;height:13px;display:block;flex-shrink:0;}
-#ubuntu-view{position:fixed;top:0;left:0;right:0;bottom:0;display:none;flex-direction:column;background:#0C0C0F;z-index:80;padding-top:40px;padding-bottom:42px;}
+/* Glass surround: the xterm canvas (opaque #0C0C0F theme bg) fills the flex:1
+   middle, so only the top header strip + bottom toolbar zone show this bg. A flat
+   #0C0C0F read as "dead solid black" against the aurora app. Bake a STATIC aurora
+   glow (warm accent at top+bottom edges) straight into the view bg — no animation,
+   no backdrop-filter, zero repaint cost, keeps the lag fix intact. Hotloadable. */
+#ubuntu-view{position:fixed;top:0;left:0;right:0;bottom:0;display:none;flex-direction:column;
+  background:radial-gradient(135% 55% at 50% 0%, rgba(232,131,74,0.10), transparent 62%),
+             radial-gradient(135% 45% at 50% 100%, rgba(232,131,74,0.07), transparent 58%),
+             #0A0A0C;
+  z-index:80;padding-top:40px;padding-bottom:42px;}
 #ubuntu-view.show{display:flex;}
 #xterm{flex:1;min-height:0;padding:4px 2px 0 6px;overflow:hidden;}
 #xterm .xterm{height:100%;}
@@ -730,8 +739,15 @@ html, body {
 .tb-btn.armed{background:#22E8834A;border-color:#E8834A;color:#E8834A;box-shadow:0 0 8px rgba(232,131,74,.6);}
 /* When in Ubuntu mode, hide the chat-only chrome (the opaque #ubuntu-view covers #msgs). */
 body.ubuntu-mode #input-bar,body.ubuntu-mode #token-counter,body.ubuntu-mode #ctx-bar-wrap,body.ubuntu-mode #mcp-chip,body.ubuntu-mode #mcp-popover,body.ubuntu-mode #agent-chip,body.ubuntu-mode #cwd-bar,body.ubuntu-mode #img-preview{display:none !important;}
-/* The unified toolbar stays visible in Ubuntu mode (it carries the terminal keys). */
-body.ubuntu-mode #toolbar{display:flex !important;}
+/* The unified toolbar stays visible in Ubuntu mode (it carries the terminal keys).
+   Frosted glass ONLY here (scoped) so the warm #ubuntu-view gradient shows through
+   the bottom bar instead of a flat opaque slab — and so chat-mode scroll never pays
+   a backdrop-filter cost. The content behind it (static gradient) doesn't move, so
+   the blur is composited once. */
+body.ubuntu-mode #toolbar{display:flex !important;
+  background:rgba(14,14,18,0.55) !important;
+  backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+  border-top:1px solid rgba(232,131,74,0.14) !important;}
 /* Terminal-lag fix: the opaque #ubuntu-view (z-80) fully covers the aurora blobs,
    but their infinite transform+blur animations keep repainting a GPU layer and
    contend for the same WebView UI/compositor thread the PTY frame relay needs.
