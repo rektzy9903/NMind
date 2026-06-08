@@ -322,7 +322,7 @@ fun ProjectManagerScreen(
 
             AlertDialog(
                 onDismissRequest = { showAddDialog = false },
-                containerColor = NexusSurface,
+                containerColor = NexusOverlay,
                 titleContentColor = NexusText,
                 textContentColor = NexusText2,
                 title = {
@@ -401,7 +401,7 @@ fun ProjectManagerScreen(
         if (confirmDeleteIndex >= 0) {
             AlertDialog(
                 onDismissRequest = { confirmDeleteIndex = -1 },
-                containerColor = NexusSurface,
+                containerColor = NexusOverlay,
                 titleContentColor = NexusText,
                 textContentColor = NexusText2,
                 title = { Text("Delete project?", fontFamily = DmSansFamily) },

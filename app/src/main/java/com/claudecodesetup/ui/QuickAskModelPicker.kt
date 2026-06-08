@@ -91,7 +91,7 @@ fun QuickAskModelPickerSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = NexusSurface,
+        containerColor = NexusOverlay,
         contentColor = Color.White,
     ) {
         Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {

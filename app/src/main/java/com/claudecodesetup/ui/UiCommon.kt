@@ -110,6 +110,10 @@ val NexusSurface = Color(0x14FFFFFF)   // ~8% white — glass card fill
 val NexusSurface2 = Color(0x1FFFFFFF)  // ~12% white — elevated glass
 val NexusBorder  = Color(0x24FFFFFF)   // ~14% white — hairline glass border
 val NexusBorder2 = Color(0x33FFFFFF)   // ~20% white — stronger glass border
+// Overlay glass — for surfaces that float OVER live content (bottom sheets,
+// dialogs, dropdowns). Near-opaque dark so content behind can't bleed through
+// and text stays readable; the ~10% translucency keeps a faint frosted edge.
+val NexusOverlay = Color(0xE6141418)   // ~90% dark frosted panel
 val NexusAccent  = Color(0xFFE8834A)   // amber — primary
 val NexusAccentDim = Color(0x22E8834A)
 val NexusGreen   = Color(0xFF3DD68C)
