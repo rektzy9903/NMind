@@ -3259,14 +3259,31 @@ reportTermSize();
   }
 
   // ── Globals called from Kotlin (TerminalActivity) ──
-  window.ptyWrite = function(b64){
+  function ptyWriteB64(b64){
     initTerm();
     try {
       var bin=atob(b64), u=new Uint8Array(bin.length);
       for(var i=0;i<bin.length;i++) u[i]=bin.charCodeAt(i);
       term.write(u);
     } catch(e){ try{ term.write(b64); }catch(_){} }
-  };
+  }
+  window.ptyWrite = ptyWriteB64;   // evaluateJavascript fallback path (always defined)
+  // Fast PTY-output path (terminal-lag fix). When the app injects the "NexusPty"
+  // WebMessageListener (androidx.webkit), route raw PTY chunks through it: the
+  // channel hands the base64 string straight to onmessage with NO JS-source
+  // parse/compile per chunk. That compile — a multi-KB string literal on EVERY Ink
+  // TUI repaint (one per keystroke in interactive claude) — was the UI-thread hog
+  // that starved the IME and dropped typed characters. Falls back silently to the
+  // evaluateJavascript window.ptyWrite path when the channel is absent.
+  (function bindPtyChannel(){
+    try {
+      if (window.NexusPty && window.NexusPty.postMessage){
+        window.NexusPty.onmessage = function(e){ try{ ptyWriteB64(e.data); }catch(_){} };
+        window.__usePtyChannel = true;
+        window.NexusPty.postMessage('ready');   // hands the app side our reply proxy
+      }
+    } catch(_){}
+  })();
   window.ptyClear = function(){ if(term) term.clear(); };
   // A-/A+ in the toolbar nudge the Ubuntu xterm font too (kept independent of the
   // chat font default, but adjusted by the same buttons), then re-fit the grid.

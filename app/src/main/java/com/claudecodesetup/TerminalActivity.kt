@@ -31,6 +31,10 @@ import android.widget.ScrollView
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
+import androidx.webkit.JavaScriptReplyProxy
+import androidx.webkit.WebMessageCompat
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
 import com.claudecodesetup.data.AppPreferences
 import com.claudecodesetup.databinding.ActivityTerminalBinding
 import com.claudecodesetup.managers.NodeBridgeManager
@@ -57,6 +61,13 @@ class TerminalActivity : AppCompatActivity() {
     private val tabButtons = LinkedHashMap<Int, Button>()
     // P6.5: whether the WebView is currently showing the 🐧 Ubuntu PTY view (vs 💬 chat).
     @Volatile private var ubuntuMode = false
+
+    // Fast PTY-output channel (terminal-lag fix). Captured when the WebView's JS posts
+    // its first "ready" message over the "NexusPty" WebMessageListener. PTY chunks go
+    // through replyProxy.postMessage() instead of evaluateJavascript("ptyWrite('…')"),
+    // skipping the per-chunk JS-source compile that starved the IME (dropped keystrokes).
+    // Null until the channel handshakes / when the feature is unsupported → evaluateJS fallback.
+    private var ptyReplyProxy: JavaScriptReplyProxy? = null
 
     companion object {
         private const val REQUEST_IMAGE = 1002
@@ -233,6 +244,34 @@ class TerminalActivity : AppCompatActivity() {
         }
 
         wv.addJavascriptInterface(TerminalBridge(), "Android")
+
+        // Fast PTY-output channel. Inject a "NexusPty" WebMessageListener (androidx.webkit)
+        // so the JS side gets a window.NexusPty object: app→JS PTY bytes flow through
+        // replyProxy.postMessage(b64) → NexusPty.onmessage with NO per-chunk JS-source
+        // parse/compile (the UI-thread hog that dropped keystrokes during TUI typing).
+        // The JS posts "ready" once on load to hand us the reply proxy. Feature-gated with
+        // a silent evaluateJavascript fallback (older WebView builds).
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
+            try {
+                WebViewCompat.addWebMessageListener(
+                    wv, "NexusPty", setOf("*"),
+                    object : WebViewCompat.WebMessageListener {
+                        override fun onPostMessage(
+                            view: WebView,
+                            message: WebMessageCompat,
+                            sourceOrigin: android.net.Uri,
+                            isMainFrame: Boolean,
+                            replyProxy: JavaScriptReplyProxy
+                        ) {
+                            if (isMainFrame) ptyReplyProxy = replyProxy
+                        }
+                    }
+                )
+            } catch (e: Exception) {
+                Log.w("TerminalActivity", "NexusPty WebMessageListener unavailable", e)
+            }
+        }
+
         wv.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView, url: String) {
                 binding.tvLoading.visibility = View.GONE
@@ -333,7 +372,15 @@ class TerminalActivity : AppCompatActivity() {
         claudeService!!.onPtyOutput = { sessionId, b64 ->
             if (sessionId == activeSessionId) {
                 runOnUiThread {
-                    binding.webViewTerminal.evaluateJavascript("window.ptyWrite('$b64')", null)
+                    val proxy = ptyReplyProxy
+                    if (proxy != null) {
+                        try { proxy.postMessage(b64) }
+                        catch (_: Exception) {
+                            binding.webViewTerminal.evaluateJavascript("window.ptyWrite('$b64')", null)
+                        }
+                    } else {
+                        binding.webViewTerminal.evaluateJavascript("window.ptyWrite('$b64')", null)
+                    }
                 }
             }
         }
