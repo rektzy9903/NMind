@@ -12,10 +12,31 @@
     Center glow r=9 (opacity 0.15), center node r=5.4 solid
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+
+    <!-- Frosted glass pane behind the gate: diagonal white sheen → warm tint -->
+    <path android:pathData="M54,27 L81,54 L54,81 L27,54 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="30" android:startY="30"
+                android:endX="78" android:endY="78"
+                android:startColor="#2EFFFFFF"
+                android:centerColor="#12FFFFFF"
+                android:endColor="#0AE8834A" />
+        </aapt:attr>
+    </path>
+
+    <!-- Top-left edge highlight (glass catches the light) -->
+    <path android:pathData="M54,27 L27,54"
+        android:strokeColor="#4DFFFFFF"
+        android:strokeWidth="1.6"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000"/>
 
     <!-- Diagonal accent lines from inner corners to center (0.20 opacity = #33) -->
     <path android:pathData="M18,18 L54,54"

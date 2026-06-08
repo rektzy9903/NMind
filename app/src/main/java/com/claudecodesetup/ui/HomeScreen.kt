@@ -319,6 +319,24 @@ private fun ConvergenceLogo(modifier: Modifier = Modifier) {
         val cardinals = listOf(p(54f, 9f), p(99f, 54f), p(54f, 99f), p(9f, 54f))
         val diagonals = listOf(p(18f, 18f), p(90f, 18f), p(18f, 90f), p(90f, 90f))
 
+        // Frosted glass pane (drawn first, behind the gate): diagonal white sheen →
+        // faint warm tint, so the logo reads as a glass tile matching the reskin.
+        val glassPane = Path().apply {
+            val a = p(54f, 27f); val b = p(81f, 54f); val d = p(54f, 81f); val e = p(27f, 54f)
+            moveTo(a.x, a.y); lineTo(b.x, b.y); lineTo(d.x, d.y); lineTo(e.x, e.y); close()
+        }
+        drawPath(
+            glassPane,
+            brush = androidx.compose.ui.graphics.Brush.linearGradient(
+                colors = listOf(
+                    androidx.compose.ui.graphics.Color(0x2EFFFFFF),
+                    androidx.compose.ui.graphics.Color(0x12FFFFFF),
+                    accent.copy(alpha = 0.04f),
+                ),
+                start = p(34f, 34f), end = p(74f, 74f),
+            ),
+        )
+
         // Base spokes
         for (o in diagonals) drawLine(accent.copy(alpha = 0.20f), o, c, strokeWidth = 2.5f * k, cap = capRound)
         for (o in cardinals) drawLine(accent.copy(alpha = 0.35f), o, c, strokeWidth = 3f * k, cap = capRound)
@@ -333,6 +351,12 @@ private fun ConvergenceLogo(modifier: Modifier = Modifier) {
             style = androidx.compose.ui.graphics.drawscope.Stroke(
                 width = 3f * k, join = androidx.compose.ui.graphics.StrokeJoin.Round,
             ),
+        )
+
+        // Glass top-left edge highlight (catches the light)
+        drawLine(
+            androidx.compose.ui.graphics.Color.White.copy(alpha = 0.30f),
+            p(54f, 27f), p(27f, 54f), strokeWidth = 1.6f * k, cap = capRound,
         )
 
         // Tip dots
