@@ -274,7 +274,7 @@ fun ModelPickerScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(NexusBg)
+                    .background(NexusBg.copy(alpha = 0.30f))
                     .padding(horizontal = 14.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -324,7 +324,7 @@ fun ModelPickerScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(NexusBg)
+                    .background(NexusBg.copy(alpha = 0.30f))
                     .padding(horizontal = 14.dp, vertical = 8.dp)
                     .background(NexusSurface, RoundedCornerShape(9.dp))
                     .border(1.dp, NexusBorder, RoundedCornerShape(9.dp))
@@ -368,7 +368,7 @@ fun ModelPickerScreen(
                     contentPadding = PaddingValues(horizontal = 10.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     modifier = Modifier
-                        .background(NexusBg)
+                        .background(NexusBg.copy(alpha = 0.30f))
                         .padding(bottom = 0.dp, top = 0.dp)
                         .padding(vertical = 8.dp)
                 ) {
@@ -403,7 +403,7 @@ fun ModelPickerScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(NexusBg)
+                        .background(NexusBg.copy(alpha = 0.30f))
                         .padding(horizontal = 16.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -435,7 +435,7 @@ fun ModelPickerScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(NexusBg)
+                        .background(NexusBg.copy(alpha = 0.30f))
                         .padding(horizontal = 16.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -543,7 +543,7 @@ fun ModelPickerScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(NexusBg)
+                        .background(NexusBg.copy(alpha = 0.30f))
                         .padding(horizontal = 14.dp, vertical = 10.dp),
                     horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
                     verticalAlignment = Alignment.CenterVertically
@@ -645,39 +645,38 @@ private fun ModelCard(display: ModelDisplay, isSelected: Boolean, onSelect: () -
     val isPressed by interaction.collectIsPressedAsState()
     val cardScale by animateFloatAsState(if (isPressed) 0.97f else 1f, tween(150), label = "card_scale")
 
-    val cardBg by animateColorAsState(
-        if (isSelected) Color(0x0AE8834A) else NexusSurface,
-        tween(200), label = "card_bg"
-    )
-    val cardBorderColor by animateColorAsState(
-        if (isSelected) NexusAccent else NexusBorder,
-        tween(200), label = "card_border"
-    )
     val isFree = Cap.FREE in display.effectiveCaps
+    val shape = RoundedCornerShape(14.dp)
+    // Brand-tinted glass wash; selected → amber tint + amber border.
+    val brandBrush = Brush.linearGradient(
+        listOf(display.color.copy(alpha = 0.22f), display.color.copy(alpha = 0.06f))
+    )
+    val borderColor = if (isSelected) NexusAccent else display.color.copy(alpha = 0.32f)
 
     Box(
         modifier = Modifier
             .graphicsLayer { scaleX = cardScale; scaleY = cardScale }
             .fillMaxWidth()
-            // Fixed height so every card is the same size regardless of how many
-            // capability tags it has (tag FlowRow is capped at 2 rows below).
+            // Fixed height → every card the same size regardless of tag count
+            // (capability chips pinned to the bottom, capped at 2 rows).
             .height(132.dp)
-            .background(cardBg, RoundedCornerShape(12.dp))
-            .border(1.dp, cardBorderColor, RoundedCornerShape(12.dp))
+            .clip(shape)
+            .then(if (isSelected) Modifier.background(Color(0x24E8834A)) else Modifier.background(brandBrush))
+            .border(if (isSelected) 2.dp else 1.dp, borderColor, shape)
             .clickable(interactionSource = interaction, indication = null) { onSelect() }
             .padding(12.dp)
     ) {
         Column(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             // Model logo + name row (right padding for the selected-tick)
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth().padding(end = 20.dp)
+                modifier = Modifier.fillMaxWidth().padding(end = 46.dp)
             ) {
                 ModelLogoAvatar(display)
-                Spacer(Modifier.width(5.dp))
+                Spacer(Modifier.width(6.dp))
                 Text(
                     display.model.name,
                     fontFamily = DmSansFamily, fontSize = 12.sp,
@@ -687,27 +686,28 @@ private fun ModelCard(display: ModelDisplay, isSelected: Boolean, onSelect: () -
                     modifier = Modifier.weight(1f)
                 )
             }
-            // Description
+            // Description (single line keeps the box balanced)
             Text(
                 display.description,
                 fontFamily = DmSansFamily, fontSize = 11.sp,
-                color = NexusText2, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                color = NexusText2, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 lineHeight = 15.sp
             )
-            // Capability chips (including free/paid)
+            Spacer(Modifier.weight(1f))   // pin the capability chips to the bottom
+            // Capability chips ONLY — FREE/PAID is the top-right pill (no duplicate)
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(3.dp),
                 verticalArrangement = Arrangement.spacedBy(3.dp),
-                maxLines = 2,
-                modifier = Modifier.padding(top = 2.dp)
+                maxLines = 2
             ) {
                 CAP_PILL_ORDER.forEach { (cap, label) ->
+                    if (cap == Cap.FREE) return@forEach
                     if (cap in display.effectiveCaps) {
                         val cc = capColor(label)
                         Box(
                             modifier = Modifier
-                                .background(cc.copy(alpha = 0.10f), RoundedCornerShape(3.dp))
-                                .border(1.dp, cc.copy(alpha = 0.15f), RoundedCornerShape(3.dp))
+                                .background(cc.copy(alpha = 0.14f), RoundedCornerShape(4.dp))
+                                .border(1.dp, cc.copy(alpha = 0.30f), RoundedCornerShape(4.dp))
                                 .padding(horizontal = 5.dp, vertical = 1.dp)
                         ) {
                             Text(
@@ -718,36 +718,22 @@ private fun ModelCard(display: ModelDisplay, isSelected: Boolean, onSelect: () -
                         }
                     }
                 }
-                // Paid chip for non-free models (free chip already in CAP_PILL_ORDER)
-                if (!isFree) {
-                    val cc = capColor("paid")
-                    Box(
-                        modifier = Modifier
-                            .background(cc.copy(alpha = 0.10f), RoundedCornerShape(3.dp))
-                            .border(1.dp, cc.copy(alpha = 0.15f), RoundedCornerShape(3.dp))
-                            .padding(horizontal = 5.dp, vertical = 1.dp)
-                    ) {
-                        Text(
-                            "PAID", fontFamily = SpaceMonoFamily,
-                            fontSize = 8.sp, fontWeight = FontWeight.SemiBold,
-                            color = cc, letterSpacing = 0.3.sp
-                        )
-                    }
-                }
             }
         }
 
-        // Top-right: selected tick only
-        if (isSelected) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .size(16.dp)
-                    .background(NexusAccent, CircleShape),
-                contentAlignment = Alignment.Center
-            ) {
-                Text("✓", fontSize = 8.sp, fontWeight = FontWeight.Bold, color = Color.White)
-            }
+        // Top-right FREE / PAID pill (the single source of the free/paid tag)
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .background(if (isFree) NexusGreen else NexusAmber, RoundedCornerShape(20.dp))
+                .padding(horizontal = 7.dp, vertical = 2.dp)
+        ) {
+            Text(
+                if (isFree) "FREE" else "PAID",
+                fontFamily = SpaceMonoFamily, fontSize = 8.sp, fontWeight = FontWeight.Bold,
+                color = if (isFree) Color(0xFF06281A) else Color(0xFF2B1500),
+                letterSpacing = 0.4.sp
+            )
         }
     }
 }
