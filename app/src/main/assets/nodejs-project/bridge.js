@@ -4548,7 +4548,7 @@ function openPrintSession() {
                 // ?t= cache-buster, so hotloads kept loading old code. The API serves the
                 // branch HEAD (ETag-based), and `Accept: …raw` returns the file verbatim.
                 const url = 'https://api.github.com/repos/fahmi304/Nexus-Mind/contents/' +
-                            'app/src/main/assets/nodejs-project/bridge.js?ref=feat/custom-agents';
+                            'app/src/main/assets/nodejs-project/bridge.js?ref=feat/glass-ui';
                 const tmp = devPath + '.tmp';
                 w('\x1b[33m!hotload: fetching latest bridge.js (GitHub API, running build ' + BRIDGE_BUILD + ')…\x1b[0m\r\n');
                 (async () => {
