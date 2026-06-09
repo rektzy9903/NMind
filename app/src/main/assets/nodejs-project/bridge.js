@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b85-harmony-toolname';
+const BRIDGE_BUILD = 'b86-pty-apt-input-scroll';
 
 const net   = require('net');
 const http  = require('http');
@@ -4598,7 +4598,7 @@ function openPrintSession() {
                     w('\x1b[2mForce-stop + reopen the app to apply (bundled assets).\x1b[0m\r\n');
                     continue;
                 }
-                const REF = 'feat/custom-agents';
+                const REF = 'feat/glass-ui';
                 const api = (p) => 'https://api.github.com/repos/fahmi304/Nexus-Mind/contents/' + p + '?ref=' + REF;
                 // [remote path, dest, minBytes, validator(text)]
                 const targets = [
@@ -4648,7 +4648,7 @@ function openPrintSession() {
                     w('\x1b[2mForce-stop + reopen to apply (bundled asset).\x1b[0m\r\n');
                     continue;
                 }
-                const REF = 'feat/custom-agents';
+                const REF = 'feat/glass-ui';
                 const remote = 'app/src/main/assets/dungeon/index.html';
                 const api = 'https://api.github.com/repos/fahmi304/Nexus-Mind/contents/' + remote + '?ref=' + REF;
                 w('\x1b[33m!hotload-dungeon: fetching dungeon/index.html…\x1b[0m\r\n');
@@ -5884,6 +5884,27 @@ function openPrintSession() {
                     if (add) fs.appendFileSync(groupPath, add);
                 }
             } catch (e) { log('[ubuntu-pty] /etc/group seed: ' + e.message + '\n'); }
+            // Fix apt/DNS: the rootfs's /etc/resolv.conf is often a dangling symlink
+            // (points to /system/etc/resolv.conf which doesn't exist inside proot).
+            // Without working DNS, `apt update` / `apt install` silently fail. Seed a
+            // working resolv.conf + ensure apt lists are populated.
+            try {
+                const resolvPath = path.join(FILES_DIR, 'ubuntu', 'etc', 'resolv.conf');
+                try { fs.unlinkSync(resolvPath); } catch (_) {}
+                fs.writeFileSync(resolvPath, 'nameserver 8.8.8.8\nnameserver 1.1.1.1\n');
+                // Touch a marker so bash_profile can run apt-get update once if lists are empty
+                const aptListsPath = path.join(FILES_DIR, 'ubuntu', 'var', 'lib', 'apt', 'lists');
+                let hasLists = false;
+                try { hasLists = fs.readdirSync(aptListsPath).length > 0; } catch (_) {}
+                if (!hasLists) {
+                    const bgUpdate = path.join(FILES_DIR, 'ubuntu', 'tmp', 'apt_bootstrap.sh');
+                    fs.writeFileSync(bgUpdate,
+                        '#!/bin/sh\n' +
+                        'apt-get update -qq 2>/dev/null && echo "::apt-ready::" >> /tmp/apt_status || echo "::apt-failed::" >> /tmp/apt_status\n' +
+                        'rm -f "$0"\n');
+                    fs.chmodSync(bgUpdate, 0o755);
+                }
+            } catch (e) { log('[ubuntu-pty] resolv/apt seed: ' + e.message + '\n'); }
             // MCP for the INTERACTIVE claude: the user types bare `claude`, which gets
             // NO --mcp-config (only print-mode's runMessage passes it), so it never sees
             // Exa/HTTP MCP. Fix: (1) (re)generate the guest MCP config from the current
@@ -5897,6 +5918,8 @@ function openPrintSession() {
                 const wrapper =
                     '# Nexus: load defaults, then wrap `claude` to pick up MCP servers + preview nudge.\n' +
                     '[ -f ~/.bashrc ] && . ~/.bashrc\n' +
+                    '# One-time apt bootstrap: if package lists are empty, update in background.\n' +
+                    'if [ -f /tmp/apt_bootstrap.sh ]; then nohup /tmp/apt_bootstrap.sh >/dev/null 2>&1 & fi\n' +
                     '_NEXUS_SYS="After creating or editing HTML/CSS/JS files, always run: python3 -m http.server 5173 &\\nThis starts the preview server — the user can tap the Preview button in the app to see the result live."\n' +
                     'claude() {\n' +
                     '  if [ -f /root/.claude/mcp_guest_config.json ]; then\n' +
