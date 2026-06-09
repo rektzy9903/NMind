@@ -750,6 +750,12 @@ html, body {
   will-change:transform;
   transform:translateZ(0);
 }
+/* PTY scrollback fix: the WebGL/Canvas .xterm-screen sits above .xterm-viewport
+   and eats touch events, making drag-scroll dead inside any full-screen TUI.
+   pointer-events:none on the canvas lets touches pass through to the viewport.
+   xterm's own textarea/children re-enable via the rule below so copy/paste works. */
+.xterm-screen{pointer-events:none;}
+.xterm-screen > *{pointer-events:auto;}
 /* Unified toolbar (P6.7): one #toolbar for both tabs. Buttons that don't apply to
    the active tab are locked (greyed, unclickable). Ctrl glows amber when armed. */
 .tb-btn.tb-locked{opacity:.3;pointer-events:none;filter:grayscale(1);}
@@ -3211,6 +3217,19 @@ reportTermSize();
     // hidden textarea and raises the soft keyboard (programmatic focus alone often
     // won't show the IME in a WebView).
     mount.addEventListener('click', function(){ try{ term.focus(); }catch(_){} });
+    // Input micro-batch buffer: collect keystrokes and flush as one sendPty()
+    // call every ~10ms. Reduces JNI call overhead and prevents sendPty() from
+    // contending with postMessage PTY-output frames on the UI thread, which was
+    // the root cause of dropped keystrokes during TUI repaints.
+    var _inputBuf = '';
+    var _inputTimer = null;
+    function _flushInput(){
+      _inputTimer = null;
+      if(_inputBuf.length && typeof Android!=='undefined' && Android.sendPty){
+        Android.sendPty(_inputBuf);
+      }
+      _inputBuf = '';
+    }
     term.onData(function(d){
       // Ctrl chord (shared armed flag): convert the next typed letter to its control code.
       if(window.__ctrlArmed && d.length===1){
@@ -3219,7 +3238,8 @@ reportTermSize();
         else if(c>=64&&c<=95) d=String.fromCharCode(c-64);    // @[\]^_ and A-Z
         window.__ctrlArmed=false; if(window.__updateCtrlGlow) window.__updateCtrlGlow();
       }
-      if(typeof Android!=='undefined'&&Android.sendPty) Android.sendPty(d);
+      _inputBuf += d;
+      if(!_inputTimer) _inputTimer = setTimeout(_flushInput, 10);
     });
     // Viewport freeze: when the user is drag-scrolling to read scrollback, suppress
     // xterm's auto-scroll-to-bottom so the viewport stays under their finger.
@@ -3320,14 +3340,20 @@ reportTermSize();
   // typed characters in the Ink TUI.
   var _ptyCoalesceStr = '';
   var _ptyCoalescePending = false;
+  var _ptyCoalesceTimer = null;
+  // Max buffer cap: if the coalesced string exceeds this, flush immediately
+  // via setTimeout(0) instead of waiting for rAF. Prevents giant term.write()
+  // bursts during TUI repaints that block the UI thread and cause lag.
+  var _PTY_COALESCE_MAX = 4096;
   function _flushPty() {
     _ptyCoalescePending = false;
+    if (_ptyCoalesceTimer) { clearTimeout(_ptyCoalesceTimer); _ptyCoalesceTimer = null; }
     var s = _ptyCoalesceStr;
     _ptyCoalesceStr = '';
     if (!s) return;
-    term.pauseRepaints();
+    if (term.pauseRepaints) term.pauseRepaints();
     try { term.write(s); } catch(_){}
-    term.resumeRepaints();
+    if (term.resumeRepaints) term.resumeRepaints();
   }
   // Fast base64 → string decode. Avoids allocating a Uint8Array;
   // the raw string (Latin-1 code points) is what term.write expects.
@@ -3345,6 +3371,12 @@ reportTermSize();
       if (!_ptyCoalescePending) {
         _ptyCoalescePending = true;
         requestAnimationFrame(_flushPty);
+        // Fallback timer: if the tab is backgrounded (rAF throttles to ~1s),
+        // this ensures PTY output still arrives promptly.
+        _ptyCoalesceTimer = setTimeout(_flushPty, 50);
+      } else if (_ptyCoalesceStr.length > _PTY_COALESCE_MAX) {
+        // Buffer exceeded cap — flush now to prevent a giant term.write() burst.
+        _flushPty();
       }
     } catch(e){ try{ term.write(b64); }catch(_){} }
   }
