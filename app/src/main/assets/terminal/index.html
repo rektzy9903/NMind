@@ -3184,6 +3184,16 @@ reportTermSize();
     // prediction / autocapitalize make the keyboard batch + rewrite keystrokes,
     // which surfaces as "skipped letters" and "types by itself" in the terminal.
     // Turn them all off so each key reaches term.onData cleanly.
+    //
+    // Android IME ghost-text loop fix: the IME keeps an internal composing-text
+    // buffer. When xterm.js consumes the keystroke and clears the textarea, the
+    // IME sees the field go empty and re-injects its buffered suggestion, creating
+    // the repeating-character spam. Three-part fix:
+    //   1. Disable composition events entirely — preventDefault on compositionstart.
+    //   2. Clear the textarea value after each flush or on each compositionend so
+    //      the IME has nothing to re-inject.
+    //   3. inputmode=none (not 'text') tells the IME this isn't a text field — no
+    //      suggestions, no composing, just raw key events.
     try {
       var ta=mount.querySelector('.xterm-helper-textarea');
       if(ta){
@@ -3191,7 +3201,16 @@ reportTermSize();
         ta.setAttribute('autocapitalize','off');
         ta.setAttribute('autocomplete','off');
         ta.setAttribute('spellcheck','false');
-        ta.setAttribute('inputmode','text');
+        ta.setAttribute('inputmode','none');
+        // Block IME composition — the terminal wants raw keystrokes, not composed
+        // text. Without this, Gboard/SwiftKey's composing region can ghost-replay
+        // buffered text after xterm clears the textarea.
+        ta.addEventListener('compositionstart', function(e){ e.preventDefault(); });
+        ta.addEventListener('compositionupdate', function(e){ e.preventDefault(); });
+        ta.addEventListener('compositionend', function(e){
+          e.preventDefault();
+          try { ta.value = ''; } catch(_){}
+        });
       }
     } catch(_){}
     // Alt-screen handling: swallow DECSET/DECRST ?1049/?1047/?47 so Claude's TUI
@@ -3229,6 +3248,9 @@ reportTermSize();
         Android.sendPty(_inputBuf);
       }
       _inputBuf = '';
+      // Clear xterm's hidden textarea after flush — prevents the Android IME from
+      // re-reading stale content and ghost-replaying it through composition events.
+      try { var ta=mount.querySelector('.xterm-helper-textarea'); if(ta) ta.value=''; } catch(_){}
     }
     term.onData(function(d){
       // Ctrl chord (shared armed flag): convert the next typed letter to its control code.
@@ -3355,11 +3377,17 @@ reportTermSize();
     try { term.write(s); } catch(_){}
     if (term.resumeRepaints) term.resumeRepaints();
   }
-  // Fast base64 → string decode. Avoids allocating a Uint8Array;
-  // the raw string (Latin-1 code points) is what term.write expects.
+  // base64 → UTF-8 string decode. atob() returns a binary string (Latin-1
+  // byte-per-char), which mangles multi-byte UTF-8 sequences (box-drawing chars,
+  // Unicode arrows, non-ASCII text) into garbled Latin-1 runs like âââ.
+  // Decode through Uint8Array + TextDecoder so every byte sequence resolves
+  // correctly to Unicode code points before reaching term.write / xterm.js.
   function _b64ToStr(b64) {
     try {
-      return atob(b64);
+      var bin = atob(b64);
+      var bytes = new Uint8Array(bin.length);
+      for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      return new TextDecoder('utf-8').decode(bytes);
     } catch(_) { return ''; }
   }
   function ptyWriteB64(b64){
