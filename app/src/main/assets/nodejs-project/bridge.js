@@ -4543,35 +4543,45 @@ function openPrintSession() {
                     w('\x1b[2mForce-stop + reopen the app to apply (bundled bridge.js).\x1b[0m\r\n');
                     continue;
                 }
-                // Fetch via the GitHub *API* contents endpoint, NOT raw.githubusercontent
-                // .com. The raw CDN (Fastly) serves ~5-min-stale copies and ignores our
-                // ?t= cache-buster, so hotloads kept loading old code. The API serves the
-                // branch HEAD (ETag-based), and `Accept: …raw` returns the file verbatim.
-                const url = 'https://api.github.com/repos/fahmi304/Nexus-Mind/contents/' +
-                            'app/src/main/assets/nodejs-project/bridge.js?ref=feat/glass-ui';
+                // Fetch via the GitHub *API* contents endpoint. Falls back to
+                // raw.githubusercontent.com if the API fails (rate-limit / DNS issues).
+                const REF = 'feat/glass-ui';
+                const apiUrl = 'https://api.github.com/repos/fahmi304/Nexus-Mind/contents/' +
+                               'app/src/main/assets/nodejs-project/bridge.js?ref=' + REF;
+                const rawUrl = 'https://raw.githubusercontent.com/fahmi304/Nexus-Mind/' + REF +
+                               '/app/src/main/assets/nodejs-project/bridge.js';
+                // Try API first (ETag-based, fresh), then raw CDN as fallback.
+                const urls = [apiUrl, rawUrl];
+                const apiHeaders = { 'Accept': 'application/vnd.github.raw', 'User-Agent': 'nexus-hotload', 'Cache-Control': 'no-cache' };
+                const rawHeaders = { 'User-Agent': 'nexus-hotload', 'Cache-Control': 'no-cache' };
                 const tmp = devPath + '.tmp';
-                w('\x1b[33m!hotload: fetching latest bridge.js (GitHub API, running build ' + BRIDGE_BUILD + ')…\x1b[0m\r\n');
+                w('\x1b[33m!hotload: fetching latest bridge.js (running build ' + BRIDGE_BUILD + ')…\x1b[0m\r\n');
                 (async () => {
-                    const res = await httpsGet(url, { headers: {
-                        'Accept': 'application/vnd.github.raw',
-                        'User-Agent': 'nexus-hotload',
-                        'Cache-Control': 'no-cache',
-                    }});
-                    if (res.statusCode !== 200) { res.resume(); throw new Error('HTTP ' + res.statusCode + ' (API)'); }
-                    let txt = ''; res.setEncoding('utf8');
-                    await new Promise((rs, rj) => { res.on('data', c => txt += c); res.on('end', rs); res.on('error', rj); });
-                    if (txt.length > 5000 && txt.includes('SYS_FENCE')) {
-                        const m = txt.match(/BRIDGE_BUILD\s*=\s*'([^']+)'/);
-                        const dlBuild = m ? m[1] : '(no stamp)';
-                        fs.writeFileSync(devPath, txt);
-                        w('\x1b[32m✓ hot-loaded ' + txt.length + ' bytes → build ' + dlBuild + '\x1b[0m\r\n' +
-                          (dlBuild === BRIDGE_BUILD
-                            ? '\x1b[33m⚠ downloaded build == running build (already current, or you just need to force-stop+reopen)\x1b[0m\r\n'
-                            : '') +
-                          '\x1b[36mNow FORCE-STOP the app and reopen it. After reopen, run a command — it will show build ' + dlBuild + '.\x1b[0m\r\n');
-                    } else {
-                        w('\x1b[31m✗ download invalid (size=' + txt.length + ') — kept current\x1b[0m\r\n');
+                    let txt = '', src = '';
+                    // Try API first, then raw CDN fallback
+                    for (let i = 0; i < urls.length; i++) {
+                        const u = urls[i];
+                        const headers = i === 0 ? apiHeaders : rawHeaders;
+                        try {
+                            const res = await httpsGet(u, { headers });
+                            if (res.statusCode !== 200) { res.resume(); continue; }
+                            let chunk = ''; res.setEncoding('utf8');
+                            await new Promise((rs, rj) => { res.on('data', c => chunk += c); res.on('end', rs); res.on('error', rj); });
+                            if (chunk.length > 5000 && chunk.includes('SYS_FENCE')) {
+                                txt = chunk; src = i === 0 ? 'API' : 'raw CDN';
+                                break;
+                            }
+                        } catch (_) {}
                     }
+                    if (!txt) throw new Error('all sources failed (API + raw CDN)');
+                    const m = txt.match(/BRIDGE_BUILD\s*=\s*'([^']+)'/);
+                    const dlBuild = m ? m[1] : '(no stamp)';
+                    fs.writeFileSync(devPath, txt);
+                    w('\x1b[32m✓ hot-loaded ' + txt.length + ' bytes → build ' + dlBuild + ' (via ' + src + ')\x1b[0m\r\n' +
+                      (dlBuild === BRIDGE_BUILD
+                        ? '\x1b[33m⚠ downloaded build == running build (already current, or you just need to force-stop+reopen)\x1b[0m\r\n'
+                        : '') +
+                      '\x1b[36mNow FORCE-STOP the app and reopen it. After reopen, run a command — it will show build ' + dlBuild + '.\x1b[0m\r\n');
                 })().catch(e => w('\x1b[31m✗ hotload failed: ' + (e && e.message) + '\x1b[0m\r\n'));
                 continue;
             }
@@ -4600,32 +4610,39 @@ function openPrintSession() {
                 }
                 const REF = 'feat/glass-ui';
                 const api = (p) => 'https://api.github.com/repos/fahmi304/Nexus-Mind/contents/' + p + '?ref=' + REF;
+                const raw = (p) => 'https://raw.githubusercontent.com/fahmi304/Nexus-Mind/' + REF + '/' + p;
+                const apiHeaders = { 'Accept': 'application/vnd.github.raw', 'User-Agent': 'nexus-hotload', 'Cache-Control': 'no-cache' };
+                const rawHeaders = { 'User-Agent': 'nexus-hotload', 'Cache-Control': 'no-cache' };
                 // [remote path, dest, minBytes, validator(text)]
                 const targets = [
                     ['app/src/main/assets/terminal/index.html', htmlDev, 5000, t => t.includes('termWrite')],
                     ['app/src/main/assets/providers.json',      provDev, 100,  t => { try { return Array.isArray(JSON.parse(t).providers); } catch(_) { return false; } }],
                 ];
-                w('\x1b[33m!hotload-ui: fetching index.html + providers.json (GitHub API)…\x1b[0m\r\n');
+                w('\x1b[33m!hotload-ui: fetching index.html + providers.json…\x1b[0m\r\n');
                 (async () => {
                     for (const [remote, dest, min, valid] of targets) {
                         const label = remote.split('/').pop();
-                        try {
-                            const res = await httpsGet(api(remote), { headers: {
-                                'Accept': 'application/vnd.github.raw',
-                                'User-Agent': 'nexus-hotload',
-                                'Cache-Control': 'no-cache',
-                            }});
-                            if (res.statusCode !== 200) { res.resume(); throw new Error('HTTP ' + res.statusCode); }
-                            let txt = ''; res.setEncoding('utf8');
-                            await new Promise((rs, rj) => { res.on('data', c => txt += c); res.on('end', rs); res.on('error', rj); });
-                            if (txt.length > min && valid(txt)) {
-                                fs.writeFileSync(dest, txt);
-                                w('\x1b[32m✓ ' + label + ' → ' + txt.length + ' bytes\x1b[0m\r\n');
-                            } else {
-                                w('\x1b[31m✗ ' + label + ' invalid (size=' + txt.length + ') — kept current\x1b[0m\r\n');
-                            }
-                        } catch (e) {
-                            w('\x1b[31m✗ ' + label + ' failed: ' + (e && e.message) + '\x1b[0m\r\n');
+                        let txt = '', src = '';
+                        // Try API first, then raw CDN fallback
+                        for (let i = 0; i < 2; i++) {
+                            const url = i === 0 ? api(remote) : raw(remote);
+                            const headers = i === 0 ? apiHeaders : rawHeaders;
+                            try {
+                                const res = await httpsGet(url, { headers });
+                                if (res.statusCode !== 200) { res.resume(); continue; }
+                                let chunk = ''; res.setEncoding('utf8');
+                                await new Promise((rs, rj) => { res.on('data', c => chunk += c); res.on('end', rs); res.on('error', rj); });
+                                if (chunk.length > min && valid(chunk)) {
+                                    txt = chunk; src = i === 0 ? 'API' : 'raw CDN';
+                                    break;
+                                }
+                            } catch (_) {}
+                        }
+                        if (txt) {
+                            fs.writeFileSync(dest, txt);
+                            w('\x1b[32m✓ ' + label + ' → ' + txt.length + ' bytes (via ' + src + ')\x1b[0m\r\n');
+                        } else {
+                            w('\x1b[31m✗ ' + label + ' failed: all sources (API + raw CDN)\x1b[0m\r\n');
                         }
                     }
                     w('\x1b[36mNow FORCE-STOP the app and reopen it to load the new UI.\x1b[0m\r\n');
