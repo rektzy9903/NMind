@@ -4391,6 +4391,8 @@ function openPrintSession() {
                     '  \x1b[33m!cleanup\x1b[0m            Reclaim install caches (npm/apt/tarballs, ~400MB) without re-provisioning\r\n' +
                     '  \x1b[33m!defer\x1b[0m              Proxy tool deferral (lazy-load) for OAI providers: !defer on | off\r\n' +
                     '  \x1b[33m!warm\x1b[0m               Persistent session — reuse one warm proc, skip cold start: !warm on | off\r\n' +
+                    '  \x1b[33m!apt-diagnose\x1b[0m       Diagnose apt in the Ubuntu guest (resolv.conf + apt-get update test)\r\n' +
+                    '  \x1b[33m!apt-fix-dns\x1b[0m        Rewrite resolv.conf + run apt-get update to fix apt install\r\n' +
                     '  \x1b[33m!debug\x1b[0m              Dump model/provider/settings/mcp state for remote debugging\r\n' +
                     '  \x1b[33m!help\x1b[0m               Show this help\r\n' +
                     '  \x1b[33m$ <cmd>\x1b[0m             Run a shell command\r\n\r\n'
@@ -5351,6 +5353,86 @@ function openPrintSession() {
                     w(rep);
                   })
                   .catch(e => { w(R + '[!scout-hounds proot error] ' + (e && e.message) + X + '\r\n'); });
+                continue;
+            }
+
+            // ── !apt-diagnose — diagnose apt/DNS issues in the proot guest ────────
+            if (line.startsWith('!apt-diagnose')) {
+                const w = (s) => { try { if (state.socket) state.socket.write(SYS_FENCE + s); } catch(_) {} };
+                const G='\x1b[32m', Y='\x1b[33m', R='\x1b[31m', D='\x1b[2m', X='\x1b[0m';
+                const adCmd = [
+                    'set +e',
+                    'echo "::resolv::"',
+                    'cat /etc/resolv.conf 2>&1',
+                    'echo "::resolv-stat::"',
+                    'ls -la /etc/resolv.conf 2>&1',
+                    'echo "::apt-lists::"',
+                    'ls /var/lib/apt/lists/ 2>&1 | head -5',
+                    'echo "::apt-update::"',
+                    'apt-get update -qq 2>&1 | tail -5',
+                    'echo "::apt-install::"',
+                    'apt-get install -y --no-install-recommends rsync 2>&1 | tail -10',
+                    'echo "::done::"',
+                ].join('\n');
+                w(Y + '!apt-diagnose: checking resolv.conf + apt on the guest (up to 120s)…' + X + '\r\n');
+                runProotGuest(['/bin/bash','-lc', adCmd], 120000)
+                  .then(r => {
+                    const out = r.out || '';
+                    const resolv = (out.match(/::resolv::\n([\s\S]*?)::resolv-stat::/) || [])[1] || '';
+                    const resolvStat = (out.match(/::resolv-stat::\n([\s\S]*?)::apt-lists::/) || [])[1] || '';
+                    const aptLists = (out.match(/::apt-lists::\n([\s\S]*?)::apt-update::/) || [])[1] || '';
+                    const aptUpdate = (out.match(/::apt-update::\n([\s\S]*?)::apt-install::/) || [])[1] || '';
+                    const aptInstall = (out.match(/::apt-install::\n([\s\S]*?)::done::/) || [])[1] || '';
+                    const timedOut = /\[timeout \d+ms\]/.test(out) || r.code === null;
+
+                    let rep = '';
+                    rep += D+'── resolv.conf ──'+X+'\r\n'+resolv.trim()+'\r\n';
+                    rep += D+'── resolv.conf stat ──'+X+'\r\n'+resolvStat.trim()+'\r\n';
+                    rep += D+'── apt lists (first 5) ──'+X+'\r\n'+aptLists.trim()+'\r\n';
+                    rep += D+'── apt-get update (tail) ──'+X+'\r\n'+aptUpdate.trim()+'\r\n';
+                    rep += D+'apt-get install rsync (tail) ──'+X+'\r\n';
+                    if (timedOut) rep += R+'TIMED OUT (120s) — network issue or repo unreachable'+X+'\r\n';
+                    else rep += aptInstall.trim()+'\r\n';
+                    rep += '\r\n' + D+'Quick fix if resolv.conf is broken: run !apt-fix-dns'+X+'\r\n';
+                    w(rep);
+                  })
+                  .catch(e => { w(R + '[!apt-diagnose error] ' + (e && e.message) + X + '\r\n'); });
+                continue;
+            }
+
+            // ── !apt-fix-dns — force-write resolv.conf + run apt-get update ────
+            if (line.startsWith('!apt-fix-dns')) {
+                const w = (s) => { try { if (state.socket) state.socket.write(SYS_FENCE + s); } catch(_) {} };
+                const G='\x1b[32m', Y='\x1b[33m', R='\x1b[31m', D='\x1b[2m', X='\x1b[0m';
+                const rp = path.join(FILES_DIR, 'ubuntu');
+                const resolvPath = path.join(rp, 'etc', 'resolv.conf');
+                try {
+                    try { fs.unlinkSync(resolvPath); } catch (_) {}
+                    fs.writeFileSync(resolvPath, 'nameserver 8.8.8.8\nnameserver 1.1.1.1\nnameserver 216.146.35.35\n');
+                    w(G+'resolv.conf rewritten'+X+'\r\n');
+                } catch (e) {
+                    w(R+'write failed: '+e.message+X+'\r\n');
+                    continue;
+                }
+                // Also clear any stale apt cache that may have failed lookups cached
+                const fixCmd = [
+                    'rm -f /var/lib/apt/lists/partial/* 2>/dev/null',
+                    'apt-get clean 2>/dev/null',
+                    'apt-get update -qq 2>&1 | tail -3',
+                    'echo "::update-done::"',
+                ].join('\n');
+                w(Y+'!apt-fix-dns: rewriting resolv.conf + running apt-get update (up to 120s)…'+X+'\r\n');
+                runProotGuest(['/bin/bash','-lc', fixCmd], 120000)
+                  .then(r => {
+                    const out = r.out || '';
+                    const timedOut = /\[timeout \d+ms\]/.test(out) || r.code === null;
+                    const updateOut = (out.match(/apt-get update[\s\S]*?::update-done::/) || out).trim();
+                    w(D+'apt-get update:'+X+'\r\n'+updateOut+'\r\n');
+                    if (timedOut) w(R+'TIMED OUT — check network connectivity'+X+'\r\n');
+                    else if (r.code === 0) w(G+'✓ apt-get update succeeded — apt install should work now'+X+'\r\n');
+                    else w(R+'✗ apt-get update exit='+r.code+X+'\r\n');
+                  })
+                  .catch(e => { w(R+'[!apt-fix-dns error] '+e.message+X+'\r\n'); });
                 continue;
             }
 
