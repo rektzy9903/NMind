@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b96-rtk-token-saver';
+const BRIDGE_BUILD = 'b97-rtk-recency-budget';
 
 const net   = require('net');
 const http  = require('http');
@@ -1901,14 +1901,49 @@ const RTK = (function () {
         return out;
     }
 
+    // Estimate total request chars (sys + tools + msgs) — drives the budget gate
+    // so RTK only fires when a request is actually near a provider limit. Mirrors
+    // the [proxy] size diagnostic's accounting.
+    function estimateChars(anthReq) {
+        let n = 0;
+        const sys = anthReq.system;
+        if (typeof sys === 'string') n += sys.length;
+        else if (Array.isArray(sys)) for (const b of sys) { if (b && b.text) n += b.text.length; }
+        if (Array.isArray(anthReq.tools) && anthReq.tools.length) n += JSON.stringify(anthReq.tools).length;
+        for (const m of (anthReq.messages || [])) {
+            if (typeof m.content === 'string') { n += m.content.length; continue; }
+            for (const b of (m.content || [])) {
+                if (b.text) n += b.text.length;
+                else if (b.input) n += JSON.stringify(b.input).length;
+                else if (b.content) n += (typeof b.content === 'string' ? b.content.length : JSON.stringify(b.content).length);
+            }
+        }
+        return n;
+    }
+
     // --- public: compress tool_result content in an Anthropic request body ---
     // Mutates anthReq.messages in place. Returns stats or null. Preserves
     // is_error tool_results (error traces must survive verbatim).
-    function compressMessages(anthReq) {
+    // RECENCY-AWARE: never compresses the freshest tool_result — the last message
+    // carrying a tool_result is what the model is actively reasoning about THIS
+    // turn, so it's left at full fidelity; only OLD context (already moved past)
+    // is compressed. On the next turn that result becomes old and gets compressed.
+    // Pass {protectLatest:false} to force compress-everything.
+    function compressMessages(anthReq, opts) {
         if (!anthReq || !Array.isArray(anthReq.messages)) return null;
-        const stats = { bytesBefore: 0, bytesAfter: 0, hits: [] };
+        const msgs = anthReq.messages;
+        let protectIdx = -1;
+        if (!opts || opts.protectLatest !== false) {
+            for (let i = msgs.length - 1; i >= 0; i--) {
+                const c = msgs[i] && msgs[i].content;
+                if (Array.isArray(c) && c.some(b => b && b.type === 'tool_result')) { protectIdx = i; break; }
+            }
+        }
+        const stats = { bytesBefore: 0, bytesAfter: 0, hits: [], protectIdx };
         try {
-            for (const msg of anthReq.messages) {
+            for (let i = 0; i < msgs.length; i++) {
+                if (i === protectIdx) continue;                  // keep freshest result raw
+                const msg = msgs[i];
                 if (!msg || !Array.isArray(msg.content)) continue;
                 for (const block of msg.content) {
                     if (!block || block.type !== 'tool_result') continue;
@@ -1935,10 +1970,11 @@ const RTK = (function () {
         const saved = stats.bytesBefore - stats.bytesAfter;
         const pct = stats.bytesBefore > 0 ? ((saved / stats.bytesBefore) * 100).toFixed(1) : '0';
         const filters = Array.from(new Set(stats.hits.map(h => h.filter))).join(',');
-        return '[RTK] saved ' + saved + 'c / ' + stats.bytesBefore + 'c (' + pct + '%) via [' + filters + '] hits=' + stats.hits.length;
+        const kept = stats.protectIdx >= 0 ? ' (latest result kept raw)' : '';
+        return '[RTK] saved ' + saved + 'c / ' + stats.bytesBefore + 'c (' + pct + '%) via [' + filters + '] hits=' + stats.hits.length + kept;
     }
 
-    return { compressMessages, formatRtkLog };
+    return { compressMessages, formatRtkLog, estimateChars };
 })();
 function handleProxyRequest(anthReq, res) {
     const cfg   = readConfig();
@@ -1953,9 +1989,22 @@ function handleProxyRequest(anthReq, res) {
     // is the only opt-out (no UI, mirrors tryOptimize). Safe-by-design: bails to
     // the original on any error/size-increase. Runs BEFORE the size diagnostic so
     // [proxy] size reflects the real outgoing bytes. See CLAUDE.md / 9router RTK.
+    //
+    // Two fidelity guards make this better than upstream (which compresses
+    // unconditionally): (1) BUDGET-AWARE — skip RTK entirely when the request is
+    // comfortably under the provider limit (lossless until we'd otherwise risk
+    // rejection); cfg.rtkThreshold chars, default 40000 (~11K tok). (2) recency-
+    // aware lives in compressMessages (freshest tool_result kept raw).
     if (cfg.rtk !== false) {
-        const rtkLine = RTK.formatRtkLog(RTK.compressMessages(anthReq));
-        if (rtkLine) log(rtkLine + '\n');
+        const threshold = (typeof cfg.rtkThreshold === 'number' && cfg.rtkThreshold > 0)
+            ? cfg.rtkThreshold : 40000;
+        const est = RTK.estimateChars(anthReq);
+        if (est < threshold) {
+            log('[RTK] skipped — under budget (' + est + 'c < ' + threshold + 'c)\n');
+        } else {
+            const rtkLine = RTK.formatRtkLog(RTK.compressMessages(anthReq));
+            log((rtkLine || '[RTK] no compressible tool output (' + est + 'c)') + '\n');
+        }
     }
 
     // Drop tools before anything reads anthReq.tools (size diagnostic below +
