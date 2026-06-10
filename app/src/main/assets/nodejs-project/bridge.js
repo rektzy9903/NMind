@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b93-apt-extract-unwedge';
+const BRIDGE_BUILD = 'b94-apt-release-detect';
 
 const net   = require('net');
 const http  = require('http');
@@ -5430,35 +5430,56 @@ function openPrintSession() {
                 //      TLS peer verify via apt.conf so the FIRST update works, then
                 //      install ca-certificates from that update.
                 // [trusted=yes] also skips the GPG repo-signature check.
+                // 4. CRITICAL: the sources.list SUITE must match the rootfs's actual
+                //    Ubuntu release. The rootfs is NOT necessarily jammy — pointing a
+                //    newer base (e.g. lunar/mantic, perl-base 5.36) at jammy makes
+                //    every install pull jammy-versioned deps that conflict with the
+                //    installed newer ones ("perl-base Breaks perl"). So detect
+                //    VERSION_CODENAME from /etc/os-release and probe which mirror
+                //    serves it: supported releases → ports.ubuntu.com/ubuntu-ports,
+                //    EOL ones → old-releases.ubuntu.com/ubuntu (which keeps arm64).
+                //    (ca-certificates is NOT installed here — that needs dpkg, which
+                //    EPERMs on this old proot; see !dpkg-test / !apt-extract.)
                 const fixCmd = [
+                    'set +e',
+                    '. /etc/os-release 2>/dev/null || true',
+                    'CN="${VERSION_CODENAME:-jammy}"',
+                    'echo "::release:: ${PRETTY_NAME:-Ubuntu} codename=$CN"',
                     'mkdir -p /etc/apt/apt.conf.d',
                     'cat > /etc/apt/apt.conf.d/99nexus-https << "CFGEOF"\n' +
                     'Acquire::https::Verify-Peer "false";\n' +
                     'Acquire::https::Verify-Host "false";\n' +
                     'CFGEOF',
-                    'cat > /etc/apt/sources.list << "SRCEOF"\n' +
-                    'deb [trusted=yes] https://ports.ubuntu.com/ubuntu-ports jammy main restricted universe multiverse\n' +
-                    'deb [trusted=yes] https://ports.ubuntu.com/ubuntu-ports jammy-updates main restricted universe multiverse\n' +
-                    'deb [trusted=yes] https://ports.ubuntu.com/ubuntu-ports jammy-security main restricted universe multiverse\n' +
-                    'SRCEOF',
+                    'H=/usr/lib/apt/apt-helper',
+                    'MIRROR=""',
+                    'for U in "https://ports.ubuntu.com/ubuntu-ports" "https://old-releases.ubuntu.com/ubuntu"; do',
+                    '  rm -f /tmp/.nexrel 2>/dev/null',
+                    '  if "$H" download-file "$U/dists/$CN/Release" /tmp/.nexrel >/dev/null 2>&1 && [ -s /tmp/.nexrel ]; then MIRROR="$U"; echo "mirror OK: $U"; break; else echo "mirror miss: $U"; fi',
+                    'done',
+                    'if [ -z "$MIRROR" ]; then echo "::update::"; echo "NO working mirror for codename=$CN"; echo "::update-done::"; exit 3; fi',
+                    '{ echo "deb [trusted=yes] $MIRROR $CN main restricted universe multiverse"; echo "deb [trusted=yes] $MIRROR $CN-updates main restricted universe multiverse"; echo "deb [trusted=yes] $MIRROR $CN-security main restricted universe multiverse"; } > /etc/apt/sources.list',
+                    'echo "::sources::"; cat /etc/apt/sources.list',
                     'rm -f /var/lib/apt/lists/partial/* 2>/dev/null',
                     'apt-get clean 2>/dev/null',
-                    'apt-get update -qq 2>&1 | tail -8; APT_EC=$?',
-                    // best-effort: once the DB is populated, install real certs so
-                    // future HTTPS is properly verified (the apt.conf override stays
-                    // as belt-and-suspenders).
-                    'if [ "$APT_EC" = 0 ]; then apt-get install -y --no-install-recommends ca-certificates 2>&1 | tail -3; fi',
+                    'echo "::update::"',
+                    'apt-get update 2>&1 | tail -8; APT_EC=$?',
                     'echo "::update-done::"; exit $APT_EC',
                 ].join('\n');
-                w(Y+'!apt-fix-dns: rewriting resolv.conf + sources.list (HTTPS ports.ubuntu.com) + apt-get update (up to 120s)…'+X+'\r\n');
+                w(Y+'!apt-fix-dns: detecting release + probing mirror + apt-get update (up to 120s)…'+X+'\r\n');
                 runProotGuest(['/bin/bash','-lc', fixCmd], 120000)
                   .then(r => {
                     const out = r.out || '';
                     const timedOut = /\[timeout \d+ms\]/.test(out) || r.code === null;
-                    const updateOut = (out.match(/apt-get update[\s\S]*?::update-done::/) || out).trim();
-                    w(D+'apt-get update:'+X+'\r\n'+updateOut+'\r\n');
+                    const rel = (out.match(/::release::([^\n]*)/) || [])[1] || '';
+                    const src = (out.match(/::sources::\n([\s\S]*?)::update::/) || [])[1] || '';
+                    const upd = (out.match(/::update::\n([\s\S]*?)::update-done::/) || [])[1] || '';
+                    let rep = '';
+                    if (rel) rep += D+'release:'+X+rel+'\r\n';
+                    if (src) rep += D+'sources.list:'+X+'\r\n'+src.trim()+'\r\n';
+                    rep += D+'apt-get update:'+X+'\r\n'+(upd.trim()||out.trim())+'\r\n';
+                    w(rep);
                     if (timedOut) w(R+'TIMED OUT — check network connectivity'+X+'\r\n');
-                    else if (r.code === 0) w(G+'✓ apt-get update succeeded — apt install should work now'+X+'\r\n');
+                    else if (r.code === 0) w(G+'✓ apt-get update succeeded for this release — now: !apt-extract <pkg> (real apt install needs a newer proot, see !dpkg-test)'+X+'\r\n');
                     else w(R+'✗ apt-get update exit='+r.code+' (see errors above)'+X+'\r\n');
                   })
                   .catch(e => { w(R+'[!apt-fix-dns error] '+e.message+X+'\r\n'); });
@@ -6133,28 +6154,49 @@ function openPrintSession() {
                 const resolvPath = path.join(rp, 'etc', 'resolv.conf');
                 try { fs.unlinkSync(resolvPath); } catch (_) {}
                 fs.writeFileSync(resolvPath, 'nameserver 8.8.8.8\nnameserver 1.1.1.1\n');
-                // Point apt at the CORRECT arm64 mirror over HTTPS. Three problems
-                // (see !apt-fix-dns comment + /sdcard/design/possibleaptsolution.md):
-                // arm64 packages are on ports.ubuntu.com/ubuntu-ports (archive/
-                // old-releases host only amd64); some ISPs 302-hijack http:// mirror
-                // traffic (use HTTPS); the minimal rootfs has no ca-certificates
-                // (disable TLS peer-verify so the first apt-get update works).
+                // Point apt at the CORRECT arm64 mirror over HTTPS, matching the
+                // rootfs's ACTUAL Ubuntu release. Problems (see !apt-fix-dns comment +
+                // /sdcard/design/possibleaptsolution.md): arm64 packages are on
+                // ports.ubuntu.com/ubuntu-ports for SUPPORTED releases but move to
+                // old-releases.ubuntu.com/ubuntu when EOL; archive/old-releases/ubuntu
+                // host amd64 too but EOL ones include arm64. Some ISPs 302-hijack
+                // http:// mirror traffic (use HTTPS); the minimal rootfs has no
+                // ca-certificates (disable TLS peer-verify). And the SUITE must match
+                // the rootfs codename — a jammy sources.list on a lunar/mantic base
+                // makes every install conflict (perl-base 5.36 vs jammy 5.34).
                 try {
                     const aptCfgDir = path.join(rp, 'etc', 'apt', 'apt.conf.d');
                     try { fs.mkdirSync(aptCfgDir, { recursive: true }); } catch (_) {}
                     fs.writeFileSync(path.join(aptCfgDir, '99nexus-https'),
                         'Acquire::https::Verify-Peer "false";\nAcquire::https::Verify-Host "false";\n');
                 } catch (_) {}
+                // Detect the codename from the rootfs's /etc/os-release.
+                let codename = '';
+                try {
+                    const osr = fs.readFileSync(path.join(rp, 'etc', 'os-release'), 'utf8');
+                    codename = (osr.match(/^VERSION_CODENAME=([a-z]+)/m) || [])[1] || '';
+                } catch (_) {}
+                if (!codename) codename = 'jammy';  // last-resort default
+                // Currently-supported Ubuntu releases live on ports (arm64); EOL ones
+                // are archived on old-releases.ubuntu.com/ubuntu (which keeps arm64).
+                const supportedCodenames = new Set(['focal','jammy','noble','oracular','plucky','questing']);
+                const mirror = supportedCodenames.has(codename)
+                    ? 'https://ports.ubuntu.com/ubuntu-ports'
+                    : 'https://old-releases.ubuntu.com/ubuntu';
                 const srcPath = path.join(rp, 'etc', 'apt', 'sources.list');
                 const goodSources =
-                    'deb [trusted=yes] https://ports.ubuntu.com/ubuntu-ports jammy main restricted universe multiverse\n' +
-                    'deb [trusted=yes] https://ports.ubuntu.com/ubuntu-ports jammy-updates main restricted universe multiverse\n' +
-                    'deb [trusted=yes] https://ports.ubuntu.com/ubuntu-ports jammy-security main restricted universe multiverse\n';
+                    'deb [trusted=yes] ' + mirror + ' ' + codename + ' main restricted universe multiverse\n' +
+                    'deb [trusted=yes] ' + mirror + ' ' + codename + '-updates main restricted universe multiverse\n' +
+                    'deb [trusted=yes] ' + mirror + ' ' + codename + '-security main restricted universe multiverse\n';
                 let curSrc = '';
                 try { curSrc = fs.readFileSync(srcPath, 'utf8'); } catch (_) {}
-                if (!curSrc.includes('ports.ubuntu.com') || curSrc.includes('http://') || curSrc.includes('mirrors.kernel.org') || curSrc.includes('mirrors.ubuntu.com')) {
+                // Re-heal if: not our mirror, plain http, dead mirrors, OR the suite
+                // doesn't match the detected codename (the jammy-on-newer-base bug).
+                if (!curSrc.includes(mirror) || curSrc.includes('http://') ||
+                    curSrc.includes('mirrors.kernel.org') || curSrc.includes('mirrors.ubuntu.com') ||
+                    !curSrc.includes(' ' + codename + ' ')) {
                     fs.writeFileSync(srcPath, goodSources);
-                    log('[ubuntu-pty] sources.list rewritten (→ https ports.ubuntu.com/ubuntu-ports, arm64-correct)\n');
+                    log('[ubuntu-pty] sources.list rewritten (→ ' + mirror + ' ' + codename + ', arm64)\n');
                 }
             } catch (e) { log('[ubuntu-pty] resolv/apt seed: ' + e.message + '\n'); }
             // MCP for the INTERACTIVE claude: the user types bare `claude`, which gets
