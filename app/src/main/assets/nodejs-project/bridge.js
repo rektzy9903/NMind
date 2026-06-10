@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b94-apt-release-detect';
+const BRIDGE_BUILD = 'b95-apt-shim-for-claude';
 
 const net   = require('net');
 const http  = require('http');
@@ -6199,6 +6199,52 @@ function openPrintSession() {
                     log('[ubuntu-pty] sources.list rewritten (→ ' + mirror + ' ' + codename + ', arm64)\n');
                 }
             } catch (e) { log('[ubuntu-pty] resolv/apt seed: ' + e.message + '\n'); }
+            // apt/apt-get SHIM so the INTERACTIVE claude (and the user) can `apt
+            // install` despite the old proot's dpkg-hardlink EPERM (see !dpkg-test).
+            // !apt-extract is a bridge command claude can't call; this shim shadows
+            // the real tools at /usr/local/bin (on PATH before /usr/bin, line ~555)
+            // so any `apt install X` / `apt-get install X` is transparently served
+            // via download-only + dpkg-deb -x. Every other subcommand (update, list,
+            // search, …) passes straight through to the real binary. Escape hatch:
+            // NEXUS_APT_PASSTHROUGH=1 forces the real apt.
+            try {
+                const localBin = path.join(rp, 'usr', 'local', 'bin');
+                try { fs.mkdirSync(localBin, { recursive: true }); } catch (_) {}
+                const aptShim = [
+                    '#!/bin/bash',
+                    '# Nexus apt shim — install via extract (proot dpkg cannot hardlink).',
+                    'self="$(basename "$0")"',
+                    'REAL="/usr/bin/$self"',
+                    '[ -x "$REAL" ] || REAL="/usr/bin/apt-get"',
+                    'if [ "${NEXUS_APT_PASSTHROUGH:-0}" = "1" ]; then exec "$REAL" "$@"; fi',
+                    'sub=""',
+                    'for a in "$@"; do case "$a" in -*) ;; *) sub="$a"; break;; esac; done',
+                    'if [ "$sub" != "install" ] && [ "$sub" != "reinstall" ]; then exec "$REAL" "$@"; fi',
+                    'pkgs=""; seen=0',
+                    'for a in "$@"; do',
+                    '  if [ "$seen" = "1" ]; then case "$a" in -*) ;; *) pkgs="$pkgs $a";; esac',
+                    '  elif [ "$a" = "install" ] || [ "$a" = "reinstall" ]; then seen=1; fi',
+                    'done',
+                    '[ -n "$pkgs" ] || exec "$REAL" "$@"',
+                    'echo "[nexus-apt] proot dpkg cannot hardlink; installing via extract:$pkgs" >&2',
+                    'rm -f /var/lib/dpkg/updates/* 2>/dev/null',
+                    '/usr/bin/apt-get clean >/dev/null 2>&1',
+                    'if ! /usr/bin/apt-get install -y -d $pkgs; then echo "[nexus-apt] download failed — try !apt-fix-dns" >&2; exit 1; fi',
+                    'cd /var/cache/apt/archives 2>/dev/null || { echo "[nexus-apt] no archives dir" >&2; exit 1; }',
+                    'n=0',
+                    'for f in *.deb; do [ -f "$f" ] || continue; if dpkg-deb -x "$f" / 2>/dev/null; then n=$((n+1)); fi; done',
+                    'ldconfig 2>/dev/null',
+                    'echo "[nexus-apt] extracted $n package file(s) into the rootfs (no maintainer scripts ran)" >&2',
+                    'exit 0',
+                    '',
+                ].join('\n');
+                for (const nm of ['apt', 'apt-get']) {
+                    const p = path.join(localBin, nm);
+                    fs.writeFileSync(p, aptShim);
+                    try { fs.chmodSync(p, 0o755); } catch (_) {}
+                }
+                log('[ubuntu-pty] apt/apt-get shim installed (dpkg-less install via extract)\n');
+            } catch (e) { log('[ubuntu-pty] apt shim: ' + e.message + '\n'); }
             // MCP for the INTERACTIVE claude: the user types bare `claude`, which gets
             // NO --mcp-config (only print-mode's runMessage passes it), so it never sees
             // Exa/HTTP MCP. Fix: (1) (re)generate the guest MCP config from the current
