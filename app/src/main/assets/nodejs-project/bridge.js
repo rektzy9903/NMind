@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b87-apt-diag-fix-dns';
+const BRIDGE_BUILD = 'b88-keyboard-apt-mirror';
 
 const net   = require('net');
 const http  = require('http');
@@ -5414,14 +5414,21 @@ function openPrintSession() {
                     w(R+'write failed: '+e.message+X+'\r\n');
                     continue;
                 }
-                // Also clear any stale apt cache that may have failed lookups cached
+                // Fix BOTH resolv.conf AND the Ubuntu mirror. mirrors.kernel.org
+                // (the nodejs-mobile rootfs default) is dead — "does not have a
+                // Release file". Rewrite sources.list to use archive.ubuntu.com.
                 const fixCmd = [
+                    'cat > /etc/apt/sources.list << "SRCEOF"\n' +
+                    'deb http://archive.ubuntu.com/ubuntu jammy main restricted universe multiverse\n' +
+                    'deb http://archive.ubuntu.com/ubuntu jammy-updates main restricted universe multiverse\n' +
+                    'deb http://security.ubuntu.com/ubuntu jammy-security main restricted universe multiverse\n' +
+                    'SRCEOF',
                     'rm -f /var/lib/apt/lists/partial/* 2>/dev/null',
                     'apt-get clean 2>/dev/null',
-                    'apt-get update -qq 2>&1 | tail -3',
+                    'apt-get update -qq 2>&1 | tail -5',
                     'echo "::update-done::"',
                 ].join('\n');
-                w(Y+'!apt-fix-dns: rewriting resolv.conf + running apt-get update (up to 120s)…'+X+'\r\n');
+                w(Y+'!apt-fix-dns: rewriting resolv.conf + sources.list + running apt-get update (up to 120s)…'+X+'\r\n');
                 runProotGuest(['/bin/bash','-lc', fixCmd], 120000)
                   .then(r => {
                     const out = r.out || '';
@@ -5983,25 +5990,27 @@ function openPrintSession() {
                     if (add) fs.appendFileSync(groupPath, add);
                 }
             } catch (e) { log('[ubuntu-pty] /etc/group seed: ' + e.message + '\n'); }
-            // Fix apt/DNS: the rootfs's /etc/resolv.conf is often a dangling symlink
-            // (points to /system/etc/resolv.conf which doesn't exist inside proot).
-            // Without working DNS, `apt update` / `apt install` silently fail. Seed a
-            // working resolv.conf + ensure apt lists are populated.
+            // Fix apt/DNS + mirror: the rootfs's /etc/resolv.conf is often a
+            // dangling symlink (points to /system/etc/resolv.conf which doesn't
+            // exist inside proot). The default sources.list uses mirrors.kernel.org
+            // which is dead ("does not have a Release file"). Rewrite BOTH so apt
+            // works out of the box — no bootstrap script needed.
             try {
-                const resolvPath = path.join(FILES_DIR, 'ubuntu', 'etc', 'resolv.conf');
+                const rp = path.join(FILES_DIR, 'ubuntu');
+                const resolvPath = path.join(rp, 'etc', 'resolv.conf');
                 try { fs.unlinkSync(resolvPath); } catch (_) {}
                 fs.writeFileSync(resolvPath, 'nameserver 8.8.8.8\nnameserver 1.1.1.1\n');
-                // Touch a marker so bash_profile can run apt-get update once if lists are empty
-                const aptListsPath = path.join(FILES_DIR, 'ubuntu', 'var', 'lib', 'apt', 'lists');
-                let hasLists = false;
-                try { hasLists = fs.readdirSync(aptListsPath).length > 0; } catch (_) {}
-                if (!hasLists) {
-                    const bgUpdate = path.join(FILES_DIR, 'ubuntu', 'tmp', 'apt_bootstrap.sh');
-                    fs.writeFileSync(bgUpdate,
-                        '#!/bin/sh\n' +
-                        'apt-get update -qq 2>/dev/null && echo "::apt-ready::" >> /tmp/apt_status || echo "::apt-failed::" >> /tmp/apt_status\n' +
-                        'rm -f "$0"\n');
-                    fs.chmodSync(bgUpdate, 0o755);
+                // Replace dead mirror with archive.ubuntu.com
+                const srcPath = path.join(rp, 'etc', 'apt', 'sources.list');
+                const goodSources =
+                    'deb http://archive.ubuntu.com/ubuntu jammy main restricted universe multiverse\n' +
+                    'deb http://archive.ubuntu.com/ubuntu jammy-updates main restricted universe multiverse\n' +
+                    'deb http://security.ubuntu.com/ubuntu jammy-security main restricted universe multiverse\n';
+                let curSrc = '';
+                try { curSrc = fs.readFileSync(srcPath, 'utf8'); } catch (_) {}
+                if (curSrc.includes('mirrors.kernel.org') || curSrc.includes('mirrors.ubuntu.com') || !curSrc.includes('archive.ubuntu.com')) {
+                    fs.writeFileSync(srcPath, goodSources);
+                    log('[ubuntu-pty] sources.list rewritten (dead mirror → archive.ubuntu.com)\n');
                 }
             } catch (e) { log('[ubuntu-pty] resolv/apt seed: ' + e.message + '\n'); }
             // MCP for the INTERACTIVE claude: the user types bare `claude`, which gets
