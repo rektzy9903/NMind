@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b86-pty-apt-input-scroll';
+const BRIDGE_BUILD = 'b87-apt-diag-fix-dns';
 
 const net   = require('net');
 const http  = require('http');
