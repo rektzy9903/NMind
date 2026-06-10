@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b92-apt-extract-no-dpkg';
+const BRIDGE_BUILD = 'b93-apt-extract-unwedge';
 
 const net   = require('net');
 const http  = require('http');
@@ -5533,6 +5533,16 @@ function openPrintSession() {
                 if (!safe) { w(R+'!apt-extract: no valid package names'+X+'\r\n'); continue; }
                 const cmd = [
                     'set +e',
+                    // Un-wedge dpkg: a prior failed install (hardlink EPERM) leaves
+                    // numbered journal files in /var/lib/dpkg/updates/, which makes
+                    // apt refuse everything with "dpkg was interrupted, run
+                    // dpkg --configure -a" — but that re-hits the same EPERM. The
+                    // journal is for an install that never completed, so discarding
+                    // it is safe and is the only thing apt's interrupted-check reads.
+                    'rm -f /var/lib/dpkg/updates/* 2>/dev/null',
+                    // some apt audits expect status-old to exist; create via COPY
+                    // (not link — that EPERMs) so nothing else trips.
+                    '[ -f /var/lib/dpkg/status-old ] || cp -a /var/lib/dpkg/status /var/lib/dpkg/status-old 2>/dev/null',
                     'apt-get clean 2>/dev/null',                 // archives = ONLY this request's debs
                     'echo "::download::"',
                     'apt-get install -y -d ' + safe + ' 2>&1 | tail -12; DL=$?',
