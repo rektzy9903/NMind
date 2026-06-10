@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b89-old-releases-mirror';
+const BRIDGE_BUILD = 'b90-apt-arm64-https-ports';
 
 const net   = require('net');
 const http  = require('http');
@@ -5414,22 +5414,41 @@ function openPrintSession() {
                     w(R+'write failed: '+e.message+X+'\r\n');
                     continue;
                 }
-                // Fix BOTH resolv.conf AND the Ubuntu mirror. mirrors.kernel.org
-                // (the nodejs-mobile rootfs default) is dead, AND jammy (22.04)
-                // standard-support ended — archive.ubuntu.com no longer serves
-                // jammy Release files. Use old-releases.ubuntu.com which archives
-                // EOL suites.
+                // Fix resolv.conf AND the Ubuntu mirror. THREE compounding problems
+                // were diagnosed on-device (see /sdcard/design/possibleaptsolution.md +
+                // screenshots 2026-06-10):
+                //   1. arm64 packages live on ports.ubuntu.com/ubuntu-ports — NOT on
+                //      archive.ubuntu.com / old-releases.ubuntu.com/ubuntu (those host
+                //      only amd64/i386) → "binary-arm64/Packages 404 Not Found".
+                //   2. Some ISPs (e.g. CelcomDigi MY) 302-hijack ALL http:// Ubuntu
+                //      mirror traffic to a captive page → "Redirection loop" / no
+                //      Release file. Use HTTPS so the ISP can't see the path.
+                //   3. The minimal rootfs has no ca-certificates → HTTPS TLS verify
+                //      fails ("certificate is NOT trusted"). Chicken-and-egg: disable
+                //      TLS peer verify via apt.conf so the FIRST update works, then
+                //      install ca-certificates from that update.
+                // [trusted=yes] also skips the GPG repo-signature check.
                 const fixCmd = [
+                    'mkdir -p /etc/apt/apt.conf.d',
+                    'cat > /etc/apt/apt.conf.d/99nexus-https << "CFGEOF"\n' +
+                    'Acquire::https::Verify-Peer "false";\n' +
+                    'Acquire::https::Verify-Host "false";\n' +
+                    'CFGEOF',
                     'cat > /etc/apt/sources.list << "SRCEOF"\n' +
-                    'deb http://old-releases.ubuntu.com/ubuntu jammy main restricted universe multiverse\n' +
-                    'deb http://old-releases.ubuntu.com/ubuntu jammy-updates main restricted universe multiverse\n' +
-                    'deb http://old-releases.ubuntu.com/ubuntu jammy-security main restricted universe multiverse\n' +
+                    'deb [trusted=yes] https://ports.ubuntu.com/ubuntu-ports jammy main restricted universe multiverse\n' +
+                    'deb [trusted=yes] https://ports.ubuntu.com/ubuntu-ports jammy-updates main restricted universe multiverse\n' +
+                    'deb [trusted=yes] https://ports.ubuntu.com/ubuntu-ports jammy-security main restricted universe multiverse\n' +
                     'SRCEOF',
                     'rm -f /var/lib/apt/lists/partial/* 2>/dev/null',
                     'apt-get clean 2>/dev/null',
-                    'apt-get update -qq 2>&1 | tail -5; APT_EC=$?; echo "::update-done::"; exit $APT_EC',
+                    'apt-get update -qq 2>&1 | tail -8; APT_EC=$?',
+                    // best-effort: once the DB is populated, install real certs so
+                    // future HTTPS is properly verified (the apt.conf override stays
+                    // as belt-and-suspenders).
+                    'if [ "$APT_EC" = 0 ]; then apt-get install -y --no-install-recommends ca-certificates 2>&1 | tail -3; fi',
+                    'echo "::update-done::"; exit $APT_EC',
                 ].join('\n');
-                w(Y+'!apt-fix-dns: rewriting resolv.conf + sources.list + running apt-get update (up to 120s)…'+X+'\r\n');
+                w(Y+'!apt-fix-dns: rewriting resolv.conf + sources.list (HTTPS ports.ubuntu.com) + apt-get update (up to 120s)…'+X+'\r\n');
                 runProotGuest(['/bin/bash','-lc', fixCmd], 120000)
                   .then(r => {
                     const out = r.out || '';
@@ -6001,19 +6020,28 @@ function openPrintSession() {
                 const resolvPath = path.join(rp, 'etc', 'resolv.conf');
                 try { fs.unlinkSync(resolvPath); } catch (_) {}
                 fs.writeFileSync(resolvPath, 'nameserver 8.8.8.8\nnameserver 1.1.1.1\n');
-                // Replace dead mirror with old-releases.ubuntu.com.
-                // jammy (22.04) standard-support ended → archive.ubuntu.com no
-                // longer serves Release files. old-releases.ubuntu.com archives EOL suites.
+                // Point apt at the CORRECT arm64 mirror over HTTPS. Three problems
+                // (see !apt-fix-dns comment + /sdcard/design/possibleaptsolution.md):
+                // arm64 packages are on ports.ubuntu.com/ubuntu-ports (archive/
+                // old-releases host only amd64); some ISPs 302-hijack http:// mirror
+                // traffic (use HTTPS); the minimal rootfs has no ca-certificates
+                // (disable TLS peer-verify so the first apt-get update works).
+                try {
+                    const aptCfgDir = path.join(rp, 'etc', 'apt', 'apt.conf.d');
+                    try { fs.mkdirSync(aptCfgDir, { recursive: true }); } catch (_) {}
+                    fs.writeFileSync(path.join(aptCfgDir, '99nexus-https'),
+                        'Acquire::https::Verify-Peer "false";\nAcquire::https::Verify-Host "false";\n');
+                } catch (_) {}
                 const srcPath = path.join(rp, 'etc', 'apt', 'sources.list');
                 const goodSources =
-                    'deb http://old-releases.ubuntu.com/ubuntu jammy main restricted universe multiverse\n' +
-                    'deb http://old-releases.ubuntu.com/ubuntu jammy-updates main restricted universe multiverse\n' +
-                    'deb http://old-releases.ubuntu.com/ubuntu jammy-security main restricted universe multiverse\n';
+                    'deb [trusted=yes] https://ports.ubuntu.com/ubuntu-ports jammy main restricted universe multiverse\n' +
+                    'deb [trusted=yes] https://ports.ubuntu.com/ubuntu-ports jammy-updates main restricted universe multiverse\n' +
+                    'deb [trusted=yes] https://ports.ubuntu.com/ubuntu-ports jammy-security main restricted universe multiverse\n';
                 let curSrc = '';
                 try { curSrc = fs.readFileSync(srcPath, 'utf8'); } catch (_) {}
-                if (curSrc.includes('mirrors.kernel.org') || curSrc.includes('mirrors.ubuntu.com') || curSrc.includes('archive.ubuntu.com') || !curSrc.includes('old-releases.ubuntu.com')) {
+                if (!curSrc.includes('ports.ubuntu.com') || curSrc.includes('http://') || curSrc.includes('mirrors.kernel.org') || curSrc.includes('mirrors.ubuntu.com')) {
                     fs.writeFileSync(srcPath, goodSources);
-                    log('[ubuntu-pty] sources.list rewritten (dead mirror → old-releases.ubuntu.com)\n');
+                    log('[ubuntu-pty] sources.list rewritten (→ https ports.ubuntu.com/ubuntu-ports, arm64-correct)\n');
                 }
             } catch (e) { log('[ubuntu-pty] resolv/apt seed: ' + e.message + '\n'); }
             // MCP for the INTERACTIVE claude: the user types bare `claude`, which gets
