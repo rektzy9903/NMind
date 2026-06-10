@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b90-apt-arm64-https-ports';
+const BRIDGE_BUILD = 'b91-dpkg-link2symlink-probe';
 
 const net   = require('net');
 const http  = require('http');
@@ -4393,6 +4393,7 @@ function openPrintSession() {
                     '  \x1b[33m!warm\x1b[0m               Persistent session — reuse one warm proc, skip cold start: !warm on | off\r\n' +
                     '  \x1b[33m!apt-diagnose\x1b[0m       Diagnose apt in the Ubuntu guest (resolv.conf + apt-get update test)\r\n' +
                     '  \x1b[33m!apt-fix-dns\x1b[0m        Rewrite resolv.conf + run apt-get update to fix apt install\r\n' +
+                    '  \x1b[33m!dpkg-test\x1b[0m          Probe why dpkg fails on install (link2symlink/EPERM check)\r\n' +
                     '  \x1b[33m!debug\x1b[0m              Dump model/provider/settings/mcp state for remote debugging\r\n' +
                     '  \x1b[33m!help\x1b[0m               Show this help\r\n' +
                     '  \x1b[33m$ <cmd>\x1b[0m             Run a shell command\r\n\r\n'
@@ -5460,6 +5461,56 @@ function openPrintSession() {
                     else w(R+'✗ apt-get update exit='+r.code+' (see errors above)'+X+'\r\n');
                   })
                   .catch(e => { w(R+'[!apt-fix-dns error] '+e.message+X+'\r\n'); });
+                continue;
+            }
+
+            // ── !dpkg-test — diagnose the dpkg "status-old: Operation not permitted"
+            // failure. apt-get update works now, but EVERY apt install runs dpkg,
+            // which backs up /var/lib/dpkg/status via link() (atomic_file_backup).
+            // arm64 has NO link syscall (only linkat); if the bundled proot's
+            // --link2symlink only hooks link(), the linkat() falls through → EPERM.
+            // This probe creates a hardlink directly and reports whether proot
+            // turned it into a SYMLINK (l2s working) or it EPERM'd (l2s gap).
+            if (line.startsWith('!dpkg-test')) {
+                const w = (s) => { try { if (state.socket) state.socket.write(SYS_FENCE + s); } catch(_) {} };
+                const G='\x1b[32m', Y='\x1b[33m', R='\x1b[31m', D='\x1b[2m', X='\x1b[0m';
+                const probe = [
+                    'set +e',
+                    'cd /var/lib/dpkg 2>/dev/null || cd /tmp',
+                    'rm -f .l2s-probe 2>/dev/null',
+                    'echo "::link::"',
+                    // try hardlinking an existing file; capture errno text
+                    'ln status .l2s-probe 2>&1; echo "ln-rc=$?"',
+                    'echo "::probe-stat::"',
+                    'ls -la .l2s-probe 2>&1',          // 'l' first char ⇒ symlink ⇒ l2s working
+                    'rm -f .l2s-probe 2>/dev/null',
+                    'echo "::dpkg-ver::"',
+                    'dpkg --version 2>&1 | head -1',
+                    'echo "::done::"',
+                ].join('\n');
+                w(Y+'!dpkg-test: probing hardlink/link2symlink on the guest (up to 30s)…'+X+'\r\n');
+                runProotGuest(['/bin/bash','-lc', probe], 30000)
+                  .then(r => {
+                    const out = r.out || '';
+                    const lnBlk   = (out.match(/::link::\n([\s\S]*?)::probe-stat::/) || [])[1] || '';
+                    const statBlk = (out.match(/::probe-stat::\n([\s\S]*?)::dpkg-ver::/) || [])[1] || '';
+                    const verBlk  = (out.match(/::dpkg-ver::\n([\s\S]*?)::done::/) || [])[1] || '';
+                    const lnOk = /ln-rc=0/.test(lnBlk);
+                    const isSymlink = /^l/.test(statBlk.trim());        // ls -la shows 'l…' for symlink
+                    let rep = '';
+                    rep += D+'── ln status .l2s-probe ──'+X+'\r\n'+lnBlk.trim()+'\r\n';
+                    rep += D+'── ls -la .l2s-probe ──'+X+'\r\n'+statBlk.trim()+'\r\n';
+                    rep += D+'── dpkg --version ──'+X+'\r\n'+verBlk.trim()+'\r\n';
+                    rep += '\r\n';
+                    if (lnOk && isSymlink)
+                        rep += G+'✓ link2symlink WORKS (hardlink became a symlink) — dpkg backup should not EPERM. The earlier failure may be elsewhere; retry: apt-get install -y ca-certificates'+X+'\r\n';
+                    else if (lnOk)
+                        rep += Y+'~ hardlink succeeded as a REAL link — fs supports it; dpkg should work. Retry the install.'+X+'\r\n';
+                    else
+                        rep += R+'✗ hardlink FAILED (link2symlink not intercepting linkat on arm64). This is why dpkg EPERMs on status-old. Needs a newer proot binary (rebuild) OR a guest-side workaround.'+X+'\r\n';
+                    w(rep);
+                  })
+                  .catch(e => { w(R+'[!dpkg-test error] '+(e&&e.message)+X+'\r\n'); });
                 continue;
             }
 
