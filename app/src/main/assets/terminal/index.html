@@ -3387,7 +3387,7 @@ reportTermSize();
       var bin = atob(b64);
       var bytes = new Uint8Array(bin.length);
       for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-      return new TextDecoder('utf-8').decode(bytes);
+      return new TextDecoder('utf-8', { fatal: false }).decode(bytes);
     } catch(_) { return ''; }
   }
   function ptyWriteB64(b64){
@@ -3406,7 +3406,7 @@ reportTermSize();
         // Buffer exceeded cap — flush now to prevent a giant term.write() burst.
         _flushPty();
       }
-    } catch(e){ try{ term.write(b64); }catch(_){} }
+    } catch(e){ /* discard — _b64ToStr failed, don't write raw base64 into xterm */ }
   }
   window.ptyWrite = ptyWriteB64;   // evaluateJavascript fallback path (always defined)
   // Fast PTY-output path (terminal-lag fix). When the app injects the "NexusPty"
