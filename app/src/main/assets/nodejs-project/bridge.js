@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b88-keyboard-apt-mirror';
+const BRIDGE_BUILD = 'b89-old-releases-mirror';
 
 const net   = require('net');
 const http  = require('http');
@@ -5415,18 +5415,19 @@ function openPrintSession() {
                     continue;
                 }
                 // Fix BOTH resolv.conf AND the Ubuntu mirror. mirrors.kernel.org
-                // (the nodejs-mobile rootfs default) is dead — "does not have a
-                // Release file". Rewrite sources.list to use archive.ubuntu.com.
+                // (the nodejs-mobile rootfs default) is dead, AND jammy (22.04)
+                // standard-support ended — archive.ubuntu.com no longer serves
+                // jammy Release files. Use old-releases.ubuntu.com which archives
+                // EOL suites.
                 const fixCmd = [
                     'cat > /etc/apt/sources.list << "SRCEOF"\n' +
-                    'deb http://archive.ubuntu.com/ubuntu jammy main restricted universe multiverse\n' +
-                    'deb http://archive.ubuntu.com/ubuntu jammy-updates main restricted universe multiverse\n' +
-                    'deb http://security.ubuntu.com/ubuntu jammy-security main restricted universe multiverse\n' +
+                    'deb http://old-releases.ubuntu.com/ubuntu jammy main restricted universe multiverse\n' +
+                    'deb http://old-releases.ubuntu.com/ubuntu jammy-updates main restricted universe multiverse\n' +
+                    'deb http://old-releases.ubuntu.com/ubuntu jammy-security main restricted universe multiverse\n' +
                     'SRCEOF',
                     'rm -f /var/lib/apt/lists/partial/* 2>/dev/null',
                     'apt-get clean 2>/dev/null',
-                    'apt-get update -qq 2>&1 | tail -5',
-                    'echo "::update-done::"',
+                    'apt-get update -qq 2>&1 | tail -5; APT_EC=$?; echo "::update-done::"; exit $APT_EC',
                 ].join('\n');
                 w(Y+'!apt-fix-dns: rewriting resolv.conf + sources.list + running apt-get update (up to 120s)…'+X+'\r\n');
                 runProotGuest(['/bin/bash','-lc', fixCmd], 120000)
@@ -5437,7 +5438,7 @@ function openPrintSession() {
                     w(D+'apt-get update:'+X+'\r\n'+updateOut+'\r\n');
                     if (timedOut) w(R+'TIMED OUT — check network connectivity'+X+'\r\n');
                     else if (r.code === 0) w(G+'✓ apt-get update succeeded — apt install should work now'+X+'\r\n');
-                    else w(R+'✗ apt-get update exit='+r.code+X+'\r\n');
+                    else w(R+'✗ apt-get update exit='+r.code+' (see errors above)'+X+'\r\n');
                   })
                   .catch(e => { w(R+'[!apt-fix-dns error] '+e.message+X+'\r\n'); });
                 continue;
@@ -6000,17 +6001,19 @@ function openPrintSession() {
                 const resolvPath = path.join(rp, 'etc', 'resolv.conf');
                 try { fs.unlinkSync(resolvPath); } catch (_) {}
                 fs.writeFileSync(resolvPath, 'nameserver 8.8.8.8\nnameserver 1.1.1.1\n');
-                // Replace dead mirror with archive.ubuntu.com
+                // Replace dead mirror with old-releases.ubuntu.com.
+                // jammy (22.04) standard-support ended → archive.ubuntu.com no
+                // longer serves Release files. old-releases.ubuntu.com archives EOL suites.
                 const srcPath = path.join(rp, 'etc', 'apt', 'sources.list');
                 const goodSources =
-                    'deb http://archive.ubuntu.com/ubuntu jammy main restricted universe multiverse\n' +
-                    'deb http://archive.ubuntu.com/ubuntu jammy-updates main restricted universe multiverse\n' +
-                    'deb http://security.ubuntu.com/ubuntu jammy-security main restricted universe multiverse\n';
+                    'deb http://old-releases.ubuntu.com/ubuntu jammy main restricted universe multiverse\n' +
+                    'deb http://old-releases.ubuntu.com/ubuntu jammy-updates main restricted universe multiverse\n' +
+                    'deb http://old-releases.ubuntu.com/ubuntu jammy-security main restricted universe multiverse\n';
                 let curSrc = '';
                 try { curSrc = fs.readFileSync(srcPath, 'utf8'); } catch (_) {}
-                if (curSrc.includes('mirrors.kernel.org') || curSrc.includes('mirrors.ubuntu.com') || !curSrc.includes('archive.ubuntu.com')) {
+                if (curSrc.includes('mirrors.kernel.org') || curSrc.includes('mirrors.ubuntu.com') || curSrc.includes('archive.ubuntu.com') || !curSrc.includes('old-releases.ubuntu.com')) {
                     fs.writeFileSync(srcPath, goodSources);
-                    log('[ubuntu-pty] sources.list rewritten (dead mirror → archive.ubuntu.com)\n');
+                    log('[ubuntu-pty] sources.list rewritten (dead mirror → old-releases.ubuntu.com)\n');
                 }
             } catch (e) { log('[ubuntu-pty] resolv/apt seed: ' + e.message + '\n'); }
             // MCP for the INTERACTIVE claude: the user types bare `claude`, which gets
