@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b91-dpkg-link2symlink-probe';
+const BRIDGE_BUILD = 'b92-apt-extract-no-dpkg';
 
 const net   = require('net');
 const http  = require('http');
@@ -4394,6 +4394,7 @@ function openPrintSession() {
                     '  \x1b[33m!apt-diagnose\x1b[0m       Diagnose apt in the Ubuntu guest (resolv.conf + apt-get update test)\r\n' +
                     '  \x1b[33m!apt-fix-dns\x1b[0m        Rewrite resolv.conf + run apt-get update to fix apt install\r\n' +
                     '  \x1b[33m!dpkg-test\x1b[0m          Probe why dpkg fails on install (link2symlink/EPERM check)\r\n' +
+                    '  \x1b[33m!apt-extract <pkg>\x1b[0m  Install an apt package WITHOUT dpkg (download + extract; CLI tools)\r\n' +
                     '  \x1b[33m!debug\x1b[0m              Dump model/provider/settings/mcp state for remote debugging\r\n' +
                     '  \x1b[33m!help\x1b[0m               Show this help\r\n' +
                     '  \x1b[33m$ <cmd>\x1b[0m             Run a shell command\r\n\r\n'
@@ -5511,6 +5512,57 @@ function openPrintSession() {
                     w(rep);
                   })
                   .catch(e => { w(R+'[!dpkg-test error] '+(e&&e.message)+X+'\r\n'); });
+                continue;
+            }
+
+            // ── !apt-extract <pkg…> — install apt packages WITHOUT dpkg ─────────
+            // Workaround for the proot link2symlink/linkat gap that makes normal
+            // `apt install` fail at dpkg's status-old hardlink backup (see !dpkg-test).
+            // apt-get -d only DOWNLOADS .debs (no unpack/configure → no dpkg, no
+            // hardlink); dpkg-deb -x is the pure archive extractor (no status DB).
+            // So the package's FILES land in the rootfs and CLI binaries work
+            // immediately. Caveat: maintainer scripts (postinst) do NOT run, so
+            // services / generated config / alternatives aren't set up — fine for
+            // plain CLI tools (git, ripgrep, jq, build tools), not for daemons.
+            if (line.startsWith('!apt-extract')) {
+                const w = (s) => { try { if (state.socket) state.socket.write(SYS_FENCE + s); } catch(_) {} };
+                const G='\x1b[32m', Y='\x1b[33m', R='\x1b[31m', D='\x1b[2m', X='\x1b[0m';
+                const raw = line.slice('!apt-extract'.length).trim();
+                if (!raw) { w(R+'usage: !apt-extract <pkg> [pkg2 …]   e.g. !apt-extract ripgrep'+X+'\r\n'); continue; }
+                const safe = raw.replace(/[^a-zA-Z0-9 ._+-]/g, '').trim();  // shell-safe pkg names
+                if (!safe) { w(R+'!apt-extract: no valid package names'+X+'\r\n'); continue; }
+                const cmd = [
+                    'set +e',
+                    'apt-get clean 2>/dev/null',                 // archives = ONLY this request's debs
+                    'echo "::download::"',
+                    'apt-get install -y -d ' + safe + ' 2>&1 | tail -12; DL=$?',
+                    'echo "::extract::"',
+                    'cd /var/cache/apt/archives 2>/dev/null || { echo "no archives dir"; exit 1; }',
+                    'n=0; for f in *.deb; do [ -f "$f" ] || continue; if dpkg-deb -x "$f" / 2>/dev/null; then n=$((n+1)); fi; done',
+                    'echo "extracted $n package file(s) into the rootfs"',
+                    'ldconfig 2>/dev/null',
+                    'echo "::verify::"',
+                    'for p in ' + safe + '; do if command -v "$p" >/dev/null 2>&1; then echo "  $p -> $(command -v "$p")"; else echo "  $p (installed, but no same-named binary on PATH — check the package)"; fi; done',
+                    'echo "::done::"; exit $DL',
+                ].join('\n');
+                w(Y+'!apt-extract: download-only + dpkg-deb -x (bypasses the dpkg hardlink bug) — up to 180s…'+X+'\r\n');
+                runProotGuest(['/bin/bash','-lc', cmd], 180000)
+                  .then(r => {
+                    const out = r.out || '';
+                    const dl = (out.match(/::download::\n([\s\S]*?)::extract::/) || [])[1] || '';
+                    const ex = (out.match(/::extract::\n([\s\S]*?)::verify::/) || [])[1] || '';
+                    const vf = (out.match(/::verify::\n([\s\S]*?)::done::/) || [])[1] || '';
+                    const timedOut = /\[timeout \d+ms\]/.test(out) || r.code === null;
+                    let rep = '';
+                    rep += D+'── download ──'+X+'\r\n'+dl.trim()+'\r\n';
+                    rep += D+'── extract ──'+X+'\r\n'+ex.trim()+'\r\n';
+                    rep += D+'── on PATH ──'+X+'\r\n'+vf.trim()+'\r\n';
+                    if (timedOut) rep += R+'TIMED OUT — big download? retry, or use !install for curated tools'+X+'\r\n';
+                    else if (r.code === 0) rep += G+'✓ done (no maintainer scripts ran — CLI tools work; daemons/config may need more)'+X+'\r\n';
+                    else rep += R+'✗ download exit='+r.code+' — package not found or net error (try !apt-fix-dns first)'+X+'\r\n';
+                    w(rep);
+                  })
+                  .catch(e => { w(R+'[!apt-extract error] '+(e&&e.message)+X+'\r\n'); });
                 continue;
             }
 
