@@ -3383,12 +3383,16 @@ reportTermSize();
   // Decode through Uint8Array + TextDecoder so every byte sequence resolves
   // correctly to Unicode code points before reaching term.write / xterm.js.
   function _b64ToStr(b64) {
+    var bytes;
     try {
       var bin = atob(b64);
-      var bytes = new Uint8Array(bin.length);
+      bytes = new Uint8Array(bin.length);
       for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-      return new TextDecoder('utf-8', { fatal: false }).decode(bytes);
     } catch(_) { return ''; }
+    // non-fatal: PTY traffic contains binary escape sequences, half-written CSI
+    // chunks, and non-ASCII bytes — all valid terminal output. Replace invalid
+    // sequences with U+FFFD instead of throwing.
+    return new TextDecoder('utf-8', { fatal: false }).decode(bytes);
   }
   function ptyWriteB64(b64){
     initTerm();
@@ -3399,14 +3403,11 @@ reportTermSize();
       if (!_ptyCoalescePending) {
         _ptyCoalescePending = true;
         requestAnimationFrame(_flushPty);
-        // Fallback timer: if the tab is backgrounded (rAF throttles to ~1s),
-        // this ensures PTY output still arrives promptly.
         _ptyCoalesceTimer = setTimeout(_flushPty, 50);
       } else if (_ptyCoalesceStr.length > _PTY_COALESCE_MAX) {
-        // Buffer exceeded cap — flush now to prevent a giant term.write() burst.
         _flushPty();
       }
-    } catch(e){ /* discard — _b64ToStr failed, don't write raw base64 into xterm */ }
+    } catch(_){ /* discard — don't write raw base64 into xterm */ }
   }
   window.ptyWrite = ptyWriteB64;   // evaluateJavascript fallback path (always defined)
   // Fast PTY-output path (terminal-lag fix). When the app injects the "NexusPty"
