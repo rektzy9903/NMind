@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b101-kiro-tools';
+const BRIDGE_BUILD = 'b102-kiro-probe-tool';
 
 const net   = require('net');
 const http  = require('http');
@@ -5826,6 +5826,50 @@ function openPrintSession() {
                     w((okText && okTool && okStop) ? '\x1b[32m✓ engine present & working — hotload OK\x1b[0m\r\n' : '\x1b[31m✗ engine missing/broken — re-run !hotload\x1b[0m\r\n');
                     continue;
                 }
+                // !kiro probe-tool — verify AGENTIC turns: send a real request WITH a
+                // tool definition + a prompt that should trigger it; report whether Kiro
+                // returns a tool_use. Proves the tool wiring works live (before rebuild).
+                if (rest.startsWith('probe-tool')) {
+                    let arg = rest.slice('probe-tool'.length).trim();
+                    let model = 'auto';
+                    if (arg && arg[0] !== '{') { const sp = arg.indexOf(' '); if (sp > 0) { model = arg.slice(0, sp); arg = arg.slice(sp + 1).trim(); } else { model = arg; arg = ''; } }
+                    if (!arg) { try { arg = fs.readFileSync(KIRO_CREDS_FILE, 'utf8'); } catch (_) {} }
+                    const creds = KIRO.parseCreds(arg);
+                    if (!creds || (!creds.accessToken && !creds.refreshToken)) { w('\x1b[31m✗ no creds — run \x1b[1m!kiro login\x1b[0m\x1b[31m first\x1b[0m\r\n'); continue; }
+                    w('\x1b[2mauthenticating…\x1b[0m\r\n');
+                    KIRO.getAccessToken(creds, (err, at) => {
+                        if (err) { w('\x1b[31m✗ auth: ' + err.message + '\x1b[0m\r\n'); return; }
+                        const https = require('https');
+                        const anthReq = {
+                            system: 'You are a tool-using assistant. When asked to run a command, call the run_command tool — do not answer in text.',
+                            tools: [{ name: 'run_command', description: 'Run a shell command and return its output', input_schema: { type: 'object', properties: { command: { type: 'string', description: 'the shell command' } }, required: ['command'] } }],
+                            messages: [{ role: 'user', content: 'List the files in the current directory. Use the run_command tool.' }],
+                        };
+                        const payload = JSON.stringify(KIRO.anthToKiro(anthReq, model));
+                        const u = new URL('https://' + KIRO.CODEWHISPERER_HOST + '/generateAssistantResponse');
+                        w('\x1b[2mPOST ' + u.hostname + ' (with run_command tool) model=' + model + '…\x1b[0m\r\n');
+                        const req = https.request({ hostname: u.hostname, port: 443, path: u.pathname, method: 'POST', headers: {
+                            'Content-Type': 'application/json', 'Accept': 'application/vnd.amazon.eventstream',
+                            'X-Amz-Target': 'AmazonCodeWhispererStreamingService.GenerateAssistantResponse',
+                            'User-Agent': 'AWS-SDK-JS/3.0.0 kiro-ide/1.0.0', 'X-Amz-User-Agent': 'aws-sdk-js/3.0.0 kiro-ide/1.0.0',
+                            'Authorization': 'Bearer ' + at, 'Content-Length': Buffer.byteLength(payload) } }, r => {
+                            const code = r.statusCode || 0;
+                            if (code !== 200) { let e = ''; r.on('data', c => e += c); r.on('end', () => w('\x1b[31m✗ upstream ' + code + ': ' + e.slice(0, 400) + '\x1b[0m\r\n')); return; }
+                            let txt = ''; let toolCall = null;
+                            const acc = { text: t => txt += t, tool: (id, n, input) => { toolCall = { n, input }; }, stop: () => {} };
+                            const asm = KIRO.makeFrameAssembler(ev => KIRO.applyFrame(ev, acc));
+                            r.on('data', c => { try { asm(c); } catch (_) {} });
+                            r.on('end', () => {
+                                if (toolCall) w('\x1b[32m✓ AGENTIC WORKS — Kiro called tool:\x1b[0m ' + toolCall.n + '(' + JSON.stringify(toolCall.input) + ')\r\n\x1b[2mTool wiring is live — claude-code Bash/Read/Write will drive on Kiro.\x1b[0m\r\n');
+                                else w('\x1b[33m⚠ no tool_use — Kiro replied in text:\x1b[0m ' + (txt.trim().slice(0, 200) || '(empty)') + '\r\n\x1b[2mEither the model chose not to call, or tools aren\x27t reaching it. Re-run; if persistent, the tool shape needs tuning.\x1b[0m\r\n');
+                            });
+                            r.on('error', e => w('\x1b[31m✗ stream: ' + e.message + '\x1b[0m\r\n'));
+                        });
+                        req.on('error', e => w('\x1b[31m✗ request: ' + e.message + '\x1b[0m\r\n'));
+                        req.write(payload); req.end();
+                    });
+                    continue;
+                }
                 if (rest.startsWith('probe')) {
                     let arg = rest.slice('probe'.length).trim();
                     let model = 'auto';
@@ -5861,7 +5905,8 @@ function openPrintSession() {
                 w('\x1b[1mKiro test harness\x1b[0m (hotload-only, no rebuild)\r\n' +
                   '\x1b[2m!kiro login                        AWS Builder ID login in your browser (mobile OK)\r\n' +
                   '!kiro selftest                     run the codec pipeline in-bridge (no creds)\r\n' +
-                  '!kiro probe [model] [credsJSON]    real CodeWhisperer call (uses login creds if omitted)\x1b[0m\r\n');
+                  '!kiro probe [model] [credsJSON]    real CodeWhisperer call (uses login creds if omitted)\r\n' +
+                  '!kiro probe-tool [model]           verify AGENTIC: does Kiro return a tool_use?\x1b[0m\r\n');
                 continue;
             }
 
