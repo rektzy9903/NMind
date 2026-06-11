@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b108-usage-meter';
+const BRIDGE_BUILD = 'b109-imggen-probe';
 
 const net   = require('net');
 const http  = require('http');
@@ -5896,6 +5896,94 @@ function openPrintSession() {
                 if (!shown) out += '\x1b[2m(nothing yet — send a message through a proxy provider, then re-run)\x1b[0m\r\n';
                 out += '\x1b[2m!usage all = all-time · !usage clear = reset\x1b[0m\r\n';
                 w(out); continue;
+            }
+            // !imggen <provider> <prompt> — image-gen probe (Phase 0). Verifies a free
+            // image route returns real image bytes before we build the Image Studio UI.
+            // Hotload-only; saves the result so it can be opened in Gallery/Files.
+            if (line === '!imggen' || line.startsWith('!imggen ')) {
+                const w = (s) => { try { if (state.socket) state.socket.write(SYS_FENCE + s); } catch(_) {} };
+                const rest = line.slice('!imggen'.length).trim();
+                const sp = rest.indexOf(' ');
+                const sub = (sp === -1 ? rest : rest.slice(0, sp)).toLowerCase();
+                let prompt = sp === -1 ? '' : rest.slice(sp + 1).trim();
+                const https = require('https');
+
+                function sniffType(b) {
+                    if (b.length >= 4 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return 'png';
+                    if (b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return 'jpeg';
+                    if (b.length >= 4 && b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46) return 'gif';
+                    if (b.length >= 12 && b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50) return 'webp';
+                    return '';
+                }
+                function saveAndReport(buf, provider) {
+                    const type = sniffType(buf);
+                    if (!type) { w('\x1b[31m✗ ' + provider + ': not an image (' + buf.length + ' bytes). Head:\x1b[0m\r\n' + buf.toString('utf8').slice(0, 200) + '\r\n'); return; }
+                    let out = '';
+                    try { fs.mkdirSync('/sdcard/Pictures/NexusMind', { recursive: true }); out = '/sdcard/Pictures/NexusMind/imggen_' + provider + '.' + type; fs.writeFileSync(out, buf); }
+                    catch (_) { try { out = path.join(FILES_DIR, 'imggen_' + provider + '.' + type); fs.writeFileSync(out, buf); } catch (e) { out = ''; } }
+                    w('\x1b[32m✓ ' + provider + ' returned a ' + type.toUpperCase() + ' image — ' + (buf.length / 1024).toFixed(1) + ' KB\x1b[0m\r\n' +
+                      (out ? '\x1b[2msaved: ' + out + '  (open in Gallery/Files to confirm)\x1b[0m\r\n' : '\x1b[33m(could not save to disk)\x1b[0m\r\n'));
+                }
+                function getBinary(opts, body, cb, redirs) {
+                    redirs = redirs || 0;
+                    const req = https.request(opts, r => {
+                        const code = r.statusCode || 0;
+                        if (code >= 300 && code < 400 && r.headers.location && redirs < 4) {
+                            r.resume();
+                            try { const n = new URL(r.headers.location, 'https://' + opts.hostname);
+                                return getBinary({ hostname: n.hostname, path: n.pathname + n.search, port: 443, method: 'GET', headers: opts.headers }, null, cb, redirs + 1);
+                            } catch (e) { return cb(e); }
+                        }
+                        const chunks = []; r.on('data', c => chunks.push(c)); r.on('end', () => cb(null, code, Buffer.concat(chunks)));
+                    });
+                    req.on('error', e => cb(e));
+                    req.setTimeout(60000, () => { try { req.destroy(new Error('timeout (60s)')); } catch (_) {} });
+                    if (body) req.write(body);
+                    req.end();
+                }
+
+                if (sub === 'pollinations') {
+                    if (!prompt) prompt = 'a red apple on a wooden table, photorealistic';
+                    const u = new URL('https://image.pollinations.ai/prompt/' + encodeURIComponent(prompt));
+                    u.searchParams.set('width', '512'); u.searchParams.set('height', '512');
+                    u.searchParams.set('nologo', 'true'); u.searchParams.set('model', 'flux');
+                    w('\x1b[2mGET image.pollinations.ai (keyless) "' + prompt.slice(0, 60) + '" … (image gen can take ~10-20s)\x1b[0m\r\n');
+                    getBinary({ hostname: u.hostname, path: u.pathname + u.search, port: 443, method: 'GET', headers: { 'User-Agent': 'NexusMind/1.0' } }, null, (e, code, buf) => {
+                        if (e) { w('\x1b[31m✗ pollinations: ' + e.message + '\x1b[0m\r\n'); return; }
+                        if (code !== 200) { w('\x1b[31m✗ pollinations HTTP ' + code + ': ' + buf.toString('utf8').slice(0, 200) + '\x1b[0m\r\n'); return; }
+                        saveAndReport(buf, 'pollinations');
+                    });
+                    continue;
+                }
+
+                if (sub === 'gemini') {
+                    let apiKey = '';
+                    const m = prompt.match(/\s+(AIza[\w-]{20,})\s*$/);
+                    if (m) { apiKey = m[1]; prompt = prompt.slice(0, m.index).trim(); }
+                    if (!apiKey) { try { const cfg = readConfig(); if ((cfg.providerUrl || '').includes('generativelanguage')) apiKey = cfg.apiKey || ''; } catch (_) {} }
+                    if (!apiKey) { w('\x1b[31m✗ gemini: need a key — !imggen gemini <prompt> AIza...  (or configure Gemini provider first)\x1b[0m\r\n'); continue; }
+                    if (!prompt) prompt = 'a red apple on a wooden table, photorealistic';
+                    const model = 'gemini-2.5-flash-image';
+                    const body = JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { responseModalities: ['TEXT', 'IMAGE'] } });
+                    const u = new URL('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + apiKey);
+                    w('\x1b[2mPOST generativelanguage.googleapis.com ' + model + ' "' + prompt.slice(0, 60) + '" …\x1b[0m\r\n');
+                    getBinary({ hostname: u.hostname, path: u.pathname + u.search, port: 443, method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) } }, body, (e, code, buf) => {
+                        if (e) { w('\x1b[31m✗ gemini: ' + e.message + '\x1b[0m\r\n'); return; }
+                        const txt = buf.toString('utf8');
+                        if (code !== 200) { w('\x1b[31m✗ gemini HTTP ' + code + ': ' + txt.slice(0, 300) + '\x1b[0m\r\n'); return; }
+                        let j; try { j = JSON.parse(txt); } catch (_) { w('\x1b[31m✗ gemini: bad JSON\x1b[0m\r\n'); return; }
+                        const parts = (((j.candidates || [])[0] || {}).content || {}).parts || [];
+                        const imgPart = parts.find(p => p.inlineData && p.inlineData.data);
+                        if (!imgPart) { w('\x1b[33m⚠ gemini 200 but no image part. Try model gemini-2.5-flash-image. Parts: ' + JSON.stringify(parts).slice(0, 200) + '\x1b[0m\r\n'); return; }
+                        saveAndReport(Buffer.from(imgPart.inlineData.data, 'base64'), 'gemini');
+                    });
+                    continue;
+                }
+
+                w('\x1b[1mImage-gen probe\x1b[0m \x1b[2m(hotload-only — verifies a free image route works)\r\n' +
+                  '!imggen pollinations <prompt>        keyless free image (FLUX) — zero setup\r\n' +
+                  '!imggen gemini <prompt> [AIza-key]   Gemini image model (free AI Studio tier)\x1b[0m\r\n');
+                continue;
             }
             if (line.startsWith('!kiro')) {
                 const w = (s) => { try { if (state.socket) state.socket.write(SYS_FENCE + s); } catch(_) {} };
