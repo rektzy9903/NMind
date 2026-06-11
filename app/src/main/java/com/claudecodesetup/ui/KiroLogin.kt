@@ -95,12 +95,14 @@ object KiroLogin {
             val (code, j) = post(TOKEN, body)
             val at = j?.optString("accessToken") ?: ""
             if (at.isNotEmpty()) {
+                val expIn = j.optInt("expiresIn", 900)
                 return@withContext JSONObject()
                     .put("accessToken", at)
                     .put("refreshToken", j.optString("refreshToken"))
                     .put("clientId", a.clientId)
                     .put("clientSecret", a.clientSecret)
-                    .put("expiresIn", j.optInt("expiresIn", 900))
+                    .put("expiresIn", expIn)
+                    .put("expiresAt", System.currentTimeMillis() + expIn * 1000L)
                     .toString()
             }
             when (j?.optString("error") ?: "") {

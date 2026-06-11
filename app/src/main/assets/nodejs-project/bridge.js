@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b106-kiro-vision';
+const BRIDGE_BUILD = 'b107-kiro-token-refresh';
 
 const net   = require('net');
 const http  = require('http');
@@ -1287,10 +1287,16 @@ const KIRO = (function () {
         const rt = creds.refreshToken || '';
         const cached = rt && tokenCache.get(rt);
         if (cached && cached.exp > Date.now() + 30000) return cb(null, cached.accessToken);
-        // If the pasted creds carry an accessToken and we've never refreshed, try it first.
-        if (creds.accessToken && !cached) return cb(null, creds.accessToken);
-        if (!rt) return cb(new Error('Kiro access token expired and no refreshToken to renew'));
-        refreshToken(creds, cb);
+        // Trust a saved/pasted accessToken ONLY while we can prove it's unexpired
+        // (creds.expiresAt = absolute ms, written at login). CodeWhisperer tokens live
+        // ~15 min — without a proven expiry we must NOT reuse it (→ 403 invalid bearer).
+        if (creds.accessToken && creds.expiresAt && creds.expiresAt > Date.now() + 30000) {
+            if (rt) tokenCache.set(rt, { accessToken: creds.accessToken, exp: creds.expiresAt });
+            return cb(null, creds.accessToken);
+        }
+        if (rt) return refreshToken(creds, cb);                 // renew via refresh token
+        if (creds.accessToken) return cb(null, creds.accessToken); // bare token, no rt: last resort
+        return cb(new Error('Kiro access token expired and no refreshToken to renew'));
     }
 
     function refreshToken(creds, cb) {
@@ -5813,7 +5819,8 @@ function openPrintSession() {
                                 if (Date.now() > deadline) { w('\x1b[31m✗ login expired — run !kiro login again\x1b[0m\r\n'); return; }
                                 kpost('https://oidc.us-east-1.amazonaws.com/token', { clientId, clientSecret, deviceCode: d.deviceCode, grantType: 'urn:ietf:params:oauth:grant-type:device_code' }, (e3, c3, t) => {
                                     if (t && (t.accessToken || t.access_token)) {
-                                        const creds = { accessToken: t.accessToken || t.access_token, refreshToken: t.refreshToken || t.refresh_token, clientId, clientSecret, expiresIn: t.expiresIn || t.expires_in };
+                                        const expIn = t.expiresIn || t.expires_in || 900;
+                                        const creds = { accessToken: t.accessToken || t.access_token, refreshToken: t.refreshToken || t.refresh_token, clientId, clientSecret, expiresIn: expIn, expiresAt: Date.now() + expIn * 1000 };
                                         try { fs.writeFileSync(KIRO_CREDS_FILE, JSON.stringify(creds)); } catch (_) {}
                                         w('\x1b[32m✓ logged in — creds saved to kiro_creds.json. Now run: \x1b[1m!kiro probe\x1b[0m\r\n'); return;
                                     }
@@ -5891,7 +5898,12 @@ function openPrintSession() {
                             'User-Agent': 'AWS-SDK-JS/3.0.0 kiro-ide/1.0.0', 'X-Amz-User-Agent': 'aws-sdk-js/3.0.0 kiro-ide/1.0.0',
                             'Authorization': 'Bearer ' + at, 'Content-Length': Buffer.byteLength(payload) } }, r => {
                             const code = r.statusCode || 0;
-                            if (code !== 200) { let e = ''; r.on('data', c => e += c); r.on('end', () => w('\x1b[31m✗ upstream ' + code + ': ' + e.slice(0, 400) + '\x1b[0m\r\n\x1b[33m(400 here = the image wire shape needs tuning — format enum or bytes encoding)\x1b[0m\r\n')); return; }
+                            if (code !== 200) { let e = ''; r.on('data', c => e += c); r.on('end', () => {
+                                const hint = code === 403 ? '(403 = auth, NOT the image — token expired; run !kiro login again, then retry)'
+                                    : code === 400 ? '(400 = the image wire shape needs tuning — format enum or bytes encoding)'
+                                    : '(non-200 — see the message above)';
+                                w('\x1b[31m✗ upstream ' + code + ': ' + e.slice(0, 400) + '\x1b[0m\r\n\x1b[33m' + hint + '\x1b[0m\r\n');
+                            }); return; }
                             let txt = ''; const acc = { text: t => txt += t, toolEvent: () => {}, stop: () => {} };
                             const asm = KIRO.makeFrameAssembler(ev => KIRO.applyFrame(ev, acc));
                             r.on('data', c => { try { asm(c); } catch (_) {} });
