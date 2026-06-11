@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b100-kiro-login';
+const BRIDGE_BUILD = 'b101-kiro-tools';
 
 const net   = require('net');
 const http  = require('http');
@@ -1322,24 +1322,43 @@ const KIRO = (function () {
     }
 
     // ── request: Anthropic (claude-code) → Kiro conversationState ────────────
-    function blockText(content) {
+    function trText(content) {   // join text blocks of a content array (or string)
         if (typeof content === 'string') return content;
         if (!Array.isArray(content)) return '';
-        return content.map(c => {
-            if (c.type === 'text') return c.text || '';
-            if (c.type === 'tool_result') return '[tool_result] ' + blockText(c.content);
-            if (c.type === 'tool_use') return '[tool_use ' + (c.name || '') + '] ' + JSON.stringify(c.input || {});
-            return '';
-        }).filter(Boolean).join('\n');
+        return content.filter(c => c && c.type === 'text').map(c => c.text || '').join('\n');
     }
+    function trToolResultText(c) {
+        return Array.isArray(c.content) ? c.content.map(x => x.text || '').join('\n')
+            : (typeof c.content === 'string' ? c.content : '');
+    }
+    // Anthropic request → Kiro conversationState, WITH tool wiring:
+    //   anthReq.tools[]              → currentMessage…userInputMessageContext.tools[]  ({toolSpecification})
+    //   user  tool_result blocks     → userInputMessageContext.toolResults[]          ({toolUseId,status,content})
+    //   asst  tool_use   blocks      → assistantResponseMessage.toolUses[]            ({toolUseId,name,input})
+    // (shapes mirror 9router openai-to-kiro, adapted from Anthropic input.)
     function anthToKiro(anthReq, model) {
         const sysText = typeof anthReq.system === 'string' ? anthReq.system
             : (Array.isArray(anthReq.system) ? anthReq.system.map(b => b.text || '').join('\n') : '');
         const msgs = anthReq.messages || [];
         const history = [];
         for (const m of msgs) {
-            if (m.role === 'user') history.push({ userInputMessage: { content: blockText(m.content), modelId: model } });
-            else if (m.role === 'assistant') history.push({ assistantResponseMessage: { content: blockText(m.content) } });
+            if (m.role === 'user') {
+                const uim = { content: trText(m.content), modelId: model };
+                if (Array.isArray(m.content)) {
+                    const trs = m.content.filter(c => c && c.type === 'tool_result')
+                        .map(c => ({ toolUseId: c.tool_use_id, status: c.is_error ? 'error' : 'success', content: [{ text: trToolResultText(c) }] }));
+                    if (trs.length) uim.userInputMessageContext = { toolResults: trs };
+                }
+                history.push({ userInputMessage: uim });
+            } else if (m.role === 'assistant') {
+                const arm = { content: trText(m.content) || '...' };
+                if (Array.isArray(m.content)) {
+                    const tus = m.content.filter(c => c && c.type === 'tool_use')
+                        .map(c => ({ toolUseId: c.id, name: c.name, input: c.input || {} }));
+                    if (tus.length) arm.toolUses = tus;
+                }
+                history.push({ assistantResponseMessage: arm });
+            }
         }
         let currentMessage = null;
         for (let i = history.length - 1; i >= 0; i--) {
@@ -1347,6 +1366,21 @@ const KIRO = (function () {
         }
         if (!currentMessage) currentMessage = { userInputMessage: { content: '', modelId: model } };
         if (sysText) currentMessage.userInputMessage.content = sysText + '\n\n' + currentMessage.userInputMessage.content;
+        // Attach the tool catalog to the current turn so Kiro knows what it can call.
+        const tools = Array.isArray(anthReq.tools) ? anthReq.tools : [];
+        if (tools.length) {
+            const uim = currentMessage.userInputMessage;
+            const ctx = uim.userInputMessageContext || (uim.userInputMessageContext = {});
+            ctx.tools = tools.map(t => {
+                const name = t.name;
+                const description = (t.description && t.description.trim()) ? t.description : ('Tool: ' + name);
+                const schema = t.input_schema || {};
+                const normalized = Object.keys(schema).length === 0
+                    ? { type: 'object', properties: {}, required: [] }
+                    : Object.assign({}, schema, { required: schema.required || [] });
+                return { toolSpecification: { name, description, inputSchema: { json: normalized } } };
+            });
+        }
         return {
             conversationState: {
                 chatTriggerType: 'MANUAL',
@@ -2320,7 +2354,10 @@ function handleProxyRequest(anthReq, res) {
     // discovery path; on any failure the interception finishes the stream cleanly,
     // and tool_search calls never leak to claude-code.
     let deferCatalogOai = null;
-    if (getDeferTools() && !pUrl.includes('api.anthropic.com')
+    // Kiro excluded: defer injects a synthetic tool_search that only sendToProvider
+    // intercepts — sendToKiro can't, so a Kiro tool_search call would break. Kiro
+    // gets the full (already-pruned) tool set via anthToKiro instead.
+    if (getDeferTools() && !pUrl.includes('api.anthropic.com') && !pUrl.includes('codewhisperer')
         && Array.isArray(anthReq.tools) && anthReq.tools.length) {
         // Tools already exercised in history → keep them available (no re-search).
         const usedInHistory = new Set();
