@@ -106,13 +106,13 @@ fun Modifier.glowShadow(color: Color, blurRadius: Dp, cornerRadius: Dp): Modifie
 // Glass reskin (feat/glass-ui): the surface/border tokens are now translucent
 // so every card that uses them reads as frosted glass over the AuroraBackground.
 // (Originals: Surface #151518, Surface2 #1E1E22, Border #2A2A30, Border2 #3A3A42.)
-// Base lifted from near-black #0C0C0F → a warm dark so the aurora + frosted
-// glass actually read (the old base was so dark the translucency was invisible).
-val NexusBg      = Color(0xFF151219)
-val NexusSurface = Color(0x1FFFFFFF)   // ~12% white — glass card fill (brightened)
-val NexusSurface2 = Color(0x2EFFFFFF)  // ~18% white — elevated glass
-val NexusBorder  = Color(0x33FFFFFF)   // ~20% white — hairline glass border
-val NexusBorder2 = Color(0x42FFFFFF)   // ~26% white — stronger glass border
+// Frosted amber-milky glass: warm dark base + warm-white (milky) translucent
+// surfaces so cards read as amber-tinted frosted glass over the warm aurora.
+val NexusBg      = Color(0xFF17120D)
+val NexusSurface = Color(0x1FFFF1E2)   // ~12% warm-white — milky glass card fill
+val NexusSurface2 = Color(0x30FFF1E2)  // ~19% warm-white — elevated milky glass
+val NexusBorder  = Color(0x33FFFFFF)   // bright glass edge
+val NexusBorder2 = Color(0x4DFFFFFF)   // stronger glass edge
 // Overlay glass — for surfaces that float OVER live content (bottom sheets,
 // dialogs, dropdowns). Near-opaque dark so content behind can't bleed through
 // and text stays readable; the ~10% translucency keeps a faint frosted edge.
@@ -140,17 +140,18 @@ fun AppBackground(content: @Composable () -> Unit) = AuroraBackground(content)
 // behind a panel (terminal/dungeon WebViews — free CSS blur there).
 
 // Warm, brand-led aurora hues (no purple/cyan, per the design system).
+// Amber-milky aurora — all warm hues (no cool tones) so the whole app glows amber.
 private val AuroraAmber = Color(0xFFE8834A)
-private val AuroraPink  = Color(0xFFF472B6)
-private val AuroraBlue  = Color(0xFF60A5FA)
-private val AuroraTeal  = Color(0xFF2DD4BF)
+private val AuroraPink  = Color(0xFFF2924A)   // warm coral
+private val AuroraBlue  = Color(0xFFF2B85A)   // gold
+private val AuroraTeal  = Color(0xFFE0A050)   // warm amber-gold
 
 // Glass surface tokens
-val GlassFill        = Color(0x1AFFFFFF)   // white @ 10% — card fill (brightened)
-val GlassFillStrong  = Color(0x29FFFFFF)   // white @ 16% — icon tiles / pills
-val GlassStroke      = Color(0x33FFFFFF)   // white @ 20% — default border
-val GlassStroke2     = Color(0x47FFFFFF)   // white @ 28% — stronger border
-val GlassSheen       = Color(0x21FFFFFF)   // white @ 13% — top-left highlight
+val GlassFill        = Color(0x1FFFF1E2)   // warm-white @ ~12% — milky card fill
+val GlassFillStrong  = Color(0x33FFF1E2)   // warm-white @ ~20% — milky tiles / pills
+val GlassStroke      = Color(0x33FFFFFF)   // bright glass edge
+val GlassStroke2     = Color(0x4DFFFFFF)   // stronger glass edge
+val GlassSheen       = Color(0x26FFF8EE)   // warm top-left highlight
 
 /** Full-screen animated aurora over the base background. Drop-in replacement
  *  for [AppBackground] on glass screens. */

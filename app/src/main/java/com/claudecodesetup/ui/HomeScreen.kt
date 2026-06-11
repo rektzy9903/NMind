@@ -86,14 +86,11 @@ fun HomeScreen(
             // breathing core. Sized to fill the tile properly.
             Box(
                 modifier = Modifier
-                    .size(76.dp)
-                    .glowShadow(Color(0x40E8834A), 24.dp, 20.dp)
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(GlassFillStrong)
-                    .border(1.dp, GlassStroke2, RoundedCornerShape(20.dp)),
+                    .size(80.dp)
+                    .glowShadow(Color(0x4DE8834A), 26.dp, 22.dp),
                 contentAlignment = Alignment.Center
             ) {
-                ConvergenceLogo(modifier = Modifier.size(70.dp))
+                ConvergenceLogo(modifier = Modifier.size(80.dp))
             }
 
             Spacer(Modifier.height(16.dp))
@@ -174,7 +171,7 @@ fun HomeScreen(
                     subtitle = "Start a conversation with AI",
                     accentColor = NexusAccent,
                     onClick = onChatBox,
-                    iconContent = { ChatBoxIcon() }
+                    iconContent = { GlassIcon(Modifier.size(54.dp), Color(0x66E8834A), IconTerminal) }
                 )
             }
 
@@ -190,7 +187,7 @@ fun HomeScreen(
                     subtitle = "Chat directly with any model — no tools",
                     accentColor = NexusBlue,
                     onClick = onQuickAsk,
-                    iconContent = { QuickAskIcon() }
+                    iconContent = { GlassIcon(Modifier.size(54.dp), Color(0x66FF9A6A), IconQuickAsk) }
                 )
             }
 
@@ -206,7 +203,7 @@ fun HomeScreen(
                     subtitle = "Have 2–4 models debate a topic",
                     accentColor = NexusAmber,
                     onClick = onDiscussion,
-                    iconContent = { DiscussionIcon() }
+                    iconContent = { GlassIcon(Modifier.size(54.dp), Color(0x66E8834A), IconDiscussion) }
                 )
             }
 
@@ -222,7 +219,7 @@ fun HomeScreen(
                     subtitle = "Your project as a D&D map — hunt bugs, dispatch heroes",
                     accentColor = Color(0xFF7C5CBF),
                     onClick = onDungeon,
-                    iconContent = { DungeonIcon() }
+                    iconContent = { GlassIcon(Modifier.size(54.dp), Color(0x66E8834A), IconDungeon) }
                 )
             }
 
@@ -238,7 +235,7 @@ fun HomeScreen(
                     subtitle = "Check if the free AI model is responding",
                     accentColor = NexusBlue,
                     onClick = onTesting,
-                    iconContent = { TestingIcon() }
+                    iconContent = { GlassIcon(Modifier.size(54.dp), Color(0x66FF9A6A), IconTesting) }
                 )
             }
 
@@ -254,7 +251,7 @@ fun HomeScreen(
                     subtitle = "Manage your preferences & app options",
                     accentColor = Color(0xFF9575CD),
                     onClick = onSettings,
-                    iconContent = { SettingsIcon() }
+                    iconContent = { GlassIcon(Modifier.size(54.dp), Color(0x66E8834A), IconSettings) }
                 )
             }
 
