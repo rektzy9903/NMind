@@ -15,9 +15,16 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
+import android.content.Intent
+import android.net.Uri
+import kotlinx.coroutines.Job
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -177,7 +184,77 @@ fun ApiKeyScreen(provider: Provider, onSuccess: (String) -> Unit, onBack: () -> 
     var errorMessage by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
 
+    // Kiro device-code login state (provider.id == "kiro")
+    val isKiro = provider.id == "kiro"
+    var kiroAuth by remember { mutableStateOf<KiroLogin.DeviceAuth?>(null) }
+    var kiroJob by remember { mutableStateOf<Job?>(null) }
+    val clipboard = LocalClipboardManager.current
+
+    fun startKiroLogin() {
+        status = KeyStatus.IDLE
+        kiroJob = scope.launch {
+            try {
+                val auth = KiroLogin.begin()
+                kiroAuth = auth
+                runCatching {
+                    context.startActivity(
+                        Intent(Intent.ACTION_VIEW, Uri.parse(auth.verificationUriComplete))
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    )
+                }
+                val creds = KiroLogin.poll(auth)
+                kiroAuth = null
+                status = KeyStatus.SUCCESS
+                delay(500)
+                onSuccess(creds)
+            } catch (e: Exception) {
+                kiroAuth = null
+                status = KeyStatus.ERROR
+                errorMessage = e.message ?: "Kiro login failed"
+            }
+        }
+    }
+
     val (accentColor, _) = providerDisplayInfo(provider.id)
+
+    // Kiro device-code approval dialog — shows the user code + opens the browser; polls in bg.
+    kiroAuth?.let { auth ->
+        AlertDialog(
+            onDismissRequest = { kiroJob?.cancel(); kiroAuth = null; status = KeyStatus.IDLE },
+            containerColor = NexusSurface,
+            titleContentColor = Color.White,
+            textContentColor = NexusText2,
+            title = { Text("Approve in your browser", fontFamily = DmSansFamily, fontWeight = FontWeight.Bold, color = Color.White) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("1. A browser opened to AWS — sign in with a free AWS Builder ID.",
+                        fontFamily = DmSansFamily, fontSize = 13.sp, color = NexusText2)
+                    Text("2. Confirm this code matches, then approve:",
+                        fontFamily = DmSansFamily, fontSize = 13.sp, color = NexusText2)
+                    Text(auth.userCode, fontFamily = SpaceMonoFamily, fontSize = 22.sp,
+                        fontWeight = FontWeight.Bold, color = NexusAccent,
+                        modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        CircularProgressIndicator(Modifier.size(14.dp), color = NexusAccent, strokeWidth = 2.dp)
+                        Text("Waiting for approval…", fontFamily = DmSansFamily, fontSize = 12.sp, color = NexusText3)
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    runCatching {
+                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(auth.verificationUriComplete))
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                    }
+                }) { Text("Open browser", color = NexusAccent) }
+            },
+            dismissButton = {
+                TextButton(onClick = { clipboard.setText(AnnotatedString(auth.userCode)) }) {
+                    Text("Copy code", color = NexusText2)
+                }
+            }
+        )
+    }
 
     var entered by remember { mutableStateOf(false) }
     val entryAlpha by animateFloatAsState(if (entered) 1f else 0f,
@@ -340,6 +417,25 @@ fun ApiKeyScreen(provider: Provider, onSuccess: (String) -> Unit, onBack: () -> 
                                 fontFamily = DmSansFamily, fontSize = 12.sp,
                                 color = NexusText3, textAlign = TextAlign.Center
                             )
+                        }
+
+                        if (isKiro) {
+                            // Login with Kiro (AWS Builder ID, browser) — the recommended path.
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(50.dp)
+                                    .glowShadow(NexusAccent.copy(alpha = 0.30f), 12.dp, 13.dp)
+                                    .background(Brush.linearGradient(listOf(NexusAccent, Color(0xFFC4632A))), RoundedCornerShape(13.dp))
+                                    .clickable(enabled = status != KeyStatus.LOADING && status != KeyStatus.SUCCESS) { startKiroLogin() },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("Login with Kiro (browser)", fontFamily = DmSansFamily, fontSize = 15.sp,
+                                    fontWeight = FontWeight.SemiBold, color = Color.White)
+                            }
+                            Text("or paste your Kiro credentials JSON below",
+                                fontFamily = DmSansFamily, fontSize = 11.sp, color = NexusText3,
+                                textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
                         }
 
                         if (provider.requiresApiKey) {
