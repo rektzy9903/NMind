@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b103-kiro-frame-dump';
+const BRIDGE_BUILD = 'b104-kiro-tool-stream';
 
 const net   = require('net');
 const http  = require('http');
@@ -1436,7 +1436,7 @@ const KIRO = (function () {
 
     // ── Anthropic SSE emitter (block lifecycle, unique indices) ──────────────
     function makeAnthEmitter(write, model) {
-        let started = false, openType = null, curIdx = -1, nextIdx = 0, sawTool = false;
+        let started = false, openType = null, curIdx = -1, nextIdx = 0, sawTool = false, curToolId = null;
         const ev = (name, data) => write('event: ' + name + '\ndata: ' + JSON.stringify(data) + '\n\n');
         function ensureStart() {
             if (started) return; started = true;
@@ -1451,10 +1451,21 @@ const KIRO = (function () {
                     ev('content_block_start', { type: 'content_block_start', index: curIdx, content_block: { type: 'text', text: '' } }); }
                 ev('content_block_delta', { type: 'content_block_delta', index: curIdx, delta: { type: 'text_delta', text: t } });
             },
-            tool(id, name, input) {
-                ensureStart(); closeBlock(); curIdx = nextIdx++; openType = 'tool'; sawTool = true;
-                ev('content_block_start', { type: 'content_block_start', index: curIdx, content_block: { type: 'tool_use', id: id || ('call_' + curIdx), name: name || '', input: {} } });
-                ev('content_block_delta', { type: 'content_block_delta', index: curIdx, delta: { type: 'input_json_delta', partial_json: JSON.stringify(input || {}) } });
+            // Kiro streams a tool call as multiple toolUseEvents sharing a toolUseId:
+            //   {name,id} → start  ;  {input:"<frag>",…} → partial-JSON fragments  ;  {stop:true} → end
+            // Map start → content_block_start(tool_use), each fragment → input_json_delta.
+            // claude-code reassembles the partial_json natively. Accepts a string fragment
+            // (real Kiro) OR an object (synthetic/selftest → stringified once).
+            toolEvent(tu) {
+                ensureStart();
+                if (tu.toolUseId && tu.toolUseId !== curToolId) {
+                    closeBlock(); curIdx = nextIdx++; openType = 'tool'; sawTool = true; curToolId = tu.toolUseId;
+                    ev('content_block_start', { type: 'content_block_start', index: curIdx, content_block: { type: 'tool_use', id: tu.toolUseId, name: tu.name || '', input: {} } });
+                }
+                if (tu.input != null) {
+                    const frag = (typeof tu.input === 'string') ? tu.input : JSON.stringify(tu.input);
+                    if (frag) ev('content_block_delta', { type: 'content_block_delta', index: curIdx, delta: { type: 'input_json_delta', partial_json: frag } });
+                }
             },
             done() {
                 ensureStart(); closeBlock();
@@ -1474,7 +1485,8 @@ const KIRO = (function () {
             if (text) sink.text(text);
         } else if (t === 'toolUseEvent' || d.toolUseEvent) {
             const tu = d.toolUseEvent || d;
-            sink.tool(tu.toolUseId, tu.name, tu.input);
+            if (sink.toolEvent) sink.toolEvent(tu);
+            else if (sink.tool) sink.tool(tu.toolUseId, tu.name, tu.input);   // legacy accumulators
         } else if (t === 'messageStopEvent' || t === 'done' || d.messageStopEvent) {
             sink.stop && sink.stop();
         }
@@ -1522,17 +1534,22 @@ function sendToKiro(pUrl, apiKey, anthReq, stream, res, cfg) {
                 res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive' });
                 const emitter = KIRO.makeAnthEmitter(s => { try { res.write(s); } catch (_) {} }, model);
                 let stopped = false;
-                const sink = { text: emitter.text, tool: emitter.tool, stop: () => { stopped = true; emitter.done(); } };
+                const sink = { text: emitter.text, toolEvent: emitter.toolEvent, stop: () => { stopped = true; emitter.done(); } };
                 const asm = KIRO.makeFrameAssembler(ev => KIRO.applyFrame(ev, sink));
                 r.on('data', chunk => { try { asm(chunk); } catch (e) { log('[kiro] frame error: ' + e.message + '\n'); } });
                 r.on('end', () => { if (!stopped) emitter.done(); try { res.end(); } catch (_) {} });
                 r.on('error', () => { try { if (!stopped) emitter.done(); res.end(); } catch (_) {} });
             } else {
-                let text = ''; const tools = [];
-                const acc = { text: t => { text += t; }, tool: (id, name, input) => tools.push({ type: 'tool_use', id: id || ('call_' + tools.length), name: name || '', input: input || {} }), stop: () => {} };
+                let text = ''; const toolMap = new Map();   // toolUseId → {id,name,frags}
+                const acc = { text: t => { text += t; }, toolEvent: tu => {
+                    let e = toolMap.get(tu.toolUseId); if (!e) { e = { id: tu.toolUseId || ('call_' + toolMap.size), name: tu.name || '', frags: '' }; toolMap.set(tu.toolUseId, e); }
+                    if (tu.name) e.name = tu.name;
+                    if (tu.input != null) e.frags += (typeof tu.input === 'string') ? tu.input : JSON.stringify(tu.input);
+                }, stop: () => {} };
                 const asm = KIRO.makeFrameAssembler(ev => KIRO.applyFrame(ev, acc));
                 r.on('data', chunk => { try { asm(chunk); } catch (_) {} });
                 r.on('end', () => {
+                    const tools = Array.from(toolMap.values()).map(e => { let input = {}; try { input = JSON.parse(e.frags || '{}'); } catch (_) {} return { type: 'tool_use', id: e.id, name: e.name, input }; });
                     const content = []; if (text) content.push({ type: 'text', text }); for (const t of tools) content.push(t);
                     res.writeHead(200, { 'Content-Type': 'application/json' });
                     res.end(JSON.stringify({ id: 'msg_kiro', type: 'message', role: 'assistant', model, content,
@@ -5806,7 +5823,7 @@ function openPrintSession() {
                     };
                     let sse = '';
                     const em = KIRO.makeAnthEmitter(s => sse += s, 'selftest');
-                    const sink = { text: em.text, tool: em.tool, stop: em.done };
+                    const sink = { text: em.text, toolEvent: em.toolEvent, stop: em.done };
                     const asm = KIRO.makeFrameAssembler(ev => KIRO.applyFrame(ev, sink));
                     const all = Buffer.concat([
                         encFrame('assistantResponseEvent', { content: 'KIRO' }),
@@ -5855,18 +5872,18 @@ function openPrintSession() {
                             'Authorization': 'Bearer ' + at, 'Content-Length': Buffer.byteLength(payload) } }, r => {
                             const code = r.statusCode || 0;
                             if (code !== 200) { let e = ''; r.on('data', c => e += c); r.on('end', () => w('\x1b[31m✗ upstream ' + code + ': ' + e.slice(0, 400) + '\x1b[0m\r\n')); return; }
-                            let txt = ''; let toolCall = null;
-                            const acc = { text: t => txt += t, tool: (id, n, input) => { toolCall = { n, input }; }, stop: () => {} };
-                            // DIAGNOSTIC: dump each raw frame so we see exactly how Kiro streams
-                            // tool input (name vs input fragments vs stop flag) — fix decode from this.
-                            const asm = KIRO.makeFrameAssembler(ev => {
-                                w('\x1b[2m[frame] ' + (ev.headers[':event-type'] || '?') + ': ' + JSON.stringify(ev.payload).slice(0, 240) + '\x1b[0m\r\n');
-                                KIRO.applyFrame(ev, acc);
-                            });
+                            let txt = ''; let toolName = null; let toolFrags = '';
+                            const acc = { text: t => txt += t, toolEvent: tu => { if (tu.name) toolName = tu.name; if (tu.input != null) toolFrags += (typeof tu.input === 'string') ? tu.input : JSON.stringify(tu.input); }, stop: () => {} };
+                            const asm = KIRO.makeFrameAssembler(ev => KIRO.applyFrame(ev, acc));
                             r.on('data', c => { try { asm(c); } catch (_) {} });
                             r.on('end', () => {
-                                if (toolCall) w('\x1b[32m✓ AGENTIC WORKS — Kiro called tool:\x1b[0m ' + toolCall.n + '(' + JSON.stringify(toolCall.input) + ')\r\n\x1b[2mTool wiring is live — claude-code Bash/Read/Write will drive on Kiro.\x1b[0m\r\n');
-                                else w('\x1b[33m⚠ no tool_use — Kiro replied in text:\x1b[0m ' + (txt.trim().slice(0, 200) || '(empty)') + '\r\n\x1b[2mEither the model chose not to call, or tools aren\x27t reaching it. Re-run; if persistent, the tool shape needs tuning.\x1b[0m\r\n');
+                                if (toolName) {
+                                    let parsed = toolFrags; try { parsed = JSON.stringify(JSON.parse(toolFrags || '{}')); } catch (_) {}
+                                    const argsOk = toolFrags && parsed !== '{}';
+                                    w('\x1b[32m✓ AGENTIC WORKS — Kiro called tool:\x1b[0m ' + toolName + '(' + parsed + ')\r\n' +
+                                      (argsOk ? '\x1b[2mArgs decoded ✓ — claude-code Bash/Read/Write will drive on Kiro.\x1b[0m\r\n'
+                                              : '\x1b[33m⚠ args empty/unparseable (frags="' + toolFrags + '") — input decode still needs work.\x1b[0m\r\n'));
+                                } else w('\x1b[33m⚠ no tool_use — Kiro replied in text:\x1b[0m ' + (txt.trim().slice(0, 200) || '(empty)') + '\r\n');
                             });
                             r.on('error', e => w('\x1b[31m✗ stream: ' + e.message + '\x1b[0m\r\n'));
                         });
@@ -5896,7 +5913,7 @@ function openPrintSession() {
                             'Authorization': 'Bearer ' + at, 'Content-Length': Buffer.byteLength(payload) } }, r => {
                             const code = r.statusCode || 0;
                             if (code !== 200) { let e = ''; r.on('data', c => e += c); r.on('end', () => w('\x1b[31m✗ upstream ' + code + ': ' + e.slice(0, 400) + '\x1b[0m\r\n')); return; }
-                            let txt = ''; const acc = { text: t => txt += t, tool: (id, n) => txt += '[tool:' + n + ']', stop: () => {} };
+                            let txt = ''; const acc = { text: t => txt += t, toolEvent: tu => { if (tu.name && tu.input == null && !tu.stop) txt += '[tool:' + tu.name + ']'; }, stop: () => {} };
                             const asm = KIRO.makeFrameAssembler(ev => KIRO.applyFrame(ev, acc));
                             r.on('data', c => { try { asm(c); } catch (_) {} });
                             r.on('end', () => w('\x1b[32m✓ 200 — Kiro replied:\x1b[0m ' + (txt.trim() || '(empty)') + '\r\n\x1b[2mIf you see KIRO_OK, the whole pipeline works live.\x1b[0m\r\n'));
