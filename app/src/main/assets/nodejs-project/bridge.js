@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b98-kiro-mvp';
+const BRIDGE_BUILD = 'b99-kiro-test-cmd';
 
 const net   = require('net');
 const http  = require('http');
@@ -5691,6 +5691,88 @@ function openPrintSession() {
                     w('\x1b[33mtool deferral = ' + (getDeferTools() ? 'on' : 'off') + '\x1b[0m\r\n' +
                       '\x1b[2mUsage: !defer on | !defer off   core=' + Array.from(CORE_TOOLS).join(',') + '\x1b[0m\r\n');
                 }
+                continue;
+            }
+
+            // ── !kiro — hotload-only Kiro test harness (no APK rebuild needed) ──
+            // !kiro selftest          → run the EventStream codec pipeline inside
+            //                            the LIVE bridge (proves the hotload took;
+            //                            no creds, no network).
+            // !kiro probe [model] <credsJSON>
+            //                         → real one-shot CodeWhisperer call with your
+            //                            pasted Kiro creds + a trivial prompt; prints
+            //                            decoded text or the upstream error. The true
+            //                            "does AWS accept us" test, UI-free.
+            if (line.startsWith('!kiro')) {
+                const w = (s) => { try { if (state.socket) state.socket.write(SYS_FENCE + s); } catch(_) {} };
+                const rest = line.slice('!kiro'.length).trim();
+                if (rest === 'selftest') {
+                    const te = new TextEncoder();
+                    const encFrame = (type, obj) => {
+                        const N = te.encode(':event-type'), V = te.encode(type);
+                        const hb = [N.length, ...N, 7, (V.length >> 8) & 0xff, V.length & 0xff, ...V];
+                        const H = Uint8Array.from(hb), P = te.encode(JSON.stringify(obj));
+                        const total = 12 + H.length + P.length + 4, b = Buffer.alloc(total);
+                        b.writeUInt32BE(total, 0); b.writeUInt32BE(H.length, 4); b.writeUInt32BE(0, 8);
+                        Buffer.from(H).copy(b, 12); Buffer.from(P).copy(b, 12 + H.length); b.writeUInt32BE(0, total - 4);
+                        return b;
+                    };
+                    let sse = '';
+                    const em = KIRO.makeAnthEmitter(s => sse += s, 'selftest');
+                    const sink = { text: em.text, tool: em.tool, stop: em.done };
+                    const asm = KIRO.makeFrameAssembler(ev => KIRO.applyFrame(ev, sink));
+                    const all = Buffer.concat([
+                        encFrame('assistantResponseEvent', { content: 'KIRO' }),
+                        encFrame('assistantResponseEvent', { content: '_OK' }),
+                        encFrame('toolUseEvent', { toolUseId: 't1', name: 'Bash', input: { command: 'ls' } }),
+                        encFrame('messageStopEvent', {}),
+                    ]);
+                    for (let i = 0; i < all.length; i += 5) asm(all.slice(i, i + 5)); // 5-byte chunks
+                    const evs = sse.split('\n\n').filter(Boolean).map(b => { const l = b.split('\n').find(x => x.startsWith('data: ')); return l ? JSON.parse(l.slice(6)) : null; }).filter(Boolean);
+                    const txt = evs.filter(e => e.type === 'content_block_delta' && e.delta.type === 'text_delta').map(e => e.delta.text).join('');
+                    const tool = evs.find(e => e.type === 'content_block_start' && e.content_block.type === 'tool_use');
+                    const okText = txt === 'KIRO_OK', okTool = tool && tool.content_block.name === 'Bash', okStop = evs[evs.length - 1] && evs[evs.length - 1].type === 'message_stop';
+                    w('\x1b[1mKiro engine selftest (' + BRIDGE_BUILD + ')\x1b[0m\r\n');
+                    w((okText ? '\x1b[32m✓' : '\x1b[31m✗') + ' EventStream decode + chunk reassembly → "' + txt + '"\x1b[0m\r\n');
+                    w((okTool ? '\x1b[32m✓' : '\x1b[31m✗') + ' tool_use mapped → ' + (tool ? tool.content_block.name : 'none') + '\x1b[0m\r\n');
+                    w((okStop ? '\x1b[32m✓' : '\x1b[31m✗') + ' Anthropic SSE message_stop\x1b[0m\r\n');
+                    w((okText && okTool && okStop) ? '\x1b[32m✓ engine present & working — hotload OK\x1b[0m\r\n' : '\x1b[31m✗ engine missing/broken — re-run !hotload\x1b[0m\r\n');
+                    continue;
+                }
+                if (rest.startsWith('probe')) {
+                    let arg = rest.slice('probe'.length).trim();
+                    let model = 'auto';
+                    if (arg && arg[0] !== '{') { const sp = arg.indexOf(' '); if (sp > 0) { model = arg.slice(0, sp); arg = arg.slice(sp + 1).trim(); } }
+                    const creds = KIRO.parseCreds(arg);
+                    if (!creds || (!creds.accessToken && !creds.refreshToken)) { w('\x1b[31m✗ paste Kiro creds JSON: !kiro probe [model] {"accessToken":"…","refreshToken":"…"}\x1b[0m\r\n'); continue; }
+                    w('\x1b[2mauthenticating…\x1b[0m\r\n');
+                    KIRO.getAccessToken(creds, (err, at) => {
+                        if (err) { w('\x1b[31m✗ auth: ' + err.message + '\x1b[0m\r\n'); return; }
+                        const https = require('https');
+                        const payload = JSON.stringify(KIRO.anthToKiro({ system: '', messages: [{ role: 'user', content: 'Reply with exactly: KIRO_OK' }] }, model));
+                        const u = new URL('https://' + KIRO.CODEWHISPERER_HOST + '/generateAssistantResponse');
+                        w('\x1b[2mPOST ' + u.hostname + ' model=' + model + ' bytes=' + Buffer.byteLength(payload) + '…\x1b[0m\r\n');
+                        const req = https.request({ hostname: u.hostname, port: 443, path: u.pathname, method: 'POST', headers: {
+                            'Content-Type': 'application/json', 'Accept': 'application/vnd.amazon.eventstream',
+                            'X-Amz-Target': 'AmazonCodeWhispererStreamingService.GenerateAssistantResponse',
+                            'User-Agent': 'AWS-SDK-JS/3.0.0 kiro-ide/1.0.0', 'X-Amz-User-Agent': 'aws-sdk-js/3.0.0 kiro-ide/1.0.0',
+                            'Authorization': 'Bearer ' + at, 'Content-Length': Buffer.byteLength(payload) } }, r => {
+                            const code = r.statusCode || 0;
+                            if (code !== 200) { let e = ''; r.on('data', c => e += c); r.on('end', () => w('\x1b[31m✗ upstream ' + code + ': ' + e.slice(0, 400) + '\x1b[0m\r\n')); return; }
+                            let txt = ''; const acc = { text: t => txt += t, tool: (id, n) => txt += '[tool:' + n + ']', stop: () => {} };
+                            const asm = KIRO.makeFrameAssembler(ev => KIRO.applyFrame(ev, acc));
+                            r.on('data', c => { try { asm(c); } catch (_) {} });
+                            r.on('end', () => w('\x1b[32m✓ 200 — Kiro replied:\x1b[0m ' + (txt.trim() || '(empty)') + '\r\n\x1b[2mIf you see KIRO_OK, the whole pipeline works live.\x1b[0m\r\n'));
+                            r.on('error', e => w('\x1b[31m✗ stream: ' + e.message + '\x1b[0m\r\n'));
+                        });
+                        req.on('error', e => w('\x1b[31m✗ request: ' + e.message + '\x1b[0m\r\n'));
+                        req.write(payload); req.end();
+                    });
+                    continue;
+                }
+                w('\x1b[1mKiro test harness\x1b[0m (hotload-only, no rebuild)\r\n' +
+                  '\x1b[2m!kiro selftest                     run the codec pipeline in-bridge\r\n' +
+                  '!kiro probe [model] <credsJSON>    real CodeWhisperer call w/ your creds\x1b[0m\r\n');
                 continue;
             }
 
