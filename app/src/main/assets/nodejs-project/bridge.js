@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b104-kiro-tool-stream';
+const BRIDGE_BUILD = 'b105-apt-self-disable';
 
 const net   = require('net');
 const http  = require('http');
@@ -7262,7 +7262,11 @@ function openPrintSession() {
             // the real tools at /usr/local/bin (on PATH before /usr/bin, line ~555)
             // so any `apt install X` / `apt-get install X` is transparently served
             // via download-only + dpkg-deb -x. Every other subcommand (update, list,
-            // search, …) passes straight through to the real binary. Escape hatch:
+            // search, …) passes straight through to the real binary. SELF-DISABLING:
+            // on each install it probes whether the proot can hardlink in dpkg's dir
+            // (a newer proot via APK rebuild hooks linkat) and, if so, delegates to
+            // real apt for a proper install — so the same shim does the right thing on
+            // old (extract) and new (real apt) proot, no toggle. Escape hatch:
             // NEXUS_APT_PASSTHROUGH=1 forces the real apt.
             try {
                 const localBin = path.join(rp, 'usr', 'local', 'bin');
@@ -7283,6 +7287,17 @@ function openPrintSession() {
                     '  elif [ "$a" = "install" ] || [ "$a" = "reinstall" ]; then seen=1; fi',
                     'done',
                     '[ -n "$pkgs" ] || exec "$REAL" "$@"',
+                    '# SELF-DISABLE: probe whether the proot can hardlink in dpkg\x27s dir',
+                    '# (link2symlink converts ln→symlink when it hooks linkat). If it can,',
+                    '# real dpkg works → use real apt for a proper install (maintainer',
+                    '# scripts + status DB). Only fall back to extract when hardlinks EPERM.',
+                    '# A newer proot (APK rebuild) makes this path take over automatically.',
+                    'if ln /var/lib/dpkg/status /var/lib/dpkg/.nexus_hl_probe 2>/dev/null; then',
+                    '  rm -f /var/lib/dpkg/.nexus_hl_probe 2>/dev/null',
+                    '  echo "[nexus-apt] proot hardlinks OK → real apt (full install)" >&2',
+                    '  exec "$REAL" "$@"',
+                    'fi',
+                    'rm -f /var/lib/dpkg/.nexus_hl_probe 2>/dev/null',
                     'echo "[nexus-apt] proot dpkg cannot hardlink; installing via extract:$pkgs" >&2',
                     'rm -f /var/lib/dpkg/updates/* 2>/dev/null',
                     '/usr/bin/apt-get clean >/dev/null 2>&1',
