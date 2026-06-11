@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b107-kiro-token-refresh';
+const BRIDGE_BUILD = 'b108-usage-meter';
 
 const net   = require('net');
 const http  = require('http');
@@ -346,6 +346,65 @@ function readConfig() {
 function isClaudeInstalled() {
     return fs.existsSync(CLAUDE_CLI);
 }
+
+// ─── Usage meter ──────────────────────────────────────────────────────────────
+// One token meter for ALL proxy-mode providers: the proxy sees every request, so
+// we accumulate {providers:{<prov>:{<model>:{"YYYY-MM-DD":{inTok,outTok,req}}}}}
+// to usage_stats.json (debounced write). Subscription mode bypasses the proxy
+// (claude-code → api.anthropic.com direct) so it is NOT metered — by design.
+// Phase-1 surface: the !usage command. Phase-2: a Settings card reads this file.
+const USAGE_FILE = path.join(FILES_DIR, 'usage_stats.json');
+const USAGE = (() => {
+    let data = null, dirty = false, flushTimer = null;
+    function load() {
+        if (data) return data;
+        try { data = JSON.parse(fs.readFileSync(USAGE_FILE, 'utf8')); } catch (_) { data = {}; }
+        if (!data || typeof data !== 'object') data = {};
+        if (!data.providers) data.providers = {};
+        return data;
+    }
+    function flush() {
+        flushTimer = null;
+        if (!dirty) return;
+        dirty = false;
+        try { fs.writeFileSync(USAGE_FILE, JSON.stringify(data)); } catch (_) {}
+    }
+    function today() {
+        const d = new Date(), z = n => (n < 10 ? '0' + n : '' + n);
+        return d.getFullYear() + '-' + z(d.getMonth() + 1) + '-' + z(d.getDate());
+    }
+    // Stable short provider key from the upstream URL.
+    function labelFor(pUrl) {
+        const u = String(pUrl || '').toLowerCase();
+        if (!u) return 'unknown';
+        if (u.includes('codewhisperer')) return 'kiro';
+        if (u.includes('api.anthropic.com')) return 'anthropic_api';
+        if (u.includes('generativelanguage') || u.includes('gemini')) return 'gemini';
+        if (u.includes('groq')) return 'groq';
+        if (u.includes('openrouter')) return 'openrouter';
+        if (u.includes('deepseek')) return 'deepseek';
+        if (u.includes('moonshot')) return 'kimi';
+        if (u.includes('dashscope') || u.includes('aliyun')) return 'qwen';
+        if (u.includes('mistral')) return 'mistral';
+        if (u.includes('nvidia') || u.includes('nim')) return 'nvidia_nim';
+        if (u.includes('localhost') || u.includes('127.0.0.1') || u.includes(':11434')) return 'ollama';
+        try { return new URL(u).hostname.replace(/^api\./, '').split('.')[0] || 'unknown'; } catch (_) { return 'unknown'; }
+    }
+    function record(pUrl, model, inTok, outTok) {
+        try {
+            const d = load(), prov = labelFor(pUrl), day = today();
+            const p = d.providers[prov] || (d.providers[prov] = {});
+            const m = p[model || 'unknown'] || (p[model || 'unknown'] = {});
+            const e = m[day] || (m[day] = { inTok: 0, outTok: 0, req: 0 });
+            e.inTok += Math.max(0, inTok | 0);
+            e.outTok += Math.max(0, outTok | 0);
+            e.req += 1;
+            dirty = true;
+            if (!flushTimer) flushTimer = setTimeout(flush, 4000);
+        } catch (_) {}
+    }
+    return { record, load, flush, labelFor, today, FILE: USAGE_FILE };
+})();
 
 // ─── HTTP helpers ─────────────────────────────────────────────────────────────
 
@@ -1236,8 +1295,14 @@ function sendToAnthropicDirect(providerUrl, apiKey, anthReq, stream, res) {
                     try { provRes.destroy(); } catch(_) {}
                 }, 30000);
             }
-            provRes.on('data',  chunk => { resetIdle(); res.write(chunk); });
-            provRes.on('end',   ()    => { clearTimeout(idleTimer); res.end(); });
+            let sniffIn = 0, sniffOut = 0;   // usage-meter sniff; forwarding stays byte-for-byte
+            provRes.on('data',  chunk => { resetIdle(); res.write(chunk);
+                try { const s = chunk.toString();
+                    let m = s.match(/"input_tokens"\s*:\s*(\d+)/);  if (m) sniffIn  = Math.max(sniffIn,  +m[1]);
+                    m     = s.match(/"output_tokens"\s*:\s*(\d+)/); if (m) sniffOut = Math.max(sniffOut, +m[1]);
+                } catch (_) {} });
+            provRes.on('end',   ()    => { clearTimeout(idleTimer); res.end();
+                try { USAGE.record(providerUrl, anthReq.model || '', sniffIn, sniffOut); } catch (_) {} });
             provRes.on('error', ()    => { clearTimeout(idleTimer); });
         } else {
             let data = '';
@@ -1557,11 +1622,12 @@ function sendToKiro(pUrl, apiKey, anthReq, stream, res, cfg) {
             if (stream) {
                 res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive' });
                 const emitter = KIRO.makeAnthEmitter(s => { try { res.write(s); } catch (_) {} }, model);
-                let stopped = false;
-                const sink = { text: emitter.text, toolEvent: emitter.toolEvent, stop: () => { stopped = true; emitter.done(); } };
+                let stopped = false, outChars = 0;
+                const sink = { text: t => { outChars += (t || '').length; emitter.text(t); }, toolEvent: emitter.toolEvent, stop: () => { stopped = true; emitter.done(); } };
                 const asm = KIRO.makeFrameAssembler(ev => KIRO.applyFrame(ev, sink));
                 r.on('data', chunk => { try { asm(chunk); } catch (e) { log('[kiro] frame error: ' + e.message + '\n'); } });
-                r.on('end', () => { if (!stopped) emitter.done(); try { res.end(); } catch (_) {} });
+                r.on('end', () => { if (!stopped) emitter.done(); try { res.end(); } catch (_) {}
+                    try { USAGE.record(pUrl, model, Math.ceil(Buffer.byteLength(payload) / 3.5), Math.max(1, Math.ceil(outChars / 4))); } catch (_) {} });
                 r.on('error', () => { try { if (!stopped) emitter.done(); res.end(); } catch (_) {} });
             } else {
                 let text = ''; const toolMap = new Map();   // toolUseId → {id,name,frags}
@@ -2316,6 +2382,7 @@ function handleProxyRequest(anthReq, res) {
     const pUrl  = routed ? routed.providerUrl : (cfg.providerUrl || '');
     const key   = routed ? routed.apiKey      : (cfg.apiKey || '');
     const stream = !!anthReq.stream;
+    let usageInTok = 0;   // input-token estimate for the usage meter (set in the size diagnostic)
 
     // RTK — compress tool_result content in history before anthToOai / passthrough.
     // Targets messages[] (the only slice that grows over a --continue session),
@@ -2503,6 +2570,7 @@ function handleProxyRequest(anthReq, res) {
             }
         }
         const total = sysLen + toolsJson.length + msgsLen;
+        usageInTok = Math.ceil(total / 3.5);
         log('[proxy] size: sys=' + sysLen + 'c tools=' + toolsArr.length +
             '(' + toolsJson.length + 'c) msgs=' + msgs.length + '(' + msgsLen + 'c) total=' +
             total + 'c ≈' + Math.ceil(total / 3.5) + 'tok\n');
@@ -3086,6 +3154,8 @@ function sendToProvider(baseUrl, apiKey, oaiReq, stream, res, onBadRequest, on42
                 });
                 sendEvent('message_stop', { type: 'message_stop' });
                 try { res.end(); } catch (_) {}
+                // Usage meter: provider's real input count when present, else estimate.
+                try { USAGE.record(pUrl, oaiReq.model, (providerUsage && (providerUsage.prompt_tokens || providerUsage.input_tokens)) || usageInTok, outTok); } catch (_) {}
             }
 
             function ensureOpened() {
@@ -5781,6 +5851,52 @@ function openPrintSession() {
             //                            pasted Kiro creds + a trivial prompt; prints
             //                            decoded text or the upstream error. The true
             //                            "does AWS accept us" test, UI-free.
+            // !usage [all|clear] — proxy token meter (Phase 1; Settings card reads
+            // the same usage_stats.json after the rebuild). Default = today + month.
+            if (line === '!usage' || line.startsWith('!usage ')) {
+                const w = (s) => { try { if (state.socket) state.socket.write(SYS_FENCE + s); } catch(_) {} };
+                const arg = line.slice('!usage'.length).trim();
+                if (arg === 'clear') {
+                    try { fs.writeFileSync(USAGE.FILE, JSON.stringify({ providers: {} })); } catch (_) {}
+                    w('\x1b[33musage stats cleared\x1b[0m\r\n'); continue;
+                }
+                try { USAGE.flush(); } catch (_) {}
+                let d; try { d = JSON.parse(fs.readFileSync(USAGE.FILE, 'utf8')); } catch (_) { d = { providers: {} }; }
+                const provs = (d && d.providers) || {};
+                const day = USAGE.today(), month = day.slice(0, 7), showAll = (arg === 'all');
+                const fmt = n => n >= 1e6 ? (n / 1e6).toFixed(2) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'k' : '' + (n | 0);
+                const rows = []; let tdI = 0, tdO = 0, tmI = 0, tmO = 0, tReq = 0;
+                for (const prov of Object.keys(provs)) {
+                    let dI = 0, dO = 0, mI = 0, mO = 0, aI = 0, aO = 0, req = 0;
+                    const models = provs[prov] || {};
+                    for (const model of Object.keys(models)) {
+                        const days = models[model] || {};
+                        for (const dt of Object.keys(days)) {
+                            const e = days[dt] || {};
+                            aI += e.inTok || 0; aO += e.outTok || 0; req += e.req || 0;
+                            if (dt.slice(0, 7) === month) { mI += e.inTok || 0; mO += e.outTok || 0; }
+                            if (dt === day) { dI += e.inTok || 0; dO += e.outTok || 0; }
+                        }
+                    }
+                    rows.push({ prov, dI, dO, mI, mO, aI, aO, req });
+                    tdI += dI; tdO += dO; tmI += mI; tmO += mO; tReq += req;
+                }
+                rows.sort((a, b) => (b.mI + b.mO) - (a.mI + a.mO));
+                let out = '\x1b[1mUsage\x1b[0m \x1b[2m(proxy providers only — subscription mode is not metered)\x1b[0m\r\n';
+                out += '\x1b[2mtoday ' + day + ':  ' + fmt(tdI + tdO) + ' tok  (in ' + fmt(tdI) + ' / out ' + fmt(tdO) + ')\r\n';
+                out += 'month ' + month + ':  ' + fmt(tmI + tmO) + ' tok  (in ' + fmt(tmI) + ' / out ' + fmt(tmO) + ')  ·  ' + tReq + ' req\x1b[0m\r\n';
+                out += '\x1b[2m────────── ' + (showAll ? 'all-time' : 'this month') + ' by provider ──────────\x1b[0m\r\n';
+                let shown = 0;
+                for (const r of rows) {
+                    const inT = showAll ? r.aI : r.mI, outT = showAll ? r.aO : r.mO;
+                    if ((inT + outT) === 0) continue;
+                    shown++;
+                    out += '\x1b[36m' + r.prov.padEnd(14) + '\x1b[0m' + fmt(inT + outT).padStart(8) + ' tok  \x1b[2m(in ' + fmt(inT) + ' / out ' + fmt(outT) + ')\x1b[0m\r\n';
+                }
+                if (!shown) out += '\x1b[2m(nothing yet — send a message through a proxy provider, then re-run)\x1b[0m\r\n';
+                out += '\x1b[2m!usage all = all-time · !usage clear = reset\x1b[0m\r\n';
+                w(out); continue;
+            }
             if (line.startsWith('!kiro')) {
                 const w = (s) => { try { if (state.socket) state.socket.write(SYS_FENCE + s); } catch(_) {} };
                 const rest = line.slice('!kiro'.length).trim();
