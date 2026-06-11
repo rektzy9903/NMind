@@ -69,11 +69,11 @@ object KiroLogin {
 
         val da = JSONObject().put("clientId", clientId).put("clientSecret", clientSecret).put("startUrl", START_URL)
         val (dc, dj) = post(DEVICE_AUTH, da)
-        val deviceCode = dj?.optString("deviceCode") ?: ""
-        if (deviceCode.isEmpty()) throw Exception("device authorization failed (HTTP $dc)")
+        if (dj == null || dj.optString("deviceCode").isEmpty())
+            throw Exception("device authorization failed (HTTP $dc)")
 
         DeviceAuth(
-            clientId, clientSecret, deviceCode,
+            clientId, clientSecret, dj.optString("deviceCode"),
             dj.optString("userCode"),
             dj.optString("verificationUri"),
             dj.optString("verificationUriComplete", dj.optString("verificationUri")),
@@ -94,7 +94,7 @@ object KiroLogin {
                 .put("grantType", "urn:ietf:params:oauth:grant-type:device_code")
             val (code, j) = post(TOKEN, body)
             val at = j?.optString("accessToken") ?: ""
-            if (at.isNotEmpty()) {
+            if (j != null && at.isNotEmpty()) {
                 val expIn = j.optInt("expiresIn", 900)
                 return@withContext JSONObject()
                     .put("accessToken", at)
