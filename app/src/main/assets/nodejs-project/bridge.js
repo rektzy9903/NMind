@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b102-kiro-probe-tool';
+const BRIDGE_BUILD = 'b103-kiro-frame-dump';
 
 const net   = require('net');
 const http  = require('http');
@@ -5857,7 +5857,12 @@ function openPrintSession() {
                             if (code !== 200) { let e = ''; r.on('data', c => e += c); r.on('end', () => w('\x1b[31m✗ upstream ' + code + ': ' + e.slice(0, 400) + '\x1b[0m\r\n')); return; }
                             let txt = ''; let toolCall = null;
                             const acc = { text: t => txt += t, tool: (id, n, input) => { toolCall = { n, input }; }, stop: () => {} };
-                            const asm = KIRO.makeFrameAssembler(ev => KIRO.applyFrame(ev, acc));
+                            // DIAGNOSTIC: dump each raw frame so we see exactly how Kiro streams
+                            // tool input (name vs input fragments vs stop flag) — fix decode from this.
+                            const asm = KIRO.makeFrameAssembler(ev => {
+                                w('\x1b[2m[frame] ' + (ev.headers[':event-type'] || '?') + ': ' + JSON.stringify(ev.payload).slice(0, 240) + '\x1b[0m\r\n');
+                                KIRO.applyFrame(ev, acc);
+                            });
                             r.on('data', c => { try { asm(c); } catch (_) {} });
                             r.on('end', () => {
                                 if (toolCall) w('\x1b[32m✓ AGENTIC WORKS — Kiro called tool:\x1b[0m ' + toolCall.n + '(' + JSON.stringify(toolCall.input) + ')\r\n\x1b[2mTool wiring is live — claude-code Bash/Read/Write will drive on Kiro.\x1b[0m\r\n');
