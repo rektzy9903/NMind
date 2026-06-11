@@ -2736,6 +2736,63 @@ function stripImeArtifacts(s){
     .replace(/＄/g,'$');  // fullwidth ＄ → ASCII $
 }
 
+// ── !icons — live glassmorphism icon preview (hotloadable, no rebuild) ───────
+// Lets us eyeball the vivid frosted-glass icon set rendered on the real device
+// before committing them to native drawables. Toggle with `!icons`.
+function showIconPreview(){
+  const ex=document.getElementById('ipc-overlay'); if(ex){ ex.remove(); return; }
+  if(!document.getElementById('ipc-css')){
+    const st=document.createElement('style'); st.id='ipc-css';
+    st.textContent=`
+      #ipc-overlay{position:fixed;inset:0;z-index:9999;overflow:auto;
+        background:radial-gradient(900px 600px at 50% -5%,rgba(232,131,74,.18),transparent 60%),rgba(12,9,16,.93);
+        -webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);padding:56px 16px 40px;}
+      #ipc-overlay h3{color:#F0F0F2;font-family:'Space Mono',monospace;font-size:14px;margin:0 0 4px;text-align:center}
+      #ipc-overlay .ipc-sub{color:#9A90A6;font-size:11px;text-align:center;margin:0 0 22px}
+      #ipc-close{position:fixed;top:12px;right:14px;z-index:10000;width:38px;height:38px;border-radius:12px;
+        background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.28);color:#fff;font-size:16px;cursor:pointer}
+      .ipc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(94px,1fr));gap:16px;max-width:520px;margin:0 auto}
+      .ipc-cell{display:flex;flex-direction:column;align-items:center;gap:6px}
+      .ipc-cell .lbl{font-size:10.5px;color:#C8C0D0;text-align:center}
+      .ipc-scene{position:relative;width:92px;height:92px}
+      .ipc-blob{position:absolute;border-radius:50%;filter:blur(17px);z-index:0}
+      .ipc-orb{position:absolute;border-radius:50%;z-index:1}
+      .ipc-glass{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:78px;height:78px;z-index:2;
+        filter:drop-shadow(0 8px 14px rgba(0,0,0,.45));overflow:visible}
+      .ipc-gp{fill:rgba(255,255,255,.18);stroke:rgba(255,255,255,.6);stroke-width:1.5}
+      .ipc-gp2{fill:rgba(255,255,255,.09);stroke:rgba(255,255,255,.42);stroke-width:1.4}
+      .ipc-ln{fill:none;stroke:#fff;stroke-width:2.8;stroke-linecap:round;stroke-linejoin:round;opacity:.95}
+      .ipc-lnf{fill:#fff;opacity:.95}.ipc-hole{fill:#140d18;opacity:.5}.ipc-badge{fill:#FF4D5E;stroke:#fff;stroke-width:2}`;
+    document.head.appendChild(st);
+  }
+  const C={pink:'#FF3D9A',orange:'#FF8A3D',amber:'#FFB23D',red:'#FF4D5E',blue:'#4D7CFF',indigo:'#7A5CFF',green:'#2FE0A6',teal:'#22D3C5',purple:'#A24DFF',gold:'#FFC44D'};
+  const gear=`<g class="ipc-gp"><rect x="44" y="6" width="12" height="17" rx="3"/><rect x="44" y="6" width="12" height="17" rx="3" transform="rotate(45 50 50)"/><rect x="44" y="6" width="12" height="17" rx="3" transform="rotate(90 50 50)"/><rect x="44" y="6" width="12" height="17" rx="3" transform="rotate(135 50 50)"/><rect x="44" y="6" width="12" height="17" rx="3" transform="rotate(180 50 50)"/><rect x="44" y="6" width="12" height="17" rx="3" transform="rotate(225 50 50)"/><rect x="44" y="6" width="12" height="17" rx="3" transform="rotate(270 50 50)"/><rect x="44" y="6" width="12" height="17" rx="3" transform="rotate(315 50 50)"/></g><circle class="ipc-gp" cx="50" cy="50" r="26"/><circle class="ipc-hole" cx="50" cy="50" r="11"/>`;
+  const ICONS=[
+    {label:'Terminal',blobs:[[C.orange,38,42,72],[C.pink,66,64,62]],orbs:[[C.green,16,80,14]],svg:`<rect class="ipc-gp" x="14" y="20" width="72" height="60" rx="14"/><line class="ipc-ln" x1="16" y1="37" x2="86" y2="37" style="opacity:.45"/><circle class="ipc-lnf" cx="25" cy="28.5" r="2.6"/><circle class="ipc-lnf" cx="34" cy="28.5" r="2.6"/><path class="ipc-ln" d="M28 54 L38 62 L28 70"/><line class="ipc-ln" x1="46" y1="70" x2="64" y2="70"/>`},
+    {label:'Discussion',blobs:[[C.indigo,40,42,74],[C.pink,66,62,62]],orbs:[[C.amber,80,28,14]],svg:`<circle class="ipc-gp" cx="50" cy="26" r="11"/><circle class="ipc-gp" cx="26" cy="64" r="11"/><circle class="ipc-gp" cx="74" cy="64" r="11"/><path class="ipc-ln" d="M44 34 L33 55 M56 34 L67 55 M38 64 h24" style="opacity:.6"/>`},
+    {label:'Quick Ask',blobs:[[C.pink,36,42,70],[C.gold,66,42,62]],orbs:[[C.green,16,72,14]],svg:`<rect class="ipc-gp" x="12" y="20" width="50" height="40" rx="13"/><line class="ipc-ln" x1="22" y1="34" x2="42" y2="34"/><line class="ipc-ln" x1="22" y1="46" x2="38" y2="46"/><circle class="ipc-gp" cx="68" cy="58" r="15"/><line class="ipc-ln" x1="79" y1="69" x2="90" y2="80"/>`},
+    {label:'Image Studio',blobs:[[C.pink,42,56,76],[C.blue,70,44,62]],orbs:[],svg:`<circle class="ipc-lnf" cx="32" cy="30" r="9" style="opacity:.85"/><path class="ipc-gp" d="M14 80 L40 42 L62 80 Z"/><path class="ipc-gp" d="M50 80 L70 50 L90 80 Z"/>`},
+    {label:'Settings',blobs:[[C.amber,40,42,74],[C.red,66,62,62]],orbs:[[C.teal,82,78,14]],svg:gear},
+    {label:'Folder',blobs:[[C.blue,42,52,76],[C.purple,66,46,62]],orbs:[[C.pink,20,30,13]],svg:`<path class="ipc-gp2" d="M16 30 h20 l8 8 h40 a5 5 0 0 1 5 5 v10 H16 Z"/><path class="ipc-gp" d="M14 44 h72 a5 5 0 0 1 5 5 v28 a5 5 0 0 1 -5 5 H19 a5 5 0 0 1 -5 -5 Z"/><line class="ipc-ln" x1="30" y1="62" x2="54" y2="62"/>`},
+    {label:'Usage',blobs:[[C.green,40,56,72],[C.blue,66,44,62]],orbs:[[C.amber,80,26,14]],svg:`<rect class="ipc-gp" x="14" y="16" width="72" height="68" rx="14"/><rect class="ipc-lnf" x="26" y="54" width="9" height="18" rx="3"/><rect class="ipc-lnf" x="45" y="42" width="9" height="30" rx="3"/><rect class="ipc-lnf" x="64" y="30" width="9" height="42" rx="3"/>`},
+    {label:'Add',blobs:[[C.indigo,42,42,72],[C.pink,66,62,62]],orbs:[[C.green,15,52,16],[C.red,83,24,14]],svg:`<rect class="ipc-gp" x="20" y="20" width="60" height="60" rx="18"/><line class="ipc-ln" x1="50" y1="36" x2="50" y2="64"/><line class="ipc-ln" x1="36" y1="50" x2="64" y2="50"/>`},
+    {label:'Notifications',blobs:[[C.amber,42,44,74],[C.red,64,62,62]],orbs:[[C.pink,78,26,14]],svg:`<path class="ipc-gp" d="M50 18 a20 20 0 0 1 20 20 v15 l6 10 H24 l6 -10 V38 A20 20 0 0 1 50 18 Z"/><path class="ipc-ln" d="M42 71 a8 8 0 0 0 16 0"/><circle class="ipc-badge" cx="72" cy="26" r="9"/>`},
+    {label:'Web Search',blobs:[[C.teal,42,42,72],[C.indigo,66,62,62]],orbs:[[C.amber,20,76,14]],svg:`<circle class="ipc-gp" cx="44" cy="44" r="26"/><line class="ipc-ln" x1="64" y1="64" x2="84" y2="84"/>`},
+    {label:'API Key',blobs:[[C.gold,38,46,72],[C.orange,66,56,62]],orbs:[[C.pink,82,28,14]],svg:`<rect class="ipc-gp" x="24" y="44" width="52" height="40" rx="10"/><path class="ipc-ln" d="M34 44 V34 a16 16 0 0 1 32 0 v10"/><circle class="ipc-lnf" cx="50" cy="61" r="4"/><rect class="ipc-lnf" x="48" y="63" width="4" height="9" rx="2"/>`},
+    {label:'Send',blobs:[[C.pink,44,46,74],[C.orange,68,58,62]],orbs:[[C.blue,18,30,14]],svg:`<circle class="ipc-gp" cx="50" cy="50" r="32"/><path class="ipc-ln" d="M38 50 h22 M52 40 l10 10 -10 10"/>`}
+  ];
+  let cells='';
+  ICONS.forEach(it=>{
+    const blobs=it.blobs.map(b=>`<div class="ipc-blob" style="left:calc(${b[1]}% - ${b[3]/2}px);top:calc(${b[2]}% - ${b[3]/2}px);width:${b[3]}px;height:${b[3]}px;background:${b[0]}"></div>`).join('');
+    const orbs=(it.orbs||[]).map(o=>`<div class="ipc-orb" style="left:calc(${o[1]}% - ${o[3]/2}px);top:calc(${o[2]}% - ${o[3]/2}px);width:${o[3]}px;height:${o[3]}px;background:radial-gradient(circle at 35% 30%,#ffffffcc,${o[0]})"></div>`).join('');
+    cells+=`<div class="ipc-cell"><div class="ipc-scene">${blobs}${orbs}<svg class="ipc-glass" viewBox="0 0 100 100">${it.svg}</svg></div><div class="lbl">${it.label}</div></div>`;
+  });
+  const ov=document.createElement('div'); ov.id='ipc-overlay';
+  ov.innerHTML=`<button id="ipc-close">✕</button><h3>Glassmorphism icons — vivid</h3><div class="ipc-sub">live in-app preview · tap ✕ or background to close · type !icons again to toggle</div><div class="ipc-grid">${cells}</div>`;
+  ov.addEventListener('click',e=>{ if(e.target===ov||e.target.id==='ipc-close') ov.remove(); });
+  document.body.appendChild(ov);
+}
+
 function submitLine(text){
   // Normalize BEFORE routing (see stripImeArtifacts) so ! and $ commands don't
   // slip through to the AI instead of the bridge.
@@ -2746,6 +2803,7 @@ function submitLine(text){
   historyIdx=-1;
   savedInput='';
   updateInputDisp();
+  if(msg.toLowerCase()==='!icons'||msg.toLowerCase()==='!icon'){ try{showIconPreview();}catch(_){ } return; }
   if(!msg && !pendingImageAttached) return;
   // Local bridge commands (!log, !help, !clear, $ cmd, etc.): show a terminal
   // command bubble so the user sees what was typed, then send as raw input.
@@ -2840,6 +2898,7 @@ function sendRawInput(){
   const text=stripImeArtifacts(inputBuffer).trim();
   inputBuffer='';ghost.value='';historyIdx=-1;savedInput='';
   updateInputDisp();
+  if(text.toLowerCase()==='!icons'||text.toLowerCase()==='!icon'){ try{showIconPreview();}catch(_){ } return; }
   if(text.length>0){
     if(inputHistory[inputHistory.length-1]!==text){
       inputHistory.push(text);if(inputHistory.length>50)inputHistory.shift();
