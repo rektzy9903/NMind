@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b97-rtk-recency-budget';
+const BRIDGE_BUILD = 'b98-kiro-mvp';
 
 const net   = require('net');
 const http  = require('http');
@@ -1254,6 +1254,265 @@ function sendToAnthropicDirect(providerUrl, apiKey, anthReq, stream, res) {
     provReq.end();
 }
 
+
+// ===== KIRO ENGINE (AWS CodeWhisperer, paste-token MVP) — gated on pUrl in handleProxyRequest =====
+'use strict';
+// ============================================================================
+// KIRO ENGINE — paste-token MVP. This is the block that gets inserted into
+// bridge.js (kept here first so it's offline-testable). Gated in the proxy on
+// pUrl.includes('codewhisperer'); inert for every other provider.
+//
+// cfg.apiKey holds the Kiro CREDENTIALS JSON a desktop Kiro login writes:
+//   { accessToken, refreshToken, clientId?, clientSecret?, authMethod?, region? }
+// (a bare refresh token also works for the social-auth path.)
+// ============================================================================
+const KIRO = (function () {
+    const https = require('https');
+    const dec = new TextDecoder();
+    const CODEWHISPERER_HOST = 'codewhisperer.us-east-1.amazonaws.com';
+    const KIRO_SOCIAL_REFRESH = 'https://prod.us-east-1.auth.desktop.kiro.dev/refreshToken';
+    const tokenCache = new Map();   // refreshToken -> { accessToken, exp }
+
+    // ── credentials ─────────────────────────────────────────────────────────
+    function parseCreds(apiKey) {
+        if (!apiKey) return null;
+        const s = String(apiKey).trim();
+        if (s[0] === '{') { try { return JSON.parse(s); } catch { return null; } }
+        return { refreshToken: s };      // bare refresh token (social path)
+    }
+
+    // Resolve a usable access token: prefer a cached/valid one, else refresh.
+    function getAccessToken(creds, cb) {
+        if (!creds) return cb(new Error('No Kiro credentials configured'));
+        const rt = creds.refreshToken || '';
+        const cached = rt && tokenCache.get(rt);
+        if (cached && cached.exp > Date.now() + 30000) return cb(null, cached.accessToken);
+        // If the pasted creds carry an accessToken and we've never refreshed, try it first.
+        if (creds.accessToken && !cached) return cb(null, creds.accessToken);
+        if (!rt) return cb(new Error('Kiro access token expired and no refreshToken to renew'));
+        refreshToken(creds, cb);
+    }
+
+    function refreshToken(creds, cb) {
+        const isAwsSso = creds.clientId && creds.clientSecret;
+        const url = isAwsSso
+            ? ('https://oidc.' + (creds.authMethod === 'idc' && creds.region ? creds.region : 'us-east-1') + '.amazonaws.com/token')
+            : KIRO_SOCIAL_REFRESH;
+        const body = JSON.stringify(isAwsSso
+            ? { clientId: creds.clientId, clientSecret: creds.clientSecret, refreshToken: creds.refreshToken, grantType: 'refresh_token' }
+            : { refreshToken: creds.refreshToken });
+        const u = new URL(url);
+        const req = https.request({
+            hostname: u.hostname, port: 443, path: u.pathname, method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json',
+                'Content-Length': Buffer.byteLength(body), 'User-Agent': 'kiro-cli/1.0.0' },
+        }, r => {
+            let d = ''; r.on('data', c => d += c); r.on('end', () => {
+                if ((r.statusCode || 500) >= 400) return cb(new Error('Kiro token refresh ' + r.statusCode + ': ' + d.slice(0, 200)));
+                let t; try { t = JSON.parse(d); } catch { return cb(new Error('Kiro refresh: bad JSON')); }
+                const at = t.accessToken || t.access_token;
+                if (!at) return cb(new Error('Kiro refresh: no accessToken in response'));
+                const exp = Date.now() + ((t.expiresIn || t.expires_in || 900) * 1000);
+                if (creds.refreshToken) tokenCache.set(creds.refreshToken, { accessToken: at, exp });
+                cb(null, at);
+            });
+        });
+        req.on('error', e => cb(e));
+        req.write(body); req.end();
+    }
+
+    // ── request: Anthropic (claude-code) → Kiro conversationState ────────────
+    function blockText(content) {
+        if (typeof content === 'string') return content;
+        if (!Array.isArray(content)) return '';
+        return content.map(c => {
+            if (c.type === 'text') return c.text || '';
+            if (c.type === 'tool_result') return '[tool_result] ' + blockText(c.content);
+            if (c.type === 'tool_use') return '[tool_use ' + (c.name || '') + '] ' + JSON.stringify(c.input || {});
+            return '';
+        }).filter(Boolean).join('\n');
+    }
+    function anthToKiro(anthReq, model) {
+        const sysText = typeof anthReq.system === 'string' ? anthReq.system
+            : (Array.isArray(anthReq.system) ? anthReq.system.map(b => b.text || '').join('\n') : '');
+        const msgs = anthReq.messages || [];
+        const history = [];
+        for (const m of msgs) {
+            if (m.role === 'user') history.push({ userInputMessage: { content: blockText(m.content), modelId: model } });
+            else if (m.role === 'assistant') history.push({ assistantResponseMessage: { content: blockText(m.content) } });
+        }
+        let currentMessage = null;
+        for (let i = history.length - 1; i >= 0; i--) {
+            if (history[i].userInputMessage) { currentMessage = history.splice(i, 1)[0]; break; }
+        }
+        if (!currentMessage) currentMessage = { userInputMessage: { content: '', modelId: model } };
+        if (sysText) currentMessage.userInputMessage.content = sysText + '\n\n' + currentMessage.userInputMessage.content;
+        return {
+            conversationState: {
+                chatTriggerType: 'MANUAL',
+                conversationId: '00000000-0000-0000-0000-000000000000',
+                currentMessage,
+                history,
+            },
+        };
+    }
+
+    // ── response: AWS EventStream binary frame decode + reassembly ────────────
+    function parseEventFrame(data) {
+        try {
+            const view = new DataView(data.buffer, data.byteOffset, data.length);
+            const headersLength = view.getUint32(4, false);
+            const headers = {};
+            let offset = 12;
+            const headerEnd = 12 + headersLength;
+            while (offset < headerEnd && offset < data.length) {
+                const nameLen = data[offset]; offset++;
+                if (offset + nameLen > data.length) break;
+                const name = dec.decode(data.slice(offset, offset + nameLen)); offset += nameLen;
+                const headerType = data[offset]; offset++;
+                if (headerType === 7) {
+                    const valueLen = (data[offset] << 8) | data[offset + 1]; offset += 2;
+                    if (offset + valueLen > data.length) break;
+                    headers[name] = dec.decode(data.slice(offset, offset + valueLen)); offset += valueLen;
+                } else break;
+            }
+            const payloadStart = 12 + headersLength, payloadEnd = data.length - 4;
+            let payload = null;
+            if (payloadEnd > payloadStart) {
+                const s = dec.decode(data.slice(payloadStart, payloadEnd));
+                if (s && s.trim()) { try { payload = JSON.parse(s); } catch { payload = { raw: s }; } }
+            }
+            return { headers, payload };
+        } catch { return null; }
+    }
+    function makeFrameAssembler(onFrame) {
+        let buffer = Buffer.alloc(0);
+        return function push(chunk) {
+            buffer = Buffer.concat([buffer, chunk]);
+            while (buffer.length >= 12) {
+                const totalLength = buffer.readUInt32BE(0);
+                if (totalLength < 16 || buffer.length < totalLength) break;
+                const frame = buffer.slice(0, totalLength);
+                buffer = buffer.slice(totalLength);
+                const ev = parseEventFrame(frame);
+                if (ev) onFrame(ev);
+            }
+        };
+    }
+
+    // ── Anthropic SSE emitter (block lifecycle, unique indices) ──────────────
+    function makeAnthEmitter(write, model) {
+        let started = false, openType = null, curIdx = -1, nextIdx = 0, sawTool = false;
+        const ev = (name, data) => write('event: ' + name + '\ndata: ' + JSON.stringify(data) + '\n\n');
+        function ensureStart() {
+            if (started) return; started = true;
+            ev('message_start', { type: 'message_start', message: { id: 'msg_kiro', type: 'message',
+                role: 'assistant', content: [], model: model || '', stop_reason: null, usage: { input_tokens: 1, output_tokens: 0 } } });
+        }
+        function closeBlock() { if (openType) { ev('content_block_stop', { type: 'content_block_stop', index: curIdx }); openType = null; } }
+        return {
+            text(t) {
+                if (!t) return; ensureStart();
+                if (openType !== 'text') { closeBlock(); curIdx = nextIdx++; openType = 'text';
+                    ev('content_block_start', { type: 'content_block_start', index: curIdx, content_block: { type: 'text', text: '' } }); }
+                ev('content_block_delta', { type: 'content_block_delta', index: curIdx, delta: { type: 'text_delta', text: t } });
+            },
+            tool(id, name, input) {
+                ensureStart(); closeBlock(); curIdx = nextIdx++; openType = 'tool'; sawTool = true;
+                ev('content_block_start', { type: 'content_block_start', index: curIdx, content_block: { type: 'tool_use', id: id || ('call_' + curIdx), name: name || '', input: {} } });
+                ev('content_block_delta', { type: 'content_block_delta', index: curIdx, delta: { type: 'input_json_delta', partial_json: JSON.stringify(input || {}) } });
+            },
+            done() {
+                ensureStart(); closeBlock();
+                ev('message_delta', { type: 'message_delta', delta: { stop_reason: sawTool ? 'tool_use' : 'end_turn', stop_sequence: null }, usage: { output_tokens: 1 } });
+                ev('message_stop', { type: 'message_stop' });
+            },
+        };
+    }
+
+    // Route a decoded Kiro frame into the emitter (or accumulator). Returns
+    // {text?, tool?, stop?} so non-stream mode can accumulate the same way.
+    function applyFrame(ev, sink) {
+        const t = ev.headers[':event-type'] || '';
+        const d = ev.payload || {};
+        if (t === 'assistantResponseEvent' || d.assistantResponseEvent) {
+            const text = d.assistantResponseEvent?.content || d.content || '';
+            if (text) sink.text(text);
+        } else if (t === 'toolUseEvent' || d.toolUseEvent) {
+            const tu = d.toolUseEvent || d;
+            sink.tool(tu.toolUseId, tu.name, tu.input);
+        } else if (t === 'messageStopEvent' || t === 'done' || d.messageStopEvent) {
+            sink.stop && sink.stop();
+        }
+    }
+
+    return { parseCreds, getAccessToken, anthToKiro, parseEventFrame, makeFrameAssembler, makeAnthEmitter, applyFrame, CODEWHISPERER_HOST };
+})();
+// Top-level Kiro request handler — mirrors sendToAnthropicDirect's shape.
+// Routed from handleProxyRequest when pUrl points at CodeWhisperer. Emits
+// Anthropic SSE (stream) or a single Anthropic message (non-stream) so
+// claude-code consumes it exactly like the real api.anthropic.com.
+function sendToKiro(pUrl, apiKey, anthReq, stream, res, cfg) {
+    const https = require('https');
+    const creds = KIRO.parseCreds(apiKey);
+    if (!creds) return proxyError(res, 401, 'Kiro: paste the Kiro credentials JSON in the key field');
+    const model = (cfg && cfg.modelId) || anthReq.model || '';
+
+    KIRO.getAccessToken(creds, (authErr, accessToken) => {
+        if (authErr) { log('[kiro] auth: ' + authErr.message + '\n'); return proxyError(res, 401, 'Kiro auth: ' + authErr.message); }
+        const payload = JSON.stringify(KIRO.anthToKiro(anthReq, model));
+        const u = new URL(pUrl);
+        const invId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : ('inv-' + Date.now());
+        log('[kiro] POST ' + u.hostname + u.pathname + ' model=' + model + ' bytes=' + Buffer.byteLength(payload) + '\n');
+
+        const req = https.request({
+            hostname: u.hostname, port: 443, path: u.pathname + (u.search || ''), method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/vnd.amazon.eventstream',
+                'X-Amz-Target': 'AmazonCodeWhispererStreamingService.GenerateAssistantResponse',
+                'User-Agent': 'AWS-SDK-JS/3.0.0 kiro-ide/1.0.0',
+                'X-Amz-User-Agent': 'aws-sdk-js/3.0.0 kiro-ide/1.0.0',
+                'Authorization': 'Bearer ' + accessToken,
+                'Amz-Sdk-Invocation-Id': invId,
+                'Content-Length': Buffer.byteLength(payload),
+            },
+        }, r => {
+            const code = r.statusCode || 500;
+            if (code !== 200) {
+                let e = ''; r.on('data', c => e += c);
+                r.on('end', () => { log('[kiro] upstream ' + code + ': ' + e.slice(0, 300) + '\n'); proxyError(res, code, 'Kiro ' + code + ': ' + e.slice(0, 200)); });
+                return;
+            }
+            if (stream) {
+                res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive' });
+                const emitter = KIRO.makeAnthEmitter(s => { try { res.write(s); } catch (_) {} }, model);
+                let stopped = false;
+                const sink = { text: emitter.text, tool: emitter.tool, stop: () => { stopped = true; emitter.done(); } };
+                const asm = KIRO.makeFrameAssembler(ev => KIRO.applyFrame(ev, sink));
+                r.on('data', chunk => { try { asm(chunk); } catch (e) { log('[kiro] frame error: ' + e.message + '\n'); } });
+                r.on('end', () => { if (!stopped) emitter.done(); try { res.end(); } catch (_) {} });
+                r.on('error', () => { try { if (!stopped) emitter.done(); res.end(); } catch (_) {} });
+            } else {
+                let text = ''; const tools = [];
+                const acc = { text: t => { text += t; }, tool: (id, name, input) => tools.push({ type: 'tool_use', id: id || ('call_' + tools.length), name: name || '', input: input || {} }), stop: () => {} };
+                const asm = KIRO.makeFrameAssembler(ev => KIRO.applyFrame(ev, acc));
+                r.on('data', chunk => { try { asm(chunk); } catch (_) {} });
+                r.on('end', () => {
+                    const content = []; if (text) content.push({ type: 'text', text }); for (const t of tools) content.push(t);
+                    res.writeHead(200, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ id: 'msg_kiro', type: 'message', role: 'assistant', model, content,
+                        stop_reason: tools.length ? 'tool_use' : 'end_turn', stop_sequence: null,
+                        usage: { input_tokens: 1, output_tokens: Math.max(1, Math.ceil(text.length / 4)) } }));
+                });
+                r.on('error', e => proxyError(res, 502, 'Kiro: ' + e.message));
+            }
+        });
+        req.on('error', e => { log('[kiro] request error: ' + e.message + '\n'); proxyError(res, 502, 'Kiro request: ' + e.message); });
+        req.write(payload); req.end();
+    });
+}
+
 // Tools claude-code ships in every request that are dead weight on Android —
 // the model would never sensibly call them on a phone, but their JSON schemas
 // still ride along on every request and inflate the input-token count (a plain
@@ -2187,6 +2446,11 @@ function handleProxyRequest(anthReq, res) {
     } catch (_) {}
 
     if (!pUrl) return proxyError(res, 500, 'No provider URL in config — check app settings');
+
+    // Kiro (AWS CodeWhisperer) — custom binary EventStream engine, not OAI/Anthropic
+    if (pUrl.includes('codewhisperer')) {
+        return sendToKiro(pUrl, key, anthReq, stream, res, cfg);
+    }
 
     // Anthropic API key users — forward request as-is (no OAI conversion needed)
     if (pUrl.includes('api.anthropic.com')) {

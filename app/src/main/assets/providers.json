@@ -1,5 +1,5 @@
 {
-  "version": 3,
+  "version": 4,
   "updated": "2026-05-08",
   "remoteUrl": "",
   "providers": [
@@ -348,6 +348,28 @@
         {
           "name": "Llama 3.3 70B",
           "modelId": "meta-llama/llama-3.3-70b-instruct"
+        }
+      ]
+    },
+    {
+      "id": "kiro",
+      "name": "Kiro AI (free Claude)",
+      "signupUrl": "https://kiro.dev",
+      "rateLimit": "Free · Claude via Kiro · paste creds JSON",
+      "malaysiaStatus": "YELLOW",
+      "malaysiaNote": "Experimental · reverse-engineered AWS CodeWhisperer",
+      "warningNote": "Paste your Kiro credentials JSON (accessToken + refreshToken) from a desktop Kiro login. Experimental.",
+      "baseUrl": "https://codewhisperer.us-east-1.amazonaws.com/generateAssistantResponse",
+      "requiresProxy": true,
+      "requiresApiKey": true,
+      "models": [
+        {
+          "name": "Auto (Kiro picks)",
+          "modelId": "auto"
+        },
+        {
+          "name": "Claude Sonnet 4.5",
+          "modelId": "claude-sonnet-4-5"
         }
       ]
     },
