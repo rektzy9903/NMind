@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b105-apt-self-disable';
+const BRIDGE_BUILD = 'b106-kiro-vision';
 
 const net   = require('net');
 const http  = require('http');
@@ -1331,6 +1331,22 @@ const KIRO = (function () {
         return Array.isArray(c.content) ? c.content.map(x => x.text || '').join('\n')
             : (typeof c.content === 'string' ? c.content : '');
     }
+    // Anthropic image blocks → Kiro/CodeWhisperer image shape ({format, source:{bytes}}).
+    // Only base64 sources (the inv-33 picker path); url images are skipped (CW takes bytes).
+    function trImages(content) {
+        if (!Array.isArray(content)) return [];
+        const out = [];
+        for (const c of content) {
+            if (!c || c.type !== 'image' || !c.source) continue;
+            const src = c.source;
+            if (src.type !== 'base64' || !src.data) continue;
+            let fmt = String(src.media_type || '').replace(/^image\//, '').toLowerCase();
+            if (fmt === 'jpg') fmt = 'jpeg';
+            if (!/^(png|jpeg|webp|gif)$/.test(fmt)) fmt = 'png';
+            out.push({ format: fmt, source: { bytes: src.data } });
+        }
+        return out;
+    }
     // Anthropic request → Kiro conversationState, WITH tool wiring:
     //   anthReq.tools[]              → currentMessage…userInputMessageContext.tools[]  ({toolSpecification})
     //   user  tool_result blocks     → userInputMessageContext.toolResults[]          ({toolUseId,status,content})
@@ -1345,6 +1361,8 @@ const KIRO = (function () {
             if (m.role === 'user') {
                 const uim = { content: trText(m.content), modelId: model };
                 if (Array.isArray(m.content)) {
+                    const imgs = trImages(m.content);
+                    if (imgs.length) uim.images = imgs;
                     const trs = m.content.filter(c => c && c.type === 'tool_result')
                         .map(c => ({ toolUseId: c.tool_use_id, status: c.is_error ? 'error' : 'success', content: [{ text: trToolResultText(c) }] }));
                     if (trs.length) uim.userInputMessageContext = { toolResults: trs };
@@ -5843,6 +5861,54 @@ function openPrintSession() {
                     w((okText && okTool && okStop) ? '\x1b[32m✓ engine present & working — hotload OK\x1b[0m\r\n' : '\x1b[31m✗ engine missing/broken — re-run !hotload\x1b[0m\r\n');
                     continue;
                 }
+                // !kiro probe-image — verify VISION (image INPUT): send a tiny solid-red
+                // PNG + "what colour?" and report whether CodeWhisperer accepts the image
+                // shape (no 400) and Kiro describes it. Proves the anthToKiro image branch
+                // + the inv-33 picker path will work on Kiro before the rebuild.
+                if (rest.startsWith('probe-image')) {
+                    let arg = rest.slice('probe-image'.length).trim();
+                    let model = 'auto';
+                    if (arg && arg[0] !== '{') { const sp = arg.indexOf(' '); if (sp > 0) { model = arg.slice(0, sp); arg = arg.slice(sp + 1).trim(); } else { model = arg; arg = ''; } }
+                    if (!arg) { try { arg = fs.readFileSync(KIRO_CREDS_FILE, 'utf8'); } catch (_) {} }
+                    const creds = KIRO.parseCreds(arg);
+                    if (!creds || (!creds.accessToken && !creds.refreshToken)) { w('\x1b[31m✗ no creds — run \x1b[1m!kiro login\x1b[0m\x1b[31m first\x1b[0m\r\n'); continue; }
+                    // 16x16 solid-red PNG (generated, no asset dep) — model should answer "red".
+                    const RED_PNG = 'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAFklEQVR4nGO4IydHEmIY1TCqYfhqAACaMxgQdGu1YAAAAABJRU5ErkJggg==';
+                    w('\x1b[2mauthenticating…\x1b[0m\r\n');
+                    KIRO.getAccessToken(creds, (err, at) => {
+                        if (err) { w('\x1b[31m✗ auth: ' + err.message + '\x1b[0m\r\n'); return; }
+                        const https = require('https');
+                        const anthReq = { system: '', messages: [{ role: 'user', content: [
+                            { type: 'image', source: { type: 'base64', media_type: 'image/png', data: RED_PNG } },
+                            { type: 'text', text: 'What is the dominant colour of this image? Reply with exactly one word.' },
+                        ] }] };
+                        const payload = JSON.stringify(KIRO.anthToKiro(anthReq, model));
+                        const u = new URL('https://' + KIRO.CODEWHISPERER_HOST + '/generateAssistantResponse');
+                        w('\x1b[2mPOST ' + u.hostname + ' (with image) model=' + model + ' bytes=' + Buffer.byteLength(payload) + '…\x1b[0m\r\n');
+                        const req = https.request({ hostname: u.hostname, port: 443, path: u.pathname, method: 'POST', headers: {
+                            'Content-Type': 'application/json', 'Accept': 'application/vnd.amazon.eventstream',
+                            'X-Amz-Target': 'AmazonCodeWhispererStreamingService.GenerateAssistantResponse',
+                            'User-Agent': 'AWS-SDK-JS/3.0.0 kiro-ide/1.0.0', 'X-Amz-User-Agent': 'aws-sdk-js/3.0.0 kiro-ide/1.0.0',
+                            'Authorization': 'Bearer ' + at, 'Content-Length': Buffer.byteLength(payload) } }, r => {
+                            const code = r.statusCode || 0;
+                            if (code !== 200) { let e = ''; r.on('data', c => e += c); r.on('end', () => w('\x1b[31m✗ upstream ' + code + ': ' + e.slice(0, 400) + '\x1b[0m\r\n\x1b[33m(400 here = the image wire shape needs tuning — format enum or bytes encoding)\x1b[0m\r\n')); return; }
+                            let txt = ''; const acc = { text: t => txt += t, toolEvent: () => {}, stop: () => {} };
+                            const asm = KIRO.makeFrameAssembler(ev => KIRO.applyFrame(ev, acc));
+                            r.on('data', c => { try { asm(c); } catch (_) {} });
+                            r.on('end', () => {
+                                const reply = txt.trim();
+                                const sawRed = /red/i.test(reply);
+                                w('\x1b[32m✓ 200 — image accepted. Kiro replied:\x1b[0m ' + (reply.slice(0, 200) || '(empty)') + '\r\n' +
+                                  (sawRed ? '\x1b[32m✓ VISION WORKS — Kiro saw the red image. anthToKiro image branch is good.\x1b[0m\r\n'
+                                          : '\x1b[33m⚠ 200 (format accepted) but reply isn\'t "red" — vision may be off or model ignored the image.\x1b[0m\r\n'));
+                            });
+                            r.on('error', e => w('\x1b[31m✗ stream: ' + e.message + '\x1b[0m\r\n'));
+                        });
+                        req.on('error', e => w('\x1b[31m✗ request: ' + e.message + '\x1b[0m\r\n'));
+                        req.write(payload); req.end();
+                    });
+                    continue;
+                }
                 // !kiro probe-tool — verify AGENTIC turns: send a real request WITH a
                 // tool definition + a prompt that should trigger it; report whether Kiro
                 // returns a tool_use. Proves the tool wiring works live (before rebuild).
@@ -5928,7 +5994,8 @@ function openPrintSession() {
                   '\x1b[2m!kiro login                        AWS Builder ID login in your browser (mobile OK)\r\n' +
                   '!kiro selftest                     run the codec pipeline in-bridge (no creds)\r\n' +
                   '!kiro probe [model] [credsJSON]    real CodeWhisperer call (uses login creds if omitted)\r\n' +
-                  '!kiro probe-tool [model]           verify AGENTIC: does Kiro return a tool_use?\x1b[0m\r\n');
+                  '!kiro probe-tool [model]           verify AGENTIC: does Kiro return a tool_use?\r\n' +
+                  '!kiro probe-image [model]          verify VISION: send a red image, does Kiro see it?\x1b[0m\r\n');
                 continue;
             }
 
