@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b99-kiro-test-cmd';
+const BRIDGE_BUILD = 'b100-kiro-login';
 
 const net   = require('net');
 const http  = require('http');
@@ -5706,6 +5706,56 @@ function openPrintSession() {
             if (line.startsWith('!kiro')) {
                 const w = (s) => { try { if (state.socket) state.socket.write(SYS_FENCE + s); } catch(_) {} };
                 const rest = line.slice('!kiro'.length).trim();
+                const KIRO_CREDS_FILE = path.join(FILES_DIR, 'kiro_creds.json');
+                // tiny JSON POST helper (login flow)
+                const kpost = (urlStr, obj, cb) => {
+                    const https = require('https'); const u = new URL(urlStr); const body = JSON.stringify(obj);
+                    const r = https.request({ hostname: u.hostname, port: 443, path: u.pathname, method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'Content-Length': Buffer.byteLength(body) } }, rs => {
+                        let d = ''; rs.on('data', c => d += c); rs.on('end', () => { let j = null; try { j = JSON.parse(d); } catch (_) {} cb(null, rs.statusCode || 0, j, d); });
+                    });
+                    r.on('error', e => cb(e)); r.write(body); r.end();
+                };
+                // ── !kiro login — AWS Builder ID device-code flow, MOBILE-friendly ──
+                // No Kiro desktop app needed: the bridge does the AWS handshake; you
+                // approve in your PHONE browser. Saves creds to kiro_creds.json so
+                // `!kiro probe` (no arg) picks them up. This IS the phase-3 login,
+                // delivered as a hotloadable command (no APK rebuild).
+                if (rest === 'login') {
+                    w('\x1b[1mKiro login — AWS Builder ID (device flow)\x1b[0m\r\n\x1b[2mregistering client…\x1b[0m\r\n');
+                    kpost('https://oidc.us-east-1.amazonaws.com/client/register', {
+                        clientName: 'kiro-oauth-client', clientType: 'public',
+                        scopes: ['codewhisperer:completions', 'codewhisperer:analysis', 'codewhisperer:conversations'],
+                        grantTypes: ['urn:ietf:params:oauth:grant-type:device_code', 'refresh_token'],
+                        issuerUrl: 'https://identitycenter.amazonaws.com/ssoins-722374e8c3c8e6c6',
+                    }, (e, code, j, raw) => {
+                        if (e || !j || !j.clientId) { w('\x1b[31m✗ register ' + (code || '') + ': ' + String((j && JSON.stringify(j)) || raw || (e && e.message) || '').slice(0, 300) + '\x1b[0m\r\n'); return; }
+                        const clientId = j.clientId, clientSecret = j.clientSecret;
+                        w('\x1b[2mstarting device authorization…\x1b[0m\r\n');
+                        kpost('https://oidc.us-east-1.amazonaws.com/device_authorization', { clientId, clientSecret, startUrl: 'https://view.awsapps.com/start' }, (e2, c2, d) => {
+                            if (e2 || !d || !d.deviceCode) { w('\x1b[31m✗ device auth ' + (c2 || '') + ': ' + String((d && JSON.stringify(d)) || (e2 && e2.message) || '').slice(0, 300) + '\x1b[0m\r\n'); return; }
+                            const verify = d.verificationUriComplete || d.verificationUri;
+                            w('\x1b[1m\x1b[33m→ Open in your phone browser & approve:\x1b[0m\r\n  \x1b[36m' + verify + '\x1b[0m\r\n  code: \x1b[1m' + d.userCode + '\x1b[0m\r\n\x1b[2mWaiting for approval (sign in with a free AWS Builder ID)…\x1b[0m\r\n');
+                            let interval = (d.interval || 5) * 1000; const deadline = Date.now() + ((d.expiresIn || 600) * 1000);
+                            const poll = () => {
+                                if (Date.now() > deadline) { w('\x1b[31m✗ login expired — run !kiro login again\x1b[0m\r\n'); return; }
+                                kpost('https://oidc.us-east-1.amazonaws.com/token', { clientId, clientSecret, deviceCode: d.deviceCode, grantType: 'urn:ietf:params:oauth:grant-type:device_code' }, (e3, c3, t) => {
+                                    if (t && (t.accessToken || t.access_token)) {
+                                        const creds = { accessToken: t.accessToken || t.access_token, refreshToken: t.refreshToken || t.refresh_token, clientId, clientSecret, expiresIn: t.expiresIn || t.expires_in };
+                                        try { fs.writeFileSync(KIRO_CREDS_FILE, JSON.stringify(creds)); } catch (_) {}
+                                        w('\x1b[32m✓ logged in — creds saved to kiro_creds.json. Now run: \x1b[1m!kiro probe\x1b[0m\r\n'); return;
+                                    }
+                                    const err = t && t.error;
+                                    if (err === 'authorization_pending') { setTimeout(poll, interval); return; }
+                                    if (err === 'slow_down') { interval += 5000; setTimeout(poll, interval); return; }
+                                    w('\x1b[31m✗ token ' + (c3 || '') + ': ' + String((t && JSON.stringify(t)) || (e3 && e3.message) || '').slice(0, 300) + '\x1b[0m\r\n');
+                                });
+                            };
+                            setTimeout(poll, interval);
+                        });
+                    });
+                    continue;
+                }
                 if (rest === 'selftest') {
                     const te = new TextEncoder();
                     const encFrame = (type, obj) => {
@@ -5742,9 +5792,10 @@ function openPrintSession() {
                 if (rest.startsWith('probe')) {
                     let arg = rest.slice('probe'.length).trim();
                     let model = 'auto';
-                    if (arg && arg[0] !== '{') { const sp = arg.indexOf(' '); if (sp > 0) { model = arg.slice(0, sp); arg = arg.slice(sp + 1).trim(); } }
+                    if (arg && arg[0] !== '{') { const sp = arg.indexOf(' '); if (sp > 0) { model = arg.slice(0, sp); arg = arg.slice(sp + 1).trim(); } else { model = arg; arg = ''; } }
+                    if (!arg) { try { arg = fs.readFileSync(KIRO_CREDS_FILE, 'utf8'); } catch (_) {} }   // fall back to !kiro login creds
                     const creds = KIRO.parseCreds(arg);
-                    if (!creds || (!creds.accessToken && !creds.refreshToken)) { w('\x1b[31m✗ paste Kiro creds JSON: !kiro probe [model] {"accessToken":"…","refreshToken":"…"}\x1b[0m\r\n'); continue; }
+                    if (!creds || (!creds.accessToken && !creds.refreshToken)) { w('\x1b[31m✗ no creds — run \x1b[1m!kiro login\x1b[0m\x1b[31m first, or paste: !kiro probe [model] {"accessToken":"…","refreshToken":"…"}\x1b[0m\r\n'); continue; }
                     w('\x1b[2mauthenticating…\x1b[0m\r\n');
                     KIRO.getAccessToken(creds, (err, at) => {
                         if (err) { w('\x1b[31m✗ auth: ' + err.message + '\x1b[0m\r\n'); return; }
@@ -5771,8 +5822,9 @@ function openPrintSession() {
                     continue;
                 }
                 w('\x1b[1mKiro test harness\x1b[0m (hotload-only, no rebuild)\r\n' +
-                  '\x1b[2m!kiro selftest                     run the codec pipeline in-bridge\r\n' +
-                  '!kiro probe [model] <credsJSON>    real CodeWhisperer call w/ your creds\x1b[0m\r\n');
+                  '\x1b[2m!kiro login                        AWS Builder ID login in your browser (mobile OK)\r\n' +
+                  '!kiro selftest                     run the codec pipeline in-bridge (no creds)\r\n' +
+                  '!kiro probe [model] [credsJSON]    real CodeWhisperer call (uses login creds if omitted)\x1b[0m\r\n');
                 continue;
             }
 
