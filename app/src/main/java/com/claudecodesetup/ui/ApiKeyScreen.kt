@@ -149,6 +149,11 @@ private fun buildRequest(provider: Provider, key: String): Request? {
             .url("https://api.mistral.ai/v1/models")
             .header("Authorization", "Bearer $key")
             .build()
+        // Kiro (paste-token MVP): the "key" is a Kiro credentials JSON (accessToken +
+        // refreshToken), not an API key — CodeWhisperer has no public /models endpoint and
+        // auth is Bearer + binary EventStream, so it can't be GET-validated. null = accept
+        // as-is; a bad token surfaces on the first message in !log.
+        "kiro" -> null
         // Generic fallback for HOTLOADED providers not named above: validate against the
         // standard OpenAI-style <baseUrl>/models with a Bearer token. Works for any normal
         // OAI-compatible provider added by providers.json alone — no Kotlin per provider.

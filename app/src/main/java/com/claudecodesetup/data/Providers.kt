@@ -336,6 +336,28 @@ object Providers {
         )
     )
 
+    // Kiro AI (AWS CodeWhisperer) — FREE Claude via OAuth, NOT an API key.
+    // Paste-token MVP: the "key" field takes the Kiro credentials JSON
+    // (accessToken + refreshToken). Routed by bridge.js's KIRO engine on the
+    // codewhisperer baseUrl (binary EventStream → Anthropic SSE). supportsLiveFetch
+    // = false → uses the static model list below; "auto" lets Kiro pick the model.
+    val KIRO = Provider(
+        id = "kiro",
+        name = "Kiro AI (free Claude)",
+        supportsLiveFetch = false,
+        signupUrl = "https://kiro.dev",
+        rateLimit = "Free · Claude via Kiro · paste creds JSON",
+        malaysiaStatus = MalaysiaStatus.YELLOW,
+        malaysiaNote = "Experimental · reverse-engineered AWS CodeWhisperer",
+        warningNote = "Paste your Kiro credentials JSON (accessToken + refreshToken) from a desktop Kiro login. Experimental.",
+        baseUrl = "https://codewhisperer.us-east-1.amazonaws.com/generateAssistantResponse",
+        requiresProxy = true,
+        models = listOf(
+            AiModel("Auto (Kiro picks)", "auto",            setOf(Cap.TOOLS, Cap.LONG_CTX), "Kiro selects the model server-side"),
+            AiModel("Claude Sonnet 4.5", "claude-sonnet-4-5", setOf(Cap.TOOLS, Cap.REASONING, Cap.LONG_CTX), "If 'auto' 400s, try this")
+        )
+    )
+
     val LOCAL_LLAMA = Provider(
         id = "local_llama",
         name = "Local AI (On-Device)",
@@ -352,11 +374,12 @@ object Providers {
         models = emptyList()
     )
 
-    val ALL = listOf(GROQ, GEMINI, CEREBRAS, OPENROUTER, ANTHROPIC_API, DEEPSEEK, KIMI, QWEN, MISTRAL, NVIDIA_NIM, META_LLAMA, OLLAMA)
+    val ALL = listOf(GROQ, GEMINI, CEREBRAS, OPENROUTER, ANTHROPIC_API, DEEPSEEK, KIMI, QWEN, MISTRAL, NVIDIA_NIM, META_LLAMA, KIRO, OLLAMA)
 
     fun byId(id: String): Provider? = when (id) {
         "anthropic"     -> ANTHROPIC
         "anthropic_api" -> ANTHROPIC_API
+        "kiro"          -> KIRO
         "local_llama"   -> LOCAL_LLAMA
         else            -> ALL.find { it.id == id }
     }
