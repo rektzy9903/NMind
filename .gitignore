@@ -28,3 +28,6 @@ package-lock.json
 *.md
 !README.md
 !.github/ISSUE_TEMPLATE/*.md
+
+# Kiro derisk spike — reference/regression harness, never shipped
+kiro_spike/
