@@ -21,6 +21,9 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.claudecodesetup.data.AppPreferences
 import com.claudecodesetup.data.Providers
+import com.claudecodesetup.data.UsagePeriod
+import com.claudecodesetup.data.UsageStats
+import com.claudecodesetup.ui.UsageActivity
 import com.claudecodesetup.databinding.ActivitySettingsBinding
 import com.claudecodesetup.managers.NodeBridgeManager
 import com.claudecodesetup.managers.UbuntuRootfsManager
@@ -54,7 +57,73 @@ class SettingsActivity : AppCompatActivity() {
 
         populateFields()
         setupActions()
+        addUsageCard()
         if (BuildConfig.DEBUG) addUbuntuEngineDebugSection()
+    }
+
+    private var usageStatusTv: TextView? = null
+
+    /**
+     * Token-usage summary card → taps into the full UsageActivity dashboard.
+     * Reads the proxy meter's usage_stats.json (CLAUDE.md inv 82). Inserted at the
+     * top of the settings list; refreshed in onResume.
+     */
+    private fun addUsageCard() {
+        val pad = (16 * resources.displayMetrics.density).toInt()
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(pad, pad, pad, pad)
+            setBackgroundColor(Color.parseColor("#151518"))
+            val lp = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = pad }
+            layoutParams = lp
+            isClickable = true
+            setOnClickListener {
+                startActivity(Intent(this@SettingsActivity, UsageActivity::class.java))
+            }
+        }
+        val textCol = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        textCol.addView(TextView(this).apply {
+            text = "Token Usage"
+            setTextColor(Color.parseColor("#E8834A"))
+            textSize = 14f
+        })
+        usageStatusTv = TextView(this).apply {
+            setTextColor(Color.parseColor("#9090A0"))
+            textSize = 12f
+            setPadding(0, pad / 4, 0, 0)
+        }
+        textCol.addView(usageStatusTv)
+        val chevron = TextView(this).apply {
+            text = "›"
+            setTextColor(Color.parseColor("#60606E"))
+            textSize = 22f
+        }
+        card.addView(textCol)
+        card.addView(chevron)
+        binding.settingsContent.addView(card, 0)
+        refreshUsageCard()
+    }
+
+    private fun refreshUsageCard() {
+        val tv = usageStatusTv ?: return
+        try {
+            val rep = UsageStats.aggregate(filesDir, UsagePeriod.TODAY)
+            tv.text = if (rep.isEmpty) "No usage today — tap for details"
+                else "Today: ${fmtTokens(rep.grandTotal)} tokens · ${rep.totalReq} req"
+        } catch (_: Exception) {
+            tv.text = "Tap to view usage"
+        }
+    }
+
+    private fun fmtTokens(n: Long): String = when {
+        n >= 1_000_000 -> "%.2fM".format(n / 1_000_000.0)
+        n >= 1_000     -> "%.1fk".format(n / 1_000.0)
+        else           -> n.toString()
     }
 
     /**
@@ -156,6 +225,7 @@ class SettingsActivity : AppCompatActivity() {
         refreshMcpRows()
         refreshPreferenceToggles()
         refreshToolsSummary()
+        refreshUsageCard()
     }
 
     private fun refreshToolsSummary() {
