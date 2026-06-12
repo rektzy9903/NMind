@@ -116,8 +116,25 @@ class NativeUbuntuTerminal(
 
     override fun adjustFont(deltaSp: Int) {
         val step = (deltaSp * density).roundToInt().let { if (it == 0) deltaSp else it }
-        textPx = (textPx + step).coerceIn(minPx, maxPx)
+        val newPx = (textPx + step).coerceIn(minPx, maxPx)
+        if (newPx == textPx) return            // already at the clamp — nothing to do
+        textPx = newPx
+        // setTextSize() recreates the renderer with the new cell metrics and runs
+        // TerminalView.updateSize(), which recomputes cols/rows to FILL the current
+        // view at the new font and pushes a TIOCSWINSZ to the guest (→ SIGWINCH →
+        // claude's TUI reflows to the new grid). A smaller font ⇒ more cols/rows.
         terminalView.setTextSize(textPx)
+        // Robustness: the renderer swap can land a frame before the view re-measures,
+        // so re-run the fit on the next layout pass. If updateSize() then finds the
+        // grid unchanged it won't re-emit SIGWINCH, so also re-assert the PTY size
+        // from the emulator — this guarantees the guest is told the real grid and an
+        // interactive TUI never keeps an old, now-undersized box. Then force a repaint.
+        terminalView.post {
+            terminalView.updateSize()
+            val em = session.emulator
+            if (em != null) resizePty(em.mColumns, em.mRows)
+            terminalView.onScreenUpdated()
+        }
     }
 
     override fun sendKey(seq: String) {
