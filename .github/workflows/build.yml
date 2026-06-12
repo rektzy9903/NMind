@@ -97,13 +97,18 @@ jobs:
           repackage_abi() {  # $1 = termux-arch   $2 = jniLibs abi dir
             local tarch="$1" abi="$2" tmp pre
             tmp="$(mktemp -d)"
-            echo "── $abi: fetching Termux proot + libtalloc ($tarch)"
-            fetch_deb proot     "$tarch" "$tmp/proot.deb"
-            fetch_deb libtalloc "$tarch" "$tmp/libtalloc.deb"
+            echo "── $abi: fetching Termux proot + libtalloc + libandroid-shmem ($tarch)"
+            fetch_deb proot            "$tarch" "$tmp/proot.deb"
+            fetch_deb libtalloc        "$tarch" "$tmp/libtalloc.deb"
+            # Newer Termux proot (5.x) NEEDs libandroid-shmem.so (SysV shm shim).
+            # Without it the bionic linker fails proot launch with
+            # 'CANNOT LINK EXECUTABLE … library "libandroid-shmem.so" not found'.
+            fetch_deb libandroid-shmem "$tarch" "$tmp/shmem.deb"
             dpkg-deb -x "$tmp/proot.deb"     "$tmp/x"
             dpkg-deb -x "$tmp/libtalloc.deb" "$tmp/x"
+            dpkg-deb -x "$tmp/shmem.deb"     "$tmp/x"
             pre="$tmp/x/data/data/com.termux/files/usr"
-            for r in "bin/proot" "libexec/proot/loader" "lib/libtalloc.so.2"; do
+            for r in "bin/proot" "libexec/proot/loader" "lib/libtalloc.so.2" "lib/libandroid-shmem.so"; do
               [ -e "$pre/$r" ] || { echo "::error::$abi: missing '$r' in Termux debs"; rm -rf "$tmp"; return 1; }
             done
             mkdir -p "app/src/main/jniLibs/$abi"
@@ -112,6 +117,9 @@ jobs:
             cp    "$pre/bin/proot"            "app/src/main/jniLibs/$abi/libproot.so"
             cp    "$pre/libexec/proot/loader" "app/src/main/jniLibs/$abi/libproot-loader.so"
             cp -L "$pre/lib/libtalloc.so.2"   "app/src/main/jniLibs/$abi/libtalloc.so"
+            # SONAME is exactly libandroid-shmem.so (no version) and nativeLibDir is
+            # already on LD_LIBRARY_PATH → resolves with no symlink (unlike talloc).
+            cp -L "$pre/lib/libandroid-shmem.so" "app/src/main/jniLibs/$abi/libandroid-shmem.so"
             if [ -e "$pre/libexec/proot/loader32" ]; then
               cp  "$pre/libexec/proot/loader32" "app/src/main/jniLibs/$abi/libproot-loader32.so"
             else
@@ -128,8 +136,8 @@ jobs:
             || echo "::warning::armv7 proot packaging failed — Ubuntu engine unavailable on 32-bit (libnode fallback stays)"
 
           echo "── proot payload packaged (Termux, pristine — NOT patchelf'd):"
-          ls -la app/src/main/jniLibs/*/libproot*.so app/src/main/jniLibs/*/libtalloc.so
-          echo "── arm64 libproot.so NEEDED (libtalloc.so.2 expected — satisfied via runtime symlink):"
+          ls -la app/src/main/jniLibs/*/libproot*.so app/src/main/jniLibs/*/libtalloc.so app/src/main/jniLibs/*/libandroid-shmem.so
+          echo "── arm64 libproot.so NEEDED (libtalloc.so.2 + libandroid-shmem.so expected — resolved via LD_LIBRARY_PATH/symlink):"
           patchelf --print-needed app/src/main/jniLibs/arm64-v8a/libproot.so
 
       # ── 5. Cache Gradle packages ─────────────────────────────────────────────

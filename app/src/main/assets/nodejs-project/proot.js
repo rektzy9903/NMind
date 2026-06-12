@@ -22,6 +22,14 @@
  *                                          bionic's linker rejects patched ELFs
  *                                          ("linker_phdr.cpp Load CHECK").)
  *   jniLibs/<abi>/libtalloc.so          ← proot's only non-system shared dep
+ *   jniLibs/<abi>/libandroid-shmem.so   ← SysV-shm shim NEEDED by Termux proot
+ *                                          5.x. SONAME == filename (no version),
+ *                                          so it resolves straight from
+ *                                          nativeLibDir on LD_LIBRARY_PATH — no
+ *                                          symlink (unlike libtalloc.so.2). Miss
+ *                                          it and bionic fails proot launch:
+ *                                          'CANNOT LINK EXECUTABLE … "libandroid-
+ *                                          shmem.so" not found'.
  *   jniLibs/<abi>/libproot-loader.so    ← proot's 64-bit loader (static ELF;
  *                                          injected via ptrace, read not exec'd)
  *   jniLibs/<abi>/libproot-loader32.so  ← proot's 32-bit loader (static ELF)
