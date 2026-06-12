@@ -511,6 +511,7 @@ html, body {
 }
 #token-counter.warn { color: rgba(255,160,60,0.6); }
 #token-counter.crit { color: rgba(255,80,80,0.8); }
+#token-counter.live { color: rgba(232,131,74,0.85); }
 
 /* ── Context bar ─────────────────────────────────────────────────────────── */
 #ctx-bar-wrap {
@@ -768,7 +769,7 @@ html, body {
 .tb-btn.tb-locked{opacity:.3;pointer-events:none;filter:grayscale(1);}
 .tb-btn.armed{background:#22E8834A;border-color:#E8834A;color:#E8834A;box-shadow:0 0 8px rgba(232,131,74,.6);}
 /* When in Ubuntu mode, hide the chat-only chrome (the opaque #ubuntu-view covers #msgs). */
-body.ubuntu-mode #input-bar,body.ubuntu-mode #token-counter,body.ubuntu-mode #ctx-bar-wrap,body.ubuntu-mode #mcp-chip,body.ubuntu-mode #mcp-popover,body.ubuntu-mode #agent-chip,body.ubuntu-mode #cwd-bar,body.ubuntu-mode #img-preview{display:none !important;}
+body.ubuntu-mode #input-bar,body.ubuntu-mode #ctx-bar-wrap,body.ubuntu-mode #mcp-chip,body.ubuntu-mode #mcp-popover,body.ubuntu-mode #agent-chip,body.ubuntu-mode #cwd-bar,body.ubuntu-mode #img-preview{display:none !important;}
 /* The unified toolbar stays visible in Ubuntu mode (it carries the terminal keys).
    Frosted glass ONLY here (scoped) so the warm #ubuntu-view gradient shows through
    the bottom bar instead of a flat opaque slab — and so chat-mode scroll never pays
@@ -1335,6 +1336,22 @@ function handleOSC(content){
       var suggestions=JSON.parse(content.slice(14));
       showSuggestions(suggestions);
     }catch(_){}
+  } else if(content.startsWith('9;toklive:')){
+    // Live per-turn input/output counts streamed from the proxy (9;toklive:in:out).
+    // Ticks up in real time during a turn; covers chat + 🐧 Ubuntu (same proxy).
+    var lv=content.slice(10).split(':');
+    var inT=parseInt(lv[0])||0, outT=parseInt(lv[1])||0;
+    var tokElL=document.getElementById('token-counter');
+    var barFillL=document.getElementById('ctx-bar-fill');
+    if(tokElL){
+      tokElL.textContent='↑ '+formatTokens(inT)+'  ↓ '+formatTokens(outT);
+      tokElL.className='live';
+      if(barFillL){
+        var sum=inT+outT, pctL=Math.min(100,Math.round(sum/2000));
+        barFillL.style.width=pctL+'%';
+        barFillL.style.background='rgba(232,131,74,0.5)';
+      }
+    }
   } else if(content.startsWith('9;tokens:')){
     var toks=parseInt(content.slice(9))||0;
     var tokEl=document.getElementById('token-counter');

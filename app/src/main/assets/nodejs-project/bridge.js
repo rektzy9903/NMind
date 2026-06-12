@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b109-imggen-probe';
+const BRIDGE_BUILD = 'b110-live-toklive';
 
 const net   = require('net');
 const http  = require('http');
@@ -3096,6 +3096,24 @@ function sendToProvider(baseUrl, apiKey, oaiReq, stream, res, onBadRequest, on42
             let tcBlocks    = {};
             let nextBlockIdx = 1; // 0 = text block; tool blocks start at 1
 
+            // Live token chip — broadcast current-turn input/output counts to active
+            // terminal sessions AS they stream (9;toklive:<in>:<out>). The proxy is the
+            // single chokepoint every proxy-mode turn (chat + 🐧 Ubuntu) flows through,
+            // so this covers both tabs. Throttled to ~200ms so a fast stream doesn't
+            // flood the socket. Subscription mode bypasses the proxy → no live split
+            // there (only the engine's end-of-turn 9;tokens cumulative count).
+            let _liveLastEmit = 0;
+            function emitLiveTokens(force) {
+                const now = Date.now();
+                if (!force && (now - _liveLastEmit) < 200) return;
+                _liveLastEmit = now;
+                const inTok = (providerUsage && (providerUsage.prompt_tokens || providerUsage.input_tokens)) || usageInTok || 0;
+                const osc = '\x1b]9;toklive:' + (inTok | 0) + ':' + (outTokens | 0) + '\x07';
+                for (const s of activeSessions.values()) {
+                    if (s.socket) try { s.socket.write(osc); } catch (_) {}
+                }
+            }
+
             // Idle timer: if OpenRouter sends 200 OK but then stalls sending SSE events,
             // abort after 30 s rather than letting the claude --print 180 s timeout fire.
             function abortStalled() {
@@ -3154,6 +3172,10 @@ function sendToProvider(baseUrl, apiKey, oaiReq, stream, res, onBadRequest, on42
                 });
                 sendEvent('message_stop', { type: 'message_stop' });
                 try { res.end(); } catch (_) {}
+                // Final live-chip push with the authoritative out count (so the chip
+                // lands on the real total, not the last throttled estimate).
+                outTokens = outTok;
+                try { emitLiveTokens(true); } catch (_) {}
                 // Usage meter: provider's real input count when present, else estimate.
                 try { USAGE.record(pUrl, oaiReq.model, (providerUsage && (providerUsage.prompt_tokens || providerUsage.input_tokens)) || usageInTok, outTok); } catch (_) {}
             }
@@ -3220,6 +3242,7 @@ function sendToProvider(baseUrl, apiKey, oaiReq, stream, res, onBadRequest, on42
 
                     if (text) {
                         outTokens++;
+                        emitLiveTokens(false);
                         sendEvent('content_block_delta', {
                             type: 'content_block_delta', index: 0,
                             delta: { type: 'text_delta', text },
