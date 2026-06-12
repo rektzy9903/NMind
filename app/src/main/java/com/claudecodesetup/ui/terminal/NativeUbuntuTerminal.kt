@@ -49,6 +49,21 @@ class NativeUbuntuTerminal(
     private var pendingBytes = 0
     private val PENDING_CAP = 256 * 1024
 
+    // Ctrl chord (mirrors the chat toolbar's glowing Ctrl modifier). When armed,
+    // the NEXT typed letter is folded into its control code (a→^A … c→^C) and the
+    // chord disarms. Implemented via readControlKey() (consulted per key on the
+    // char-based soft-keyboard path) + a disarm in onCodePoint. onCtrlGlow lets the
+    // toolbar button reflect the armed state.
+    private var ctrlArmed = false
+    var onCtrlGlow: ((Boolean) -> Unit)? = null
+
+    /** Toolbar Ctrl button: toggle the one-shot chord + refresh the glow. */
+    fun toggleCtrl() {
+        ctrlArmed = !ctrlArmed
+        onCtrlGlow?.invoke(ctrlArmed)
+        terminalView.requestFocus()
+    }
+
     private val externalIo = object : TerminalSession.ExternalIo {
         override fun onInput(data: ByteArray, offset: Int, count: Int) {
             val out = if (offset == 0 && count == data.size) data
@@ -120,7 +135,17 @@ class NativeUbuntuTerminal(
 
     override fun onShown() {
         terminalView.onScreenUpdated()
-        terminalView.post { flushPending(); terminalView.requestFocus() }
+        // Re-sync the grid to the current view size. When the overlay flips GONE→VISIBLE
+        // (mode/tab switch) the first layout can race the keyboard animation; without a
+        // resync the emulator can keep a stale (too-tall) row count, so an interactive
+        // TUI like claude anchors its input box to a bottom row that's off-screen — the
+        // "big blank area below the response" symptom. updateSize only emits a SIGWINCH
+        // when cols/rows actually change, so this is a no-op when already correct.
+        terminalView.post {
+            flushPending()
+            terminalView.updateSize()
+            terminalView.requestFocus()
+        }
     }
 
     override fun dispose() {
@@ -139,11 +164,16 @@ class NativeUbuntuTerminal(
     override fun onKeyDown(keyCode: Int, e: KeyEvent?, session: TerminalSession?): Boolean = false
     override fun onKeyUp(keyCode: Int, e: KeyEvent?): Boolean = false
     override fun onLongPress(event: MotionEvent?): Boolean = false
-    override fun readControlKey(): Boolean = false            // Ctrl handled by the native key row (sends \x03 etc.)
+    override fun readControlKey(): Boolean = ctrlArmed        // armed → this keystroke is Ctrl-modified
     override fun readAltKey(): Boolean = false
     override fun readShiftKey(): Boolean = false
     override fun readFnKey(): Boolean = false
-    override fun onCodePoint(codePoint: Int, ctrlDown: Boolean, session: TerminalSession?): Boolean = false
+    override fun onCodePoint(codePoint: Int, ctrlDown: Boolean, session: TerminalSession?): Boolean {
+        // One-shot chord: disarm after the key the Ctrl applied to. Return false so
+        // TerminalView still performs the actual ctrl transform (letter → ^letter).
+        if (ctrlArmed) { ctrlArmed = false; onCtrlGlow?.invoke(false) }
+        return false
+    }
     override fun onEmulatorSet() { flushPending() }            // emulator just became available
 
     // ── TerminalSessionClient ──────────────────────────────────────────────────

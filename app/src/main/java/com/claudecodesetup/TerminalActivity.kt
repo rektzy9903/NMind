@@ -31,10 +31,6 @@ import android.widget.ScrollView
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
-import androidx.webkit.JavaScriptReplyProxy
-import androidx.webkit.WebMessageCompat
-import androidx.webkit.WebViewCompat
-import androidx.webkit.WebViewFeature
 import com.claudecodesetup.data.AppPreferences
 import com.claudecodesetup.databinding.ActivityTerminalBinding
 import com.claudecodesetup.managers.NodeBridgeManager
@@ -62,20 +58,11 @@ class TerminalActivity : AppCompatActivity() {
     // P6.5: whether the WebView is currently showing the 🐧 Ubuntu PTY view (vs 💬 chat).
     @Volatile private var ubuntuMode = false
 
-    // Fast PTY-output channel (terminal-lag fix). Captured when the WebView's JS posts
-    // its first "ready" message over the "NexusPty" WebMessageListener. PTY chunks go
-    // through replyProxy.postMessage() instead of evaluateJavascript("ptyWrite('…')"),
-    // skipping the per-chunk JS-source compile that starved the IME (dropped keystrokes).
-    // Null until the channel handshakes / when the feature is unsupported → evaluateJS fallback.
-    private var ptyReplyProxy: JavaScriptReplyProxy? = null
-
-    // Renderer-agnostic seam for the 🐧 Ubuntu PTY view. Either the WebView
-    // (xterm.js) impl — the default, behaviorally unchanged — or the native Termux
-    // renderer, chosen by AppPreferences.isNativeTerminalEnabled(). Set in
-    // initUbuntuTerminal() (onCreate, after binding). nativeTerminal is non-null
-    // ONLY in native mode (drives the overlay + key row).
-    private lateinit var ubuntuTerminal: com.claudecodesetup.ui.terminal.UbuntuTerminalView
-    private var nativeTerminal: com.claudecodesetup.ui.terminal.NativeUbuntuTerminal? = null
+    // The 🐧 Ubuntu PTY renderer — always the native Termux terminal-view now (the
+    // xterm.js WebView renderer was removed). Hosts a native TerminalView in an
+    // opaque overlay over the WebView + drives the native toolbar/key row. The chat
+    // (💬) view stays entirely on the WebView, unchanged. Set in initUbuntuTerminal().
+    private lateinit var nativeTerminal: com.claudecodesetup.ui.terminal.NativeUbuntuTerminal
 
     companion object {
         private const val REQUEST_IMAGE = 1002
@@ -159,63 +146,63 @@ class TerminalActivity : AppCompatActivity() {
 
     // ─── 🐧 Ubuntu terminal renderer selection ───────────────────────────────
 
-    /** Pick the Ubuntu renderer from the pref. Native → host a Termux TerminalView
-     *  in the overlay + wire the native key row; WebView → wrap the shared WebView.
-     *  Both satisfy UbuntuTerminalView so the rest of the activity is impl-agnostic. */
+    /** Host the native Termux TerminalView in the overlay + wire the native toolbar.
+     *  This is the only 🐧 Ubuntu renderer (the xterm.js WebView path was removed). */
     private fun initUbuntuTerminal() {
-        if (prefs.isNativeTerminalEnabled()) {
-            val nt = com.claudecodesetup.ui.terminal.NativeUbuntuTerminal(
-                this,
-                sendPty = { data -> claudeService?.sendPty(activeSessionId, data) },
-                resizePty = { cols, rows -> claudeService?.resizePty(activeSessionId, cols, rows) },
+        val nt = com.claudecodesetup.ui.terminal.NativeUbuntuTerminal(
+            this,
+            sendPty = { data -> claudeService?.sendPty(activeSessionId, data) },
+            resizePty = { cols, rows -> claudeService?.resizePty(activeSessionId, cols, rows) },
+        )
+        nativeTerminal = nt
+        binding.nativeTermHost.addView(
+            nt.nativeView,
+            android.widget.FrameLayout.LayoutParams(
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT
             )
-            nativeTerminal = nt
-            binding.nativeTermHost.addView(
-                nt.nativeView,
-                android.widget.FrameLayout.LayoutParams(
-                    android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
-                    android.widget.FrameLayout.LayoutParams.MATCH_PARENT
-                )
-            )
-            ubuntuTerminal = nt
-            wireNativeKeyRow()
-        } else {
-            ubuntuTerminal = com.claudecodesetup.ui.terminal.WebViewUbuntuTerminal(
-                binding.webViewTerminal
-            ) { ptyReplyProxy }
-        }
+        )
+        wireNativeKeyRow()
     }
 
-    /** Show/hide the Ubuntu view per mode. In native mode the opaque overlay covers
-     *  the WebView (which stays in chat — see window.__useNativeTerminal in setMode).
-     *  In WebView mode the JS toggles its own xterm; we only open the PTY. */
+    /** Show/hide the native Ubuntu overlay per mode. The opaque overlay covers the
+     *  WebView (which stays in chat — see window.__useNativeTerminal in setMode). */
     private fun applyUbuntuMode(ubuntu: Boolean) {
-        val nt = nativeTerminal
-        if (nt != null) {
-            binding.nativeUbuntuOverlay.visibility = if (ubuntu) View.VISIBLE else View.GONE
-            if (ubuntu) {
-                binding.nativeUbuntuOverlay.bringToFront()
-                claudeService?.openPty(activeSessionId)
-                ubuntuTerminal.onShown()
-            }
-        } else if (ubuntu) {
+        binding.nativeUbuntuOverlay.visibility = if (ubuntu) View.VISIBLE else View.GONE
+        if (ubuntu) {
+            binding.nativeUbuntuOverlay.bringToFront()
             claudeService?.openPty(activeSessionId)
+            nativeTerminal.onShown()
         }
     }
 
-    /** Native key row → raw PTY sequences (the in-WebView toolbar is covered). */
+    /** Native toolbar (mirrors the chat-mode toolbar) → the active session's Ubuntu
+     *  shell. The in-WebView toolbar is hidden under the opaque overlay, so the
+     *  terminal carries its own equivalent buttons. */
     private fun wireNativeKeyRow() {
-        val nt = nativeTerminal ?: return
+        val nt = nativeTerminal
         binding.btnNativeChat.setOnClickListener {
             ubuntuMode = false
             binding.nativeUbuntuOverlay.visibility = View.GONE
-            // WebView is already in chat (native flag keeps it there); just sync the
-            // 💬/🐧 toggle highlight.
+            // WebView is already in chat; just sync the 💬/🐧 toggle highlight.
             binding.webViewTerminal.evaluateJavascript("window.setMode&&window.setMode('chat')", null)
         }
+        // Ctrl chord — glowing armed state mirrors the chat toolbar's Ctrl button.
+        nt.onCtrlGlow = { armed ->
+            binding.btnNativeCtrl.setTextColor(
+                if (armed) getColor(R.color.accent_orange) else getColor(R.color.text_primary)
+            )
+        }
+        binding.btnNativeCtrl.setOnClickListener { nt.toggleCtrl() }
+        binding.btnNativePipe.setOnClickListener { nt.sendKey("|") }
+        binding.btnNativeFiles.setOnClickListener {
+            val path = claudeService?.getSession(activeSessionId)?.cwd?.ifEmpty { null }
+                ?: prefs.getProjectPath().ifEmpty { filesDir.absolutePath }
+            showFileBrowser(path)
+        }
+        binding.btnNativePreview.setOnClickListener { openWebPreview() }
         binding.btnNativeEsc.setOnClickListener { nt.sendKey("") }
         binding.btnNativeTab.setOnClickListener { nt.sendKey("\t") }
-        binding.btnNativeCtrlC.setOnClickListener { nt.sendKey("") }
         binding.btnNativeUp.setOnClickListener { nt.sendKey("[A") }
         binding.btnNativeDown.setOnClickListener { nt.sendKey("[B") }
         binding.btnNativeRight.setOnClickListener { nt.sendKey("[C") }
@@ -290,7 +277,7 @@ class TerminalActivity : AppCompatActivity() {
         tts = null
         speechRecognizer?.destroy()
         speechRecognizer = null
-        nativeTerminal?.dispose()
+        if (::nativeTerminal.isInitialized) nativeTerminal.dispose()
         // Null all callbacks unconditionally before unbinding to prevent callbacks
         // firing on a partially-destroyed activity if the binder delivers one last event.
         claudeService?.onOutput = null
@@ -322,41 +309,12 @@ class TerminalActivity : AppCompatActivity() {
 
         wv.addJavascriptInterface(TerminalBridge(), "Android")
 
-        // Fast PTY-output channel. Inject a "NexusPty" WebMessageListener (androidx.webkit)
-        // so the JS side gets a window.NexusPty object: app→JS PTY bytes flow through
-        // replyProxy.postMessage(b64) → NexusPty.onmessage with NO per-chunk JS-source
-        // parse/compile (the UI-thread hog that dropped keystrokes during TUI typing).
-        // The JS posts "ready" once on load to hand us the reply proxy. Feature-gated with
-        // a silent evaluateJavascript fallback (older WebView builds).
-        if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
-            try {
-                WebViewCompat.addWebMessageListener(
-                    wv, "NexusPty", setOf("*"),
-                    object : WebViewCompat.WebMessageListener {
-                        override fun onPostMessage(
-                            view: WebView,
-                            message: WebMessageCompat,
-                            sourceOrigin: android.net.Uri,
-                            isMainFrame: Boolean,
-                            replyProxy: JavaScriptReplyProxy
-                        ) {
-                            if (isMainFrame) ptyReplyProxy = replyProxy
-                        }
-                    }
-                )
-            } catch (e: Exception) {
-                Log.w("TerminalActivity", "NexusPty WebMessageListener unavailable", e)
-            }
-        }
-
         wv.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView, url: String) {
                 binding.tvLoading.visibility = View.GONE
-                // Native renderer active → tell the page to keep the WebView in chat
-                // (skip its own xterm + doFit) so it never double-drives the PTY.
-                if (nativeTerminal != null) {
-                    view.evaluateJavascript("window.__useNativeTerminal=true;", null)
-                }
+                // The 🐧 Ubuntu view is rendered natively (Termux terminal-view), so the
+                // WebView always stays in chat (💬) — tell the page to skip its own xterm.
+                view.evaluateJavascript("window.__useNativeTerminal=true;", null)
                 val model = prefs.getModelId().let { m ->
                     when {
                         m.isEmpty() -> "claude"
@@ -450,12 +408,10 @@ class TerminalActivity : AppCompatActivity() {
             }
         }
 
-        // P6.5: raw Ubuntu-PTY bytes (base64) → terminal renderer, gated to the active tab.
-        // Routed through the UbuntuTerminalView seam (the postMessage/evaluateJavascript
-        // dance now lives in WebViewUbuntuTerminal). Session-routing + UI-thread hop stay here.
+        // Raw Ubuntu-PTY bytes → native terminal renderer, gated to the active tab.
         claudeService!!.onPtyOutput = { sessionId, data ->
             if (sessionId == activeSessionId) {
-                runOnUiThread { ubuntuTerminal.feed(data) }
+                runOnUiThread { nativeTerminal.feed(data) }
             }
         }
 
@@ -564,12 +520,11 @@ class TerminalActivity : AppCompatActivity() {
         activeSessionId = id
         claudeService?.switchToSession(id)
 
-        // P6.5: the Ubuntu view is a single shared xterm. When switching tabs while
-        // in 🐧 mode, reset it and (re)attach to the new tab's own guest shell.
+        // The native Ubuntu view is one shared TerminalView. When switching tabs while
+        // in 🐧 mode, reset it and (re)attach to the new tab's own guest shell. This
+        // also re-opens the PTY + re-focuses via applyUbuntuMode/onShown.
         if (ubuntuMode) {
-            ubuntuTerminal.clearScreen()
-            // Reattach the (shared) renderer to the new tab's guest shell. For native
-            // this also re-opens the PTY + re-focuses via applyUbuntuMode/onShown.
+            nativeTerminal.clearScreen()
             applyUbuntuMode(true)
         }
 

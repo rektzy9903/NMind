@@ -238,7 +238,6 @@ class SettingsActivity : AppCompatActivity() {
     private fun refreshPreferenceToggles() {
         binding.switchResponseNotifications.isChecked = prefs.isResponseNotificationsEnabled()
         binding.switchAutoStartBoot.isChecked = prefs.isAutoStartOnBoot()
-        binding.switchNativeTerminal.isChecked = prefs.isNativeTerminalEnabled()
         binding.switchSkipKeyPrompt.isChecked = prefs.isSkipKeyPromptEnabled()
     }
 
@@ -370,9 +369,6 @@ class SettingsActivity : AppCompatActivity() {
         }
         binding.switchSkipKeyPrompt.setOnCheckedChangeListener { _, isChecked ->
             prefs.setSkipKeyPromptEnabled(isChecked)
-        }
-        binding.switchNativeTerminal.setOnCheckedChangeListener { _, isChecked ->
-            prefs.setNativeTerminalEnabled(isChecked)
         }
 
         binding.btnChangeProvider.setOnClickListener {

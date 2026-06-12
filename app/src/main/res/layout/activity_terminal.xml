@@ -201,7 +201,7 @@
         android:layout_height="0dp"
         android:layout_weight="1">
 
-        <!-- Chat (always) + Ubuntu xterm (WebView-renderer mode) -->
+        <!-- 💬 Chat (the WebView is chat-only; 🐧 Ubuntu is rendered natively below) -->
         <WebView
             android:id="@+id/webViewTerminal"
             android:layout_width="match_parent"
@@ -211,8 +211,7 @@
 
         <!-- Native 🐧 Ubuntu renderer (Termux terminal-view). Opaque, covers the
              WebView while in Ubuntu mode; GONE otherwise. The TerminalView is added
-             into nativeTermHost programmatically. Only used when the native-terminal
-             pref is on — else this whole overlay stays GONE. -->
+             into nativeTermHost programmatically. This is the only Ubuntu renderer. -->
         <LinearLayout
             android:id="@+id/nativeUbuntuOverlay"
             android:layout_width="match_parent"
@@ -245,6 +244,10 @@
                         android:layout_width="wrap_content" android:layout_height="34dp"
                         android:text="‹ Chat" android:textSize="12sp" android:textColor="@color/accent_blue"
                         android:minWidth="0dp" android:minHeight="0dp" android:paddingHorizontal="10dp" />
+                    <Button android:id="@+id/btnNativeCtrl" style="@style/Widget.Material3.Button.TextButton"
+                        android:layout_width="wrap_content" android:layout_height="34dp"
+                        android:text="Ctrl" android:textSize="12sp" android:textColor="@color/text_primary"
+                        android:minWidth="0dp" android:minHeight="0dp" android:paddingHorizontal="10dp" />
                     <Button android:id="@+id/btnNativeEsc" style="@style/Widget.Material3.Button.TextButton"
                         android:layout_width="wrap_content" android:layout_height="34dp"
                         android:text="Esc" android:textSize="12sp" android:textColor="@color/text_primary"
@@ -253,9 +256,9 @@
                         android:layout_width="wrap_content" android:layout_height="34dp"
                         android:text="Tab" android:textSize="12sp" android:textColor="@color/text_primary"
                         android:minWidth="0dp" android:minHeight="0dp" android:paddingHorizontal="10dp" />
-                    <Button android:id="@+id/btnNativeCtrlC" style="@style/Widget.Material3.Button.TextButton"
+                    <Button android:id="@+id/btnNativePipe" style="@style/Widget.Material3.Button.TextButton"
                         android:layout_width="wrap_content" android:layout_height="34dp"
-                        android:text="^C" android:textSize="12sp" android:textColor="@color/accent_orange"
+                        android:text="|" android:textSize="13sp" android:textColor="@color/text_primary"
                         android:minWidth="0dp" android:minHeight="0dp" android:paddingHorizontal="10dp" />
                     <Button android:id="@+id/btnNativeUp" style="@style/Widget.Material3.Button.TextButton"
                         android:layout_width="wrap_content" android:layout_height="34dp"
@@ -280,6 +283,14 @@
                     <Button android:id="@+id/btnNativeFontInc" style="@style/Widget.Material3.Button.TextButton"
                         android:layout_width="wrap_content" android:layout_height="34dp"
                         android:text="A+" android:textSize="12sp" android:textColor="@color/text_secondary"
+                        android:minWidth="0dp" android:minHeight="0dp" android:paddingHorizontal="10dp" />
+                    <Button android:id="@+id/btnNativeFiles" style="@style/Widget.Material3.Button.TextButton"
+                        android:layout_width="wrap_content" android:layout_height="34dp"
+                        android:text="Files" android:textSize="12sp" android:textColor="@color/accent_blue"
+                        android:minWidth="0dp" android:minHeight="0dp" android:paddingHorizontal="10dp" />
+                    <Button android:id="@+id/btnNativePreview" style="@style/Widget.Material3.Button.TextButton"
+                        android:layout_width="wrap_content" android:layout_height="34dp"
+                        android:text="Preview" android:textSize="12sp" android:textColor="@color/accent_blue"
                         android:minWidth="0dp" android:minHeight="0dp" android:paddingHorizontal="10dp" />
                 </LinearLayout>
             </HorizontalScrollView>

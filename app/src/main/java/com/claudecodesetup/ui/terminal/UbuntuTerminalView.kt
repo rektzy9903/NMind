@@ -3,18 +3,13 @@ package com.claudecodesetup.ui.terminal
 import android.view.View
 
 /**
- * Renderer-agnostic seam for the 🐧 Ubuntu PTY terminal.
+ * Renderer seam for the 🐧 Ubuntu PTY terminal.
  *
- * Two implementations satisfy this:
- *  - [WebViewUbuntuTerminal] — xterm.js inside the shared WebView (the default;
- *    base64-encodes bytes back across the JS bridge).
- *  - [NativeUbuntuTerminal] — Termux terminal-view (native Canvas), selected
- *    behind AppPreferences.isNativeTerminalEnabled().
- *
- * TerminalActivity holds one of these and talks only to this interface, so a
- * native build ships BESIDE the WebView path and reverts via a flag with no
- * emergency rebuild. The engine below (ClaudeService PTY socket relay →
- * bridge.js attachPtySession → libpty.so forkpty) is shared and unchanged.
+ * The sole implementation is [NativeUbuntuTerminal] (Termux terminal-view, native
+ * Canvas). The earlier xterm.js WebView renderer was removed — chat (💬) is the
+ * WebView's only job now. The interface is retained so the activity talks to a
+ * small surface and a future renderer could slot in. The engine below (ClaudeService
+ * PTY socket relay → bridge.js attachPtySession → libpty.so forkpty) is unchanged.
  */
 interface UbuntuTerminalView {
     /** The native view to host in the layout, or null when this impl renders
