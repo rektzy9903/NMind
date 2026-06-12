@@ -200,8 +200,8 @@ private fun TopicCard(topic: String) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Color(0x22E8834A), RoundedCornerShape(10.dp))
-            .border(1.dp, Color(0x4DE8834A), RoundedCornerShape(10.dp))
+            .background(Color(0x22FF8C42), RoundedCornerShape(10.dp))
+            .border(1.dp, Color(0x4DFF8C42), RoundedCornerShape(10.dp))
             .padding(horizontal = 13.dp, vertical = 10.dp),
     ) {
         Text("TOPIC", fontFamily = SpaceMonoFamily, fontSize = 9.sp,
@@ -276,9 +276,9 @@ private fun HumanBubble(label: String, text: String) {
         Column(
             modifier = Modifier
                 .widthIn(max = 320.dp)
-                .background(Color(0x29E8834A),
+                .background(Color(0x29FF8C42),
                     RoundedCornerShape(topStart = 14.dp, topEnd = 14.dp, bottomEnd = 4.dp, bottomStart = 14.dp))
-                .border(1.dp, Color(0x4DE8834A),
+                .border(1.dp, Color(0x4DFF8C42),
                     RoundedCornerShape(topStart = 14.dp, topEnd = 14.dp, bottomEnd = 4.dp, bottomStart = 14.dp))
                 .padding(horizontal = 13.dp, vertical = 10.dp),
             horizontalAlignment = Alignment.End,

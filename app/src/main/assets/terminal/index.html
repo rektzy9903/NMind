@@ -16,14 +16,14 @@
 html, body {
   width:100%; height:100%; overflow:hidden;
   font-family: 'Space Mono', 'Courier New', monospace;
-  /* Lifted warm-dark base + full-bleed aurora (matches native AuroraBackground)
-     so chat mode isn't flat black and glass bubbles read. */
+  /* Pure-black base + full-bleed aurora (cyan/amber/rose/emerald — matches the
+     native AuroraBackground) so glass bubbles read as frosted over black. */
   background:
-    radial-gradient(900px 620px at 12% -6%, rgba(232,131,74,0.20), transparent 60%),
-    radial-gradient(720px 600px at 104% 6%, rgba(244,114,182,0.13), transparent 55%),
-    radial-gradient(820px 760px at 92% 102%, rgba(96,165,250,0.13), transparent 55%),
-    radial-gradient(620px 640px at -4% 104%, rgba(45,212,191,0.11), transparent 55%),
-    #151219;
+    radial-gradient(900px 620px at 12% -6%, rgba(0,212,255,0.13), transparent 60%),
+    radial-gradient(720px 600px at 104% 6%, rgba(255,140,66,0.13), transparent 55%),
+    radial-gradient(820px 760px at 92% 102%, rgba(255,77,109,0.12), transparent 55%),
+    radial-gradient(620px 640px at -4% 104%, rgba(16,255,171,0.12), transparent 55%),
+    #000000;
   -webkit-tap-highlight-color: transparent;
 }
 
@@ -37,21 +37,21 @@ html, body {
 .blob-1 {
   width: 300px; height: 300px;
   top: -80px; left: -60px;
-  background: radial-gradient(circle, rgba(232,131,74,0.16) 0%, transparent 70%);
+  background: radial-gradient(circle, rgba(0,212,255,0.16) 0%, transparent 70%);
   filter: blur(32px);
   animation: drift 8s ease-in-out infinite alternate;
 }
 .blob-2 {
   width: 260px; height: 260px;
   top: -50px; right: -50px;
-  background: radial-gradient(circle, rgba(244,114,182,0.12) 0%, transparent 70%);
+  background: radial-gradient(circle, rgba(255,77,109,0.12) 0%, transparent 70%);
   filter: blur(26px);
   animation: drift 10s ease-in-out infinite alternate-reverse;
 }
 .blob-3 {
   width: 300px; height: 200px;
   bottom: 140px; left: 50%;
-  background: radial-gradient(circle, rgba(96,165,250,0.11) 0%, transparent 70%);
+  background: radial-gradient(circle, rgba(16,255,171,0.11) 0%, transparent 70%);
   filter: blur(28px);
   animation: drift3 12s ease-in-out infinite alternate;
 }
@@ -81,7 +81,7 @@ html, body {
 }
 #msgs::-webkit-scrollbar { width: 3px; }
 #msgs::-webkit-scrollbar-track { background: transparent; }
-#msgs::-webkit-scrollbar-thumb { background: rgba(232,131,74,0.28); border-radius: 2px; }
+#msgs::-webkit-scrollbar-thumb { background: rgba(255,140,66,0.28); border-radius: 2px; }
 
 /* ── Message rows ────────────────────────────────────────────────────────── */
 .msg-row {
@@ -104,7 +104,7 @@ html, body {
   font-weight: 700;
 }
 .user-avatar {
-  background: linear-gradient(135deg, #E8834A 0%, #C4632A 100%);
+  background: linear-gradient(135deg, #FF8C42 0%, #E5612A 100%);
   color: #fff;
   font-size: 11px;
 }
@@ -145,8 +145,8 @@ html, body {
   font-family: 'Space Mono', 'Courier New', monospace;
 }
 .user-bubble {
-  background: rgba(232,131,74,0.16);
-  border: 1px solid rgba(232,131,74,0.30);
+  background: rgba(255,140,66,0.16);
+  border: 1px solid rgba(255,140,66,0.30);
   border-radius: 14px 14px 4px 14px;
   color: #F0F0F2;
   white-space: pre-wrap;
@@ -213,7 +213,7 @@ html, body {
   z-index: 2;
   display: none;
 }
-.sys-copy-btn:active { background: rgba(232,131,74,0.3); color:#E8834A; }
+.sys-copy-btn:active { background: rgba(255,140,66,0.3); color:#FF8C42; }
 
 /* ── Markdown rendering ──────────────────────────────────────────────────── */
 .ai-bubble { white-space: normal; }
@@ -254,7 +254,7 @@ html, body {
   border-radius: 6px;
 }
 .md-table-wrap::-webkit-scrollbar { height: 4px; }
-.md-table-wrap::-webkit-scrollbar-thumb { background: rgba(232,131,74,0.35); border-radius: 2px; }
+.md-table-wrap::-webkit-scrollbar-thumb { background: rgba(255,140,66,0.35); border-radius: 2px; }
 .md-table {
   border-collapse: collapse;
   width: 100%;
@@ -302,7 +302,7 @@ html, body {
 .thinking-dot {
   width: 6px; height: 6px;
   border-radius: 50%;
-  background: #E8834A;
+  background: #FF8C42;
   flex-shrink: 0;
   animation: thinkDot 1.2s ease-in-out infinite;
 }
@@ -369,13 +369,13 @@ html, body {
 }
 #input-display {
   white-space: pre-wrap;
-  caret-color: #E8834A;
+  caret-color: #FF8C42;
 }
 #cursor {
   display: inline-block;
   width: 2px;
   height: 1em;
-  background: #E8834A;
+  background: #FF8C42;
   border-radius: 1px;
   margin-left: 1px;
   vertical-align: text-bottom;
@@ -394,7 +394,7 @@ html, body {
   display: inline-block;
   width: 7px; height: 7px;
   border-radius: 50%;
-  background: rgba(232,131,74,0.6);
+  background: rgba(255,140,66,0.6);
   animation: aiDotPulse 1.1s ease-in-out infinite;
 }
 .ai-loading span:nth-child(2) { animation-delay: 0.18s; }
@@ -406,8 +406,8 @@ html, body {
 #send-btn {
   width: 40px; height: 40px;
   border-radius: 13px;
-  background: linear-gradient(135deg, #E8834A 0%, #C4632A 100%);
-  box-shadow: 0 2px 12px rgba(232,131,74,0.35);
+  background: linear-gradient(135deg, #FF8C42 0%, #E5612A 100%);
+  box-shadow: 0 2px 12px rgba(255,140,66,0.35);
   border: none;
   color: #fff;
   font-size: 18px;
@@ -417,7 +417,7 @@ html, body {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  -webkit-tap-highlight-color: rgba(232,131,74,0.3);
+  -webkit-tap-highlight-color: rgba(255,140,66,0.3);
   transition: opacity 0.12s, transform 0.1s;
   line-height: 1;
 }
@@ -456,13 +456,13 @@ html, body {
   -webkit-user-select: none;
   transition: background 0.1s;
 }
-.tb-btn:active { background: rgba(232,131,74,0.2); border-color: rgba(232,131,74,0.4); color: #E8834A; }
+.tb-btn:active { background: rgba(255,140,66,0.2); border-color: rgba(255,140,66,0.4); color: #FF8C42; }
 .tb-accent {
-  background: rgba(232,131,74,0.12);
-  color: #E8834A;
-  border-color: rgba(232,131,74,0.25);
+  background: rgba(255,140,66,0.12);
+  color: #FF8C42;
+  border-color: rgba(255,140,66,0.25);
 }
-.tb-accent:active { background: rgba(232,131,74,0.28); }
+.tb-accent:active { background: rgba(255,140,66,0.28); }
 .tb-ctrl-active {
   background: rgba(59,130,246,0.25) !important;
   border-color: rgba(59,130,246,0.6) !important;
@@ -471,16 +471,16 @@ html, body {
 
 /* ── Extended thinking collapsible ──────────────────────────────────────── */
 .thinking-details {
-  border: 1px solid rgba(232,131,74,0.15);
+  border: 1px solid rgba(255,140,66,0.15);
   border-radius: 6px;
   margin-bottom: 8px;
-  background: rgba(232,131,74,0.04);
+  background: rgba(255,140,66,0.04);
 }
 .thinking-details summary {
   cursor: pointer;
   padding: 4px 10px;
   font-size: 11px;
-  color: rgba(232,131,74,0.5);
+  color: rgba(255,140,66,0.5);
   letter-spacing: 1px;
   list-style: none;
   user-select: none;
@@ -494,7 +494,7 @@ html, body {
   white-space: pre-wrap;
   max-height: 200px;
   overflow-y: auto;
-  border-top: 1px solid rgba(232,131,74,0.08);
+  border-top: 1px solid rgba(255,140,66,0.08);
 }
 
 /* ── Context window token counter ────────────────────────────────────────── */
@@ -503,7 +503,7 @@ html, body {
   top: 8px; right: 8px;
   font-size: 9px;
   letter-spacing: 1px;
-  color: rgba(232,131,74,0.35);
+  color: rgba(255,140,66,0.35);
   font-family: 'Space Mono','Courier New',monospace;
   z-index: 200;
   pointer-events: none;
@@ -511,7 +511,7 @@ html, body {
 }
 #token-counter.warn { color: rgba(255,160,60,0.6); }
 #token-counter.crit { color: rgba(255,80,80,0.8); }
-#token-counter.live { color: rgba(232,131,74,0.85); }
+#token-counter.live { color: rgba(255,140,66,0.85); }
 
 /* ── Context bar ─────────────────────────────────────────────────────────── */
 #ctx-bar-wrap {
@@ -525,7 +525,7 @@ html, body {
 #ctx-bar-fill {
   height: 2px;
   width: 0%;
-  background: rgba(232,131,74,0.5);
+  background: rgba(255,140,66,0.5);
   transition: width 0.6s ease, background 0.4s;
 }
 
@@ -585,8 +585,8 @@ html, body {
 #agent-chip {
   position: fixed;
   top: 8px; right: 8px;
-  background: rgba(232,131,74,0.12);
-  border: 1px solid rgba(232,131,74,0.4);
+  background: rgba(255,140,66,0.12);
+  border: 1px solid rgba(255,140,66,0.4);
   border-radius: 20px;
   color: rgba(244,180,140,0.95);
   font-size: 9px;
@@ -599,7 +599,7 @@ html, body {
   user-select: none;
   transition: opacity 0.6s ease, background 0.3s;
 }
-#agent-chip:active { background: rgba(232,131,74,0.3); }
+#agent-chip:active { background: rgba(255,140,66,0.3); }
 #agent-chip.running { animation: agentChipPulse 1.4s ease-in-out infinite; }
 #agent-chip.done {
   background: rgba(61,214,140,0.14);
@@ -607,8 +607,8 @@ html, body {
   color: rgba(134,239,172,0.95);
 }
 @keyframes agentChipPulse {
-  0%,100% { box-shadow: 0 0 0 0 rgba(232,131,74,0.0); border-color: rgba(232,131,74,0.4); }
-  50%     { box-shadow: 0 0 10px 1px rgba(232,131,74,0.5); border-color: rgba(232,131,74,0.9); }
+  0%,100% { box-shadow: 0 0 0 0 rgba(255,140,66,0.0); border-color: rgba(255,140,66,0.4); }
+  50%     { box-shadow: 0 0 10px 1px rgba(255,140,66,0.5); border-color: rgba(255,140,66,0.9); }
 }
 #agent-chip .ac-spin { display:inline-block; animation: agentSpin 2.4s linear infinite; }
 @keyframes agentSpin { from{transform:rotate(0)} to{transform:rotate(360deg)} }
@@ -617,7 +617,7 @@ html, body {
   top: 28px; right: 8px;
   min-width: 190px; max-width: 280px;
   background: rgba(20,14,10,0.97);
-  border: 1px solid rgba(232,131,74,0.3);
+  border: 1px solid rgba(255,140,66,0.3);
   border-radius: 12px;
   padding: 10px 12px;
   z-index: 300;
@@ -665,7 +665,7 @@ html, body {
   cursor: pointer;
   z-index: 2;
 }
-.code-copy-btn:active { background: rgba(232,131,74,0.3); color:#E8834A; }
+.code-copy-btn:active { background: rgba(255,140,66,0.3); color:#FF8C42; }
 
 /* ── AI bubble action footer ─────────────────────────────────────────────── */
 .bubble-act-footer {
@@ -692,13 +692,13 @@ html, body {
   -webkit-tap-highlight-color: transparent;
   transition: background 0.1s;
 }
-.bubble-act-btn:active { background: rgba(232,131,74,0.2); border-color: rgba(232,131,74,0.35); color: #E8834A; }
+.bubble-act-btn:active { background: rgba(255,140,66,0.2); border-color: rgba(255,140,66,0.35); color: #FF8C42; }
 
 /* ── Thinking timer ──────────────────────────────────────────────────────── */
 #thinking-timer {
   font-size: 9px;
   letter-spacing: 1px;
-  color: rgba(232,131,74,0.45);
+  color: rgba(255,140,66,0.45);
   font-family: 'Space Mono','Courier New',monospace;
   margin-left: 4px;
 }
@@ -724,9 +724,9 @@ html, body {
 @keyframes ap-done   { 0%{opacity:.92} 50%{opacity:1} }
 
 /* ── P6: dual-mode (💬 Claude chat | 🐧 Ubuntu PTY) ───────────────────────── */
-#mode-toggle{position:fixed;top:6px;left:50%;transform:translateX(-50%);z-index:96;display:flex;background:#151518;border:1px solid #2A2A30;border-radius:9px;overflow:hidden;font-family:'Space Mono','Courier New',monospace;box-shadow:0 2px 10px rgba(0,0,0,.45);}
+#mode-toggle{position:fixed;top:6px;left:50%;transform:translateX(-50%);z-index:96;display:flex;background:#0A0A0D;border:1px solid #2A2A30;border-radius:9px;overflow:hidden;font-family:'Space Mono','Courier New',monospace;box-shadow:0 2px 10px rgba(0,0,0,.45);}
 #mode-toggle button{display:flex;align-items:center;gap:5px;padding:5px 12px;background:transparent;border:none;color:#9090A0;font-size:11px;font-weight:700;cursor:pointer;letter-spacing:.5px;}
-#mode-toggle button.active{background:#22E8834A;color:#E8834A;}
+#mode-toggle button.active{background:#22FF8C42;color:#FF8C42;}
 #mode-toggle svg{width:13px;height:13px;display:block;flex-shrink:0;}
 /* Glass surround: the xterm canvas (opaque #0C0C0F theme bg) fills the flex:1
    middle, so only the top header strip + bottom toolbar zone show this bg. A flat
@@ -734,9 +734,9 @@ html, body {
    glow (warm accent at top+bottom edges) straight into the view bg — no animation,
    no backdrop-filter, zero repaint cost, keeps the lag fix intact. Hotloadable. */
 #ubuntu-view{position:fixed;top:0;left:0;right:0;bottom:0;display:none;flex-direction:column;
-  background:radial-gradient(135% 55% at 50% 0%, rgba(232,131,74,0.18), transparent 62%),
-             radial-gradient(135% 45% at 50% 100%, rgba(232,131,74,0.12), transparent 58%),
-             #151219;
+  background:radial-gradient(135% 55% at 50% 0%, rgba(255,140,66,0.18), transparent 62%),
+             radial-gradient(135% 45% at 50% 100%, rgba(255,140,66,0.12), transparent 58%),
+             #000000;
   z-index:80;padding-top:40px;padding-bottom:42px;}
 #ubuntu-view.show{display:flex;}
 #xterm{flex:1;min-height:0;padding:4px 2px 0 6px;overflow:hidden;}
@@ -767,7 +767,7 @@ html, body {
 /* Unified toolbar (P6.7): one #toolbar for both tabs. Buttons that don't apply to
    the active tab are locked (greyed, unclickable). Ctrl glows amber when armed. */
 .tb-btn.tb-locked{opacity:.3;pointer-events:none;filter:grayscale(1);}
-.tb-btn.armed{background:#22E8834A;border-color:#E8834A;color:#E8834A;box-shadow:0 0 8px rgba(232,131,74,.6);}
+.tb-btn.armed{background:#22FF8C42;border-color:#FF8C42;color:#FF8C42;box-shadow:0 0 8px rgba(255,140,66,.6);}
 /* When in Ubuntu mode, hide the chat-only chrome (the opaque #ubuntu-view covers #msgs). */
 body.ubuntu-mode #input-bar,body.ubuntu-mode #ctx-bar-wrap,body.ubuntu-mode #mcp-chip,body.ubuntu-mode #mcp-popover,body.ubuntu-mode #agent-chip,body.ubuntu-mode #cwd-bar,body.ubuntu-mode #img-preview{display:none !important;}
 /* The unified toolbar stays visible in Ubuntu mode (it carries the terminal keys).
@@ -778,7 +778,7 @@ body.ubuntu-mode #input-bar,body.ubuntu-mode #ctx-bar-wrap,body.ubuntu-mode #mcp
 body.ubuntu-mode #toolbar{display:flex !important;
   background:rgba(14,14,18,0.55) !important;
   backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
-  border-top:1px solid rgba(232,131,74,0.14) !important;}
+  border-top:1px solid rgba(255,140,66,0.14) !important;}
 /* Terminal-lag fix: the opaque #ubuntu-view (z-80) fully covers the aurora blobs,
    but their infinite transform+blur animations keep repainting a GPU layer and
    contend for the same WebView UI/compositor thread the PTY frame relay needs.
@@ -811,7 +811,7 @@ body.ubuntu-mode .blob{animation:none !important;display:none !important;}
 
 <!-- Thinking bubble (moved into #msgs when active) -->
 <div id="thinking-bubble">
-  <div class="avatar ai-avatar" id="thinking-avatar" style="border-color:#E8834A;background:rgba(232,131,74,0.13)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#E8834A" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="12,1 23,12 12,23 1,12" fill="rgba(255,255,255,0.13)" stroke="none"/><polygon points="12,1 23,12 12,23 1,12"/><line x1="12" y1="1" x2="12" y2="12"/><line x1="23" y1="12" x2="12" y2="12"/><line x1="12" y1="23" x2="12" y2="12"/><line x1="1" y1="12" x2="12" y2="12"/><circle cx="12" cy="12" r="2.2" fill="#E8834A" stroke="none"/></svg></div>
+  <div class="avatar ai-avatar" id="thinking-avatar" style="border-color:#FF8C42;background:rgba(255,140,66,0.13)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#FF8C42" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="12,1 23,12 12,23 1,12" fill="rgba(255,255,255,0.13)" stroke="none"/><polygon points="12,1 23,12 12,23 1,12"/><line x1="12" y1="1" x2="12" y2="12"/><line x1="23" y1="12" x2="12" y2="12"/><line x1="12" y1="23" x2="12" y2="12"/><line x1="1" y1="12" x2="12" y2="12"/><circle cx="12" cy="12" r="2.2" fill="#FF8C42" stroke="none"/></svg></div>
   <div class="thinking-content">
     <div class="thinking-dots">
       <div class="thinking-dot"></div>
@@ -823,7 +823,7 @@ body.ubuntu-mode .blob{animation:none !important;display:none !important;}
 </div>
 
 <!-- CWD indicator (shown above input bar when bridge sends 9;cwd:) -->
-<div id="cwd-bar" style="position:fixed;bottom:58px;left:0;right:0;padding:2px 10px;font-size:9px;font-family:'Space Mono','Courier New',monospace;color:rgba(232,131,74,0.35);letter-spacing:0.5px;z-index:89;pointer-events:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:none;"></div>
+<div id="cwd-bar" style="position:fixed;bottom:58px;left:0;right:0;padding:2px 10px;font-size:9px;font-family:'Space Mono','Courier New',monospace;color:rgba(255,140,66,0.35);letter-spacing:0.5px;z-index:89;pointer-events:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:none;"></div>
 
 <!-- Image preview chip (shown when image is attached) -->
 <div id="img-preview" style="position:fixed;bottom:68px;left:12px;background:rgba(255,150,50,0.15);border:1px solid rgba(255,150,50,0.35);border-radius:10px;padding:4px 8px 4px 6px;z-index:91;display:none;cursor:pointer;align-items:center;gap:6px;">
@@ -834,7 +834,7 @@ body.ubuntu-mode .blob{animation:none !important;display:none !important;}
 
 <!-- Input bar -->
 <div id="input-bar">
-  <button id="btn-mic" style="width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,rgba(232,131,74,0.25),rgba(180,80,30,0.4));border:1px solid rgba(232,131,74,0.3);cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center;padding:0;"><svg viewBox="0 0 18 18" width="18" height="18" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="6" y="1" width="6" height="9" rx="3" fill="white" opacity="0.92"/><path d="M4 8 Q4 13 9 13 Q14 13 14 8" stroke="white" stroke-width="1.6" stroke-linecap="round" fill="none" opacity="0.9"/><line x1="9" y1="13" x2="9" y2="16" stroke="white" stroke-width="1.6" stroke-linecap="round"/><line x1="5.5" y1="16" x2="12.5" y2="16" stroke="white" stroke-width="1.6" stroke-linecap="round"/><path d="M12.5 5 Q14.5 9 12.5 13" stroke="white" stroke-width="1.1" stroke-linecap="round" fill="none" opacity="0.35"/></svg></button>
+  <button id="btn-mic" style="width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,rgba(255,140,66,0.25),rgba(180,80,30,0.4));border:1px solid rgba(255,140,66,0.3);cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center;padding:0;"><svg viewBox="0 0 18 18" width="18" height="18" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="6" y="1" width="6" height="9" rx="3" fill="white" opacity="0.92"/><path d="M4 8 Q4 13 9 13 Q14 13 14 8" stroke="white" stroke-width="1.6" stroke-linecap="round" fill="none" opacity="0.9"/><line x1="9" y1="13" x2="9" y2="16" stroke="white" stroke-width="1.6" stroke-linecap="round"/><line x1="5.5" y1="16" x2="12.5" y2="16" stroke="white" stroke-width="1.6" stroke-linecap="round"/><path d="M12.5 5 Q14.5 9 12.5 13" stroke="white" stroke-width="1.1" stroke-linecap="round" fill="none" opacity="0.35"/></svg></button>
   <button id="btn-image" style="width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,rgba(71,85,105,0.45),rgba(30,41,59,0.6));border:1px solid rgba(100,116,139,0.35);cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center;padding:0;"><svg viewBox="0 0 18 18" width="18" height="18" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="1" y="5.5" width="16" height="11" rx="2.5" fill="white" opacity="0.9"/><rect x="6" y="3" width="6" height="3" rx="1.2" fill="white" opacity="0.9"/><circle cx="9" cy="11" r="3.6" fill="#1e293b" opacity="0.95"/><circle cx="9" cy="11" r="3.6" stroke="white" stroke-width="1.3" opacity="0.55" fill="none"/><circle cx="9" cy="11" r="1.8" fill="#334155"/><circle cx="7.5" cy="9.5" r="0.9" fill="white" opacity="0.65"/><circle cx="14" cy="7.5" r="1" fill="#fbbf24" opacity="0.85"/></svg></button>
   <div id="input-wrap">
     <span id="input-display"></span><span id="cursor"></span>
@@ -899,7 +899,7 @@ const PROVIDER_AVATAR_SVG = {
   ollama:        '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9090A0" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2.5" fill="#9090A0" stroke="none" opacity="0.5"/><line x1="12" y1="5" x2="12" y2="9"/><line x1="12" y1="15" x2="12" y2="19"/><line x1="5" y1="12" x2="9" y2="12"/><line x1="15" y1="12" x2="19" y2="12"/></svg>',
   local_llama:   '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9090A0" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2.5" fill="#9090A0" stroke="none" opacity="0.5"/><line x1="12" y1="5" x2="12" y2="9"/><line x1="12" y1="15" x2="12" y2="19"/><line x1="5" y1="12" x2="9" y2="12"/><line x1="15" y1="12" x2="19" y2="12"/></svg>',
 };
-const PROVIDER_AVATAR_DEFAULT = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#E8834A" stroke-width="1.8" stroke-linecap="round"><polygon points="12,1 23,12 12,23 1,12" fill="rgba(255,255,255,0.13)" stroke="none"/><polygon points="12,1 23,12 12,23 1,12"/><line x1="12" y1="1" x2="12" y2="12"/><line x1="23" y1="12" x2="12" y2="12"/><line x1="12" y1="23" x2="12" y2="12"/><line x1="1" y1="12" x2="12" y2="12"/><circle cx="12" cy="12" r="2.2" fill="#E8834A" stroke="none"/></svg>';
+const PROVIDER_AVATAR_DEFAULT = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#FF8C42" stroke-width="1.8" stroke-linecap="round"><polygon points="12,1 23,12 12,23 1,12" fill="rgba(255,255,255,0.13)" stroke="none"/><polygon points="12,1 23,12 12,23 1,12"/><line x1="12" y1="1" x2="12" y2="12"/><line x1="23" y1="12" x2="12" y2="12"/><line x1="12" y1="23" x2="12" y2="12"/><line x1="1" y1="12" x2="12" y2="12"/><circle cx="12" cy="12" r="2.2" fill="#FF8C42" stroke="none"/></svg>';
 var currentProvider = 'default';
 
 // ── DOM refs ──────────────────────────────────────────────────────────────────
@@ -1337,7 +1337,7 @@ function handleOSC(content){
       if(barFillL){
         var sum=inT+outT, pctL=Math.min(100,Math.round(sum/2000));
         barFillL.style.width=pctL+'%';
-        barFillL.style.background='rgba(232,131,74,0.5)';
+        barFillL.style.background='rgba(255,140,66,0.5)';
       }
     }
   } else if(content.startsWith('9;tokens:')){
@@ -1352,7 +1352,7 @@ function handleOSC(content){
       else { tokEl.className=''; }
       if(barFill){
         barFill.style.width=pct+'%';
-        barFill.style.background=toks>180000?'rgba(255,80,80,0.8)':toks>120000?'rgba(255,160,60,0.6)':'rgba(232,131,74,0.5)';
+        barFill.style.background=toks>180000?'rgba(255,80,80,0.8)':toks>120000?'rgba(255,160,60,0.6)':'rgba(255,140,66,0.5)';
       }
     }
   } else if(content.startsWith('9;think-block:')){
@@ -1581,15 +1581,15 @@ function showBashCard(perm){
 
   var wrap = document.createElement('div');
   wrap.id = oldId;
-  wrap.style.cssText = 'margin:8px 4px;border-radius:14px;overflow:hidden;background:#151518;border:1px solid #2A2A30;box-shadow:0 4px 24px rgba(232,131,74,0.08);';
+  wrap.style.cssText = 'margin:8px 4px;border-radius:14px;overflow:hidden;background:#0A0A0D;border:1px solid #2A2A30;box-shadow:0 4px 24px rgba(255,140,66,0.08);';
 
   // Header bar — amber accent for Bash
   var hdr = document.createElement('div');
-  hdr.style.cssText = 'background:rgba(232,131,74,0.10);padding:9px 14px 8px;display:flex;align-items:center;gap:8px;border-bottom:1px solid rgba(232,131,74,0.18);';
+  hdr.style.cssText = 'background:rgba(255,140,66,0.10);padding:9px 14px 8px;display:flex;align-items:center;gap:8px;border-bottom:1px solid rgba(255,140,66,0.18);';
   var dot = document.createElement('span');
-  dot.style.cssText = 'width:7px;height:7px;border-radius:50%;background:#E8834A;box-shadow:0 0 8px rgba(232,131,74,0.6);flex-shrink:0;';
+  dot.style.cssText = 'width:7px;height:7px;border-radius:50%;background:#FF8C42;box-shadow:0 0 8px rgba(255,140,66,0.6);flex-shrink:0;';
   var title = document.createElement('span');
-  title.style.cssText = 'color:#E8834A;font-size:11px;font-family:Space Mono,monospace;font-weight:600;letter-spacing:0.05em;flex:1;';
+  title.style.cssText = 'color:#FF8C42;font-size:11px;font-family:Space Mono,monospace;font-weight:600;letter-spacing:0.05em;flex:1;';
   title.textContent = 'BASH';
   var sub = document.createElement('span');
   sub.style.cssText = 'color:#60606E;font-size:9px;font-family:Space Mono,monospace;';
@@ -1613,7 +1613,7 @@ function showBashCard(perm){
   // Prefix with $ marker for clarity, monospace
   var prompt = document.createElement('span');
   prompt.textContent = '$ ';
-  prompt.style.color = '#E8834A';
+  prompt.style.color = '#FF8C42';
   pre.appendChild(prompt);
   var cmdSpan = document.createElement('span');
   cmdSpan.textContent = cmd || '(no command)';
@@ -1856,7 +1856,7 @@ function buildAgentSvg(states) {
   var defs=document.createElementNS(ns,'defs');
   // Gradients
   var grads=[
-    {id:'apPG',  c1:'#f0a070',c2:'#E8834A'},
+    {id:'apPG',  c1:'#f0a070',c2:'#FF8C42'},
     {id:'apSGdone',    c1:'#3DD68C',c2:'#15a05a'},
     {id:'apSGrunning', c1:'#60A5FA',c2:'#2563eb'},
     {id:'apSGqueued',  c1:'#FBBF24',c2:'#d97706'},
@@ -1906,7 +1906,7 @@ function buildAgentSvg(states) {
     var line=document.createElementNS(ns,'line');
     line.setAttribute('x1',orch.cx); line.setAttribute('y1',orch.cy);
     line.setAttribute('x2',pos.cx);  line.setAttribute('y2',pos.cy);
-    line.setAttribute('stroke','#E8834A'); line.setAttribute('stroke-width','1.2');
+    line.setAttribute('stroke','#FF8C42'); line.setAttribute('stroke-width','1.2');
     line.setAttribute('stroke-linecap','round');
     line.setAttribute('filter','url(#apFL)');
     if(state==='done'){
@@ -2063,14 +2063,14 @@ function buildAgentSvg(states) {
   var pr1=document.createElementNS(ns,'circle');
   pr1.setAttribute('cx',orch.cx); pr1.setAttribute('cy',orch.cy);
   pr1.setAttribute('r','13'); pr1.setAttribute('fill','none');
-  pr1.setAttribute('stroke','#E8834A'); pr1.setAttribute('stroke-width','1.2');
+  pr1.setAttribute('stroke','#FF8C42'); pr1.setAttribute('stroke-width','1.2');
   pr1.style.animation='ap-pulse1 2.2s ease-out infinite';
   svg.appendChild(pr1);
 
   var pr2=document.createElementNS(ns,'circle');
   pr2.setAttribute('cx',orch.cx); pr2.setAttribute('cy',orch.cy);
   pr2.setAttribute('r','13'); pr2.setAttribute('fill','none');
-  pr2.setAttribute('stroke','#E8834A'); pr2.setAttribute('stroke-width','1');
+  pr2.setAttribute('stroke','#FF8C42'); pr2.setAttribute('stroke-width','1');
   pr2.style.animation='ap-pulse2 2.2s ease-out 0.75s infinite';
   svg.appendChild(pr2);
 
@@ -2078,7 +2078,7 @@ function buildAgentSvg(states) {
   [0.12,0.1].forEach(function(op,hi){
     var h=document.createElementNS(ns,'circle');
     h.setAttribute('cx',orch.cx); h.setAttribute('cy',orch.cy);
-    h.setAttribute('r',hi===0?'16':'13'); h.setAttribute('fill','#E8834A');
+    h.setAttribute('r',hi===0?'16':'13'); h.setAttribute('fill','#FF8C42');
     h.setAttribute('opacity',String(op));
     svg.appendChild(h);
   });
@@ -2106,7 +2106,7 @@ function buildAgentSvg(states) {
   var gl=document.createElementNS(ns,'line');
   gl.setAttribute('x1',String(orch.cx-5)); gl.setAttribute('y1',String(orch.cy-1));
   gl.setAttribute('x2',String(orch.cx+5)); gl.setAttribute('y2',String(orch.cy-1));
-  gl.setAttribute('stroke','#E8834A'); gl.setAttribute('stroke-width','1'); gl.setAttribute('opacity','0.5');
+  gl.setAttribute('stroke','#FF8C42'); gl.setAttribute('stroke-width','1'); gl.setAttribute('opacity','0.5');
   og.appendChild(gl);
   svg.appendChild(og);
 
@@ -2114,7 +2114,7 @@ function buildAgentSvg(states) {
   var border=document.createElementNS(ns,'rect');
   border.setAttribute('width','100'); border.setAttribute('height','100');
   border.setAttribute('rx','20'); border.setAttribute('fill','none');
-  border.setAttribute('stroke','#E8834A'); border.setAttribute('stroke-width','1');
+  border.setAttribute('stroke','#FF8C42'); border.setAttribute('stroke-width','1');
   border.setAttribute('opacity','0.2');
   svg.appendChild(border);
 
@@ -2150,7 +2150,7 @@ function renderAgentPopover(){
   if(!pop) return;
   var n=agentNodeStates.length;
   var done=agentNodeStates.filter(function(s){return s==='done';}).length;
-  pop.innerHTML='<div style="font-size:9px;color:rgba(232,131,74,0.7);letter-spacing:1px;margin-bottom:6px;">SUB-AGENTS — '+done+'/'+n+' DONE</div>';
+  pop.innerHTML='<div style="font-size:9px;color:rgba(255,140,66,0.7);letter-spacing:1px;margin-bottom:6px;">SUB-AGENTS — '+done+'/'+n+' DONE</div>';
   pop.appendChild(buildAgentSvg(agentNodeStates));
   var list=document.createElement('div');
   list.style.marginTop='6px';
@@ -2210,7 +2210,7 @@ function showSuggestions(suggestions){
   suggestions.forEach(function(q){
     var chip=document.createElement('button');
     chip.textContent=q;
-    chip.style.cssText='background:rgba(232,131,74,0.15);border:1px solid rgba(232,131,74,0.35);border-radius:16px;color:#E8834A;font-size:11px;font-family:Space Mono,monospace;padding:5px 12px;cursor:pointer;text-align:left;';
+    chip.style.cssText='background:rgba(255,140,66,0.15);border:1px solid rgba(255,140,66,0.35);border-radius:16px;color:#FF8C42;font-size:11px;font-family:Space Mono,monospace;padding:5px 12px;cursor:pointer;text-align:left;';
     chip.addEventListener('click',function(){
       bar.remove();
       submitLine(q);
@@ -2422,7 +2422,7 @@ function buildToolLog(tools){
     ic.style.cssText='color:'+statusColor+';flex-shrink:0;width:12px;';
     var nm=document.createElement('span');
     nm.textContent=t.name;
-    nm.style.cssText='color:#E8834A;flex-shrink:0;';
+    nm.style.cssText='color:#FF8C42;flex-shrink:0;';
     var sep=document.createElement('span');
     sep.textContent=' · ';
     sep.style.color='#3A3A42';
@@ -2750,7 +2750,7 @@ function showIconPreview(){
     const st=document.createElement('style'); st.id='ipc-css';
     st.textContent=`
       #ipc-overlay{position:fixed;inset:0;z-index:9999;overflow:auto;
-        background:radial-gradient(900px 600px at 50% -5%,rgba(232,131,74,.18),transparent 60%),rgba(12,9,16,.93);
+        background:radial-gradient(900px 600px at 50% -5%,rgba(255,140,66,.18),transparent 60%),rgba(12,9,16,.93);
         -webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);padding:56px 16px 40px;}
       #ipc-overlay h3{color:#F0F0F2;font-family:'Space Mono',monospace;font-size:14px;margin:0 0 4px;text-align:center}
       #ipc-overlay .ipc-sub{color:#9A90A6;font-size:11px;text-align:center;margin:0 0 22px}
@@ -2880,7 +2880,7 @@ function submitLine(text){
 const ghost=document.createElement('textarea');
 ghost.id='input-textarea';
 ghost.rows=1;
-ghost.style.cssText='display:block;width:100%;min-height:22px;max-height:160px;background:transparent;color:#f1f5f9;font-family:Space Mono,Courier New,monospace;font-size:13px;line-height:1.5;padding:0;margin:0;border:none;outline:none;resize:none;caret-color:#E8834A;word-break:break-all;overflow-wrap:anywhere;overflow-y:auto;';
+ghost.style.cssText='display:block;width:100%;min-height:22px;max-height:160px;background:transparent;color:#f1f5f9;font-family:Space Mono,Courier New,monospace;font-size:13px;line-height:1.5;padding:0;margin:0;border:none;outline:none;resize:none;caret-color:#FF8C42;word-break:break-all;overflow-wrap:anywhere;overflow-y:auto;';
 ghost.setAttribute('autocomplete','off');
 ghost.setAttribute('autocorrect','off');
 ghost.setAttribute('autocapitalize','none');

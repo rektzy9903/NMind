@@ -266,7 +266,7 @@ fun ApiKeyScreen(provider: Provider, onSuccess: (String) -> Unit, onBack: () -> 
     val borderColor by animateColorAsState(
         when (status) {
             KeyStatus.IDLE    -> NexusBorder
-            KeyStatus.LOADING -> Color(0x99E8834A)
+            KeyStatus.LOADING -> Color(0x99FF8C42)
             KeyStatus.SUCCESS -> NexusGreen
             KeyStatus.ERROR   -> Color(0xFFEF4444)
         }, tween(250), label = "border"
@@ -312,7 +312,7 @@ fun ApiKeyScreen(provider: Provider, onSuccess: (String) -> Unit, onBack: () -> 
     val buttonGradient = if (status == KeyStatus.SUCCESS)
         Brush.linearGradient(listOf(NexusGreen, Color(0xFF2DA870)))
     else
-        Brush.linearGradient(listOf(NexusAccent, Color(0xFFC4632A)))
+        Brush.linearGradient(listOf(NexusAccent, Color(0xFFE5612A)))
     val buttonGlowColor = if (status == KeyStatus.SUCCESS) Color(0x663DD68C) else NexusAccent.copy(alpha = 0.35f)
     val isDisabled = status == KeyStatus.LOADING || status == KeyStatus.SUCCESS
 
@@ -426,7 +426,7 @@ fun ApiKeyScreen(provider: Provider, onSuccess: (String) -> Unit, onBack: () -> 
                                     .fillMaxWidth()
                                     .height(50.dp)
                                     .glowShadow(NexusAccent.copy(alpha = 0.30f), 12.dp, 13.dp)
-                                    .background(Brush.linearGradient(listOf(NexusAccent, Color(0xFFC4632A))), RoundedCornerShape(13.dp))
+                                    .background(Brush.linearGradient(listOf(NexusAccent, Color(0xFFE5612A))), RoundedCornerShape(13.dp))
                                     .clickable(enabled = status != KeyStatus.LOADING && status != KeyStatus.SUCCESS) { startKiroLogin() },
                                 contentAlignment = Alignment.Center
                             ) {

@@ -24,7 +24,7 @@ import kotlin.math.*
 private const val TOTAL = 3.3f          // total animation time before fade-out
 
 // ─── Design tokens ───────────────────────────────────────────────────────────
-private val AmberAccent  = Color(0xFFE8834A)
+private val AmberAccent  = Color(0xFFFF8C42)
 private val BgColor      = Color(0xFF0C0C0F)
 private val SurfaceColor = Color(0xFF1E1E22)
 

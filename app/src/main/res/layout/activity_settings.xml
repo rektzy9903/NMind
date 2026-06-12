@@ -144,7 +144,7 @@
                         android:paddingHorizontal="10dp"
                         android:paddingVertical="0dp"
                         app:cornerRadius="7dp"
-                        app:strokeColor="#60E8834A" />
+                        app:strokeColor="#60FF8C42" />
 
                 </LinearLayout>
             </LinearLayout>

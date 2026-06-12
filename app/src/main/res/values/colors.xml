@@ -1,49 +1,51 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- ── Nexus dark-frosted glassmorphism (2026-06-12) ──────────────────────
+         XML counterpart to UiCommon.kt. Pure-black base + colourless white-
+         translucent glass surfaces; accents = amber / cyan / rose / emerald
+         (no purple). Drives the terminal header/toolbar AND the Settings views. -->
+
     <!-- ── Background layers ── -->
-    <!-- Glass reskin: surface/surface2/border are translucent white so XML cards
-         read as glass; dark base layers stay opaque.
-         (Originals: surface #151518, surface2 #1E1E22, border #2A2A30, border2 #3A3A42.) -->
-    <color name="bg_dark">#0C0C0F</color>
-    <color name="surface">#14FFFFFF</color>
-    <color name="surface2">#1FFFFFFF</color>
-    <color name="toolbar_bg">#0C0C0F</color>
-    <color name="terminal_bg">#0C0C0F</color>
+    <color name="bg_dark">#000000</color>
+    <color name="surface">#0BFFFFFF</color>        <!-- rgba(255,255,255,0.045) frosted card fill -->
+    <color name="surface2">#14FFFFFF</color>       <!-- ~8% white — elevated surface -->
+    <color name="toolbar_bg">#000000</color>
+    <color name="terminal_bg">#000000</color>
     <!-- Translucent glass bars (header + session-tab strip) so the aurora_bg behind
-         the terminal glows through instead of reading as flat solid black. ~72% dark
-         keeps header text legible over the aurora. -->
-    <color name="glass_bar">#B80A0A0C</color>
-    <color name="glass_bar_2">#990A0A0C</color>
+         glows through instead of reading as flat black. ~72% black keeps header
+         text legible over the aurora. -->
+    <color name="glass_bar">#B8000000</color>
+    <color name="glass_bar_2">#99000000</color>
 
     <!-- ── Borders ── -->
-    <color name="border">#24FFFFFF</color>
-    <color name="border2">#33FFFFFF</color>
+    <color name="border">#17FFFFFF</color>         <!-- rgba(255,255,255,0.09) glass edge -->
+    <color name="border2">#2EFFFFFF</color>        <!-- ~18% white — stronger edge -->
 
     <!-- ── Text ── -->
-    <color name="text_primary">#F0F0F2</color>
-    <color name="text_secondary">#9090A0</color>
-    <color name="text_tertiary">#60606E</color>
+    <color name="text_primary">#E6FFFFFF</color>   <!-- white .9 -->
+    <color name="text_secondary">#73FFFFFF</color> <!-- white .45 -->
+    <color name="text_tertiary">#4DFFFFFF</color>  <!-- white .30 -->
 
-    <!-- ── Amber accent (primary) ── -->
-    <color name="accent_orange">#E8834A</color>
-    <color name="accent_orange_dark">#C4632A</color>
-    <color name="accent_orange_dim">#E8834A22</color>
+    <!-- ── Amber accent (primary / Chat) ── -->
+    <color name="accent_orange">#FF8C42</color>
+    <color name="accent_orange_dark">#E5612A</color>
+    <color name="accent_orange_dim">#FF8C4222</color>
 
-    <!-- ── Green (success / free) ── -->
-    <color name="accent_green">#3DD68C</color>
-    <color name="accent_green_dim">#3DD68C18</color>
+    <!-- ── Emerald (success / free / Testing) ── -->
+    <color name="accent_green">#10FFAB</color>
+    <color name="accent_green_dim">#10FFAB14</color>
 
-    <!-- ── Blue (local / info) ── -->
-    <color name="accent_blue">#60A5FA</color>
+    <!-- ── Cyan (info / Quick Ask) ── -->
+    <color name="accent_blue">#00D4FF</color>
 
     <!-- ── Amber (warning) ── -->
     <color name="accent_amber">#FBBF24</color>
 
     <!-- ── Status ── -->
-    <color name="error_red">#F87171</color>
-    <color name="warning_bg">#1A120A</color>
-    <color name="warning_text">#E8834A</color>
+    <color name="error_red">#FF4D6D</color>        <!-- rose -->
+    <color name="warning_bg">#0A0A0D</color>
+    <color name="warning_text">#FF8C42</color>
 
     <!-- ── Tab / indicator ── -->
-    <color name="tab_active">#E8834A</color>
+    <color name="tab_active">#FF8C42</color>
 </resources>

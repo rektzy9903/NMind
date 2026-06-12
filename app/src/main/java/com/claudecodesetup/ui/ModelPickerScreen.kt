@@ -74,7 +74,7 @@ private fun capColor(cap: String): Color = when (cap) {
     "reason" -> Color(0xFFF59E0B)
     "fast"   -> Color(0xFF3DD68C)
     "ctx"    -> Color(0xFFF87171)
-    "code"   -> Color(0xFFE8834A)
+    "code"   -> Color(0xFFFF8C42)
     "free"   -> Color(0xFF3DD68C)
     "paid"   -> Color(0xFFFBBF24)
     else     -> Color(0xFF9090A0)
@@ -478,7 +478,7 @@ fun ModelPickerScreen(
                         Box(
                             modifier = Modifier
                                 .background(NexusAccentDim, RoundedCornerShape(8.dp))
-                                .border(1.dp, Color(0x50E8834A), RoundedCornerShape(8.dp))
+                                .border(1.dp, Color(0x50FF8C42), RoundedCornerShape(8.dp))
                                 .clickable { fetchLive() }
                                 .padding(horizontal = 20.dp, vertical = 8.dp),
                             contentAlignment = Alignment.Center
@@ -616,7 +616,7 @@ fun ModelPickerScreen(
                             scaleX = confirmScale; scaleY = confirmScale
                             alpha = if (canConfirm) 1f else 0.4f
                         }
-                        .glowShadow(Color(0x94E8834A), 12.dp, 13.dp)
+                        .glowShadow(Color(0x94FF8C42), 12.dp, 13.dp)
                         .background(NexusAccent, RoundedCornerShape(10.dp))
                         .clickable(
                             interactionSource = confirmInteraction,
@@ -661,7 +661,7 @@ private fun ModelCard(display: ModelDisplay, isSelected: Boolean, onSelect: () -
             // (capability chips pinned to the bottom, capped at 2 rows).
             .height(132.dp)
             .clip(shape)
-            .then(if (isSelected) Modifier.background(Color(0x24E8834A)) else Modifier.background(brandBrush))
+            .then(if (isSelected) Modifier.background(Color(0x24FF8C42)) else Modifier.background(brandBrush))
             .border(if (isSelected) 2.dp else 1.dp, borderColor, shape)
             .clickable(interactionSource = interaction, indication = null) { onSelect() }
             .padding(12.dp)

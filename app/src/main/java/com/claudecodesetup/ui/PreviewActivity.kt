@@ -148,8 +148,8 @@ class PreviewActivity : AppCompatActivity() {
             text = "localhost:$currentPort"
             textSize = 13f
             typeface = android.graphics.Typeface.MONOSPACE
-            setTextColor(Color.parseColor("#E8834A"))
-            setBackgroundColor(Color.parseColor("#22E8834A"))
+            setTextColor(Color.parseColor("#FF8C42"))
+            setBackgroundColor(Color.parseColor("#22FF8C42"))
             setPadding(10.dp, 4.dp, 10.dp, 4.dp)
             val lp = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -295,7 +295,7 @@ class PreviewActivity : AppCompatActivity() {
             text = label
             textSize = 13f
             setTextColor(Color.parseColor("#1E1E22"))
-            setBackgroundColor(Color.parseColor("#E8834A"))
+            setBackgroundColor(Color.parseColor("#FF8C42"))
             setPadding(20.dp, 10.dp, 20.dp, 10.dp)
             val lp = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -400,8 +400,8 @@ class PreviewActivity : AppCompatActivity() {
             val chip = TextView(this).apply {
                 text = "$name $port"
                 textSize = 12f
-                setTextColor(Color.parseColor("#E8834A"))
-                setBackgroundColor(Color.parseColor("#22E8834A"))
+                setTextColor(Color.parseColor("#FF8C42"))
+                setBackgroundColor(Color.parseColor("#22FF8C42"))
                 setPadding(12.dp, 6.dp, 12.dp, 6.dp)
                 val lp = LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -423,7 +423,7 @@ class PreviewActivity : AppCompatActivity() {
             text = "Open Preview  →"
             textSize = 14f
             setTextColor(Color.parseColor("#1E1E22"))
-            setBackgroundColor(Color.parseColor("#E8834A"))
+            setBackgroundColor(Color.parseColor("#FF8C42"))
             isAllCaps = false
             setPadding(0, 14.dp, 0, 14.dp)
             setOnClickListener {

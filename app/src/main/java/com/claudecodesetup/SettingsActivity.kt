@@ -73,7 +73,7 @@ class SettingsActivity : AppCompatActivity() {
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(pad, pad, pad, pad)
-            setBackgroundColor(Color.parseColor("#151518"))
+            setBackgroundColor(Color.parseColor("#14FFFFFF"))
             val lp = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply { bottomMargin = pad }
@@ -89,7 +89,7 @@ class SettingsActivity : AppCompatActivity() {
         }
         textCol.addView(TextView(this).apply {
             text = "Token Usage"
-            setTextColor(Color.parseColor("#E8834A"))
+            setTextColor(Color.parseColor("#FF8C42"))
             textSize = 14f
         })
         usageStatusTv = TextView(this).apply {
@@ -139,7 +139,7 @@ class SettingsActivity : AppCompatActivity() {
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(pad, pad, pad, pad)
-            setBackgroundColor(Color.parseColor("#151518"))
+            setBackgroundColor(Color.parseColor("#14FFFFFF"))
             val lp = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply { topMargin = pad }
@@ -147,7 +147,7 @@ class SettingsActivity : AppCompatActivity() {
         }
         val header = TextView(this).apply {
             text = "🐞 Ubuntu engine (debug)"
-            setTextColor(Color.parseColor("#E8834A"))
+            setTextColor(Color.parseColor("#FF8C42"))
             textSize = 14f
         }
         val status = TextView(this).apply {
@@ -161,11 +161,11 @@ class SettingsActivity : AppCompatActivity() {
             max = 100
         }
         val output = TextView(this).apply {
-            setTextColor(Color.parseColor("#3DD68C"))
+            setTextColor(Color.parseColor("#10FFAB"))
             textSize = 11f
             typeface = android.graphics.Typeface.MONOSPACE
             setPadding(pad / 2, pad / 2, pad / 2, pad / 2)
-            setBackgroundColor(Color.parseColor("#0A0A0C"))
+            setBackgroundColor(Color.parseColor("#000000"))
             visibility = View.GONE
         }
         val btn = Button(this).apply {
@@ -187,7 +187,7 @@ class SettingsActivity : AppCompatActivity() {
                     runOnUiThread {
                         bar.visibility = View.GONE
                         status.text = "❌ ${res.message}"
-                        status.setTextColor(Color.parseColor("#F87171"))
+                        status.setTextColor(Color.parseColor("#FF4D6D"))
                         btn.isEnabled = true
                     }
                     return@launch
@@ -201,7 +201,7 @@ class SettingsActivity : AppCompatActivity() {
                     bar.visibility = View.GONE
                     output.visibility = View.VISIBLE
                     status.text = "✅ ${res.message}"
-                    status.setTextColor(Color.parseColor("#3DD68C"))
+                    status.setTextColor(Color.parseColor("#10FFAB"))
                     output.text = ("── rootfs extracted ──\n$diag\n" +
                         "Now verify proot in the terminal:\n" +
                         "  open Chat Box → type  !test-rootfs\n" +
