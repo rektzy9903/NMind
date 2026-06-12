@@ -165,7 +165,7 @@ fun UsageDashboardScreen(filesDir: File, onBack: () -> Unit) {
 }
 
 @Composable
-private fun GlassCard(content: @Composable ColumnScope.() -> Unit) {
+private fun UsageCard(content: @Composable ColumnScope.() -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -261,7 +261,7 @@ private fun Chip(label: String, sel: Boolean, onClick: () -> Unit) {
 
 @Composable
 private fun HeroCard(rep: UsageReport) {
-    GlassCard {
+    UsageCard {
         Text(fmtTok(rep.grandTotal), fontSize = 34.sp, fontWeight = FontWeight.Bold,
             color = NexusText, fontFamily = DmSansFamily)
         Text("tokens", fontSize = 12.sp, color = NexusText3, fontFamily = SpaceMonoFamily)
@@ -297,7 +297,7 @@ private fun LegendDot(c: Color) {
 
 @Composable
 private fun DonutCard(rep: UsageReport) {
-    GlassCard {
+    UsageCard {
         CardTitle("Tokens by model")
         Row(verticalAlignment = Alignment.CenterVertically) {
             val total = rep.grandTotal.coerceAtLeast(1L)
@@ -343,7 +343,7 @@ private fun DonutCard(rep: UsageReport) {
 
 @Composable
 private fun StackedModelCard(byModel: List<UsageEntry>) {
-    GlassCard {
+    UsageCard {
         CardTitle("Input / output by model")
         val rows = byModel.take(8)
         val maxTotal = (rows.maxOfOrNull { it.total } ?: 1L).coerceAtLeast(1L)
@@ -393,7 +393,7 @@ private fun StackedModelCard(byModel: List<UsageEntry>) {
 
 @Composable
 private fun TimeGraphCard(rep: UsageReport) {
-    GlassCard {
+    UsageCard {
         CardTitle("Per-day usage")
         val days = rep.byDay.takeLast(30)
         val maxTotal = (days.maxOfOrNull { it.total } ?: 1L).coerceAtLeast(1L)
@@ -429,7 +429,7 @@ private fun TimeGraphCard(rep: UsageReport) {
 
 @Composable
 private fun ProviderListCard(rep: UsageReport) {
-    GlassCard {
+    UsageCard {
         CardTitle("By provider")
         val maxTotal = (rep.byProvider.maxOfOrNull { it.total } ?: 1L).coerceAtLeast(1L)
         rep.byProvider.forEach { p ->
