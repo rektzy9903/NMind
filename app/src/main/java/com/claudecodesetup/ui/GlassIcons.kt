@@ -34,22 +34,25 @@ private fun rrect(x: Float, y: Float, w: Float, h: Float, r: Float): String {
 private fun circ(cx: Float, cy: Float, r: Float): String =
     "M${cx - r} $cy A$r $r 0 1 0 ${cx + r} $cy A$r $r 0 1 0 ${cx - r} $cy Z"
 
-// Warm "amber milky" palette (0..100 gradient space).
+// Neutral white-frost palette (0..100 gradient space). The icons are now
+// accent-agnostic monochrome glass — the per-feature colour lives on the
+// surrounding icon box (border + glow), so the same glyph reads correctly under
+// amber / cyan / rose / indigo / emerald cards. Geometry is unchanged.
 private val GlassMilk = Brush.verticalGradient(
-    listOf(Color(0x82FFF1E2), Color(0x2EFFF6EC)), startY = 4f, endY = 96f,
+    listOf(Color(0x82FFFFFF), Color(0x2EFFFFFF)), startY = 4f, endY = 96f,
 )
 private val GlassEdge = SolidColor(Color(0xA6FFFFFF))
 private val WhiteInk  = SolidColor(Color(0xF2FFFFFF))
 private val AmberGrad = Brush.linearGradient(
-    listOf(Color(0xFFFFB24D), Color(0xFFFF7A3D)), start = Offset(20f, 18f), end = Offset(82f, 84f),
+    listOf(Color(0xF2FFFFFF), Color(0xB3FFFFFF)), start = Offset(20f, 18f), end = Offset(82f, 84f),
 )
 private val GoldGrad = Brush.linearGradient(
-    listOf(Color(0xFFFFD24D), Color(0xFFFF9A3D)), start = Offset(20f, 18f), end = Offset(82f, 84f),
+    listOf(Color(0xF2FFFFFF), Color(0xCCFFFFFF)), start = Offset(20f, 18f), end = Offset(82f, 84f),
 )
 private val CoralGrad = Brush.linearGradient(
-    listOf(Color(0xFFFF9A6A), Color(0xFFFF4D7A)), start = Offset(18f, 16f), end = Offset(84f, 86f),
+    listOf(Color(0xF2FFFFFF), Color(0xC2FFFFFF)), start = Offset(18f, 16f), end = Offset(84f, 86f),
 )
-private val HoleInk = SolidColor(Color(0x73140D08))
+private val HoleInk = SolidColor(Color(0x99000000))
 
 private fun DrawScope.fillP(d: String, brush: Brush, alpha: Float = 1f) {
     drawPath(PathParser().parsePathString(d).toPath(), brush, alpha = alpha)

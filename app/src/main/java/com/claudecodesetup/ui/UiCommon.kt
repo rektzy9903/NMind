@@ -103,30 +103,32 @@ fun Modifier.glowShadow(color: Color, blurRadius: Dp, cornerRadius: Dp): Modifie
     }
 
 // Design system color tokens
-// Glass reskin (feat/glass-ui): the surface/border tokens are now translucent
-// so every card that uses them reads as frosted glass over the AuroraBackground.
-// (Originals: Surface #151518, Surface2 #1E1E22, Border #2A2A30, Border2 #3A3A42.)
-// Frosted amber-milky glass: warm dark base + warm-white (milky) translucent
-// surfaces so cards read as amber-tinted frosted glass over the warm aurora.
-val NexusBg      = Color(0xFF17120D)
-val NexusSurface = Color(0x1FFFF1E2)   // ~12% warm-white — milky glass card fill
-val NexusSurface2 = Color(0x30FFF1E2)  // ~19% warm-white — elevated milky glass
-val NexusBorder  = Color(0x33FFFFFF)   // bright glass edge
-val NexusBorder2 = Color(0x4DFFFFFF)   // stronger glass edge
+// ── Nexus dark-frosted glassmorphism (2026-06-12) ───────────────────────────
+// Pure-black base + neutral-white translucent frosted surfaces over a multi-hue
+// ambient-orb aurora (cyan / amber / rose / emerald — NO purple). The surface &
+// border tokens are deliberately COLOURLESS white-translucency so cards read as
+// clean frosted glass and the per-feature accent (amber/cyan/rose/indigo/
+// emerald) is what carries identity, not the card itself.
+// (Prior amber-milky values archived in git history of feat/glass-ui.)
+val NexusBg      = Color(0xFF000000)   // pure black base
+val NexusSurface = Color(0x0BFFFFFF)   // rgba(255,255,255,0.045) — frosted card fill
+val NexusSurface2 = Color(0x14FFFFFF)  // ~8% white — elevated frosted surface
+val NexusBorder  = Color(0x17FFFFFF)   // rgba(255,255,255,0.09) — glass edge
+val NexusBorder2 = Color(0x2EFFFFFF)   // ~18% white — stronger glass edge
 // Overlay glass — for surfaces that float OVER live content (bottom sheets,
-// dialogs, dropdowns). Near-opaque dark so content behind can't bleed through
-// and text stays readable; the ~10% translucency keeps a faint frosted edge.
-val NexusOverlay = Color(0xE6141418)   // ~90% dark frosted panel
-val NexusAccent  = Color(0xFFE8834A)   // amber — primary
-val NexusAccentDim = Color(0x22E8834A)
-val NexusGreen   = Color(0xFF3DD68C)
-val NexusGreenDim = Color(0x183DD68C)
-val NexusBlue    = Color(0xFF60A5FA)
-val NexusAmber   = Color(0xFFFBBF24)
-val NexusRed     = Color(0xFFF87171)
-val NexusText    = Color(0xFFF0F0F2)
-val NexusText2   = Color(0xFF9090A0)
-val NexusText3   = Color(0xFF60606E)
+// dialogs, dropdowns). Near-opaque black so content behind can't bleed through
+// and text stays readable; the faint translucency keeps a frosted edge.
+val NexusOverlay = Color(0xF0050507)   // ~94% black frosted panel
+val NexusAccent  = Color(0xFFFF8C42)   // amber — primary CTA / Chat Box accent
+val NexusAccentDim = Color(0x22FF8C42)
+val NexusGreen   = Color(0xFF10FFAB)   // emerald — success / online / Testing accent
+val NexusGreenDim = Color(0x1410FFAB)
+val NexusBlue    = Color(0xFF00D4FF)   // cyan — info / Quick Ask accent
+val NexusAmber   = Color(0xFFFBBF24)   // warning (warm)
+val NexusRed     = Color(0xFFFF4D6D)   // rose — error / Discussion accent
+val NexusText    = Color(0xE6FFFFFF)   // white .9 — primary text
+val NexusText2   = Color(0x73FFFFFF)   // white .45 — secondary / muted
+val NexusText3   = Color(0x4DFFFFFF)   // white .30 — tertiary / section labels
 
 // Every screen that wraps in AppBackground now gets the aurora automatically.
 @Composable
@@ -139,19 +141,21 @@ fun AppBackground(content: @Composable () -> Unit) = AuroraBackground(content)
 // Real backdrop-blur is reserved for surfaces where sharp content scrolls
 // behind a panel (terminal/dungeon WebViews — free CSS blur there).
 
-// Warm, brand-led aurora hues (no purple/cyan, per the design system).
-// Amber-milky aurora — all warm hues (no cool tones) so the whole app glows amber.
-private val AuroraAmber = Color(0xFFE8834A)
-private val AuroraPink  = Color(0xFFF2924A)   // warm coral
-private val AuroraBlue  = Color(0xFFF2B85A)   // gold
-private val AuroraTeal  = Color(0xFFE0A050)   // warm amber-gold
+// Ambient-orb aurora hues — cyan / amber / rose / emerald ONLY (no purple).
+// Soft, saturated blobs drifting over the pure-black base; the frosted white
+// glass refracts them. Indigo is reserved as a per-feature card accent (Dungeon)
+// and intentionally NOT used as an ambient orb.
+private val AuroraCyan    = Color(0xFF00D4FF)
+private val AuroraAmber   = Color(0xFFFF8C42)
+private val AuroraRose    = Color(0xFFFF4D6D)
+private val AuroraEmerald = Color(0xFF10FFAB)
 
-// Glass surface tokens
-val GlassFill        = Color(0x1FFFF1E2)   // warm-white @ ~12% — milky card fill
-val GlassFillStrong  = Color(0x33FFF1E2)   // warm-white @ ~20% — milky tiles / pills
-val GlassStroke      = Color(0x33FFFFFF)   // bright glass edge
-val GlassStroke2     = Color(0x4DFFFFFF)   // stronger glass edge
-val GlassSheen       = Color(0x26FFF8EE)   // warm top-left highlight
+// Glass surface tokens — colourless white frost (rgba spec values).
+val GlassFill        = Color(0x0BFFFFFF)   // rgba(255,255,255,0.045) — frosted card fill
+val GlassFillStrong  = Color(0x14FFFFFF)   // ~8% white — tiles / pills
+val GlassStroke      = Color(0x17FFFFFF)   // rgba(255,255,255,0.09) — glass edge
+val GlassStroke2     = Color(0x2EFFFFFF)   // ~18% white — stronger edge
+val GlassSheen       = Color(0x0AFFFFFF)   // rgba(255,255,255,0.04) — top-left shimmer
 
 /** Full-screen animated aurora over the base background. Drop-in replacement
  *  for [AppBackground] on glass screens. */
@@ -178,13 +182,14 @@ fun AuroraBackground(content: @Composable () -> Unit) {
                         radius = rad, center = Offset(cx, cy),
                     )
                 }
-                // Brightened ~1.5× + a soft central warm glow so the mid-screen
-                // isn't dark — gives translucent glass something luminous to frost.
-                blob(w * 0.14f, h * (0.08f + 0.05f * drift), w * 0.80f, AuroraAmber.copy(alpha = 0.34f))
-                blob(w * 0.90f, h * 0.12f,                   w * 0.66f, AuroraPink.copy(alpha = 0.26f))
-                blob(w * 0.86f, h * (0.90f - 0.05f * drift), w * 0.90f, AuroraBlue.copy(alpha = 0.26f))
-                blob(w * 0.10f, h * 0.96f,                   w * 0.64f, AuroraTeal.copy(alpha = 0.22f))
-                blob(w * 0.50f, h * (0.45f + 0.06f * drift), w * 0.72f, AuroraAmber.copy(alpha = 0.13f))
+                // 5 ambient orbs (cyan/amber/rose/emerald) drifting slowly over
+                // pure black — ~0.12 opacity each so they read as soft light, not
+                // colour washes. The frosted white glass refracts them.
+                blob(w * 0.14f, h * (0.08f + 0.05f * drift), w * 0.78f, AuroraCyan.copy(alpha = 0.13f))
+                blob(w * 0.92f, h * (0.14f + 0.04f * drift), w * 0.62f, AuroraAmber.copy(alpha = 0.13f))
+                blob(w * 0.88f, h * (0.90f - 0.05f * drift), w * 0.84f, AuroraRose.copy(alpha = 0.12f))
+                blob(w * 0.08f, h * (0.94f - 0.04f * drift), w * 0.66f, AuroraEmerald.copy(alpha = 0.12f))
+                blob(w * 0.50f, h * (0.46f + 0.06f * drift), w * 0.70f, AuroraCyan.copy(alpha = 0.07f))
             }
     ) {
         content()
@@ -287,7 +292,7 @@ fun ChatTextField(
 @Composable
 fun SendButton(enabled: Boolean, onClick: () -> Unit) {
     val brush = if (enabled)
-        Brush.linearGradient(listOf(Color(0xFFE8834A), Color(0xFFC4632A)))
+        Brush.linearGradient(listOf(Color(0xFFFF8C42), Color(0xFFE5612A)))
     else
         Brush.linearGradient(listOf(NexusBorder2, NexusBorder2))
     Box(

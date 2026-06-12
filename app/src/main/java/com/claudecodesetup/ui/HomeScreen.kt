@@ -21,6 +21,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
@@ -87,7 +88,7 @@ fun HomeScreen(
             Box(
                 modifier = Modifier
                     .size(80.dp)
-                    .glowShadow(Color(0x4DE8834A), 26.dp, 22.dp),
+                    .glowShadow(Color(0x4DFF8C42), 26.dp, 22.dp),
                 contentAlignment = Alignment.Center
             ) {
                 ConvergenceLogo(modifier = Modifier.size(80.dp))
@@ -95,21 +96,26 @@ fun HomeScreen(
 
             Spacer(Modifier.height(16.dp))
 
+            // Title with the brand gradient (white → cyan → amber).
             Text(
                 text = appName,
                 fontSize = 26.sp,
                 fontWeight = FontWeight.ExtraBold,
-                color = NexusText,
                 fontFamily = SyneFamily,
+                style = androidx.compose.ui.text.TextStyle(
+                    brush = Brush.linearGradient(
+                        listOf(Color(0xFFFFFFFF), Color(0xFF00D4FF), Color(0xFFFF8C42))
+                    )
+                ),
             )
 
             Spacer(Modifier.height(8.dp))
 
-            // Pulsing status pill
+            // Pulsing status pill — emerald (system-status colour).
             Box(
                 modifier = Modifier
-                    .background(NexusAccentDim, RoundedCornerShape(99.dp))
-                    .border(1.dp, Color(0x40E8834A), RoundedCornerShape(99.dp))
+                    .background(NexusGreenDim, RoundedCornerShape(99.dp))
+                    .border(1.dp, NexusGreen.copy(alpha = 0.25f), RoundedCornerShape(99.dp))
                     .padding(horizontal = 12.dp, vertical = 4.dp)
             ) {
                 Row(
@@ -119,8 +125,9 @@ fun HomeScreen(
                     Box(
                         modifier = Modifier
                             .size(6.dp)
+                            .glowShadow(NexusGreen.copy(alpha = pulseAlpha), 6.dp, 3.dp)
                             .background(
-                                NexusAccent.copy(alpha = pulseAlpha),
+                                NexusGreen.copy(alpha = pulseAlpha),
                                 CircleShape
                             )
                     )
@@ -128,7 +135,7 @@ fun HomeScreen(
                     Text(
                         "All systems online",
                         fontSize = 12.sp,
-                        color = NexusAccent,
+                        color = NexusGreen,
                         fontFamily = DmSansFamily,
                         fontWeight = FontWeight.Medium,
                     )
@@ -171,7 +178,7 @@ fun HomeScreen(
                     subtitle = "Start a conversation with AI",
                     accentColor = NexusAccent,
                     onClick = onChatBox,
-                    iconContent = { GlassIcon(Modifier.size(54.dp), Color(0x66E8834A), IconTerminal) }
+                    iconContent = { GlassIcon(Modifier.size(34.dp), NexusAccent.copy(alpha = 0.45f), IconTerminal) }
                 )
             }
 
@@ -187,7 +194,7 @@ fun HomeScreen(
                     subtitle = "Chat directly with any model — no tools",
                     accentColor = NexusBlue,
                     onClick = onQuickAsk,
-                    iconContent = { GlassIcon(Modifier.size(54.dp), Color(0x66FF9A6A), IconQuickAsk) }
+                    iconContent = { GlassIcon(Modifier.size(34.dp), NexusBlue.copy(alpha = 0.45f), IconQuickAsk) }
                 )
             }
 
@@ -201,9 +208,9 @@ fun HomeScreen(
                 MenuCard(
                     title = "Discussion",
                     subtitle = "Have 2–4 models debate a topic",
-                    accentColor = NexusAmber,
+                    accentColor = NexusRed,
                     onClick = onDiscussion,
-                    iconContent = { GlassIcon(Modifier.size(54.dp), Color(0x66E8834A), IconDiscussion) }
+                    iconContent = { GlassIcon(Modifier.size(34.dp), NexusRed.copy(alpha = 0.45f), IconDiscussion) }
                 )
             }
 
@@ -217,9 +224,9 @@ fun HomeScreen(
                 MenuCard(
                     title = "Dungeon",
                     subtitle = "Your project as a D&D map — hunt bugs, dispatch heroes",
-                    accentColor = Color(0xFF7C5CBF),
+                    accentColor = Color(0xFF6366F1),   // indigo (per-feature accent; not an ambient hue)
                     onClick = onDungeon,
-                    iconContent = { GlassIcon(Modifier.size(54.dp), Color(0x66E8834A), IconDungeon) }
+                    iconContent = { GlassIcon(Modifier.size(34.dp), Color(0x736366F1), IconDungeon) }
                 )
             }
 
@@ -233,9 +240,9 @@ fun HomeScreen(
                 MenuCard(
                     title = "Testing Response",
                     subtitle = "Check if the free AI model is responding",
-                    accentColor = NexusBlue,
+                    accentColor = NexusGreen,
                     onClick = onTesting,
-                    iconContent = { GlassIcon(Modifier.size(54.dp), Color(0x66FF9A6A), IconTesting) }
+                    iconContent = { GlassIcon(Modifier.size(34.dp), NexusGreen.copy(alpha = 0.45f), IconTesting) }
                 )
             }
 
@@ -249,9 +256,9 @@ fun HomeScreen(
                 MenuCard(
                     title = "Setting",
                     subtitle = "Manage your preferences & app options",
-                    accentColor = Color(0xFF9575CD),
+                    accentColor = Color(0xFF8B93A7),   // neutral slate (no per-feature hue)
                     onClick = onSettings,
-                    iconContent = { GlassIcon(Modifier.size(54.dp), Color(0x66E8834A), IconSettings) }
+                    iconContent = { GlassIcon(Modifier.size(34.dp), Color(0x668B93A7), IconSettings) }
                 )
             }
 
@@ -514,6 +521,29 @@ private fun MenuCard(
                 )
             )
             .border(1.dp, borderColor, RoundedCornerShape(18.dp))
+            // Left-edge accent glow stripe — the per-feature identity marker.
+            // Drawn from the card's real pixel size (drawBehind) to avoid the
+            // unbounded-height constraint a fillMaxHeight child would hit inside
+            // the scrolling column.
+            .drawBehind {
+                val inset = 14.dp.toPx()
+                val w = 3.dp.toPx()
+                val h = (size.height - inset * 2f).coerceAtLeast(0f)
+                // faux outer glow (wider, translucent)
+                drawRoundRect(
+                    color = accentColor.copy(alpha = 0.22f),
+                    topLeft = Offset(0f, inset),
+                    size = androidx.compose.ui.geometry.Size(w * 2.6f, h),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(w),
+                )
+                // solid stripe
+                drawRoundRect(
+                    color = accentColor,
+                    topLeft = Offset(0f, inset),
+                    size = androidx.compose.ui.geometry.Size(w, h),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(w / 2f),
+                )
+            }
             .pointerInput(Unit) {
                 detectTapGestures(
                     onPress = {
@@ -540,9 +570,22 @@ private fun MenuCard(
                 .fillMaxWidth()
                 .padding(16.dp)
         ) {
-            // Icon tile
+            // Icon box — 48×48 frosted tile with the card's accent border + outer
+            // glow. The icon glyph inside is preserved exactly; only this container
+            // carries the feature colour.
             Box(
-                modifier = Modifier.size(56.dp),
+                modifier = Modifier
+                    .size(48.dp)
+                    .glowShadow(accentColor.copy(alpha = 0.30f), 14.dp, 14.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(Color(0x12FFFFFF))
+                    .background(
+                        Brush.radialGradient(
+                            colors = listOf(Color(0x1FFFFFFF), Color.Transparent),
+                            center = Offset(10f, 10f), radius = 70f,
+                        )
+                    )
+                    .border(1.dp, accentColor.copy(alpha = 0.45f), RoundedCornerShape(14.dp)),
                 contentAlignment = Alignment.Center,
                 content = iconContent
             )
