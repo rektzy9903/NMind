@@ -459,6 +459,10 @@ internal fun providerDisplayInfo(id: String): Pair<Color, String> = when (id) {
     "anthropic_api" -> NexusAccent          to "API Key"
     "groq"          -> Color(0xFFF97316)    to "14,400/day"
     "cerebras"      -> Color(0xFFF15A29)    to "Fastest · Free"
+    // Kiro's real brand is purple — kept as-is (the no-purple rule is an app-
+    // aesthetic guard, not a brand-fidelity one; provider marks use their true
+    // colour). Renders as a saturated purple "K" letter-tile (inv 54 fallback).
+    "kiro"          -> Color(0xFF7C5CFF)    to "Free Claude"
     else            -> NexusAccent          to "AI Provider"
 }
 
