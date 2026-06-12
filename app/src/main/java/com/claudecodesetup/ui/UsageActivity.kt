@@ -117,48 +117,49 @@ fun UsageDashboardScreen(filesDir: File, onBack: () -> Unit) {
             PeriodSegmented(period) { period = it }
 
             val rep = report
+            // NOTE: no early `return@Column` here — non-local returns out of the
+            // inline Column content lambda corrupt Compose's group bookkeeping
+            // (IntStack.peek2 index=-2 crash). Use balanced if/else branches.
             if (rep == null) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text("…", color = NexusText3, fontSize = 24.sp)
                 }
-                return@Column
-            }
+            } else {
+                // ── Filter chips ──
+                FilterChips(
+                    providers = rep.providers,
+                    models = rep.models,
+                    providerFilter = providerFilter,
+                    modelFilter = modelFilter,
+                    onProvider = { providerFilter = it; modelFilter = null },
+                    onModel = { modelFilter = it },
+                )
 
-            // ── Filter chips ──
-            FilterChips(
-                providers = rep.providers,
-                models = rep.models,
-                providerFilter = providerFilter,
-                modelFilter = modelFilter,
-                onProvider = { providerFilter = it; modelFilter = null },
-                onModel = { modelFilter = it },
-            )
-
-            if (rep.isEmpty) {
-                Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
-                    Text(
-                        "Nothing yet.\nSend a message through a proxy provider, then pull to refresh.",
-                        color = NexusText3, fontSize = 13.sp, fontFamily = SpaceMonoFamily,
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                if (rep.isEmpty) {
+                    Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
+                        Text(
+                            "Nothing yet.\nSend a message through a proxy provider, then pull to refresh.",
+                            color = NexusText3, fontSize = 13.sp, fontFamily = SpaceMonoFamily,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                } else {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState())
+                            .padding(horizontal = 16.dp)
+                            .padding(bottom = 32.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        Spacer(Modifier.height(2.dp))
+                        HeroCard(rep)
+                        if (rep.byModel.isNotEmpty()) DonutCard(rep)
+                        if (rep.byModel.isNotEmpty()) StackedModelCard(rep.byModel)
+                        if (rep.byDay.size > 1) TimeGraphCard(rep)
+                        ProviderListCard(rep)
+                    }
                 }
-                return@Column
-            }
-
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp)
-                    .padding(bottom = 32.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                Spacer(Modifier.height(2.dp))
-                HeroCard(rep)
-                if (rep.byModel.isNotEmpty()) DonutCard(rep)
-                if (rep.byModel.isNotEmpty()) StackedModelCard(rep.byModel)
-                if (rep.byDay.size > 1) TimeGraphCard(rep)
-                ProviderListCard(rep)
             }
         }
     }
