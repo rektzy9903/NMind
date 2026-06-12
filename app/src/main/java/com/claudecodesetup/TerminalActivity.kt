@@ -69,6 +69,15 @@ class TerminalActivity : AppCompatActivity() {
     // Null until the channel handshakes / when the feature is unsupported → evaluateJS fallback.
     private var ptyReplyProxy: JavaScriptReplyProxy? = null
 
+    // Renderer-agnostic seam for the 🐧 Ubuntu PTY view. Today this is the WebView
+    // (xterm.js) impl, wrapping the exact postMessage/evaluateJavascript behavior
+    // that used to live inline below — zero functional change. A future native
+    // renderer implements the same UbuntuTerminalView and is chosen behind a flag.
+    // `by lazy` so binding.webViewTerminal is set before first use (first PTY byte).
+    private val ubuntuTerminal: com.claudecodesetup.ui.terminal.UbuntuTerminalView by lazy {
+        com.claudecodesetup.ui.terminal.WebViewUbuntuTerminal(binding.webViewTerminal) { ptyReplyProxy }
+    }
+
     companion object {
         private const val REQUEST_IMAGE = 1002
         const val EXTRA_PROJECT_PATH = "project_path"
@@ -368,20 +377,12 @@ class TerminalActivity : AppCompatActivity() {
             }
         }
 
-        // P6.5: raw Ubuntu-PTY bytes (base64) → xterm.js, gated to the active tab.
+        // P6.5: raw Ubuntu-PTY bytes (base64) → terminal renderer, gated to the active tab.
+        // Routed through the UbuntuTerminalView seam (the postMessage/evaluateJavascript
+        // dance now lives in WebViewUbuntuTerminal). Session-routing + UI-thread hop stay here.
         claudeService!!.onPtyOutput = { sessionId, b64 ->
             if (sessionId == activeSessionId) {
-                runOnUiThread {
-                    val proxy = ptyReplyProxy
-                    if (proxy != null) {
-                        try { proxy.postMessage(b64) }
-                        catch (_: Exception) {
-                            binding.webViewTerminal.evaluateJavascript("window.ptyWrite('$b64')", null)
-                        }
-                    } else {
-                        binding.webViewTerminal.evaluateJavascript("window.ptyWrite('$b64')", null)
-                    }
-                }
+                runOnUiThread { ubuntuTerminal.feed(b64) }
             }
         }
 
@@ -493,7 +494,7 @@ class TerminalActivity : AppCompatActivity() {
         // P6.5: the Ubuntu view is a single shared xterm. When switching tabs while
         // in 🐧 mode, reset it and (re)attach to the new tab's own guest shell.
         if (ubuntuMode) {
-            binding.webViewTerminal.evaluateJavascript("window.ptyClear&&window.ptyClear()", null)
+            ubuntuTerminal.clearScreen()
             claudeService?.openPty(id)
         }
 
