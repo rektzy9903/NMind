@@ -353,8 +353,8 @@ object Providers {
         baseUrl = "https://codewhisperer.us-east-1.amazonaws.com/generateAssistantResponse",
         requiresProxy = true,
         models = listOf(
-            AiModel("Auto (Kiro picks)", "auto",            setOf(Cap.TOOLS, Cap.LONG_CTX), "Kiro selects the model server-side"),
-            AiModel("Claude Sonnet 4.5", "claude-sonnet-4-5", setOf(Cap.TOOLS, Cap.REASONING, Cap.LONG_CTX), "If 'auto' 400s, try this")
+            AiModel("Auto (Kiro picks)", "auto",            setOf(Cap.FREE, Cap.TOOLS, Cap.LONG_CTX), "Kiro selects the model server-side"),
+            AiModel("Claude Sonnet 4.5", "claude-sonnet-4-5", setOf(Cap.FREE, Cap.TOOLS, Cap.REASONING, Cap.LONG_CTX), "If 'auto' 400s, try this")
         )
     )
 

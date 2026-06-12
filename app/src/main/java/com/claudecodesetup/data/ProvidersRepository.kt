@@ -93,12 +93,20 @@ object ProvidersRepository {
     }
 
     private fun parseProvider(obj: JSONObject): Provider {
+        val id = obj.getString("id")
         val modelsArr = obj.getJSONArray("models")
         val models = (0 until modelsArr.length()).map { i ->
             val m = modelsArr.getJSONObject(i)
-            AiModel(m.getString("name"), m.getString("modelId"))
+            val mid = m.getString("modelId")
+            // Derive capability tags from the id (JSON carries none) so static
+            // asset models get proper Free/Paid + cap badges instead of blank.
+            var caps = Providers.deriveCaps(mid)
+            // Kiro is free Claude via CodeWhisperer — no /models endpoint and no
+            // ":free" suffix to auto-detect, so tag it FREE explicitly or the
+            // picker buckets it under PAID (inv 34).
+            if (id == "kiro") caps = caps + Cap.FREE + Cap.TOOLS
+            AiModel(m.getString("name"), mid, caps)
         }
-        val id = obj.getString("id")
         return Provider(
             id              = id,
             name            = obj.getString("name"),

@@ -362,6 +362,7 @@
       "baseUrl": "https://codewhisperer.us-east-1.amazonaws.com/generateAssistantResponse",
       "requiresProxy": true,
       "requiresApiKey": true,
+      "supportsLiveFetch": false,
       "models": [
         {
           "name": "Auto (Kiro picks)",
