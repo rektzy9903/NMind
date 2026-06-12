@@ -1,0 +1,33 @@
+// Vendored from termux/termux-app terminal-emulator (Apache-2.0), v0.118.0.
+// Stripped for Nexus-Mind: the JNI subprocess layer (src/main/jni + JNI.java) is
+// REMOVED — we do not spawn a process here. The PTY lives in our own engine
+// (libpty.so + bridge.js attachPtySession); TerminalSession is patched to feed
+// the emulator from / write input to an external sink instead of a pty fd, so no
+// libtermux.so is built or shipped. See NOTICE-termux.md.
+apply plugin: 'com.android.library'
+
+android {
+    namespace "com.termux.emulator"
+    compileSdk 34
+
+    defaultConfig {
+        minSdk 29
+        targetSdk 34
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    implementation "androidx.annotation:annotation:1.7.1"
+}

@@ -15,3 +15,7 @@ dependencyResolutionManagement {
 
 rootProject.name = "NexusMind"
 include ':app'
+// Vendored Termux terminal renderer (Apache-2.0), de-JNI'd — see NOTICE-termux.md.
+// Used by the native 🐧 Ubuntu terminal renderer (behind a flag; WebView fallback kept).
+include ':terminal-emulator'
+include ':terminal-view'
