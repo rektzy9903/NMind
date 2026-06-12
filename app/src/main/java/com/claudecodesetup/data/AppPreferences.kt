@@ -148,6 +148,12 @@ class AppPreferences(context: Context) {
     fun isAutoStartOnBoot(): Boolean = prefs.getBoolean(KEY_AUTO_START_BOOT, false)
     fun setAutoStartOnBoot(enabled: Boolean) = prefs.edit().putBoolean(KEY_AUTO_START_BOOT, enabled).apply()
 
+    // 🐧 Ubuntu terminal renderer: native Termux terminal-view (true) vs the
+    // xterm.js WebView (false, default). Off by default so the proven WebView path
+    // ships unchanged; flip in Settings to use/verify the native renderer.
+    fun isNativeTerminalEnabled(): Boolean = prefs.getBoolean("native_terminal_enabled", false)
+    fun setNativeTerminalEnabled(enabled: Boolean) = prefs.edit().putBoolean("native_terminal_enabled", enabled).apply()
+
     /** When ON (default), switching to a provider that already has a saved API
      *  key skips the ApiKeyScreen and goes straight to the model picker. Turn
      *  OFF to force re-validation on every provider switch. */

@@ -1,31 +1,44 @@
 package com.claudecodesetup.ui.terminal
 
+import android.view.View
+
 /**
  * Renderer-agnostic seam for the 🐧 Ubuntu PTY terminal.
  *
- * Today the only implementation is [WebViewUbuntuTerminal] (xterm.js inside the
- * shared WebView) — this interface wraps the existing behavior with ZERO
- * functional change so TerminalActivity stops poking `window.*` JS globals
- * directly and talks to one object instead.
+ * Two implementations satisfy this:
+ *  - [WebViewUbuntuTerminal] — xterm.js inside the shared WebView (the default;
+ *    base64-encodes bytes back across the JS bridge).
+ *  - [NativeUbuntuTerminal] — Termux terminal-view (native Canvas), selected
+ *    behind AppPreferences.isNativeTerminalEnabled().
  *
- * Why the seam exists: a future native renderer (Termux terminal-emulator +
- * terminal-view) will implement this same interface, and TerminalActivity will
- * pick the impl behind an AppPreferences flag — so a native build can ship
- * BESIDE the WebView path and fall back instantly without an emergency rebuild.
- *
- * The engine below this seam (ClaudeService PTY socket relay → bridge.js
- * attachPtySession → libpty.so forkpty) is UNCHANGED and shared by both.
- *
- * NOTE: [feed] currently takes a base64 string to match exactly what
- * ClaudeService.onPtyOutput delivers today (no engine change this commit). When
- * the native renderer lands, this becomes a raw `ByteArray` path and the base64
- * round-trip is dropped from the service hot loop — both changes in that commit,
- * together, so this signature stays honest until then.
+ * TerminalActivity holds one of these and talks only to this interface, so a
+ * native build ships BESIDE the WebView path and reverts via a flag with no
+ * emergency rebuild. The engine below (ClaudeService PTY socket relay →
+ * bridge.js attachPtySession → libpty.so forkpty) is shared and unchanged.
  */
 interface UbuntuTerminalView {
-    /** Shell → screen. [b64] is base64-encoded raw PTY bytes (as ClaudeService emits). */
-    fun feed(b64: String)
+    /** The native view to host in the layout, or null when this impl renders
+     *  inside the shared WebView (nothing to add). */
+    val nativeView: View?
+
+    /** Shell → screen. Raw PTY bytes from ClaudeService (length == bytes.size). */
+    fun feed(bytes: ByteArray)
 
     /** Blank the visible buffer (tab switch / session swap). */
     fun clearScreen()
+
+    /** Toolbar A+/A− nudge (sp delta). */
+    fun adjustFont(deltaSp: Int)
+
+    /** Send a raw key sequence (toolbar ↑/↓/Esc/Tab/Ctrl chord). */
+    fun sendKey(seq: String)
+
+    /** Raise the soft keyboard / focus the terminal. */
+    fun focusForKeyboard()
+
+    /** Called when the Ubuntu view becomes visible (fit/focus). */
+    fun onShown()
+
+    /** Release resources (activity destroy). */
+    fun dispose()
 }

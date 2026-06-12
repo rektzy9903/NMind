@@ -3547,6 +3547,16 @@ reportTermSize();
 
   window.setMode = function(mode){
     var ub=(mode==='ubuntu');
+    // Native-renderer mode: a native Termux overlay (Kotlin) owns the Ubuntu view.
+    // Keep the WebView in chat — do NOT init xterm / fit (that would double-drive
+    // the PTY resize). Just reflect the 💬/🐧 toggle highlight.
+    if(window.__useNativeTerminal){
+      try{
+        document.getElementById('mode-ubuntu').classList.toggle('active', ub);
+        document.getElementById('mode-claude').classList.toggle('active', !ub);
+      }catch(_){}
+      return;
+    }
     ptyMode=ub;
     window.__nexusMode = ub ? 'ubuntu' : 'chat';
     // Clear ctrl armed state on mode switch — prevents stuck glow / phantom chord

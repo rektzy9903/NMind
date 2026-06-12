@@ -69,14 +69,13 @@ class TerminalActivity : AppCompatActivity() {
     // Null until the channel handshakes / when the feature is unsupported → evaluateJS fallback.
     private var ptyReplyProxy: JavaScriptReplyProxy? = null
 
-    // Renderer-agnostic seam for the 🐧 Ubuntu PTY view. Today this is the WebView
-    // (xterm.js) impl, wrapping the exact postMessage/evaluateJavascript behavior
-    // that used to live inline below — zero functional change. A future native
-    // renderer implements the same UbuntuTerminalView and is chosen behind a flag.
-    // `by lazy` so binding.webViewTerminal is set before first use (first PTY byte).
-    private val ubuntuTerminal: com.claudecodesetup.ui.terminal.UbuntuTerminalView by lazy {
-        com.claudecodesetup.ui.terminal.WebViewUbuntuTerminal(binding.webViewTerminal) { ptyReplyProxy }
-    }
+    // Renderer-agnostic seam for the 🐧 Ubuntu PTY view. Either the WebView
+    // (xterm.js) impl — the default, behaviorally unchanged — or the native Termux
+    // renderer, chosen by AppPreferences.isNativeTerminalEnabled(). Set in
+    // initUbuntuTerminal() (onCreate, after binding). nativeTerminal is non-null
+    // ONLY in native mode (drives the overlay + key row).
+    private lateinit var ubuntuTerminal: com.claudecodesetup.ui.terminal.UbuntuTerminalView
+    private var nativeTerminal: com.claudecodesetup.ui.terminal.NativeUbuntuTerminal? = null
 
     companion object {
         private const val REQUEST_IMAGE = 1002
@@ -144,6 +143,7 @@ class TerminalActivity : AppCompatActivity() {
         pendingSharedText = intent?.getStringExtra("shared_text")
 
         setupWebView()
+        initUbuntuTerminal()
         setupRestartButton()
         setupHeaderButtons()
         setupStatusBar()
@@ -155,6 +155,73 @@ class TerminalActivity : AppCompatActivity() {
                 tts?.language = Locale.getDefault()
             }
         }
+    }
+
+    // ─── 🐧 Ubuntu terminal renderer selection ───────────────────────────────
+
+    /** Pick the Ubuntu renderer from the pref. Native → host a Termux TerminalView
+     *  in the overlay + wire the native key row; WebView → wrap the shared WebView.
+     *  Both satisfy UbuntuTerminalView so the rest of the activity is impl-agnostic. */
+    private fun initUbuntuTerminal() {
+        if (prefs.isNativeTerminalEnabled()) {
+            val nt = com.claudecodesetup.ui.terminal.NativeUbuntuTerminal(
+                this,
+                sendPty = { data -> claudeService?.sendPty(activeSessionId, data) },
+                resizePty = { cols, rows -> claudeService?.resizePty(activeSessionId, cols, rows) },
+            )
+            nativeTerminal = nt
+            binding.nativeTermHost.addView(
+                nt.nativeView,
+                android.widget.FrameLayout.LayoutParams(
+                    android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                    android.widget.FrameLayout.LayoutParams.MATCH_PARENT
+                )
+            )
+            ubuntuTerminal = nt
+            wireNativeKeyRow()
+        } else {
+            ubuntuTerminal = com.claudecodesetup.ui.terminal.WebViewUbuntuTerminal(
+                binding.webViewTerminal
+            ) { ptyReplyProxy }
+        }
+    }
+
+    /** Show/hide the Ubuntu view per mode. In native mode the opaque overlay covers
+     *  the WebView (which stays in chat — see window.__useNativeTerminal in setMode).
+     *  In WebView mode the JS toggles its own xterm; we only open the PTY. */
+    private fun applyUbuntuMode(ubuntu: Boolean) {
+        val nt = nativeTerminal
+        if (nt != null) {
+            binding.nativeUbuntuOverlay.visibility = if (ubuntu) View.VISIBLE else View.GONE
+            if (ubuntu) {
+                binding.nativeUbuntuOverlay.bringToFront()
+                claudeService?.openPty(activeSessionId)
+                ubuntuTerminal.onShown()
+            }
+        } else if (ubuntu) {
+            claudeService?.openPty(activeSessionId)
+        }
+    }
+
+    /** Native key row → raw PTY sequences (the in-WebView toolbar is covered). */
+    private fun wireNativeKeyRow() {
+        val nt = nativeTerminal ?: return
+        binding.btnNativeChat.setOnClickListener {
+            ubuntuMode = false
+            binding.nativeUbuntuOverlay.visibility = View.GONE
+            // WebView is already in chat (native flag keeps it there); just sync the
+            // 💬/🐧 toggle highlight.
+            binding.webViewTerminal.evaluateJavascript("window.setMode&&window.setMode('chat')", null)
+        }
+        binding.btnNativeEsc.setOnClickListener { nt.sendKey("") }
+        binding.btnNativeTab.setOnClickListener { nt.sendKey("\t") }
+        binding.btnNativeCtrlC.setOnClickListener { nt.sendKey("") }
+        binding.btnNativeUp.setOnClickListener { nt.sendKey("[A") }
+        binding.btnNativeDown.setOnClickListener { nt.sendKey("[B") }
+        binding.btnNativeRight.setOnClickListener { nt.sendKey("[C") }
+        binding.btnNativeLeft.setOnClickListener { nt.sendKey("[D") }
+        binding.btnNativeFontDec.setOnClickListener { nt.adjustFont(-1) }
+        binding.btnNativeFontInc.setOnClickListener { nt.adjustFont(1) }
     }
 
     // Called when ProjectManagerActivity opens a project while this activity is already in the stack.
@@ -223,6 +290,7 @@ class TerminalActivity : AppCompatActivity() {
         tts = null
         speechRecognizer?.destroy()
         speechRecognizer = null
+        nativeTerminal?.dispose()
         // Null all callbacks unconditionally before unbinding to prevent callbacks
         // firing on a partially-destroyed activity if the binder delivers one last event.
         claudeService?.onOutput = null
@@ -284,6 +352,11 @@ class TerminalActivity : AppCompatActivity() {
         wv.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView, url: String) {
                 binding.tvLoading.visibility = View.GONE
+                // Native renderer active → tell the page to keep the WebView in chat
+                // (skip its own xterm + doFit) so it never double-drives the PTY.
+                if (nativeTerminal != null) {
+                    view.evaluateJavascript("window.__useNativeTerminal=true;", null)
+                }
                 val model = prefs.getModelId().let { m ->
                     when {
                         m.isEmpty() -> "claude"
@@ -380,9 +453,9 @@ class TerminalActivity : AppCompatActivity() {
         // P6.5: raw Ubuntu-PTY bytes (base64) → terminal renderer, gated to the active tab.
         // Routed through the UbuntuTerminalView seam (the postMessage/evaluateJavascript
         // dance now lives in WebViewUbuntuTerminal). Session-routing + UI-thread hop stay here.
-        claudeService!!.onPtyOutput = { sessionId, b64 ->
+        claudeService!!.onPtyOutput = { sessionId, data ->
             if (sessionId == activeSessionId) {
-                runOnUiThread { ubuntuTerminal.feed(b64) }
+                runOnUiThread { ubuntuTerminal.feed(data) }
             }
         }
 
@@ -495,7 +568,9 @@ class TerminalActivity : AppCompatActivity() {
         // in 🐧 mode, reset it and (re)attach to the new tab's own guest shell.
         if (ubuntuMode) {
             ubuntuTerminal.clearScreen()
-            claudeService?.openPty(id)
+            // Reattach the (shared) renderer to the new tab's guest shell. For native
+            // this also re-opens the PTY + re-focuses via applyUbuntuMode/onShown.
+            applyUbuntuMode(true)
         }
 
         binding.btnRestart.visibility = View.GONE
@@ -1079,9 +1154,9 @@ class TerminalActivity : AppCompatActivity() {
         @JavascriptInterface
         fun setMode(mode: String) {
             ubuntuMode = (mode == "ubuntu")
-            if (ubuntuMode) {
-                claudeService?.openPty(activeSessionId)
-            }
+            // View ops (overlay show/hide) must run on the UI thread; openPty is
+            // dispatched off it internally. applyUbuntuMode handles both renderers.
+            runOnUiThread { applyUbuntuMode(ubuntuMode) }
         }
 
         @JavascriptInterface

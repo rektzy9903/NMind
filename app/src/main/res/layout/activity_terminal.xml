@@ -194,14 +194,97 @@
         android:background="@color/surface"
         android:visibility="visible" />
 
-    <!-- ── Terminal WebView — takes all remaining space ───────────────────── -->
-    <WebView
-        android:id="@+id/webViewTerminal"
+    <!-- ── Terminal content area (WebView + optional native overlay) ───────── -->
+    <FrameLayout
+        android:id="@+id/terminalContainer"
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1"
-        android:background="@color/terminal_bg"
-        android:scrollbars="none" />
+        android:layout_weight="1">
+
+        <!-- Chat (always) + Ubuntu xterm (WebView-renderer mode) -->
+        <WebView
+            android:id="@+id/webViewTerminal"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="@color/terminal_bg"
+            android:scrollbars="none" />
+
+        <!-- Native 🐧 Ubuntu renderer (Termux terminal-view). Opaque, covers the
+             WebView while in Ubuntu mode; GONE otherwise. The TerminalView is added
+             into nativeTermHost programmatically. Only used when the native-terminal
+             pref is on — else this whole overlay stays GONE. -->
+        <LinearLayout
+            android:id="@+id/nativeUbuntuOverlay"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="vertical"
+            android:background="@color/terminal_bg"
+            android:visibility="gone">
+
+            <FrameLayout
+                android:id="@+id/nativeTermHost"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1" />
+
+            <!-- Native key row (the in-WebView toolbar is covered while native is up) -->
+            <HorizontalScrollView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@color/glass_bar_2"
+                android:scrollbars="none">
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:paddingHorizontal="4dp"
+                    android:paddingVertical="3dp">
+
+                    <Button android:id="@+id/btnNativeChat" style="@style/Widget.Material3.Button.TextButton"
+                        android:layout_width="wrap_content" android:layout_height="34dp"
+                        android:text="‹ Chat" android:textSize="12sp" android:textColor="@color/accent_blue"
+                        android:minWidth="0dp" android:minHeight="0dp" android:paddingHorizontal="10dp" />
+                    <Button android:id="@+id/btnNativeEsc" style="@style/Widget.Material3.Button.TextButton"
+                        android:layout_width="wrap_content" android:layout_height="34dp"
+                        android:text="Esc" android:textSize="12sp" android:textColor="@color/text_primary"
+                        android:minWidth="0dp" android:minHeight="0dp" android:paddingHorizontal="10dp" />
+                    <Button android:id="@+id/btnNativeTab" style="@style/Widget.Material3.Button.TextButton"
+                        android:layout_width="wrap_content" android:layout_height="34dp"
+                        android:text="Tab" android:textSize="12sp" android:textColor="@color/text_primary"
+                        android:minWidth="0dp" android:minHeight="0dp" android:paddingHorizontal="10dp" />
+                    <Button android:id="@+id/btnNativeCtrlC" style="@style/Widget.Material3.Button.TextButton"
+                        android:layout_width="wrap_content" android:layout_height="34dp"
+                        android:text="^C" android:textSize="12sp" android:textColor="@color/accent_orange"
+                        android:minWidth="0dp" android:minHeight="0dp" android:paddingHorizontal="10dp" />
+                    <Button android:id="@+id/btnNativeUp" style="@style/Widget.Material3.Button.TextButton"
+                        android:layout_width="wrap_content" android:layout_height="34dp"
+                        android:text="↑" android:textSize="13sp" android:textColor="@color/text_primary"
+                        android:minWidth="0dp" android:minHeight="0dp" android:paddingHorizontal="10dp" />
+                    <Button android:id="@+id/btnNativeDown" style="@style/Widget.Material3.Button.TextButton"
+                        android:layout_width="wrap_content" android:layout_height="34dp"
+                        android:text="↓" android:textSize="13sp" android:textColor="@color/text_primary"
+                        android:minWidth="0dp" android:minHeight="0dp" android:paddingHorizontal="10dp" />
+                    <Button android:id="@+id/btnNativeLeft" style="@style/Widget.Material3.Button.TextButton"
+                        android:layout_width="wrap_content" android:layout_height="34dp"
+                        android:text="←" android:textSize="13sp" android:textColor="@color/text_primary"
+                        android:minWidth="0dp" android:minHeight="0dp" android:paddingHorizontal="10dp" />
+                    <Button android:id="@+id/btnNativeRight" style="@style/Widget.Material3.Button.TextButton"
+                        android:layout_width="wrap_content" android:layout_height="34dp"
+                        android:text="→" android:textSize="13sp" android:textColor="@color/text_primary"
+                        android:minWidth="0dp" android:minHeight="0dp" android:paddingHorizontal="10dp" />
+                    <Button android:id="@+id/btnNativeFontDec" style="@style/Widget.Material3.Button.TextButton"
+                        android:layout_width="wrap_content" android:layout_height="34dp"
+                        android:text="A−" android:textSize="12sp" android:textColor="@color/text_secondary"
+                        android:minWidth="0dp" android:minHeight="0dp" android:paddingHorizontal="10dp" />
+                    <Button android:id="@+id/btnNativeFontInc" style="@style/Widget.Material3.Button.TextButton"
+                        android:layout_width="wrap_content" android:layout_height="34dp"
+                        android:text="A+" android:textSize="12sp" android:textColor="@color/text_secondary"
+                        android:minWidth="0dp" android:minHeight="0dp" android:paddingHorizontal="10dp" />
+                </LinearLayout>
+            </HorizontalScrollView>
+        </LinearLayout>
+    </FrameLayout>
 
     <!-- ── Restart button (shown when active session exits) ──────────────── -->
     <Button

@@ -1,28 +1,34 @@
 package com.claudecodesetup.ui.terminal
 
+import android.util.Base64
+import android.view.View
 import android.webkit.WebView
 import androidx.webkit.JavaScriptReplyProxy
 
 /**
- * WebView (xterm.js) implementation of [UbuntuTerminalView].
+ * WebView (xterm.js) implementation of [UbuntuTerminalView] — the default path.
  *
- * This is the CURRENT behavior, relocated verbatim from TerminalActivity:
- *  - [feed] prefers the fast "NexusPty" WebMessageListener channel
- *    (replyProxy.postMessage, no per-chunk JS-source compile — the dropped-
- *    keystroke fix, CLAUDE.md inv 78) and falls back to
- *    evaluateJavascript("window.ptyWrite('…')") when the channel is absent.
- *  - [clearScreen] calls window.ptyClear().
+ * Behaviorally identical to the original inline code in TerminalActivity:
+ *  - [feed] base64-encodes the raw bytes (ClaudeService no longer does this) and
+ *    prefers the fast "NexusPty" WebMessageListener channel (replyProxy.postMessage,
+ *    no per-chunk JS-source compile — the dropped-keystroke fix, CLAUDE.md inv 78),
+ *    falling back to evaluateJavascript("window.ptyWrite('…')").
+ *  - font / key / focus delegate to the existing JS globals (only invoked by the
+ *    native control row; in WebView mode the in-page toolbar drives those itself,
+ *    so these are inert here — preserving the unchanged default behavior).
  *
- * [replyProxyProvider] is read on every [feed] so it picks up the proxy once the
- * JS side handshakes "ready" (it is null until then) — same late-bind semantics
- * as the inline code it replaces.
+ * [replyProxyProvider] is read on every [feed] so it late-binds once the JS side
+ * handshakes "ready" — same semantics as the inline code it replaces.
  */
 class WebViewUbuntuTerminal(
     private val webView: WebView,
     private val replyProxyProvider: () -> JavaScriptReplyProxy?,
 ) : UbuntuTerminalView {
 
-    override fun feed(b64: String) {
+    override val nativeView: View? = null
+
+    override fun feed(bytes: ByteArray) {
+        val b64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
         val proxy = replyProxyProvider()
         if (proxy != null) {
             try {
@@ -38,4 +44,20 @@ class WebViewUbuntuTerminal(
     override fun clearScreen() {
         webView.evaluateJavascript("window.ptyClear&&window.ptyClear()", null)
     }
+
+    override fun adjustFont(deltaSp: Int) {
+        webView.evaluateJavascript("window.adjustXtermFont&&window.adjustXtermFont($deltaSp)", null)
+    }
+
+    override fun sendKey(seq: String) {
+        val esc = seq.replace("\\", "\\\\").replace("'", "\\'")
+        webView.evaluateJavascript("window.ptyKey&&window.ptyKey('$esc')", null)
+    }
+
+    override fun focusForKeyboard() {
+        webView.evaluateJavascript("window.__focusTerm&&window.__focusTerm()", null)
+    }
+
+    override fun onShown() {}
+    override fun dispose() {}
 }

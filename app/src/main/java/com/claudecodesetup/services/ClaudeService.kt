@@ -9,7 +9,6 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
-import android.util.Base64
 import android.util.Log
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
@@ -75,8 +74,10 @@ class ClaudeService : LifecycleService() {
 
     var onOutput: ((sessionId: Int, data: String) -> Unit)? = null
     var onSessionEnded: ((sessionId: Int) -> Unit)? = null
-    // P6.5: raw Ubuntu-PTY output for a session, already base64-encoded for window.ptyWrite().
-    var onPtyOutput: ((sessionId: Int, b64: String) -> Unit)? = null
+    // P6.5: raw Ubuntu-PTY output for a session. Delivered as raw bytes; the WebView
+    // renderer base64-encodes for window.ptyWrite, the native renderer feeds the
+    // emulator directly (no base64 round-trip on the native path).
+    var onPtyOutput: ((sessionId: Int, data: ByteArray) -> Unit)? = null
     var onSessionAdded: ((ClaudeSession) -> Unit)? = null
 
     // ─── Session model ────────────────────────────────────────────────────────
@@ -260,7 +261,7 @@ class ClaudeService : LifecycleService() {
             if (sock == null) {
                 if (attempt < maxAttempts) { delay(700); continue }
                 val err = "\r\n[31m[ubuntu] could not connect to bridge (port ${NodeBridgeManager.BRIDGE_PORT})[0m\r\n"
-                onPtyOutput?.invoke(sessionId, Base64.encodeToString(err.toByteArray(Charsets.UTF_8), Base64.NO_WRAP))
+                onPtyOutput?.invoke(sessionId, err.toByteArray(Charsets.UTF_8))
                 return
             }
             val conn = PtyConn(sock)
@@ -328,8 +329,7 @@ class ClaudeService : LifecycleService() {
                             waits++
                         }
                     }
-                    val b64 = Base64.encodeToString(agg.toByteArray(), Base64.NO_WRAP)
-                    onPtyOutput?.invoke(sessionId, b64)
+                    onPtyOutput?.invoke(sessionId, agg.toByteArray())
                 }
             } catch (_: IOException) {
                 // Normal socket close (tab switch / shell exit).
