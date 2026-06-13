@@ -24,9 +24,20 @@ import kotlin.math.*
 private const val TOTAL = 3.3f          // total animation time before fade-out
 
 // ─── Design tokens ───────────────────────────────────────────────────────────
-private val AmberAccent  = Color(0xFFFF8C42)
-private val BgColor      = Color(0xFF0C0C0F)
-private val SurfaceColor = Color(0xFF1E1E22)
+// Dark-frosted glass theme: pure-black stage, amber core ("one door"), and four
+// palette-hued "paths" (cyan / rose / amber / emerald — no purple) that converge
+// into the core — a literal rendering of the tagline MANY PATHS · ONE DOOR.
+private val AmberAccent  = Color(0xFFFF8C42)   // the core / primary
+private val BgColor      = Color(0xFF000000)   // pure black
+private val SurfaceColor = Color(0x14FFFFFF)   // frosted track for the loading bar
+
+// Per-cardinal path colours, indexed [top, right, bottom, left] to match dotDirs.
+private val PathColors = listOf(
+    Color(0xFF00D4FF),   // top    — cyan
+    Color(0xFFFF4D6D),   // right  — rose
+    Color(0xFFFF8C42),   // bottom — amber
+    Color(0xFF10FFAB),   // left   — emerald
+)
 
 // ─── Easing helpers ──────────────────────────────────────────────────────────
 private fun easeOutCubic(t: Float)   = 1f - (1f - t).pow(3)
@@ -192,7 +203,7 @@ fun SplashAnimationScreen(shouldPlay: Boolean = true, onFinished: () -> Unit) {
 
                     // ── Diagonal lines (phase 3b) ────────────────────────────
                     if (diagAlpha > 0.001f) {
-                        val lineColor = AmberAccent.copy(alpha = diagAlpha)
+                        val lineColor = Color.White.copy(alpha = diagAlpha * 0.6f)
                         val sw = s * 0.006f
                         // 4 diagonals at 45°, 135°, 225°, 315°
                         listOf(45f, 135f, 225f, 315f).forEach { angleDeg ->
@@ -210,7 +221,7 @@ fun SplashAnimationScreen(shouldPlay: Boolean = true, onFinished: () -> Unit) {
                     dotDirs.forEachIndexed { i, dir ->
                         val p = cardinalProg[i]
                         if (p < 0.001f) return@forEachIndexed
-                        val lineColor = AmberAccent.copy(alpha = 0.55f * p.coerceAtMost(1f))
+                        val lineColor = PathColors[i].copy(alpha = 0.70f * p.coerceAtMost(1f))
                         val sw = s * 0.007f
                         val startPt = Offset(cx + dir.x * outerR, cy + dir.y * outerR)
                         val endPt   = Offset(cx + dir.x * lineEnd, cy + dir.y * lineEnd)
@@ -250,7 +261,9 @@ fun SplashAnimationScreen(shouldPlay: Boolean = true, onFinished: () -> Unit) {
                     // We draw all 4 edges of the diamond, each edge fading in
                     // sequentially as diamondT progresses 0→1 (4 edges × 0.25 each)
                     if (diamondT > 0.001f) {
-                        val diamondColor = AmberAccent.copy(alpha = 0.75f * diamondT.coerceAtMost(1f))
+                        // The "door" — a frosted white-glass diamond (neutral, so the
+                        // coloured paths read against it).
+                        val diamondColor = Color.White.copy(alpha = 0.80f * diamondT.coerceAtMost(1f))
                         val sw = s * 0.008f
                         val topPt    = Offset(cx,              cy - diamondHalf)
                         val rightPt  = Offset(cx + diamondHalf, cy)
@@ -271,12 +284,12 @@ fun SplashAnimationScreen(shouldPlay: Boolean = true, onFinished: () -> Unit) {
                             }
                         }
 
-                        // Also draw the convergence lines from diamond tips to center
-                        // (from logo spec: 4 lines converging from tips to center)
-                        val convAlpha = 0.30f * diamondT
+                        // Convergence lines from each diamond tip to the core, each
+                        // carrying its cardinal path's hue (tips are top/right/bottom/left
+                        // → same order as PathColors).
                         val convSw = s * 0.005f
-                        val convColor = AmberAccent.copy(alpha = convAlpha.coerceIn(0f, 1f))
-                        listOf(topPt, rightPt, bottomPt, leftPt).forEach { tip ->
+                        listOf(topPt, rightPt, bottomPt, leftPt).forEachIndexed { i, tip ->
+                            val convColor = PathColors[i].copy(alpha = (0.45f * diamondT).coerceIn(0f, 1f))
                             drawLine(convColor, tip, Offset(cx, cy), convSw)
                         }
                     }
@@ -285,17 +298,18 @@ fun SplashAnimationScreen(shouldPlay: Boolean = true, onFinished: () -> Unit) {
                     dotDirs.forEachIndexed { i, dir ->
                         val scale = dotScales[i].coerceIn(0f, 1.3f)
                         if (scale < 0.01f) return@forEachIndexed
+                        val pathColor = PathColors[i]
                         val dotCenter = Offset(cx + dir.x * outerR, cy + dir.y * outerR)
                         val r = dotR * scale
                         // glow halo
                         drawCircle(
-                            color = AmberAccent.copy(alpha = 0.18f * scale.coerceAtMost(1f)),
-                            radius = (r * 2.2f).coerceAtLeast(0.5f),
+                            color = pathColor.copy(alpha = 0.22f * scale.coerceAtMost(1f)),
+                            radius = (r * 2.4f).coerceAtLeast(0.5f),
                             center = dotCenter
                         )
                         // dot fill
                         drawCircle(
-                            color = AmberAccent.copy(alpha = 0.65f),
+                            color = pathColor.copy(alpha = 0.92f),
                             radius = r.coerceAtLeast(0.5f),
                             center = dotCenter
                         )
@@ -317,8 +331,12 @@ fun SplashAnimationScreen(shouldPlay: Boolean = true, onFinished: () -> Unit) {
                 fontWeight = FontWeight.Bold,
                 fontSize = 26.sp,
                 letterSpacing = 8.sp,
-                color = Color.White,
                 textAlign = TextAlign.Center,
+                style = androidx.compose.ui.text.TextStyle(
+                    brush = Brush.linearGradient(
+                        listOf(Color(0xFFFFFFFF), Color(0xFF00D4FF), Color(0xFFFF8C42))
+                    )
+                ),
                 modifier = Modifier
                     .fillMaxWidth()
                     .graphicsLayer {
@@ -362,7 +380,7 @@ fun SplashAnimationScreen(shouldPlay: Boolean = true, onFinished: () -> Unit) {
                         .fillMaxWidth(fraction = loadBarT.coerceIn(0f, 1f))
                         .background(
                             Brush.horizontalGradient(
-                                colors = listOf(AmberAccent, Color(0xFFFBBF24))
+                                colors = listOf(Color(0xFF00D4FF), Color(0xFFFF8C42))
                             ),
                             shape = androidx.compose.foundation.shape.RoundedCornerShape(1.dp)
                         )

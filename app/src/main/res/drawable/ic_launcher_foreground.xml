@@ -1,15 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Convergence Gate — Option A (Converging Lines)
+  Convergence Gate — dark-frosted glass theme (2026-06-13).
   108×108dp adaptive icon foreground. Safe zone = 66dp circle (33dp radius from center 54,54).
 
-  Scaled 1:1 from HTML nexus-mind-logo.html Option A (60dp viewBox → 108dp, factor 1.8×):
-    Diamond tips at 27dp from center (54±27): top(54,27) right(81,54) bottom(54,81) left(27,54)
-    Cardinal lines from near-edge (y=9/x=9) through tips to center — strokeWidth 3.0
-    Diagonal lines from inner corners (18,18) etc. to center — strokeWidth 2.5
-    Diamond strokeWidth 3.0, opacity 0.60
-    Tip dots r=3.6 (opacity 0.50)
-    Center glow r=9 (opacity 0.15), center node r=5.4 solid
+  Four palette "paths" (cyan / rose / amber / emerald — no purple) converge from
+  the cardinal edges through the diamond tips into a single amber core — the
+  tagline "many paths · one door" made literal. The diamond "door" is frosted
+  white so the coloured paths read against it. Mirrors the Compose ConvergenceLogo
+  + SplashAnimationScreen. Cardinal/tip order: top, right, bottom, left.
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:aapt="http://schemas.android.com/aapt"
@@ -18,7 +16,7 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- Frosted glass pane behind the gate: diagonal white sheen → warm tint -->
+    <!-- Frosted glass pane behind the gate: diagonal white sheen -->
     <path android:pathData="M54,27 L81,54 L54,81 L27,54 Z">
         <aapt:attr name="android:fillColor">
             <gradient
@@ -27,7 +25,7 @@
                 android:endX="78" android:endY="78"
                 android:startColor="#2EFFFFFF"
                 android:centerColor="#12FFFFFF"
-                android:endColor="#0AE8834A" />
+                android:endColor="#0AFFFFFF" />
         </aapt:attr>
     </path>
 
@@ -38,73 +36,73 @@
         android:strokeLineCap="round"
         android:fillColor="#00000000"/>
 
-    <!-- Diagonal accent lines from inner corners to center (0.20 opacity = #33) -->
+    <!-- Diagonal accent lines from inner corners to center — faint white -->
     <path android:pathData="M18,18 L54,54"
-        android:strokeColor="#33E8834A"
+        android:strokeColor="#24FFFFFF"
         android:strokeWidth="2.5"
         android:strokeLineCap="round"
         android:fillColor="#00000000"/>
     <path android:pathData="M90,18 L54,54"
-        android:strokeColor="#33E8834A"
+        android:strokeColor="#24FFFFFF"
         android:strokeWidth="2.5"
         android:strokeLineCap="round"
         android:fillColor="#00000000"/>
     <path android:pathData="M18,90 L54,54"
-        android:strokeColor="#33E8834A"
+        android:strokeColor="#24FFFFFF"
         android:strokeWidth="2.5"
         android:strokeLineCap="round"
         android:fillColor="#00000000"/>
     <path android:pathData="M90,90 L54,54"
-        android:strokeColor="#33E8834A"
+        android:strokeColor="#24FFFFFF"
         android:strokeWidth="2.5"
         android:strokeLineCap="round"
         android:fillColor="#00000000"/>
 
-    <!-- Cardinal lines from near-edge through diamond tips to center (0.35 opacity = #59) -->
+    <!-- Cardinal "paths" through the diamond tips to center — one hue each -->
     <path android:pathData="M54,9 L54,54"
-        android:strokeColor="#59E8834A"
+        android:strokeColor="#8C00D4FF"
         android:strokeWidth="3.0"
         android:strokeLineCap="round"
         android:fillColor="#00000000"/>
     <path android:pathData="M99,54 L54,54"
-        android:strokeColor="#59E8834A"
+        android:strokeColor="#8CFF4D6D"
         android:strokeWidth="3.0"
         android:strokeLineCap="round"
         android:fillColor="#00000000"/>
     <path android:pathData="M54,99 L54,54"
-        android:strokeColor="#59E8834A"
+        android:strokeColor="#8CFF8C42"
         android:strokeWidth="3.0"
         android:strokeLineCap="round"
         android:fillColor="#00000000"/>
     <path android:pathData="M9,54 L54,54"
-        android:strokeColor="#59E8834A"
+        android:strokeColor="#8C10FFAB"
         android:strokeWidth="3.0"
         android:strokeLineCap="round"
         android:fillColor="#00000000"/>
 
-    <!-- Diamond outline — tips at 27dp from center (0.60 opacity = #99) -->
+    <!-- Diamond "door" outline — frosted white -->
     <path android:pathData="M54,27 L81,54 L54,81 L27,54 Z"
-        android:strokeColor="#99E8834A"
+        android:strokeColor="#9EFFFFFF"
         android:strokeWidth="3.0"
         android:strokeLineJoin="round"
         android:fillColor="#00000000"/>
 
-    <!-- Tip dots at diamond vertices (0.50 opacity = #80, r=3.6) -->
+    <!-- Tip dots at diamond vertices — one hue each (r=3.6) -->
     <path android:pathData="M54,27 m-3.6,0 a3.6,3.6 0 1,0 7.2,0 a3.6,3.6 0 1,0 -7.2,0"
-        android:fillColor="#80E8834A"/>
+        android:fillColor="#D900D4FF"/>
     <path android:pathData="M81,54 m-3.6,0 a3.6,3.6 0 1,0 7.2,0 a3.6,3.6 0 1,0 -7.2,0"
-        android:fillColor="#80E8834A"/>
+        android:fillColor="#D9FF4D6D"/>
     <path android:pathData="M54,81 m-3.6,0 a3.6,3.6 0 1,0 7.2,0 a3.6,3.6 0 1,0 -7.2,0"
-        android:fillColor="#80E8834A"/>
+        android:fillColor="#D9FF8C42"/>
     <path android:pathData="M27,54 m-3.6,0 a3.6,3.6 0 1,0 7.2,0 a3.6,3.6 0 1,0 -7.2,0"
-        android:fillColor="#80E8834A"/>
+        android:fillColor="#D910FFAB"/>
 
-    <!-- Center glow halo (0.15 opacity = #26, r=9) -->
+    <!-- Center glow halo — amber core (r=9) -->
     <path android:pathData="M54,54 m-9,0 a9,9 0 1,0 18,0 a9,9 0 1,0 -18,0"
-        android:fillColor="#26E8834A"/>
+        android:fillColor="#26FF8C42"/>
 
-    <!-- Center node solid (r=5.4) -->
+    <!-- Center node solid — the "one door" (r=5.4) -->
     <path android:pathData="M54,54 m-5.4,0 a5.4,5.4 0 1,0 10.8,0 a5.4,5.4 0 1,0 -10.8,0"
-        android:fillColor="#E8834A"/>
+        android:fillColor="#FF8C42"/>
 
 </vector>

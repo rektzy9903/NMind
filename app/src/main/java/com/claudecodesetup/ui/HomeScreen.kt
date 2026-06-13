@@ -304,6 +304,12 @@ private fun ConvergenceLogo(modifier: Modifier = Modifier) {
         label = "breathe",
     )
     val accent = NexusAccent
+    // Four "paths" (cyan / rose / amber / emerald — no purple) converging into the
+    // amber core, indexed [top, right, bottom, left] to match `cardinals`. Mirrors
+    // the splash animation; the tagline "many paths · one door" made literal.
+    val pathColors = listOf(
+        Color(0xFF00D4FF), Color(0xFFFF4D6D), Color(0xFFFF8C42), Color(0xFF10FFAB)
+    )
     androidx.compose.foundation.Canvas(modifier = modifier) {
         // The artwork's structural extent is the cardinal tips at ±45 from center
         // (54). The 108 viewBox is an adaptive-icon box that carries ~9 units of dead
@@ -341,17 +347,19 @@ private fun ConvergenceLogo(modifier: Modifier = Modifier) {
             ),
         )
 
-        // Base spokes
-        for (o in diagonals) drawLine(accent.copy(alpha = 0.20f), o, c, strokeWidth = 2.5f * k, cap = capRound)
-        for (o in cardinals) drawLine(accent.copy(alpha = 0.35f), o, c, strokeWidth = 3f * k, cap = capRound)
+        // Base spokes — diagonals faint white; cardinals carry their path hue.
+        for (o in diagonals) drawLine(Color.White.copy(alpha = 0.14f), o, c, strokeWidth = 2.5f * k, cap = capRound)
+        cardinals.forEachIndexed { i, o ->
+            drawLine(pathColors[i].copy(alpha = 0.55f), o, c, strokeWidth = 3f * k, cap = capRound)
+        }
 
-        // Diamond outline
+        // Diamond outline — frosted white "door" (neutral, so paths read against it)
         val diamond = Path().apply {
             val a = p(54f, 27f); val b = p(81f, 54f); val d = p(54f, 81f); val e = p(27f, 54f)
             moveTo(a.x, a.y); lineTo(b.x, b.y); lineTo(d.x, d.y); lineTo(e.x, e.y); close()
         }
         drawPath(
-            diamond, accent.copy(alpha = 0.60f),
+            diamond, Color.White.copy(alpha = 0.62f),
             style = androidx.compose.ui.graphics.drawscope.Stroke(
                 width = 3f * k, join = androidx.compose.ui.graphics.StrokeJoin.Round,
             ),
@@ -363,20 +371,22 @@ private fun ConvergenceLogo(modifier: Modifier = Modifier) {
             p(54f, 27f), p(27f, 54f), strokeWidth = 1.6f * k, cap = capRound,
         )
 
-        // Tip dots
-        for (t in listOf(p(54f, 27f), p(81f, 54f), p(54f, 81f), p(27f, 54f)))
-            drawCircle(accent.copy(alpha = 0.50f), 3.6f * k, t)
+        // Tip dots — each its cardinal's path hue.
+        listOf(p(54f, 27f), p(81f, 54f), p(54f, 81f), p(27f, 54f)).forEachIndexed { i, t ->
+            drawCircle(pathColors[i].copy(alpha = 0.85f), 3.6f * k, t)
+        }
 
         // Traveling convergence pulses — fade in then out (sin) so they're invisible
         // at the outer edge and at the core, brightest mid-spoke. No snap on loop.
+        // Cardinal pulses carry the path hue; diagonal pulses are faint white.
         val pulseA = kotlin.math.sin(sweep * Math.PI).toFloat().coerceIn(0f, 1f)
-        fun travel(o: Offset, weight: Float, dotR: Float) {
+        fun travel(o: Offset, col: Color, weight: Float, dotR: Float) {
             val pos = Offset(o.x + (c.x - o.x) * sweep, o.y + (c.y - o.y) * sweep)
-            drawCircle(accent.copy(alpha = 0.22f * pulseA * weight), dotR * 2.4f, pos)
-            drawCircle(accent.copy(alpha = 0.95f * pulseA * weight), dotR, pos)
+            drawCircle(col.copy(alpha = 0.22f * pulseA * weight), dotR * 2.4f, pos)
+            drawCircle(col.copy(alpha = 0.95f * pulseA * weight), dotR, pos)
         }
-        for (o in cardinals) travel(o, 1f, 2.7f * k)
-        for (o in diagonals) travel(o, 0.7f, 2.2f * k)
+        cardinals.forEachIndexed { i, o -> travel(o, pathColors[i], 1f, 2.7f * k) }
+        for (o in diagonals) travel(o, Color.White, 0.7f, 2.2f * k)
 
         // Center glow halo — breathes
         drawCircle(accent.copy(alpha = 0.15f + 0.20f * breathe), (9f + 4f * breathe) * k, c)
