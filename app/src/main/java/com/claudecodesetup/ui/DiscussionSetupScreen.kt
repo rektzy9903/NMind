@@ -58,7 +58,24 @@ private fun looksBinary(bytes: ByteArray): Boolean {
     return control * 100 / n > 5                        // >5% control chars → binary
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+/** A one-tap discussion shape: mode + turn count + judge/vote defaults (#12). */
+private data class DiscussionPreset(
+    val label: String,
+    val mode: DiscussionMode,
+    val turns: Int,
+    val judge: Boolean,
+    val voting: Boolean,
+)
+
+private val DISCUSSION_PRESETS = listOf(
+    DiscussionPreset("Quick debate", DiscussionMode.DEBATE, 6, judge = true, voting = false),
+    DiscussionPreset("Deep roundtable", DiscussionMode.ROUNDTABLE, 8, judge = true, voting = false),
+    DiscussionPreset("Code review", DiscussionMode.CODE_REVIEW, 6, judge = true, voting = false),
+    DiscussionPreset("Critique my plan", DiscussionMode.CRITIQUE, 6, judge = false, voting = false),
+    DiscussionPreset("Decide & vote", DiscussionMode.DEBATE, 8, judge = true, voting = true),
+)
+
+@OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun DiscussionSetupScreen(
     prefs: AppPreferences,
@@ -177,6 +194,27 @@ fun DiscussionSetupScreen(
                     .verticalScrollable(),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
+                // Presets — one tap configures mode + turns + judge/vote for a
+                // common shape of discussion. Topic is left untouched (#12).
+                SectionLabel("PRESETS")
+                androidx.compose.foundation.layout.FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    DISCUSSION_PRESETS.forEach { p ->
+                        val active = mode == p.mode &&
+                            (turnsText.toIntOrNull() ?: 0) == p.turns &&
+                            enableJudge == p.judge && enableVoting == p.voting
+                        PresetChip(p.label, active) {
+                            mode = p.mode
+                            turnsText = p.turns.toString()
+                            enableJudge = p.judge
+                            enableVoting = p.voting
+                        }
+                    }
+                }
+
                 // Topic
                 SectionLabel("TOPIC")
                 OutlinedTextField(
@@ -518,6 +556,24 @@ fun DiscussionSetupScreen(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun PresetChip(label: String, active: Boolean, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .background(
+                if (active) NexusAccent.copy(alpha = 0.20f) else NexusSurface,
+                RoundedCornerShape(9.dp),
+            )
+            .border(1.dp, if (active) NexusAccent else NexusBorder, RoundedCornerShape(9.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+    ) {
+        Text(label, fontFamily = DmSansFamily, fontSize = 12.sp,
+            fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
+            color = if (active) NexusAccent else NexusText2)
     }
 }
 
