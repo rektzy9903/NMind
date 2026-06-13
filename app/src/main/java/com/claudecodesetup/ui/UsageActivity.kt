@@ -209,6 +209,7 @@ fun UsageDashboardScreen(filesDir: File, onBack: () -> Unit) {
                     ) {
                         Spacer(Modifier.height(2.dp))
                         HeroCard(rep)
+                        if (rep.byDay.size >= 2) TrendSparkCard(rep)
                         CostInsightRow(rep)
                         RequestPressureCard(rep)
                         // Multi-panel analytics grid (donut / bars / time-series /
@@ -519,6 +520,66 @@ private fun SubscriptionNote() {
                 "Anthropic API and skip the proxy meter. Only API-key / proxy providers are counted here.",
             fontSize = 10.sp, color = TxtMuted, fontFamily = SpaceMonoFamily, lineHeight = 14.sp
         )
+    }
+}
+
+/**
+ * #7 — Trend sparkline + day-over-day delta. Draws daily totals (last ≤14 days
+ * of the filtered set) as a smooth line with a soft fill, plus a delta chip
+ * comparing the most recent day to the one before it. Only shown when ≥2 days of
+ * data exist (TODAY period has a single bucket, so it's hidden there).
+ */
+@Composable
+private fun TrendSparkCard(rep: UsageReport) {
+    val days = rep.byDay.takeLast(14)
+    val last = days.last().total
+    val prev = days[days.size - 2].total
+    val deltaPct = if (prev > 0) ((last - prev).toDouble() / prev * 100).toInt() else 0
+    val up = last >= prev
+    val deltaColor = if (up) Amber else Emerald   // more usage = amber (spend), less = emerald
+    UsageCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Daily trend", fontSize = 12.sp, color = TxtMuted,
+                    fontFamily = SpaceMonoFamily, fontWeight = FontWeight.Bold)
+                Text("last ${days.size} days", fontSize = 9.sp, color = TxtFaint, fontFamily = SpaceMonoFamily)
+            }
+            // Delta chip vs previous day.
+            Box(
+                Modifier.clip(RoundedCornerShape(8.dp))
+                    .background(deltaColor.copy(alpha = 0.14f))
+                    .border(1.dp, deltaColor.copy(alpha = 0.35f), RoundedCornerShape(8.dp))
+                    .padding(horizontal = 9.dp, vertical = 4.dp)
+            ) {
+                Text("${if (up) "▲" else "▼"} ${kotlin.math.abs(deltaPct)}% vs prev day",
+                    fontSize = 10.sp, color = deltaColor, fontFamily = SpaceMonoFamily,
+                    fontWeight = FontWeight.Bold)
+            }
+        }
+        Spacer(Modifier.height(14.dp))
+        val maxV = (days.maxOfOrNull { it.total } ?: 1L).coerceAtLeast(1L)
+        Canvas(Modifier.fillMaxWidth().height(56.dp)) {
+            if (days.size < 2) return@Canvas
+            val stepX = size.width / (days.size - 1)
+            val pts = days.mapIndexed { i, d ->
+                Offset(i * stepX, size.height * (1f - (d.total.toFloat() / maxV)))
+            }
+            // Soft area fill under the line.
+            val fill = androidx.compose.ui.graphics.Path().apply {
+                moveTo(pts.first().x, size.height)
+                pts.forEach { lineTo(it.x, it.y) }
+                lineTo(pts.last().x, size.height); close()
+            }
+            drawPath(fill, Brush.verticalGradient(listOf(Sky.copy(alpha = 0.28f), Color.Transparent)))
+            // The line itself.
+            val line = androidx.compose.ui.graphics.Path().apply {
+                moveTo(pts.first().x, pts.first().y)
+                pts.drop(1).forEach { lineTo(it.x, it.y) }
+            }
+            drawPath(line, color = Sky, style = Stroke(width = 2.5f, cap = StrokeCap.Round))
+            // Highlight the latest point.
+            drawCircle(Sky, radius = 3.5f, center = pts.last())
+        }
     }
 }
 
