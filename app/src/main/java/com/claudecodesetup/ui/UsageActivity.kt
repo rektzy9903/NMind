@@ -88,6 +88,51 @@ private fun fmtTok(n: Long): String = when {
 private fun shortModel(id: String): String =
     id.substringAfterLast('/').ifEmpty { id }.let { if (it.length > 18) it.take(17) + "…" else it }
 
+// ── List-price reference rates (USD per 1M tokens, [in, out]) ────────────────
+// Used ONLY to show the "list-price equivalent" — what these tokens WOULD cost
+// at each model's standard published API rate. Most proxy providers here are
+// free tiers, so this is a value/savings indicator, not a bill. Matched by the
+// first substring that appears in the (lower-cased) model id; unknown → free.
+private val PRICE_TABLE: List<Pair<String, Pair<Double, Double>>> = listOf(
+    "opus"          to (15.0 to 75.0),
+    "sonnet"        to (3.0 to 15.0),
+    "haiku"         to (0.8 to 4.0),
+    "gpt-4o-mini"   to (0.15 to 0.6),
+    "gpt-4o"        to (2.5 to 10.0),
+    "gpt-4.1"       to (2.0 to 8.0),
+    "o3"            to (2.0 to 8.0),
+    "gemini-3"      to (1.25 to 10.0),
+    "gemini-2.5-pro" to (1.25 to 10.0),
+    "gemini-1.5-pro" to (1.25 to 5.0),
+    "gemini"        to (0.075 to 0.3),   // flash-class (paid rate; usually free key)
+    "deepseek"      to (0.27 to 1.1),
+    "qwen"          to (0.2 to 0.6),
+    "mistral"       to (0.2 to 0.6),
+    "llama"         to (0.2 to 0.6),
+    "kimi"          to (0.15 to 2.5),
+)
+
+/** Rough list-price for one (model,in,out) cell in USD. Unknown ids → 0 (free). */
+private fun estCost(model: String, inTok: Long, outTok: Long): Double {
+    val id = model.lowercase()
+    val rate = PRICE_TABLE.firstOrNull { id.contains(it.first) }?.second ?: return 0.0
+    return inTok / 1_000_000.0 * rate.first + outTok / 1_000_000.0 * rate.second
+}
+
+private fun fmtUsd(v: Double): String = when {
+    v >= 100  -> "$%.0f".format(v)
+    v >= 1    -> "$%.2f".format(v)
+    v > 0     -> "$%.3f".format(v)
+    else      -> "$0"
+}
+
+// Common free-tier per-minute token ceilings (TPM). claude-code's baseline
+// request (~25KB system prompt + ~8KB tool schemas) already costs ~30K input
+// tokens before the user even types, so anything under ~30K TPM rejects terminal
+// turns (CLAUDE.md inv 58). Used to colour the request-size pressure gauge.
+private const val TPM_TIGHT = 6_000L     // Groq free, some OpenRouter free
+private const val TPM_OK     = 30_000L    // claude-code baseline floor
+
 @Composable
 fun UsageDashboardScreen(filesDir: File, onBack: () -> Unit) {
     var period by remember { mutableStateOf(UsagePeriod.TODAY) }
@@ -164,6 +209,8 @@ fun UsageDashboardScreen(filesDir: File, onBack: () -> Unit) {
                     ) {
                         Spacer(Modifier.height(2.dp))
                         HeroCard(rep)
+                        CostInsightRow(rep)
+                        RequestPressureCard(rep)
                         // Multi-panel analytics grid (donut / bars / time-series /
                         // in-out rate) — 2 columns on wide screens, 1 on mobile.
                         ChartGrid(rep)
@@ -347,6 +394,104 @@ private fun HeroCard(rep: UsageReport) {
             Box(Modifier.weight(rep.totalIn.toFloat() / sum + 0.0001f).fillMaxHeight().background(InColor))
             Box(Modifier.weight(rep.totalOut.toFloat() / sum + 0.0001f).fillMaxHeight().background(OutColor))
         }
+    }
+}
+
+/**
+ * #4 — List-price equivalent. Sums each model cell at its standard published API
+ * rate, so the user sees what these tokens WOULD cost (most proxy tiers are free,
+ * making this a "you saved this much" indicator). Free/unknown models contribute
+ * $0 and are surfaced in the subtitle so the number is never mistaken for a bill.
+ */
+@Composable
+private fun CostInsightRow(rep: UsageReport) {
+    val total = rep.byModel.sumOf { estCost(it.model, it.inTok, it.outTok) }
+    val paidModels = rep.byModel.count { estCost(it.model, it.inTok, it.outTok) > 0 }
+    val freeTok = rep.byModel.filter { estCost(it.model, it.inTok, it.outTok) <= 0 }.sumOf { it.total }
+    Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+        // Left: list-price equivalent.
+        UsageCard(modifier = Modifier.weight(1f)) {
+            Text("≈ ${fmtUsd(total)}", fontSize = 26.sp, fontWeight = FontWeight.Bold,
+                color = Emerald, fontFamily = DmSansFamily)
+            Text("list-price equiv.", fontSize = 10.sp, color = TxtMuted, fontFamily = SpaceMonoFamily)
+            Spacer(Modifier.height(6.dp))
+            Text(
+                if (total <= 0.0) "all free-tier — $0 billed"
+                else "at standard API rates · $paidModels paid model${if (paidModels == 1) "" else "s"}",
+                fontSize = 9.sp, color = TxtFaint, fontFamily = SpaceMonoFamily)
+        }
+        // Right: free tokens (the savings story).
+        UsageCard(modifier = Modifier.weight(1f)) {
+            Text(fmtTok(freeTok), fontSize = 26.sp, fontWeight = FontWeight.Bold,
+                color = Sky, fontFamily = DmSansFamily)
+            Text("free-tier tokens", fontSize = 10.sp, color = TxtMuted, fontFamily = SpaceMonoFamily)
+            Spacer(Modifier.height(6.dp))
+            Text("served at $0 cost", fontSize = 9.sp, color = TxtFaint, fontFamily = SpaceMonoFamily)
+        }
+    }
+}
+
+/**
+ * #3 — Request-size pressure. claude-code stages a ~30K-token baseline (system
+ * prompt + tool schemas) on EVERY turn, so low-TPM free providers reject terminal
+ * requests regardless of how short the user message is (inv 58). Shows the average
+ * input tokens/request and rates it against common free-tier ceilings, plus a tip.
+ */
+@Composable
+private fun RequestPressureCard(rep: UsageReport) {
+    if (rep.totalReq <= 0) return
+    val avgIn = rep.totalIn / rep.totalReq
+    val (statusColor, statusLabel, tip) = when {
+        avgIn >= TPM_OK -> Triple(Rose, "HEAVY",
+            "Above ~30K/req — low-TPM free tiers (Groq 6K, some OpenRouter free) will reject these. Use Quick Ask for those, or a higher-TPM provider.")
+        avgIn >= TPM_TIGHT -> Triple(Amber, "MODERATE",
+            "Fits ~30K-TPM providers but not the tightest free tiers. Trimming tools (Settings → Tools) or `!defer` lowers it.")
+        else -> Triple(Emerald, "LIGHT",
+            "Comfortable on most free tiers. Headroom for larger context or more tools.")
+    }
+    // Scale gauge against the 30K floor (cap fill at 1.0 past it).
+    val frac = (avgIn.toFloat() / TPM_OK).coerceIn(0f, 1f)
+    UsageCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Request-size pressure", fontSize = 12.sp, color = TxtMuted,
+                fontFamily = SpaceMonoFamily, fontWeight = FontWeight.Bold,
+                modifier = Modifier.weight(1f))
+            Box(
+                Modifier.clip(RoundedCornerShape(7.dp))
+                    .background(statusColor.copy(alpha = 0.15f))
+                    .border(1.dp, statusColor.copy(alpha = 0.4f), RoundedCornerShape(7.dp))
+                    .padding(horizontal = 8.dp, vertical = 3.dp)
+            ) { Text(statusLabel, fontSize = 10.sp, color = statusColor,
+                fontFamily = SpaceMonoFamily, fontWeight = FontWeight.Bold) }
+        }
+        Spacer(Modifier.height(12.dp))
+        Row(verticalAlignment = Alignment.Bottom) {
+            Text(fmtTok(avgIn), fontSize = 30.sp, fontWeight = FontWeight.Bold,
+                color = statusColor, fontFamily = DmSansFamily)
+            Spacer(Modifier.width(6.dp))
+            Text("avg input / req", fontSize = 11.sp, color = TxtMuted,
+                fontFamily = SpaceMonoFamily, modifier = Modifier.padding(bottom = 5.dp))
+        }
+        Spacer(Modifier.height(10.dp))
+        // Gauge with tick marks at the two thresholds.
+        Box(Modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(5.dp)).background(GlassFill2C)) {
+            Box(
+                Modifier.fillMaxWidth(frac).fillMaxHeight().clip(RoundedCornerShape(5.dp))
+                    .background(Brush.horizontalGradient(listOf(statusColor.copy(alpha = 0.55f), statusColor)))
+            )
+            // 6K tick.
+            Box(Modifier.fillMaxWidth(TPM_TIGHT.toFloat() / TPM_OK).fillMaxHeight()) {
+                Box(Modifier.align(Alignment.CenterEnd).width(1.dp).fillMaxHeight().background(TxtFaint))
+            }
+        }
+        Spacer(Modifier.height(4.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text("0", fontSize = 8.sp, color = TxtFaint, fontFamily = SpaceMonoFamily)
+            Text("6K", fontSize = 8.sp, color = TxtFaint, fontFamily = SpaceMonoFamily)
+            Text("30K+", fontSize = 8.sp, color = TxtFaint, fontFamily = SpaceMonoFamily)
+        }
+        Spacer(Modifier.height(10.dp))
+        Text(tip, fontSize = 10.sp, color = TxtMuted, fontFamily = SpaceMonoFamily, lineHeight = 14.sp)
     }
 }
 
