@@ -64,17 +64,10 @@ class NativeUbuntuTerminal(
         terminalView.requestFocus()
     }
 
-    /** Diagnostic → setup.log (visible in !log; Android side is invisible to !log
-     *  otherwise). Tracks where a keystroke dies on the app side. Remove once fixed. */
-    private fun dbg(m: String) {
-        try { java.io.File(context.filesDir, "setup.log").appendText("[native-term] $m\n") } catch (_: Exception) {}
-    }
-
     private val externalIo = object : TerminalSession.ExternalIo {
         override fun onInput(data: ByteArray, offset: Int, count: Int) {
             val out = if (offset == 0 && count == data.size) data
                       else data.copyOfRange(offset, offset + count)
-            dbg("extIo.onInput ${out.size}b")
             sendPty(out)
         }
         override fun onResize(columns: Int, rows: Int) = resizePty(columns, rows)
@@ -151,7 +144,6 @@ class NativeUbuntuTerminal(
     }
 
     override fun sendKey(seq: String) {
-        dbg("sendKey len=${seq.length} emu=${session.emulator != null}")
         session.write(seq)              // TerminalOutput.write(String) → our ExternalIo
         terminalView.requestFocus()
     }

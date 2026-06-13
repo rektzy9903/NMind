@@ -344,29 +344,31 @@ class ClaudeService : LifecycleService() {
         }
     }
 
-    /** Write raw bytes from xterm.js to the active session's Ubuntu shell. */
+    // PTY socket writes MUST NOT run on the caller's thread. The native TerminalView
+    // delivers keystrokes on the UI thread, and a socket write there throws
+    // NetworkOnMainThreadException (message=null → the "write FAILED: null" bug). The
+    // old xterm path was accidentally safe because Android.sendPty ran on the WebView
+    // JS-bridge thread. Serialize ALL PTY writes onto ONE background thread so byte
+    // order is preserved (a multi-threaded pool could reorder keystrokes).
+    private val ptyWriteExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
+
+    /** Write raw bytes (native TerminalView keystrokes / WebView toolbar keys) to the
+     *  active session's Ubuntu shell — off the caller thread (see ptyWriteExecutor). */
     fun sendPty(sessionId: Int, data: ByteArray) {
-        val conn = ptyConns[sessionId]
-        // DIAG → setup.log (visible in !log). Pinpoints where a keystroke dies app-side:
-        // no [sendPty-kt] = never reached here; conn=NULL = no live PTY socket for this
-        // sid; write FAILED = socket dead. Pair with bridge [ubuntu-in]. Remove once fixed.
-        try {
-            java.io.File(filesDir, "setup.log").appendText(
-                "[sendPty-kt] sid=$sessionId conn=${if (conn == null) "NULL" else "ok"} " +
-                "keys=${ptyConns.keys.toList()} bytes=${data.size}\n")
-        } catch (_: Exception) {}
-        if (conn == null) return
-        try {
-            conn.out.write(data)
-            conn.out.flush()
-        } catch (e: Exception) {
-            try { java.io.File(filesDir, "setup.log").appendText("[sendPty-kt] write FAILED: ${e.message}\n") } catch (_: Exception) {}
-            Log.e(TAG, "sendPty failed for session $sessionId", e)
+        val conn = ptyConns[sessionId] ?: return
+        ptyWriteExecutor.execute {
+            try {
+                conn.out.write(data)
+                conn.out.flush()
+            } catch (e: Exception) {
+                Log.e(TAG, "sendPty failed for session $sessionId", e)
+            }
         }
     }
 
     /** Resize the Ubuntu PTY. libpty.so parses the ESC 0xFE control sequence off
-     *  the input stream (never forwarded to the shell) and applies TIOCSWINSZ. */
+     *  the input stream (never forwarded to the shell) and applies TIOCSWINSZ.
+     *  Also off-thread — adjustFont/onResize call this from the UI thread. */
     fun resizePty(sessionId: Int, cols: Int, rows: Int) {
         val conn = ptyConns[sessionId] ?: return
         val resize = byteArrayOf(
@@ -374,10 +376,12 @@ class ClaudeService : LifecycleService() {
             ((cols shr 8) and 0xff).toByte(), (cols and 0xff).toByte(),
             ((rows shr 8) and 0xff).toByte(), (rows and 0xff).toByte()
         )
-        try {
-            conn.out.write(resize)
-            conn.out.flush()
-        } catch (_: Exception) {}
+        ptyWriteExecutor.execute {
+            try {
+                conn.out.write(resize)
+                conn.out.flush()
+            } catch (_: Exception) {}
+        }
     }
 
     /** Close the local PTY socket. The guest shell stays alive in bridge.js for
