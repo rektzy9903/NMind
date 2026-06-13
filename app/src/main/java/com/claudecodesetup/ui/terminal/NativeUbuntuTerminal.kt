@@ -85,6 +85,12 @@ class NativeUbuntuTerminal(
         tv.setTextSize(textPx)            // creates the renderer (required before attach)
         tv.setTypeface(Typeface.MONOSPACE)
         tv.keepScreenOn = true
+        // CRITICAL: the vendored TerminalView never sets these (the real Termux does
+        // it in XML via android:focusableInTouchMode). Created programmatically here,
+        // it defaults to NOT focusable-in-touch-mode → requestFocus() fails on tap →
+        // the IME never attaches → the soft keyboard never pops. Set both explicitly.
+        tv.isFocusable = true
+        tv.isFocusableInTouchMode = true
         tv.attachSession(session)          // emulator initializes on first layout
     }
 
@@ -143,11 +149,16 @@ class NativeUbuntuTerminal(
     }
 
     override fun focusForKeyboard() {
-        terminalView.requestFocus()
-        try {
-            val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-            imm.showSoftInput(terminalView, InputMethodManager.SHOW_IMPLICIT)
-        } catch (_: Exception) {}
+        // Post so this runs after any pending visibility/layout pass (e.g. the
+        // overlay just flipped GONE→VISIBLE) — showSoftInput is ignored if the
+        // view isn't laid out / window-focused yet.
+        terminalView.post {
+            terminalView.requestFocus()
+            try {
+                val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+                imm.showSoftInput(terminalView, InputMethodManager.SHOW_IMPLICIT)
+            } catch (_: Exception) {}
+        }
     }
 
     override fun onShown() {
