@@ -861,6 +861,11 @@ body.ubuntu-mode #toolbar{display:flex !important;
    Freeze them (and hide them outright) while the terminal is up — zero visual
    change (they're hidden anyway), frees the thread for xterm. Hotloadable. */
 body.ubuntu-mode .blob{animation:none !important;display:none !important;}
+/* The native overlay leaves a thin strip (top: toggle, bottom: toolbar). Those
+   strips show the WebView body, whose aurora-gradient background tinted the toggle
+   strip into a visible lighter BAND. Force pure black in Ubuntu so the strip blends
+   with the native terminal (#000) and ONLY the toggle pill shows. */
+body.ubuntu-mode{ background:#000000 !important; }
 </style>
 </head>
 <body>
