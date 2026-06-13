@@ -2718,6 +2718,9 @@ function finalizeAiBubble(){
     scrollToBottom();
   }
   rawAiText='';
+  // Drop any held partial fence marker — at end-of-turn its body never arrived, so
+  // it must not prepend onto the next turn's first chunk.
+  _termCarry='';
   // T3 note: clearing currentTurnTools here (via resetAiBubble) is belt-and-
   // braces — the next turn's thinking-start also clears it — but it stops stale
   // entries leaking if a turn ends weirdly.
@@ -2788,8 +2791,28 @@ function scheduleSysRender(){
 // it is always routed to a sys bubble regardless of current chatState.
 const SYS_FENCE_PFX = '\x1b]9;sys-fence\x07';
 
+// A SYS_FENCE marker (15 bytes) can be SPLIT across two TCP segments — e.g. a chunk
+// ends with "…\x1b]9;sys-" and the next starts with "fence\x07[proxy]…". indexOf()
+// then misses the marker in BOTH chunks, so the sys line falls through to the
+// chatState==='RESPONDING' branch and gets dumped into the AI answer bubble. Hold
+// back any trailing partial-marker prefix and prepend it to the next chunk.
+let _termCarry='';
+// Length of the longest suffix of s that is a non-empty proper prefix of the fence
+// marker (so we never hold back a COMPLETE marker — indexOf handles those).
+function _fenceTailLen(s){
+  var max=Math.min(s.length, SYS_FENCE_PFX.length-1);
+  for(var n=max;n>0;n--){ if(s.slice(s.length-n)===SYS_FENCE_PFX.slice(0,n)) return n; }
+  return 0;
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 window.termWrite=function(raw){
+  // Reassemble a fence marker split across the previous chunk boundary, then hold
+  // back any new trailing partial so the NEXT chunk can complete it.
+  if(_termCarry){ raw=_termCarry+raw; _termCarry=''; }
+  var tail=_fenceTailLen(raw);
+  if(tail>0){ _termCarry=raw.slice(raw.length-tail); raw=raw.slice(0,raw.length-tail); }
+  if(!raw) return;
   // SYS_FENCE may appear anywhere in the chunk — TCP coalesces multiple socket.write()
   // calls into one segment. Split on SYS_FENCE_PFX so fenced content always routes to
   // the sys bubble regardless of chatState, even when interleaved with AI output.
