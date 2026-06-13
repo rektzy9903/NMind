@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b110-live-toklive';
+const BRIDGE_BUILD = 'b111-tool-pills';
 
 const net   = require('net');
 const http  = require('http');
@@ -4714,6 +4714,21 @@ function openPrintSession() {
 
         if (evt.type === 'system' && evt.subtype === 'init') return;
 
+        // Tool FINISHED (b111): claude-code returns each tool result as a 'user'
+        // event carrying tool_result blocks. Emit a `tool-end` so the transient
+        // top-of-chat pill (index.html) can flip to ✓/✗ and vanish. No AI text
+        // lives on these events, so return after emitting.
+        if (evt.type === 'user' && evt.message) {
+            const trs = (evt.message.content || []).filter(b => b && b.type === 'tool_result');
+            for (const tr of trs) {
+                try {
+                    if (state.socket) state.socket.write('\x1b]9;tool-end:' +
+                        (tr.tool_use_id || '') + ':' + (tr.is_error ? 'err' : 'ok') + '\x07');
+                } catch (_) {}
+            }
+            if (trs.length) return;
+        }
+
         // Suppress housekeeping assistant events that arrive after the result event.
         // claude-code makes secondary API calls (title generation, follow-up suggestions)
         // after the main response; those responses must never appear as AI bubbles.
@@ -4747,9 +4762,25 @@ function openPrintSession() {
         if (isToolEvent) {
             let toolName = evt.tool_name || evt.tool || evt.name || 'tool';
             let toolInput = evt.tool_input || evt.input || {};
+            // Collect every tool_use in this assistant event (parallel calls).
+            let toolBlocks = [];
             if (evt.type === 'assistant' && evt.message) {
-                const tb = (evt.message.content || []).find(b => b.type === 'tool_use');
-                if (tb) { toolName = tb.name || toolName; toolInput = tb.input || toolInput; }
+                toolBlocks = (evt.message.content || []).filter(b => b.type === 'tool_use');
+                if (toolBlocks[0]) { toolName = toolBlocks[0].name || toolName; toolInput = toolBlocks[0].input || toolInput; }
+            }
+            if (!toolBlocks.length) toolBlocks = [{ id: evt.id || ('t-' + Date.now()), name: toolName }];
+            // Transient "tool running" pill at the TOP of the chat for EVERY tool
+            // (b111). Replaces the permanent in-history tool card: each tool-start
+            // is matched by a tool-end (the tool_result 'user' event above) or
+            // cleared on turn end. Agent/Task keep their own sub-agent panel, so
+            // they don't also get a pill.
+            for (const tb of toolBlocks) {
+                const nm = String(tb.name || 'tool');
+                if (nm === 'Agent' || nm === 'Task') continue;
+                try {
+                    if (state.socket) state.socket.write('\x1b]9;tool-start:' +
+                        (tb.id || '') + ':' + Buffer.from(nm).toString('base64') + '\x07');
+                } catch (_) {}
             }
             if (toolName !== 'Agent' && toolName !== 'Task') return;
             const permId = evt.id || (Date.now() + '-' + Math.random().toString(36).slice(2));

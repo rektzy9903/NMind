@@ -98,6 +98,36 @@ html, body {
 #scroll-btn:active{ transform:scale(0.92); }
 #scroll-btn.show{ display:flex; }
 
+/* ── Transient "tool running" pills — top of chat, auto-vanish (b111) ─────── */
+#tool-pills{
+  position:fixed; top:38px; left:50%; transform:translateX(-50%); z-index:95;
+  display:flex; flex-direction:column; align-items:center; gap:5px;
+  pointer-events:none; max-width:92%;
+}
+body.ubuntu-mode #tool-pills{ display:none !important; }
+.tool-pill{
+  display:flex; align-items:center; gap:7px;
+  background:rgba(20,20,24,0.92); border:1px solid rgba(255,140,66,0.40);
+  border-radius:16px; padding:5px 12px 5px 9px;
+  font-family:'Space Mono','Courier New',monospace; font-size:11px; color:#E6E6EA;
+  box-shadow:0 4px 16px rgba(0,0,0,0.5);
+  backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px);
+  opacity:0; transform:translateY(-6px); transition:opacity .18s, transform .18s;
+  max-width:100%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.tool-pill.in{ opacity:1; transform:translateY(0); }
+.tool-pill .tp-spin{
+  width:11px; height:11px; border-radius:50%; flex-shrink:0;
+  border:2px solid rgba(255,140,66,0.35); border-top-color:#FF8C42;
+  animation:tp-spin .7s linear infinite;
+}
+.tool-pill.ok  .tp-spin{ border:none; animation:none; }
+.tool-pill.err .tp-spin{ border:none; animation:none; }
+.tool-pill .tp-name{ color:#FF8C42; font-weight:bold; }
+.tool-pill.ok{ border-color:rgba(61,214,140,0.5); }
+.tool-pill.err{ border-color:rgba(248,113,113,0.6); }
+@keyframes tp-spin{ to{ transform:rotate(360deg); } }
+
 /* ── First-open empty state (#10) ────────────────────────────────────────── */
 #empty-state{
   position:fixed; left:0; right:0; top:46px; bottom:64px; z-index:40;
@@ -855,6 +885,7 @@ body.ubuntu-mode .blob{animation:none !important;display:none !important;}
 <!-- Messages -->
 <div id="msgs"></div>
 <div id="scroll-btn" title="Jump to latest">↓</div>
+<div id="tool-pills"></div>
 <div id="empty-state">
   <svg class="es-logo" viewBox="0 0 24 24" fill="none" stroke="#FF8C42" stroke-width="1.4" stroke-linecap="round">
     <polygon points="12,1 23,12 12,23 1,12" fill="rgba(255,255,255,0.06)" stroke="rgba(255,255,255,0.5)"/>
@@ -1383,8 +1414,56 @@ msgs.addEventListener('scroll', function(){
   });
 })();
 
+// ── Transient tool-running pills (b111) ───────────────────────────────────────
+// A pill appears at the top of the chat while a tool runs and removes itself when
+// the tool finishes (✓/✗ flash) — so you can SEE exa/Bash/etc. running without a
+// permanent card in the history. Keyed by tool_use id; a per-pill safety timeout
+// and the turn-end clear guarantee none ever gets stuck.
+var _toolPills = {};   // id -> {el, timer}
+function _toolPillBox(){ return document.getElementById('tool-pills'); }
+function showToolPill(id, name){
+  if(document.body.classList.contains('ubuntu-mode')) return;
+  var box=_toolPillBox(); if(!box) return;
+  if(_toolPills[id]) return; // already showing
+  var el=document.createElement('div');
+  el.className='tool-pill';
+  var sp=document.createElement('span'); sp.className='tp-spin';
+  var nm=document.createElement('span'); nm.className='tp-name'; nm.textContent=name||'tool';
+  var lbl=document.createElement('span'); lbl.textContent='running…';
+  el.appendChild(sp); el.appendChild(nm); el.appendChild(lbl);
+  box.appendChild(el);
+  requestAnimationFrame(function(){ el.classList.add('in'); });
+  // Safety: if no tool-end arrives within 45s, fade it out anyway.
+  var timer=setTimeout(function(){ endToolPill(id, 'ok', true); }, 45000);
+  _toolPills[id]={el:el, nm:nm, lbl:lbl, timer:timer};
+}
+function endToolPill(id, status, silent){
+  var p=_toolPills[id];
+  if(!p){ return; }
+  if(p.timer) clearTimeout(p.timer);
+  var el=p.el;
+  if(el){
+    el.classList.remove('ok','err'); el.classList.add(status==='err'?'err':'ok');
+    var sp=el.querySelector('.tp-spin');
+    if(sp) sp.textContent=(status==='err'?'✗':'✓');
+    if(p.lbl) p.lbl.textContent=(status==='err'?'failed':'done');
+    // Hold the result briefly, then fade + remove.
+    setTimeout(function(){
+      el.classList.remove('in');
+      setTimeout(function(){ if(el.parentNode) el.parentNode.removeChild(el); }, 220);
+    }, silent?0:700);
+  }
+  delete _toolPills[id];
+}
+function clearAllToolPills(){
+  for(var k in _toolPills){ if(_toolPills[k]){ if(_toolPills[k].timer) clearTimeout(_toolPills[k].timer); } }
+  _toolPills={};
+  var box=_toolPillBox(); if(box) box.innerHTML='';
+}
+
 // ── OSC handler ───────────────────────────────────────────────────────────────
 function resetToIdle(){
+  clearAllToolPills();   // turn over — no tool can still be running
   stopThinkingTimer();
   if(chatState==='RESPONDING') finalizeAiBubble();
   thinkBub.style.display='none';
@@ -1491,6 +1570,21 @@ function handleOSC(content){
     } else {
       showPermissionDialog(perm);
     }
+  } else if(content.startsWith('9;tool-start:')){
+    // 9;tool-start:<id>:<base64 name>  — show a transient "running" pill
+    var ts=content.slice(13);
+    var ci=ts.indexOf(':');
+    var tid=ci>=0?ts.slice(0,ci):ts;
+    var tnm='tool';
+    try{ tnm=atob(ts.slice(ci+1)); }catch(_){}
+    showToolPill(tid, tnm);
+  } else if(content.startsWith('9;tool-end:')){
+    // 9;tool-end:<id>:<ok|err>  — flip the pill to ✓/✗ and vanish
+    var te=content.slice(11);
+    var di=te.lastIndexOf(':');
+    var eid=di>=0?te.slice(0,di):te;
+    var est=di>=0?te.slice(di+1):'ok';
+    endToolPill(eid, est);
   } else if(content.startsWith('9;mcp-ready:')){
     try{
       var mcpServers=JSON.parse(atob(content.slice(12)));
