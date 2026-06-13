@@ -384,7 +384,7 @@ fun ModelPickerScreen(
                             modifier = Modifier
                                 .background(chipBg, RoundedCornerShape(20.dp))
                                 .border(1.dp, chipBorder, RoundedCornerShape(20.dp))
-                                .clickable { selectedCap = cap }
+                                .pressClickable { selectedCap = cap }
                                 .padding(horizontal = 12.dp, vertical = 4.dp)
                         ) {
                             Text(

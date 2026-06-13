@@ -73,7 +73,7 @@ class SettingsActivity : AppCompatActivity() {
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(pad, pad, pad, pad)
-            setBackgroundColor(Color.parseColor("#14FFFFFF"))
+            setBackgroundResource(R.drawable.bg_provider_card)
             val lp = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply { bottomMargin = pad }
@@ -139,7 +139,7 @@ class SettingsActivity : AppCompatActivity() {
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(pad, pad, pad, pad)
-            setBackgroundColor(Color.parseColor("#14FFFFFF"))
+            setBackgroundResource(R.drawable.bg_provider_card)
             val lp = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply { topMargin = pad }

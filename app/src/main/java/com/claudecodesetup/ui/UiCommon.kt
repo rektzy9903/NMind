@@ -4,12 +4,19 @@ import android.graphics.BlurMaskFilter
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.runtime.remember
+import androidx.compose.ui.composed
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -129,6 +136,32 @@ val NexusRed     = Color(0xFFFF4D6D)   // rose — error / Discussion accent
 val NexusText    = Color(0xE6FFFFFF)   // white .9 — primary text
 val NexusText2   = Color(0x73FFFFFF)   // white .45 — secondary / muted
 val NexusText3   = Color(0x4DFFFFFF)   // white .30 — tertiary / section labels
+
+/**
+ * Tappable with a subtle press response: scales to [pressedScale] while held +
+ * the platform ripple. Use everywhere a card/row/chip/tile is clickable so the
+ * whole app gives consistent tactile feedback (not just the home tiles).
+ */
+fun Modifier.pressClickable(
+    enabled: Boolean = true,
+    pressedScale: Float = 0.975f,
+    onClick: () -> Unit,
+): Modifier = composed {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) pressedScale else 1f,
+        animationSpec = tween(120), label = "pressScale",
+    )
+    this
+        .graphicsLayer { scaleX = scale; scaleY = scale }
+        .clickable(
+            interactionSource = interaction,
+            indication = LocalIndication.current,
+            enabled = enabled,
+            onClick = onClick,
+        )
+}
 
 // Every screen that wraps in AppBackground now gets the aurora automatically.
 @Composable

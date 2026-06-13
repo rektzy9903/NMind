@@ -208,7 +208,7 @@ private fun CircleButton(glyph: String, tint: Color, onClick: () -> Unit) {
             .shadow(8.dp, RoundedCornerShape(17.dp), ambientColor = ShadowC, spotColor = ShadowC)
             .background(GlassFillC, RoundedCornerShape(17.dp))
             .border(1.dp, GlassBorderC, RoundedCornerShape(17.dp))
-            .clickable(onClick = onClick),
+            .pressClickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) { Text(glyph, fontSize = 16.sp, color = tint, fontFamily = DmSansFamily) }
 }
@@ -260,7 +260,7 @@ private fun PeriodSegmented(period: UsagePeriod, onChange: (UsagePeriod) -> Unit
                     .clip(RoundedCornerShape(9.dp))
                     .background(if (sel) Sky.copy(alpha = 0.16f) else Color.Transparent, RoundedCornerShape(9.dp))
                     .then(if (sel) Modifier.border(1.dp, Sky.copy(alpha = 0.45f), RoundedCornerShape(9.dp)) else Modifier)
-                    .clickable { onChange(p) }
+                    .pressClickable { onChange(p) }
                     .padding(vertical = 8.dp),
                 contentAlignment = Alignment.Center
             ) {
@@ -311,7 +311,7 @@ private fun Chip(label: String, sel: Boolean, accent: Color, onClick: () -> Unit
             .clip(RoundedCornerShape(9.dp))
             .background(if (sel) accent.copy(alpha = 0.16f) else GlassFillC, RoundedCornerShape(9.dp))
             .border(1.dp, if (sel) accent.copy(alpha = 0.55f) else GlassBorderC, RoundedCornerShape(9.dp))
-            .clickable(onClick = onClick)
+            .pressClickable(onClick = onClick)
             .padding(horizontal = 10.dp, vertical = 6.dp)
     ) {
         Text(label, fontSize = 11.sp, color = if (sel) accent else TxtMuted,
