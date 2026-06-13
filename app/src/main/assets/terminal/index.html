@@ -309,8 +309,9 @@ body.ubuntu-mode #empty-state{ display:none !important; }
   font-weight: bold;
 }
 .md-table tr:nth-child(even) td { background: rgba(255,255,255,0.03); }
-.hl-kw     { color: #c084fc; }
-.hl-str    { color: #86efac; }
+.hl-kw     { color: #00D4FF; }              /* cyan — no purple (design rule) */
+.hl-str    { color: #86efac; }              /* green */
+.hl-num    { color: #FFB37A; }              /* warm amber */
 .hl-comment{ color: #64748b; font-style: italic; }
 .md-h1 { font-size: calc(16px * var(--cfs, 1)); font-weight: bold; color: #e2e8f0; margin: 6px 0 3px; }
 .md-h2 { font-size: calc(14px * var(--cfs, 1)); font-weight: bold; color: #cbd5e1; margin: 5px 0 2px; }
@@ -1592,19 +1593,41 @@ let rawAiText='';
 
 function escHtml(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 
+// Keyword bodies (alternation only — no \b, no capture group; the master regex
+// adds those). Input `code` is already HTML-escaped, so quotes are &#34;/&#39;.
+const HL_KW={
+  javascript:'const|let|var|function|return|if|else|for|while|class|import|export|from|async|await|new|this|typeof|null|undefined|true|false|throw|try|catch|finally|of|do|switch|case|break|continue|delete|in|instanceof|yield|static|get|set|extends|super',
+  typescript:'const|let|var|function|return|if|else|for|while|class|import|export|from|async|await|new|this|typeof|null|undefined|true|false|throw|try|catch|finally|of|do|switch|case|break|continue|delete|in|instanceof|yield|static|get|set|extends|super|interface|type|enum|public|private|protected|readonly|implements|namespace|declare|as|keyof|infer|satisfies',
+  python:'def|class|import|from|return|if|elif|else|for|while|in|not|and|or|True|False|None|with|as|try|except|finally|lambda|yield|pass|break|continue|raise|global|nonlocal|del|assert|is|async|await|match|case',
+  kotlin:'fun|val|var|class|object|interface|return|if|else|when|for|while|in|is|as|null|true|false|override|private|public|protected|internal|suspend|data|sealed|companion|import|package|by|init|constructor|this|super|throw|try|catch|finally|operator|inline|reified|crossinline|noinline|typealias|enum|annotation|abstract|open|final|lateinit',
+  java:'class|interface|return|if|else|for|while|new|public|private|protected|static|final|void|null|true|false|import|package|extends|implements|throws|throw|try|catch|finally|this|super|abstract|synchronized|volatile|transient|instanceof|enum|int|long|double|float|boolean|char|byte|short|var|record',
+  bash:'if|then|else|elif|fi|for|while|do|done|in|case|esac|function|return|export|echo|read|exit|source|alias|unset|local|declare|shift|break|continue|sudo|cd|ls|cat|grep|awk|sed|curl|git',
+  c:'auto|break|case|char|const|continue|default|do|double|else|enum|extern|float|for|goto|if|int|long|register|return|short|signed|sizeof|static|struct|switch|typedef|union|unsigned|void|volatile|while|class|public|private|protected|namespace|template|new|delete|true|false|nullptr|using|virtual|override|bool|auto',
+  go:'break|case|chan|const|continue|default|defer|else|fallthrough|for|func|go|goto|if|import|interface|map|package|range|return|select|struct|switch|type|var|nil|true|false|make|len|cap|append|string|int|error|bool',
+  rust:'as|break|const|continue|crate|else|enum|extern|false|fn|for|if|impl|in|let|loop|match|mod|move|mut|pub|ref|return|self|Self|static|struct|super|trait|true|type|unsafe|use|where|while|async|await|dyn|Box|Option|Result|Some|None|Ok|Err',
+  sql:'SELECT|FROM|WHERE|INSERT|INTO|VALUES|UPDATE|SET|DELETE|CREATE|TABLE|ALTER|DROP|JOIN|LEFT|RIGHT|INNER|OUTER|ON|GROUP|BY|ORDER|HAVING|LIMIT|AND|OR|NOT|NULL|AS|DISTINCT|COUNT|SUM|AVG|MIN|MAX|UNION|INDEX|PRIMARY|KEY|FOREIGN|REFERENCES',
+  json:'true|false|null',
+};
+const HL_ALIAS={ js:'javascript',jsx:'javascript',mjs:'javascript',ts:'typescript',tsx:'typescript',py:'python',py3:'python',kt:'kotlin',kts:'kotlin',sh:'bash',shell:'bash',zsh:'bash',cpp:'c','c++':'c',cc:'c',h:'c',hpp:'c',cs:'java',rs:'rust',golang:'go',yml:'bash',yaml:'bash' };
+
 function highlightCode(code,lang){
-  const kw={
-    javascript:'\\b(const|let|var|function|return|if|else|for|while|class|import|export|from|async|await|new|this|typeof|null|undefined|true|false|throw|try|catch|finally|of|do|switch|case|break|continue|delete|in|instanceof)\\b',
-    python:'\\b(def|class|import|from|return|if|elif|else|for|while|in|not|and|or|True|False|None|with|as|try|except|finally|lambda|yield|pass|break|continue|raise|global|nonlocal|del|assert|is)\\b',
-    kotlin:'\\b(fun|val|var|class|object|interface|return|if|else|when|for|while|in|is|as|null|true|false|override|private|public|protected|internal|suspend|data|sealed|companion|import|package|by|init|constructor|this|super|throw|try|catch|finally|operator|inline|reified|crossinline|noinline|typealias|enum|annotation|abstract|open|final|lateinit)\\b',
-    java:'\\b(class|interface|return|if|else|for|while|new|public|private|protected|static|final|void|null|true|false|import|package|extends|implements|throws|throw|try|catch|finally|this|super|abstract|synchronized|volatile|transient|instanceof|enum|int|long|double|float|boolean|char|byte|short)\\b',
-    bash:'\\b(if|then|else|elif|fi|for|while|do|done|in|case|esac|function|return|export|echo|read|exit|source|alias|unset|local|declare|shift|break|continue)\\b',
-  };
-  const pat=kw[lang]||kw['javascript'];
-  code=code.replace(new RegExp(pat,'g'),'<span class="hl-kw">$1</span>');
-  code=code.replace(/(&#34;(?:[^\\&#]|\\.)*?&#34;|&#39;(?:[^\\&#]|\\.)*?&#39;)/g,'<span class="hl-str">$1</span>');
-  code=code.replace(/(\/\/[^\n]*|#[^\n]*)/g,'<span class="hl-comment">$1</span>');
-  return code;
+  const key=HL_ALIAS[lang]||lang;
+  const kwBody=HL_KW[key]||HL_KW['javascript'];
+  // Single pass: comment | string | number | keyword. Whichever alternative
+  // matches first consumes those chars, so a keyword inside a string/comment is
+  // never separately highlighted (fixes the old multi-pass bug) and each char is
+  // touched once (cheap — runs only when a fenced block is rendered).
+  const COMMENT='(?:\\/\\/[^\\n]*|#[^\\n]*|\\/\\*[\\s\\S]*?\\*\\/)';
+  const STRING='(?:&#34;(?:[^\\\\&]|\\\\.|&(?!#34;))*?&#34;|&#39;(?:[^\\\\&]|\\\\.|&(?!#39;))*?&#39;|`(?:[^\\\\`]|\\\\.)*?`)';
+  const NUMBER='\\b\\d[\\d_]*(?:\\.\\d+)?(?:[eE][+-]?\\d+)?\\b';
+  const re=new RegExp('('+COMMENT+')|('+STRING+')|('+NUMBER+')|\\b('+kwBody+')\\b','g');
+  return code.replace(re,function(m,c,s,n,k){
+    if(c) return '<span class="hl-comment">'+c+'</span>';
+    if(s) return '<span class="hl-str">'+s+'</span>';
+    if(n) return '<span class="hl-num">'+n+'</span>';
+    if(k) return '<span class="hl-kw">'+k+'</span>';
+    return m;
+  });
 }
 
 function renderInline(t){
