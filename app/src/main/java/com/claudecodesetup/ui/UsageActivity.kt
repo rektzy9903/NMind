@@ -215,7 +215,7 @@ private fun CircleButton(glyph: String, tint: Color, onClick: () -> Unit) {
 
 /** Frosted glass surface: translucent white fill + hairline border + soft shadow. */
 @Composable
-private fun GlassCard(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
+private fun UsageCard(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -321,7 +321,7 @@ private fun Chip(label: String, sel: Boolean, accent: Color, onClick: () -> Unit
 
 @Composable
 private fun HeroCard(rep: UsageReport) {
-    GlassCard {
+    UsageCard {
         Text(fmtTok(rep.grandTotal), fontSize = 38.sp, fontWeight = FontWeight.Bold,
             color = TxtPrimary, fontFamily = DmSansFamily)
         Text("total tokens", fontSize = 12.sp, color = TxtMuted, fontFamily = SpaceMonoFamily)
@@ -393,7 +393,7 @@ private fun ChartGrid(rep: UsageReport) {
 
 @Composable
 private fun DonutCard(rep: UsageReport) {
-    GlassCard {
+    UsageCard {
         CardTitle("Tokens by model")
         Row(verticalAlignment = Alignment.CenterVertically) {
             val total = rep.grandTotal.coerceAtLeast(1L)
@@ -439,7 +439,7 @@ private fun DonutCard(rep: UsageReport) {
 
 @Composable
 private fun StackedModelCard(byModel: List<UsageEntry>) {
-    GlassCard {
+    UsageCard {
         CardTitle("Input / output by model")
         val rows = byModel.take(8)
         val maxTotal = (rows.maxOfOrNull { it.total } ?: 1L).coerceAtLeast(1L)
@@ -483,7 +483,7 @@ private fun StackedModelCard(byModel: List<UsageEntry>) {
 
 @Composable
 private fun TimeGraphCard(rep: UsageReport) {
-    GlassCard {
+    UsageCard {
         CardTitle("Per-day usage")
         val days = rep.byDay.takeLast(30)
         val maxTotal = (days.maxOfOrNull { it.total } ?: 1L).coerceAtLeast(1L)
@@ -524,7 +524,7 @@ private fun TimeGraphCard(rep: UsageReport) {
  */
 @Composable
 private fun InOutRateCard(rep: UsageReport) {
-    GlassCard {
+    UsageCard {
         CardTitle("Input / output rate")
         val peak = maxOf(rep.totalIn, rep.totalOut, 1L)
         RateBar("input", rep.totalIn, peak, InColor)
@@ -592,7 +592,7 @@ private fun InOutLegend() {
 
 @Composable
 private fun ProviderListCard(rep: UsageReport) {
-    GlassCard {
+    UsageCard {
         CardTitle("By provider")
         val maxTotal = (rep.byProvider.maxOfOrNull { it.total } ?: 1L).coerceAtLeast(1L)
         rep.byProvider.forEach { p ->
