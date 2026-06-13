@@ -88,7 +88,7 @@ fun HomeScreen(
             Box(
                 modifier = Modifier
                     .size(80.dp)
-                    .glowShadow(Color(0x4DFF8C42), 26.dp, 22.dp),
+                    .glowShadow(Color(0x2E00D4FF), 16.dp, 22.dp),
                 contentAlignment = Alignment.Center
             ) {
                 ConvergenceLogo(modifier = Modifier.size(80.dp))

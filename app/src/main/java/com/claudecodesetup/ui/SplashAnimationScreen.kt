@@ -113,9 +113,6 @@ fun SplashAnimationScreen(shouldPlay: Boolean = true, onFinished: () -> Unit) {
     val t = time
 
     // ── Phase progress values ────────────────────────────────────────────────
-    // Phase 1 (0.0s): ambient glow warms up
-    val glowAlpha   = easeOutCubic(prog(t, 0.00f, 0.50f)) * 0.10f
-
     // Phase 2 (0.2s): 4 outer source dots appear, 80ms stagger
     val dotScales   = (0..3).map { i ->
         val p = prog(t, 0.20f + i * 0.08f, 0.25f)
@@ -163,21 +160,7 @@ fun SplashAnimationScreen(shouldPlay: Boolean = true, onFinished: () -> Unit) {
             .graphicsLayer { alpha = screenAlpha },
         contentAlignment = Alignment.Center
     ) {
-        // ── Phase 1: ambient radial glow ────────────────────────────────────
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.radialGradient(
-                        colors = listOf(
-                            AmberAccent.copy(alpha = glowAlpha),
-                            Color.Transparent
-                        ),
-                        radius = Float.MAX_VALUE
-                    )
-                )
-        )
-
+        // Pure-black stage — no ambient wash (frosted glass theme).
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier.fillMaxWidth()
