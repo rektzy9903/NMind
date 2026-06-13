@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b113-assistant-content-guard+no-banner';
+const BRIDGE_BUILD = 'b113-crashguard+content-guard+no-banner';
 
 const net   = require('net');
 const http  = require('http');
@@ -246,6 +246,23 @@ function log(msg) {
     const line = msg.endsWith('\n') ? msg : msg + '\n';
     try { fs.appendFileSync(SETUP_LOG, line); } catch (_) {}
     process.stdout.write(line);
+}
+
+// ─── Top-level crash guard (b113) ─────────────────────────────────────────────
+// node runs IN-PROCESS via JNI, so a single uncaught throw or rejected promise
+// anywhere (a malformed provider response, a bad stream event, etc.) kills the
+// whole node runtime → the Android app crash-restarts ("Starting bridge server"
+// loops in the log with no stack). Catch them at the top: LOG the stack (so !log
+// shows the real culprit) and keep the process alive. Far better than the app
+// dying mid-turn. Registered once, before any server starts.
+if (!global.__nexusCrashGuard) {
+    global.__nexusCrashGuard = true;
+    process.on('uncaughtException', (err) => {
+        try { log('[FATAL] uncaughtException: ' + (err && err.stack ? err.stack : String(err))); } catch (_) {}
+    });
+    process.on('unhandledRejection', (reason) => {
+        try { log('[FATAL] unhandledRejection: ' + (reason && reason.stack ? reason.stack : String(reason))); } catch (_) {}
+    });
 }
 
 
