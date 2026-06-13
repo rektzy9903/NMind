@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b112-toolpill-crashfix';
+const BRIDGE_BUILD = 'b113-assistant-content-guard+no-banner';
 
 const net   = require('net');
 const http  = require('http');
@@ -4738,7 +4738,9 @@ function openPrintSession() {
         if (resultReceived && evt.type === 'assistant') return;
 
         if (evt.type === 'assistant') {
-            const content = (evt.message && evt.message.content) || [];
+            // content can be a plain STRING on some events (not an array) — coerce or
+            // .some()/.filter() below throw → in-process JNI crash (cf. b112 user-event fix).
+            const content = Array.isArray(evt.message && evt.message.content) ? evt.message.content : [];
             for (const block of content) {
                 if (block.type === 'text' && block.text) {
                     if (!firstContent) setFirstContent(true);
@@ -4761,14 +4763,14 @@ function openPrintSession() {
             evt.type === 'permission_request' ||
             (evt.type === 'tool' && (evt.status === 'pending' || evt.status === 'awaiting_approval')) ||
             evt.type === 'tool_approval_request' ||
-            (evt.type === 'assistant' && evt.message && (evt.message.content || []).some(b => b.type === 'tool_use'));
+            (evt.type === 'assistant' && evt.message && Array.isArray(evt.message.content) && evt.message.content.some(b => b.type === 'tool_use'));
         if (isToolEvent) {
             let toolName = evt.tool_name || evt.tool || evt.name || 'tool';
             let toolInput = evt.tool_input || evt.input || {};
             // Collect every tool_use in this assistant event (parallel calls).
             let toolBlocks = [];
-            if (evt.type === 'assistant' && evt.message) {
-                toolBlocks = (evt.message.content || []).filter(b => b.type === 'tool_use');
+            if (evt.type === 'assistant' && evt.message && Array.isArray(evt.message.content)) {
+                toolBlocks = evt.message.content.filter(b => b.type === 'tool_use');
                 if (toolBlocks[0]) { toolName = toolBlocks[0].name || toolName; toolInput = toolBlocks[0].input || toolInput; }
             }
             if (!toolBlocks.length) toolBlocks = [{ id: evt.id || ('t-' + Date.now()), name: toolName }];
@@ -7473,22 +7475,9 @@ function openPrintSession() {
         }
         if (state.busy) try { socket.write('\x1b]9;thinking-start\x07'); } catch(_) {}
 
-        // Show project mode banner once per session attach (guard via _projectBannerShown)
-        const sessionCfg = readConfig();
-        if (sessionCfg.projectPath && !state._projectBannerShown) {
-            state._projectBannerShown = true;
-            const projName = sessionCfg.projectPath.split('/').filter(Boolean).pop() || sessionCfg.projectPath;
-            const histMsg = state.hasHistory
-                ? '\x1b[32mHistory restored — use \x1b[1m!clear\x1b[22m to start fresh\x1b[0m'
-                : '\x1b[90mNew project session\x1b[0m';
-            try {
-                socket.write(
-                    SYS_FENCE +
-                    '\x1b[36m📂 Project: \x1b[1m' + projName + '\x1b[0m\x1b[36m  \x1b[2m' + sessionCfg.projectPath + '\x1b[0m\r\n' +
-                    histMsg + '\r\n'
-                );
-            } catch(_) {}
-        }
+        // Project-mode banner removed (b113) — it was visual noise in every chat
+        // and (with the empty-state fix) just sat behind the empty state. The cwd
+        // is still surfaced via the \x1b]9;cwd: OSC above; no sys bubble needed.
 
         socket.on('data', d => handleInput(d, state));
 
