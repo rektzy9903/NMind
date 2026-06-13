@@ -220,6 +220,52 @@
             android:background="@color/terminal_bg"
             android:visibility="gone">
 
+            <!-- Native mode toggle (mirrors the WebView 💬/🐧 #mode-toggle, which the
+                 opaque overlay hides). Ubuntu is the active segment here; tapping
+                 Chat returns to the chat WebView. Text labels, not emoji (inv 54). -->
+            <FrameLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@color/glass_bar"
+                android:paddingVertical="6dp">
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center_horizontal"
+                    android:orientation="horizontal"
+                    android:background="@drawable/bg_native_toggle"
+                    android:padding="3dp">
+
+                    <TextView
+                        android:id="@+id/btnNativeToggleChat"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Chat"
+                        android:textSize="11sp"
+                        android:textStyle="bold"
+                        android:letterSpacing="0.04"
+                        android:textColor="@color/text_secondary"
+                        android:paddingHorizontal="16dp"
+                        android:paddingVertical="5dp"
+                        android:background="?attr/selectableItemBackgroundBorderless" />
+
+                    <TextView
+                        android:id="@+id/btnNativeToggleUbuntu"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Ubuntu"
+                        android:textSize="11sp"
+                        android:textStyle="bold"
+                        android:letterSpacing="0.04"
+                        android:textColor="@color/accent_orange"
+                        android:paddingHorizontal="16dp"
+                        android:paddingVertical="5dp"
+                        android:background="@drawable/bg_native_toggle_active" />
+
+                </LinearLayout>
+            </FrameLayout>
+
             <FrameLayout
                 android:id="@+id/nativeTermHost"
                 android:layout_width="match_parent"

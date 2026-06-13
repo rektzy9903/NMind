@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Active segment of the native mode toggle — amber-tinted (Ubuntu is the
+     active mode whenever this overlay is visible). Mirrors #mode-toggle .active. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/accent_orange_dim" />
+    <corners android:radius="7dp" />
+</shape>

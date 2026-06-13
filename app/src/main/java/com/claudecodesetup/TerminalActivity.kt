@@ -181,12 +181,19 @@ class TerminalActivity : AppCompatActivity() {
      *  terminal carries its own equivalent buttons. */
     private fun wireNativeKeyRow() {
         val nt = nativeTerminal
-        binding.btnNativeChat.setOnClickListener {
+        // Return to chat — shared by the bottom "‹ Chat" key and the top toggle's
+        // Chat segment (mirrors the WebView 💬/🐧 toggle the opaque overlay hides).
+        val toChat = View.OnClickListener {
             ubuntuMode = false
             binding.nativeUbuntuOverlay.visibility = View.GONE
             // WebView is already in chat; just sync the 💬/🐧 toggle highlight.
             binding.webViewTerminal.evaluateJavascript("window.setMode&&window.setMode('chat')", null)
         }
+        binding.btnNativeChat.setOnClickListener(toChat)
+        binding.btnNativeToggleChat.setOnClickListener(toChat)
+        // Ubuntu segment is already the active mode here — tap just (re)focuses to
+        // pop the keyboard, matching a tap on the terminal surface.
+        binding.btnNativeToggleUbuntu.setOnClickListener { nt.focusForKeyboard() }
         // Ctrl chord — glowing armed state mirrors the chat toolbar's Ctrl button.
         nt.onCtrlGlow = { armed ->
             binding.btnNativeCtrl.setTextColor(
