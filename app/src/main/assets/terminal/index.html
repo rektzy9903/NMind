@@ -131,10 +131,10 @@ body.ubuntu-mode #tool-pills{ display:none !important; }
 /* ── First-open empty state (#10) ────────────────────────────────────────── */
 #empty-state{
   position:fixed; left:0; right:0; top:46px; bottom:64px; z-index:40;
-  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  display:none; flex-direction:column; align-items:center; justify-content:center;
   padding:24px; text-align:center; pointer-events:none;
 }
-#empty-state.gone{ display:none; }
+#empty-state.show{ display:flex; }            /* hidden by default — no flash over restored chat */
 body.ubuntu-mode #empty-state{ display:none !important; }
 #empty-state .es-logo{ width:60px; height:60px; opacity:0.92; margin-bottom:18px; filter:drop-shadow(0 0 14px rgba(255,140,66,0.35)); }
 #empty-state .es-title{ font-family:'DM Sans','Space Mono',sans-serif; font-size:19px; font-weight:700; color:rgba(255,255,255,0.92); margin-bottom:6px; }
@@ -1396,14 +1396,19 @@ msgs.addEventListener('scroll', function(){
 (function(){
   const es = document.getElementById('empty-state');
   if(!es) return;
-  function hideEmpty(){ es.classList.add('gone'); }
-  const mo = new MutationObserver(function(){
-    for(const n of msgs.children){
-      if(n.id !== 'thinking-bubble'){ hideEmpty(); mo.disconnect(); return; }
-    }
-  });
-  mo.observe(msgs, {childList:true});
-  if(msgs.querySelector(':scope > :not(#thinking-bubble)')){ hideEmpty(); mo.disconnect(); }
+  function chatIsEmpty(){ return !msgs.querySelector(':scope > :not(#thinking-bubble)'); }
+  // Hidden by default. Only SHOW it once the chat has settled (snapshot restore
+  // for an existing conversation runs slightly after load) AND only if the chat
+  // is genuinely empty — otherwise it flashed over restored history for a frame.
+  function settleEmpty(){
+    if(document.body.classList.contains('ubuntu-mode')) return;
+    if(chatIsEmpty()) es.classList.add('show'); else es.classList.remove('show');
+  }
+  setTimeout(settleEmpty, 400);
+  // Any real content arriving hides it immediately (and keeps it hidden).
+  new MutationObserver(function(){
+    if(!chatIsEmpty()) es.classList.remove('show');
+  }).observe(msgs, {childList:true});
   es.querySelectorAll('.es-chip').forEach(function(chip){
     chip.addEventListener('click', function(){
       const p = chip.getAttribute('data-prompt') || '';

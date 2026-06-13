@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b111-tool-pills';
+const BRIDGE_BUILD = 'b112-toolpill-crashfix';
 
 const net   = require('net');
 const http  = require('http');
@@ -4718,8 +4718,11 @@ function openPrintSession() {
         // event carrying tool_result blocks. Emit a `tool-end` so the transient
         // top-of-chat pill (index.html) can flip to ✓/✗ and vanish. No AI text
         // lives on these events, so return after emitting.
-        if (evt.type === 'user' && evt.message) {
-            const trs = (evt.message.content || []).filter(b => b && b.type === 'tool_result');
+        // NB: a 'user' event's content can be a plain STRING (echoed user text),
+        // not an array — guard with Array.isArray or .filter throws and (since node
+        // runs in-process via JNI) crashes the whole app.
+        if (evt.type === 'user' && evt.message && Array.isArray(evt.message.content)) {
+            const trs = evt.message.content.filter(b => b && b.type === 'tool_result');
             for (const tr of trs) {
                 try {
                     if (state.socket) state.socket.write('\x1b]9;tool-end:' +
