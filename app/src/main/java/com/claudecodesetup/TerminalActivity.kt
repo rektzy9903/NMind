@@ -167,7 +167,17 @@ class TerminalActivity : AppCompatActivity() {
                 android.widget.FrameLayout.LayoutParams.MATCH_PARENT
             )
         )
-        wireNativeKeyRow()
+        // Unified toolbar (Option A): the WebView #toolbar is the ONE toolbar for both
+        // tabs (terminal keys route to the PTY via Android.sendPty; chat-only buttons grey
+        // out in Ubuntu and terminal-only buttons grey out in chat). The separate native
+        // key row was removed. Only the Ctrl-chord glow needs to round-trip back to that
+        // toolbar's Ctrl button so it reflects the native one-shot chord state.
+        nt.onCtrlGlow = { armed ->
+            runOnUiThread {
+                binding.webViewTerminal.evaluateJavascript(
+                    "window.__setCtrlGlow&&window.__setCtrlGlow($armed)", null)
+            }
+        }
     }
 
     /** Show/hide the native Ubuntu overlay per mode. The opaque overlay covers the
@@ -181,43 +191,8 @@ class TerminalActivity : AppCompatActivity() {
         }
     }
 
-    /** Native toolbar (mirrors the chat-mode toolbar) → the active session's Ubuntu
-     *  shell. The in-WebView toolbar is hidden under the opaque overlay, so the
-     *  terminal carries its own equivalent buttons. */
-    private fun wireNativeKeyRow() {
-        val nt = nativeTerminal
-        // Return to chat. The primary control is the shared WebView #mode-toggle,
-        // which stays visible in the strip the overlay leaves uncovered; this
-        // bottom key is a convenience that does the same thing (setMode('chat')
-        // also clears the body.ubuntu-mode class in the WebView).
-        binding.btnNativeChat.setOnClickListener {
-            ubuntuMode = false
-            binding.nativeUbuntuOverlay.visibility = View.GONE
-            binding.webViewTerminal.evaluateJavascript("window.setMode&&window.setMode('chat')", null)
-        }
-        // Ctrl chord — glowing armed state mirrors the chat toolbar's Ctrl button.
-        nt.onCtrlGlow = { armed ->
-            binding.btnNativeCtrl.setTextColor(
-                if (armed) getColor(R.color.accent_orange) else getColor(R.color.text_primary)
-            )
-        }
-        binding.btnNativeCtrl.setOnClickListener { nt.toggleCtrl() }
-        binding.btnNativePipe.setOnClickListener { nt.sendKey("|") }
-        binding.btnNativeFiles.setOnClickListener {
-            val path = claudeService?.getSession(activeSessionId)?.cwd?.ifEmpty { null }
-                ?: prefs.getProjectPath().ifEmpty { filesDir.absolutePath }
-            showFileBrowser(path)
-        }
-        binding.btnNativePreview.setOnClickListener { openWebPreview() }
-        binding.btnNativeEsc.setOnClickListener { nt.sendKey("") }
-        binding.btnNativeTab.setOnClickListener { nt.sendKey("\t") }
-        binding.btnNativeUp.setOnClickListener { nt.sendKey("[A") }
-        binding.btnNativeDown.setOnClickListener { nt.sendKey("[B") }
-        binding.btnNativeRight.setOnClickListener { nt.sendKey("[C") }
-        binding.btnNativeLeft.setOnClickListener { nt.sendKey("[D") }
-        binding.btnNativeFontDec.setOnClickListener { nt.adjustFont(-1) }
-        binding.btnNativeFontInc.setOnClickListener { nt.adjustFont(1) }
-    }
+    // (wireNativeKeyRow removed — Option A: the unified WebView #toolbar drives both
+    //  tabs. Terminal keys → Android.sendPty, Ctrl → ubuntuCtrl(), font → ubuntuFont().)
 
     // Called when ProjectManagerActivity opens a project while this activity is already in the stack.
     // FLAG_ACTIVITY_CLEAR_TOP brings us to front and delivers the new project path here.
@@ -1159,6 +1134,21 @@ class TerminalActivity : AppCompatActivity() {
             // View ops (overlay show/hide) must run on the UI thread; openPty is
             // dispatched off it internally. applyUbuntuMode handles both renderers.
             runOnUiThread { applyUbuntuMode(ubuntuMode) }
+        }
+
+        /** Unified toolbar (Option A): the WebView toolbar's A−/A+ in Ubuntu mode drive
+         *  the native terminal's font (the WebView chat font is meaningless there). */
+        @JavascriptInterface
+        fun ubuntuFont(delta: Int) {
+            runOnUiThread { if (::nativeTerminal.isInitialized) nativeTerminal.adjustFont(delta) }
+        }
+
+        /** Unified toolbar (Option A): the WebView toolbar's Ctrl button in Ubuntu mode
+         *  toggles the NATIVE one-shot Ctrl chord (the next typed key folds into ^key).
+         *  The armed glow round-trips back via onCtrlGlow → window.__setCtrlGlow(). */
+        @JavascriptInterface
+        fun ubuntuCtrl() {
+            runOnUiThread { if (::nativeTerminal.isInitialized) nativeTerminal.toggleCtrl() }
         }
 
         @JavascriptInterface

@@ -951,8 +951,8 @@ body.ubuntu-mode .blob{animation:none !important;display:none !important;}
   <button class="tb-btn" id="btn-font-dec" style="color:#94a3b8">A-</button>
   <button class="tb-btn" id="btn-font-inc" style="color:#94a3b8">A+</button>
   <button class="tb-btn" id="btn-export" data-mode="chat" style="color:#86efac">⇪ Export</button>
-  <button class="tb-btn" id="btn-files" data-mode="chat" style="color:#7dd3fc">Files</button>
-  <button class="tb-btn" id="btn-preview" data-mode="chat" style="color:#7dd3fc">Preview</button>
+  <button class="tb-btn" id="btn-files" style="color:#7dd3fc">Files</button>
+  <button class="tb-btn" id="btn-preview" style="color:#7dd3fc">Preview</button>
 </div>
 
 <!-- P6: dual-mode toggle (💬 Claude chat | 🐧 Ubuntu shell) — inline SVG, not emoji -->
@@ -3273,10 +3273,14 @@ window.__updateCtrlGlow = function(){
   if(b) b.classList.toggle('armed', !!window.__ctrlArmed);
 };
 document.getElementById('btn-ctrl').addEventListener('click', function(){
+  if(window.__nexusMode==='ubuntu'){
+    // Native terminal owns the one-shot chord; its glow round-trips via __setCtrlGlow.
+    if(typeof Android!=='undefined'&&Android.ubuntuCtrl) Android.ubuntuCtrl();
+    return;
+  }
   window.__ctrlArmed = !window.__ctrlArmed;
   window.__updateCtrlGlow();
-  if(window.__nexusMode==='ubuntu'){ if(window.__focusTerm) window.__focusTerm(); }
-  else ghost.focus();
+  ghost.focus();
 });
 // Nexus-mode chord: capture the next keystroke on the chat input while Ctrl is armed.
 // Chat has no live TTY, so only Ctrl+C is meaningful (cancel the spawn); any letter
@@ -3361,8 +3365,14 @@ window.addEventListener('resize',reportTermSize);
 // mode was wrong and could itself pop/dismiss the keyboard). Belt-and-suspenders with
 // the toolbar mousedown-preventDefault above.
 function refocusActiveInput(){ if(window.__nexusMode==='ubuntu'){ if(window.__focusTerm) window.__focusTerm(); } else { try{ghost.focus();}catch(_){} } }
-document.getElementById('btn-font-dec').addEventListener('click',function(){applyFontSize(termFontSize-1);if(window.adjustXtermFont)window.adjustXtermFont(-1);refocusActiveInput();});
-document.getElementById('btn-font-inc').addEventListener('click',function(){applyFontSize(termFontSize+1);if(window.adjustXtermFont)window.adjustXtermFont(1);refocusActiveInput();});
+document.getElementById('btn-font-dec').addEventListener('click',function(){
+  if(window.__nexusMode==='ubuntu'){ if(typeof Android!=='undefined'&&Android.ubuntuFont) Android.ubuntuFont(-1); }
+  else { applyFontSize(termFontSize-1); refocusActiveInput(); }
+});
+document.getElementById('btn-font-inc').addEventListener('click',function(){
+  if(window.__nexusMode==='ubuntu'){ if(typeof Android!=='undefined'&&Android.ubuntuFont) Android.ubuntuFont(1); }
+  else { applyFontSize(termFontSize+1); refocusActiveInput(); }
+});
 
 // ── Help ──────────────────────────────────────────────────────────────────────
 document.getElementById('btn-help').addEventListener('click',function(){
@@ -3467,14 +3477,23 @@ reportTermSize();
 // toolbar keeps its chat behavior (the overlay carries the terminal's own keys).
 (function(){
   window.__nexusMode = 'chat';
+  // Unified toolbar (Option A): the native overlay leaves a 42px strip at the BOTTOM
+  // uncovered too, so this WebView #toolbar shows in BOTH tabs. In Ubuntu mode the
+  // terminal keys (Esc/Tab/|/←/→/↑/↓) route to the PTY via Android.sendPty, chat-only
+  // buttons grey out, and A±/Ctrl drive the native terminal (ubuntuFont/ubuntuCtrl).
+  window.ptyKey = function(seq){ try { if (typeof Android!=='undefined' && Android.sendPty) Android.sendPty(seq); } catch(_){} };
+  // Native Ctrl-chord glow round-trips here (Kotlin onCtrlGlow → evaluateJavascript).
+  window.__setCtrlGlow = function(armed){ var b=document.getElementById('btn-ctrl'); if(b) b.classList.toggle('armed', !!armed); };
   window.setMode = function(mode){
     var ub = (mode === 'ubuntu');
+    window.__nexusMode = ub ? 'ubuntu' : 'chat';
     try {
       document.getElementById('mode-ubuntu').classList.toggle('active', ub);
       document.getElementById('mode-claude').classList.toggle('active', !ub);
-      // Drive the ubuntu-mode CSS (hides chat chrome + #msgs) so the top strip
-      // left uncovered by the native overlay shows only the shared 💬/🐧 toggle.
+      // Drive the ubuntu-mode CSS (hides chat chrome + #msgs) so the strips left
+      // uncovered by the native overlay show the 💬/🐧 toggle (top) + toolbar (bottom).
       document.body.classList.toggle('ubuntu-mode', ub);
+      if (window.updateToolbarMode) window.updateToolbarMode(ub);
     } catch(_){}
   };
   function switchTo(mode){
