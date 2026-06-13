@@ -426,11 +426,13 @@ private fun ReviewReport(findings: List<ReviewFinding>) {
             letterSpacing = 2.sp, color = NexusAccent)
         Spacer(Modifier.height(8.dp))
         findings.forEach { f ->
-            val (icon, catColor) = when (f.category) {
-                "BUG"          -> "🐞" to Color(0xFFEF4444)
-                "OPTIMIZATION" -> "⚡" to NexusAmber
-                "DEAD_CODE"    -> "🧹" to NexusBlue
-                else           -> "⚠" to NexusText2
+            // Category colour drives a small dot (no emoji — design rule); the
+            // category name is spelled out below it.
+            val catColor = when (f.category) {
+                "BUG"          -> Color(0xFFEF4444)
+                "OPTIMIZATION" -> NexusAmber
+                "DEAD_CODE"    -> NexusBlue
+                else           -> NexusText2
             }
             val majority = f.totalVoters > 0 && f.agreeCount * 2 >= f.totalVoters
             Row(
@@ -442,7 +444,8 @@ private fun ReviewReport(findings: List<ReviewFinding>) {
                     .padding(horizontal = 10.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.Top,
             ) {
-                Text("$icon ", fontSize = 13.sp)
+                Box(modifier = Modifier.padding(top = 4.dp, end = 8.dp).size(8.dp)
+                    .background(catColor, CircleShape))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(f.category.replace('_', ' '), fontFamily = SpaceMonoFamily, fontSize = 8.sp,
                         letterSpacing = 1.sp, color = catColor)
