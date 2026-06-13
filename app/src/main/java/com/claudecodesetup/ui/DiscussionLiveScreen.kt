@@ -525,7 +525,7 @@ private fun TurnCue(title: String, sub: String, accent: Color) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 14.dp, top = 8.dp, bottom = 2.dp)
+            .padding(start = 14.dp, end = 14.dp, top = 8.dp, bottom = 2.dp)
             .background(accent.copy(alpha = 0.12f), RoundedCornerShape(10.dp))
             .border(1.dp, accent.copy(alpha = 0.40f), RoundedCornerShape(10.dp))
             .padding(horizontal = 12.dp, vertical = 8.dp),
