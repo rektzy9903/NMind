@@ -1113,10 +1113,14 @@ class TerminalActivity : AppCompatActivity() {
         }
 
         // ─── Ubuntu dual-mode PTY (P6.5) ──────────────────────────────────────
-        /** xterm.js keystrokes/control sequences → the active session's Ubuntu shell. */
+        /** Unified-toolbar keys (Option A) / xterm.js control sequences → the active
+         *  session's Ubuntu shell. Tapping a WebView toolbar button moves Android focus
+         *  to the WebView, detaching the IME from the native TerminalView (keyboard goes
+         *  dead until Enter). Re-focus the native terminal so typing keeps working. */
         @JavascriptInterface
         fun sendPty(data: String) {
             claudeService?.sendPty(activeSessionId, data.toByteArray(Charsets.UTF_8))
+            if (ubuntuMode && ::nativeTerminal.isInitialized) nativeTerminal.focusForKeyboard()
         }
 
         /** xterm.js fit-addon reported new dimensions. */
@@ -1140,7 +1144,9 @@ class TerminalActivity : AppCompatActivity() {
          *  the native terminal's font (the WebView chat font is meaningless there). */
         @JavascriptInterface
         fun ubuntuFont(delta: Int) {
-            runOnUiThread { if (::nativeTerminal.isInitialized) nativeTerminal.adjustFont(delta) }
+            runOnUiThread {
+                if (::nativeTerminal.isInitialized) { nativeTerminal.adjustFont(delta); nativeTerminal.focusForKeyboard() }
+            }
         }
 
         /** Unified toolbar (Option A): the WebView toolbar's Ctrl button in Ubuntu mode
@@ -1148,7 +1154,9 @@ class TerminalActivity : AppCompatActivity() {
          *  The armed glow round-trips back via onCtrlGlow → window.__setCtrlGlow(). */
         @JavascriptInterface
         fun ubuntuCtrl() {
-            runOnUiThread { if (::nativeTerminal.isInitialized) nativeTerminal.toggleCtrl() }
+            runOnUiThread {
+                if (::nativeTerminal.isInitialized) { nativeTerminal.toggleCtrl(); nativeTerminal.focusForKeyboard() }
+            }
         }
 
         @JavascriptInterface
