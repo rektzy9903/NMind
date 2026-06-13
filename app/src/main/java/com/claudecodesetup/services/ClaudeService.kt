@@ -346,11 +346,21 @@ class ClaudeService : LifecycleService() {
 
     /** Write raw bytes from xterm.js to the active session's Ubuntu shell. */
     fun sendPty(sessionId: Int, data: ByteArray) {
-        val conn = ptyConns[sessionId] ?: return
+        val conn = ptyConns[sessionId]
+        // DIAG → setup.log (visible in !log). Pinpoints where a keystroke dies app-side:
+        // no [sendPty-kt] = never reached here; conn=NULL = no live PTY socket for this
+        // sid; write FAILED = socket dead. Pair with bridge [ubuntu-in]. Remove once fixed.
+        try {
+            java.io.File(filesDir, "setup.log").appendText(
+                "[sendPty-kt] sid=$sessionId conn=${if (conn == null) "NULL" else "ok"} " +
+                "keys=${ptyConns.keys.toList()} bytes=${data.size}\n")
+        } catch (_: Exception) {}
+        if (conn == null) return
         try {
             conn.out.write(data)
             conn.out.flush()
         } catch (e: Exception) {
+            try { java.io.File(filesDir, "setup.log").appendText("[sendPty-kt] write FAILED: ${e.message}\n") } catch (_: Exception) {}
             Log.e(TAG, "sendPty failed for session $sessionId", e)
         }
     }
