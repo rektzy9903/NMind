@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b113-crashguard+content-guard+no-banner';
+const BRIDGE_BUILD = 'b114-usageInTok-scope-fix';
 
 const net   = require('net');
 const http  = require('http');
@@ -2647,7 +2647,7 @@ function handleProxyRequest(anthReq, res) {
             // endpoints (Gemini compat) → it 400s again. Flatten that history to
             // plain text so the fallback actually succeeds.
             plain.messages = flattenToolHistory(oaiReq.messages);
-            sendToProvider(pUrl, key, plain, stream, res, null, on429, on402, on5xx);
+            sendToProvider(pUrl, key, plain, stream, res, null, on429, on402, on5xx, usageInTok);
         }
 
         function on429() {
@@ -2693,7 +2693,7 @@ function handleProxyRequest(anthReq, res) {
             setTimeout(() => attempt(modelId, retriesLeft, delayMs, hfRetried + 1), 15000);
         } : null;
 
-        sendToProvider(pUrl, key, oaiReq, stream, res, hasTools ? retryWithoutTools : null, on429, on402, on5xx);
+        sendToProvider(pUrl, key, oaiReq, stream, res, hasTools ? retryWithoutTools : null, on429, on402, on5xx, usageInTok);
     }
 
     attempt(baseModel, 3, 2, 0);
@@ -2956,7 +2956,7 @@ function postOai(baseUrl, apiKey, reqObj) {
     });
 }
 
-function sendToProvider(baseUrl, apiKey, oaiReq, stream, res, onBadRequest, on429, on402, on5xx) {
+function sendToProvider(baseUrl, apiKey, oaiReq, stream, res, onBadRequest, on429, on402, on5xx, usageInTok) {
     let targetUrl;
     try {
         const base = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
@@ -2972,6 +2972,10 @@ function sendToProvider(baseUrl, apiKey, oaiReq, stream, res, onBadRequest, on42
     if (oaiReq.__deferCatalog) delete oaiReq.__deferCatalog;
 
     const body    = JSON.stringify(oaiReq);
+    // usageInTok is the input-token estimate (live token chip + usage meter). It
+    // lives in handleProxyRequest's scope; callers pass it in. Default from the
+    // body so a missing arg can never ReferenceError mid-stream (b113 crash).
+    if (typeof usageInTok !== 'number') usageInTok = Math.ceil(body.length / 3.5);
     const lib     = targetUrl.protocol === 'https:' ? https : http;
     const port    = targetUrl.port || (targetUrl.protocol === 'https:' ? 443 : 80);
     const headers = {
@@ -3194,7 +3198,7 @@ function sendToProvider(baseUrl, apiKey, oaiReq, stream, res, onBadRequest, on42
                 outTokens = outTok;
                 try { emitLiveTokens(true); } catch (_) {}
                 // Usage meter: provider's real input count when present, else estimate.
-                try { USAGE.record(pUrl, oaiReq.model, (providerUsage && (providerUsage.prompt_tokens || providerUsage.input_tokens)) || usageInTok, outTok); } catch (_) {}
+                try { USAGE.record(baseUrl, oaiReq.model, (providerUsage && (providerUsage.prompt_tokens || providerUsage.input_tokens)) || usageInTok, outTok); } catch (_) {}
             }
 
             function ensureOpened() {
