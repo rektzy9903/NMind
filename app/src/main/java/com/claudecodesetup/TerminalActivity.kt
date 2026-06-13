@@ -1,11 +1,13 @@
 package com.claudecodesetup
 
+import android.Manifest
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
+import android.content.pm.PackageManager
 import android.content.res.ColorStateList
 import android.graphics.Bitmap
 import android.graphics.Color
@@ -30,6 +32,8 @@ import android.widget.Button
 import android.widget.ScrollView
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.claudecodesetup.data.AppPreferences
 import com.claudecodesetup.databinding.ActivityTerminalBinding
@@ -66,6 +70,7 @@ class TerminalActivity : AppCompatActivity() {
 
     companion object {
         private const val REQUEST_IMAGE = 1002
+        private const val REQUEST_AUDIO_PERM = 1003
         const val EXTRA_PROJECT_PATH = "project_path"
     }
 
@@ -829,8 +834,18 @@ class TerminalActivity : AppCompatActivity() {
     private var speechRecognizer: SpeechRecognizer? = null
 
     private fun startVoiceInput() {
+        // RECORD_AUDIO is a runtime (dangerous) permission. Declared in the manifest
+        // is NOT enough — until the user grants it, SpeechRecognizer.startListening()
+        // fires onError(ERROR_INSUFFICIENT_PERMISSIONS) instantly, every time. Request
+        // it first; onRequestPermissionsResult re-invokes this once granted.
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+            != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(
+                this, arrayOf(Manifest.permission.RECORD_AUDIO), REQUEST_AUDIO_PERM)
+            return
+        }
         if (!SpeechRecognizer.isRecognitionAvailable(this)) {
-            android.widget.Toast.makeText(this, "Voice recognition not available", android.widget.Toast.LENGTH_SHORT).show()
+            android.widget.Toast.makeText(this, "Voice recognition not available on this device", android.widget.Toast.LENGTH_SHORT).show()
             return
         }
         speechRecognizer?.destroy()
@@ -844,7 +859,21 @@ class TerminalActivity : AppCompatActivity() {
             override fun onPartialResults(p: android.os.Bundle?) {}
             override fun onEvent(t: Int, p: android.os.Bundle?) {}
             override fun onError(error: Int) {
-                android.widget.Toast.makeText(this@TerminalActivity, "Voice error — try again", android.widget.Toast.LENGTH_SHORT).show()
+                // Map the code to something actionable — "Voice error" hid the real
+                // cause (almost always a missing mic permission or no speech).
+                val msg = when (error) {
+                    SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS ->
+                        "Microphone permission denied — enable it in Settings → Apps → Nexus-Mind"
+                    SpeechRecognizer.ERROR_NO_MATCH,
+                    SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "Didn't catch that — try again"
+                    SpeechRecognizer.ERROR_NETWORK,
+                    SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "Voice needs a network connection"
+                    SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "Recognizer busy — tap again"
+                    SpeechRecognizer.ERROR_AUDIO -> "Microphone audio error"
+                    SpeechRecognizer.ERROR_CLIENT -> "Voice cancelled"
+                    else -> "Voice error ($error) — try again"
+                }
+                android.widget.Toast.makeText(this@TerminalActivity, msg, android.widget.Toast.LENGTH_SHORT).show()
             }
             override fun onResults(results: android.os.Bundle?) {
                 val text = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull() ?: return
@@ -860,6 +889,21 @@ class TerminalActivity : AppCompatActivity() {
             putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, packageName)
         }
         speechRecognizer?.startListening(intent)
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int, permissions: Array<out String>, grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQUEST_AUDIO_PERM) {
+            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                startVoiceInput()   // permission just granted — start listening now
+            } else {
+                android.widget.Toast.makeText(
+                    this, "Microphone permission is needed for voice input",
+                    android.widget.Toast.LENGTH_SHORT).show()
+            }
+        }
     }
 
     @Deprecated("Deprecated in Java")
