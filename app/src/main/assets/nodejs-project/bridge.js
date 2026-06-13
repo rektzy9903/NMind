@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b115-ubuntu-input-diag';
+const BRIDGE_BUILD = 'b116-aptshim-rp-fix+ubuntu-diag';
 
 const net   = require('net');
 const http  = require('http');
@@ -7619,6 +7619,10 @@ function openPrintSession() {
             // old (extract) and new (real apt) proot, no toggle. Escape hatch:
             // NEXUS_APT_PASSTHROUGH=1 forces the real apt.
             try {
+                // rp was const-scoped to the resolv/apt-seed try block above → it was
+                // NOT visible here, so this whole shim threw "rp is not defined" and was
+                // never installed (b115 fix). Re-derive the rootfs path locally.
+                const rp = path.join(FILES_DIR, 'ubuntu');
                 const localBin = path.join(rp, 'usr', 'local', 'bin');
                 try { fs.mkdirSync(localBin, { recursive: true }); } catch (_) {}
                 const aptShim = [
