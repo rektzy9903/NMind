@@ -83,6 +83,21 @@ html, body {
 #msgs::-webkit-scrollbar-track { background: transparent; }
 #msgs::-webkit-scrollbar-thumb { background: rgba(255,140,66,0.28); border-radius: 2px; }
 
+/* ── Scroll-to-bottom pill (#5) — appears only when user scrolls up ───────── */
+#scroll-btn{
+  position:fixed; right:14px; bottom:70px; z-index:92;
+  width:38px; height:38px; border-radius:19px;
+  display:none; align-items:center; justify-content:center;
+  background:rgba(20,20,24,0.92); color:#FF8C42;
+  border:1px solid rgba(255,140,66,0.45);
+  box-shadow:0 4px 16px rgba(0,0,0,0.5);
+  backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px);
+  cursor:pointer; font-size:18px; line-height:1;
+  transition:opacity .15s, transform .12s;
+}
+#scroll-btn:active{ transform:scale(0.92); }
+#scroll-btn.show{ display:flex; }
+
 /* ── Message rows ────────────────────────────────────────────────────────── */
 .msg-row {
   display: flex;
@@ -778,7 +793,7 @@ html, body {
    thin TOP STRIP uncovered so the WebView #mode-toggle (the single, shared 💬/🐧
    toggle) stays visible+tappable in BOTH modes — so #msgs is hidden too, leaving
    only the toggle on a clean black strip above the native terminal. */
-body.ubuntu-mode #input-bar,body.ubuntu-mode #ctx-bar-wrap,body.ubuntu-mode #mcp-chip,body.ubuntu-mode #mcp-popover,body.ubuntu-mode #agent-chip,body.ubuntu-mode #cwd-bar,body.ubuntu-mode #img-preview,body.ubuntu-mode #msgs{display:none !important;}
+body.ubuntu-mode #input-bar,body.ubuntu-mode #ctx-bar-wrap,body.ubuntu-mode #mcp-chip,body.ubuntu-mode #mcp-popover,body.ubuntu-mode #agent-chip,body.ubuntu-mode #cwd-bar,body.ubuntu-mode #img-preview,body.ubuntu-mode #msgs,body.ubuntu-mode #scroll-btn{display:none !important;}
 /* The unified toolbar stays visible in Ubuntu mode (it carries the terminal keys).
    Frosted glass ONLY here (scoped) so the warm #ubuntu-view gradient shows through
    the bottom bar instead of a flat opaque slab — and so chat-mode scroll never pays
@@ -817,6 +832,7 @@ body.ubuntu-mode .blob{animation:none !important;display:none !important;}
 
 <!-- Messages -->
 <div id="msgs"></div>
+<div id="scroll-btn" title="Jump to latest">↓</div>
 
 <!-- Thinking bubble (moved into #msgs when active) -->
 <div id="thinking-bubble">
@@ -1281,9 +1297,30 @@ function resetAiBubble(){
   aiBubbleHasContent=false;
 }
 
-function scrollToBottom(){
-  msgs.scrollTop = msgs.scrollHeight;
+// Sticky-bottom chat scroll (#5): auto-scroll only while the user is parked near
+// the bottom. Scrolling up to read scrollback (even mid-stream) sets stickToBottom
+// false so new chunks no longer yank the view down; a floating pill jumps back.
+let stickToBottom = true;
+const SCROLL_STICK_PX = 90;
+function updateScrollBtn(){
+  const btn = document.getElementById('scroll-btn');
+  if(!btn) return;
+  const dist = msgs.scrollHeight - msgs.scrollTop - msgs.clientHeight;
+  if(dist > SCROLL_STICK_PX && !document.body.classList.contains('ubuntu-mode')) btn.classList.add('show');
+  else btn.classList.remove('show');
 }
+function scrollToBottom(force){
+  if(force) stickToBottom = true;
+  if(stickToBottom) msgs.scrollTop = msgs.scrollHeight;
+  updateScrollBtn();
+}
+function jumpToBottom(){ stickToBottom = true; msgs.scrollTop = msgs.scrollHeight; updateScrollBtn(); }
+msgs.addEventListener('scroll', function(){
+  const dist = msgs.scrollHeight - msgs.scrollTop - msgs.clientHeight;
+  stickToBottom = dist <= SCROLL_STICK_PX;
+  updateScrollBtn();
+}, {passive:true});
+(function(){ const b=document.getElementById('scroll-btn'); if(b) b.addEventListener('click', jumpToBottom); })();
 
 // ── OSC handler ───────────────────────────────────────────────────────────────
 function resetToIdle(){
@@ -1461,7 +1498,7 @@ function addUserBubble(text, imgDataUrl){
   });
   row.appendChild(bub);
   msgs.appendChild(row);
-  scrollToBottom();
+  scrollToBottom(true);
 }
 
 // Terminal command bubble — right-aligned like user bubble but with green
