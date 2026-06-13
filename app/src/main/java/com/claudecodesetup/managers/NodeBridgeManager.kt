@@ -198,9 +198,15 @@ class NodeBridgeManager(private val context: Context) {
      *  If the provider or model changed, writes a history_clear flag so bridge.js
      *  resets --continue on the next spawn (avoids feeding old context to a new model). */
     fun refreshConfig(prefs: AppPreferences) {
-        val prevModel    = lastKnownModel
-        val prevProvider = lastKnownProvider
-        val newModel     = prefs.getModelId()
+        // Detect change against the PREVIOUSLY-WRITTEN config file, not instance
+        // fields. NodeBridgeManager is constructed fresh in several places
+        // (TerminalActivity.onResume, ProjectManagerActivity, …); instance fields
+        // reset to "" each time, so the old code NEVER saw a change → the
+        // history_clear_requested marker was never written → the warm proc kept the
+        // stale model/provider baked in until a full app restart. The config file
+        // survives across instances, so it's the correct source of truth.
+        val (prevModel, prevProvider) = readWrittenModelProvider()
+        val newModel     = RETIRED_MODEL_MAP.getOrDefault(prefs.getModelId(), prefs.getModelId())
         val newProvider  = prefs.getProviderId()
         lastKnownModel    = newModel
         lastKnownProvider = newProvider
@@ -208,7 +214,7 @@ class NodeBridgeManager(private val context: Context) {
         writeConfig(
             mode               = prefs.getLoginMode(),
             apiKey             = prefs.getApiKey(),
-            modelId            = newModel,
+            modelId            = prefs.getModelId(),
             baseUrl            = prefs.getBaseUrl(),
             providerId         = newProvider,
             projectPath        = prefs.getProjectPath(),
@@ -218,13 +224,25 @@ class NodeBridgeManager(private val context: Context) {
         writeDeviceContext()
         writeMcpConfig(prefs)
 
-        // Signal bridge to clear --continue history on next spawn when model/provider changed
+        // Signal bridge to clear --continue history + RESPAWN the warm proc on the
+        // next message when model/provider changed (bridge.js runMessage line ~5008
+        // kills the warm proc when this marker exists).
         val changed = (prevModel.isNotEmpty() && prevModel != newModel) ||
                       (prevProvider.isNotEmpty() && prevProvider != newProvider)
         if (changed) {
             try { java.io.File(context.filesDir, "history_clear_requested").createNewFile() } catch (_: Exception) {}
         }
     }
+
+    /** Read modelId/providerId from the config file written by the last writeConfig.
+     *  Empty pair when the file is missing/unparseable (first run → no change flag). */
+    private fun readWrittenModelProvider(): Pair<String, String> = try {
+        val f = File(context.filesDir, CONFIG_FILE)
+        if (!f.exists()) "" to "" else {
+            val o = JSONObject(f.readText())
+            o.optString("modelId", "") to o.optString("providerId", "")
+        }
+    } catch (_: Exception) { "" to "" }
 
     private var lastKnownModel:    String = ""
     private var lastKnownProvider: String = ""
