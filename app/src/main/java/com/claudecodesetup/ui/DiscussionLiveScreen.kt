@@ -79,14 +79,28 @@ fun DiscussionLiveScreen(
             ) {
                 Text("←", fontSize = 20.sp, color = NexusBlue,
                     modifier = Modifier.clickable(onClick = onBack))
-                AvatarStack(state)
+                // #8 — who's speaking right now (last STREAMING turn while running),
+                // used to ring the active avatar + name it in the subtitle.
+                val activeTurn = if (state.isRunning)
+                    state.turns.lastOrNull { it.status == TurnStatus.STREAMING && !it.isHuman } else null
+                AvatarStack(state, activeSpeakerId = activeTurn?.speakerId)
                 Column(modifier = Modifier.weight(1f)) {
                     Text(modeBadge(state.mode), fontFamily = SpaceMonoFamily, fontSize = 9.sp,
                         letterSpacing = 2.sp, fontWeight = FontWeight.SemiBold, color = NexusBlue)
-                    Text(
-                        state.speakers.joinToString(", ") { it.model.name },
-                        fontFamily = DmSansFamily, fontSize = 11.sp, color = NexusText3, maxLines = 1,
-                    )
+                    if (activeTurn != null) {
+                        val av = remember(activeTurn.speakerId) { speakerVisuals(activeTurn.speakerId) }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            PresenceDot(av.accent)
+                            Spacer(Modifier.width(5.dp))
+                            Text("${activeTurn.speakerLabel} is speaking…",
+                                fontFamily = DmSansFamily, fontSize = 11.sp, color = av.accent, maxLines = 1)
+                        }
+                    } else {
+                        Text(
+                            state.speakers.joinToString(", ") { it.model.name },
+                            fontFamily = DmSansFamily, fontSize = 11.sp, color = NexusText3, maxLines = 1,
+                        )
+                    }
                 }
                 if (state.isRunning) {
                     Button(
@@ -474,14 +488,12 @@ private fun ReviewReport(findings: List<ReviewFinding>) {
 private fun HumanInputBar(awaiting: Boolean, showPass: Boolean, onSend: (String) -> Unit, onPass: () -> Unit) {
     var text by remember { mutableStateOf("") }
     Column(modifier = Modifier.fillMaxWidth()) {
+        // #13 — a clear, prominent cue so the human never misses that the panel is
+        // waiting on them (SEAT) vs. the floor merely being open to interject.
         if (awaiting) {
-            Text("Your turn — the panel is waiting", fontFamily = SpaceMonoFamily,
-                fontSize = 10.sp, color = NexusAccent,
-                modifier = Modifier.padding(start = 14.dp, top = 6.dp, bottom = 2.dp))
+            TurnCue("YOUR TURN", "the panel is waiting for you", NexusAccent)
         } else if (showPass) {
-            Text("Floor is open — interject or pass", fontFamily = SpaceMonoFamily,
-                fontSize = 10.sp, color = NexusAccent,
-                modifier = Modifier.padding(start = 14.dp, top = 6.dp, bottom = 2.dp))
+            TurnCue("FLOOR OPEN", "interject now, or tap Pass to let the panel continue", NexusBlue)
         }
         ChatInputBar {
             ChatTextField(
@@ -504,6 +516,27 @@ private fun HumanInputBar(awaiting: Boolean, showPass: Boolean, onSend: (String)
                 )
             }
         }
+    }
+}
+
+// ── Prominent "it's your move" banner above the human input bar (#13) ───────
+@Composable
+private fun TurnCue(title: String, sub: String, accent: Color) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 14.dp, top = 8.dp, bottom = 2.dp)
+            .background(accent.copy(alpha = 0.12f), RoundedCornerShape(10.dp))
+            .border(1.dp, accent.copy(alpha = 0.40f), RoundedCornerShape(10.dp))
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        PresenceDot(accent)
+        Spacer(Modifier.width(8.dp))
+        Text(title, fontFamily = SpaceMonoFamily, fontSize = 11.sp, letterSpacing = 1.sp,
+            fontWeight = FontWeight.Bold, color = accent)
+        Spacer(Modifier.width(8.dp))
+        Text(sub, fontFamily = DmSansFamily, fontSize = 11.sp, color = NexusText2, maxLines = 1)
     }
 }
 
@@ -533,15 +566,40 @@ private fun SpeakerAvatar(iconResId: Int, accent: Color, initial: String, size: 
 }
 
 @Composable
-private fun AvatarStack(state: DiscussionState) {
+private fun AvatarStack(state: DiscussionState, activeSpeakerId: String? = null) {
+    val pulse = rememberInfiniteTransition(label = "avatar-pulse")
+    val ringA by pulse.animateFloat(
+        initialValue = 0.35f, targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(750), repeatMode = RepeatMode.Reverse),
+        label = "avatar-ring-alpha",
+    )
     Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
         state.speakers.take(4).forEach { sp ->
             val (accent, _) = providerDisplayInfo(sp.provider.id)
             val res = brandIconForModel(sp.model.modelId)
             val initial = sp.model.name.firstOrNull { it.isLetterOrDigit() }?.uppercaseChar()?.toString() ?: "?"
-            SpeakerAvatar(res, accent, initial, size = 26.dp)
+            val active = activeSpeakerId == sp.id
+            // The active speaker gets a pulsing brand-colour ring; others stay flat.
+            val ringMod = if (active)
+                Modifier.border(1.5.dp, accent.copy(alpha = ringA), RoundedCornerShape(9.dp)).padding(2.dp)
+            else Modifier
+            Box(modifier = ringMod) {
+                SpeakerAvatar(res, accent, initial, size = 26.dp)
+            }
         }
     }
+}
+
+// Small pulsing presence dot for the "now speaking" header line.
+@Composable
+private fun PresenceDot(color: Color) {
+    val t = rememberInfiniteTransition(label = "presence")
+    val a by t.animateFloat(
+        initialValue = 0.3f, targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(650), repeatMode = RepeatMode.Reverse),
+        label = "presence-alpha",
+    )
+    Box(modifier = Modifier.size(7.dp).alpha(a).background(color, CircleShape))
 }
 
 // ── Status pill (typing / failed / skipped / stopped) ───────────────────────
