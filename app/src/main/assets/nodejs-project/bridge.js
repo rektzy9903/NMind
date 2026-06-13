@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b114-usageInTok-scope-fix';
+const BRIDGE_BUILD = 'b115-ubuntu-input-diag';
 
 const net   = require('net');
 const http  = require('http');
@@ -7743,6 +7743,11 @@ function openPrintSession() {
         // Raw input relay: socket → bash stdin (libpty intercepts ESC 0xFE resize).
         socket.on('data', d => {
             const e2 = ubuntuPtys.get(sid);
+            // DIAG (b115): prove whether app→bridge keystrokes arrive. If pressing a key
+            // logs '[ubuntu-in]' the byte reached the bridge (problem is bridge→pty/echo);
+            // if NOTHING logs, the byte never left the app (Kotlin sendPty / native view).
+            log('[ubuntu-in] sid=' + sid + ' ' + d.length + 'b writable=' +
+                (e2 && e2.proc ? e2.proc.stdin.writable : 'noproc') + '\n');
             if (e2 && e2.proc && e2.proc.stdin.writable) { try { e2.proc.stdin.write(d); } catch(_) {} }
         });
         if (leftover && leftover.length) {
