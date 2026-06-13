@@ -215,6 +215,7 @@ fun UsageDashboardScreen(filesDir: File, onBack: () -> Unit) {
                         // in-out rate) — 2 columns on wide screens, 1 on mobile.
                         ChartGrid(rep)
                         ProviderListCard(rep)
+                        SubscriptionNote()
                     }
                 }
             }
@@ -492,6 +493,32 @@ private fun RequestPressureCard(rep: UsageReport) {
         }
         Spacer(Modifier.height(10.dp))
         Text(tip, fontSize = 10.sp, color = TxtMuted, fontFamily = SpaceMonoFamily, lineHeight = 14.sp)
+    }
+}
+
+/**
+ * #11 — Tells the user WHY a Claude/OAuth subscription session never appears here:
+ * subscription mode talks straight to api.anthropic.com and bypasses the proxy
+ * meter by design (inv 50/82). Without this, missing subscription usage reads as
+ * a bug rather than an architectural fact.
+ */
+@Composable
+private fun SubscriptionNote() {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(Sky.copy(alpha = 0.06f), RoundedCornerShape(12.dp))
+            .border(1.dp, Sky.copy(alpha = 0.20f), RoundedCornerShape(12.dp))
+            .padding(14.dp),
+        verticalAlignment = Alignment.Top
+    ) {
+        Box(Modifier.padding(top = 3.dp, end = 10.dp).size(7.dp).clip(RoundedCornerShape(4.dp)).background(Sky))
+        Text(
+            "Claude subscription (OAuth) sessions aren't shown — they connect straight to the " +
+                "Anthropic API and skip the proxy meter. Only API-key / proxy providers are counted here.",
+            fontSize = 10.sp, color = TxtMuted, fontFamily = SpaceMonoFamily, lineHeight = 14.sp
+        )
     }
 }
 
