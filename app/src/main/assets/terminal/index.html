@@ -768,8 +768,11 @@ html, body {
    the active tab are locked (greyed, unclickable). Ctrl glows amber when armed. */
 .tb-btn.tb-locked{opacity:.3;pointer-events:none;filter:grayscale(1);}
 .tb-btn.armed{background:#22FF8C42;border-color:#FF8C42;color:#FF8C42;box-shadow:0 0 8px rgba(255,140,66,.6);}
-/* When in Ubuntu mode, hide the chat-only chrome (the opaque #ubuntu-view covers #msgs). */
-body.ubuntu-mode #input-bar,body.ubuntu-mode #ctx-bar-wrap,body.ubuntu-mode #mcp-chip,body.ubuntu-mode #mcp-popover,body.ubuntu-mode #agent-chip,body.ubuntu-mode #cwd-bar,body.ubuntu-mode #img-preview{display:none !important;}
+/* When in Ubuntu mode, hide the chat-only chrome. The native overlay leaves a
+   thin TOP STRIP uncovered so the WebView #mode-toggle (the single, shared 💬/🐧
+   toggle) stays visible+tappable in BOTH modes — so #msgs is hidden too, leaving
+   only the toggle on a clean black strip above the native terminal. */
+body.ubuntu-mode #input-bar,body.ubuntu-mode #ctx-bar-wrap,body.ubuntu-mode #mcp-chip,body.ubuntu-mode #mcp-popover,body.ubuntu-mode #agent-chip,body.ubuntu-mode #cwd-bar,body.ubuntu-mode #img-preview,body.ubuntu-mode #msgs{display:none !important;}
 /* The unified toolbar stays visible in Ubuntu mode (it carries the terminal keys).
    Frosted glass ONLY here (scoped) so the warm #ubuntu-view gradient shows through
    the bottom bar instead of a flat opaque slab — and so chat-mode scroll never pays
@@ -3218,6 +3221,9 @@ reportTermSize();
     try {
       document.getElementById('mode-ubuntu').classList.toggle('active', ub);
       document.getElementById('mode-claude').classList.toggle('active', !ub);
+      // Drive the ubuntu-mode CSS (hides chat chrome + #msgs) so the top strip
+      // left uncovered by the native overlay shows only the shared 💬/🐧 toggle.
+      document.body.classList.toggle('ubuntu-mode', ub);
     } catch(_){}
   };
   function switchTo(mode){
