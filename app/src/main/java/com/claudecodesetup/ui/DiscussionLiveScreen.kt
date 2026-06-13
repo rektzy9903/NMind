@@ -18,7 +18,14 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.width
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.res.painterResource
@@ -239,13 +246,24 @@ private fun AiChatRow(turn: Turn, onCopy: () -> Unit) {
                 }
             }
             Spacer(Modifier.size(4.dp))
-            // Bubble — sharp top-left tail toward the avatar
+            // Bubble — sharp top-left tail toward the avatar, with a left-edge stripe
+            // + subtly tinted border in the speaker's brand colour so a 3–4 model
+            // debate is scannable at a glance (who's talking, without reading the name).
+            val bubbleShape = RoundedCornerShape(topStart = 4.dp, topEnd = 14.dp, bottomEnd = 14.dp, bottomStart = 14.dp)
             Column(
                 modifier = Modifier
-                    .background(Color(0xFF1E1E22),
-                        RoundedCornerShape(topStart = 4.dp, topEnd = 14.dp, bottomEnd = 14.dp, bottomStart = 14.dp))
-                    .border(1.dp, Color(0xFF2A2A30),
-                        RoundedCornerShape(topStart = 4.dp, topEnd = 14.dp, bottomEnd = 14.dp, bottomStart = 14.dp))
+                    .background(Color(0xFF1E1E22), bubbleShape)
+                    .border(1.dp, v.accent.copy(alpha = 0.22f), bubbleShape)
+                    .drawBehind {
+                        val sw = 3.dp.toPx()
+                        val pad = 5.dp.toPx()
+                        drawRoundRect(
+                            color = v.accent,
+                            topLeft = Offset(0f, pad),
+                            size = Size(sw, (size.height - pad * 2f).coerceAtLeast(0f)),
+                            cornerRadius = CornerRadius(sw / 2f),
+                        )
+                    }
                     .padding(horizontal = 13.dp, vertical = 10.dp),
             ) {
                 if (turn.text.isNotEmpty()) {
@@ -295,38 +313,84 @@ private fun HumanBubble(label: String, text: String) {
 // ── Concluding vote results ─────────────────────────────────────────────────
 @Composable
 private fun VoteResultsCard(state: DiscussionState) {
+    val total = (state.votesFor + state.votesAgainst + state.votesUndecided).coerceAtLeast(1)
+    val (winLabel, winColor, winSub) = when {
+        state.votesFor > state.votesAgainst    -> Triple("FOR", NexusGreen, "carries the vote")
+        state.votesAgainst > state.votesFor    -> Triple("AGAINST", Color(0xFFEF4444), "carries the vote")
+        else                                   -> Triple("DRAW", NexusAmber, "no clear majority")
+    }
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(NexusSurface, RoundedCornerShape(12.dp))
-            .border(1.dp, NexusBorder, RoundedCornerShape(12.dp))
-            .padding(14.dp),
+            .background(NexusSurface, RoundedCornerShape(14.dp))
+            .border(1.dp, winColor.copy(alpha = 0.40f), RoundedCornerShape(14.dp))
+            .padding(16.dp),
     ) {
-        Text("VOTE", fontFamily = SpaceMonoFamily, fontSize = 10.sp,
-            letterSpacing = 2.sp, fontWeight = FontWeight.SemiBold, color = NexusAccent)
+        Text("VERDICT", fontFamily = SpaceMonoFamily, fontSize = 10.sp,
+            letterSpacing = 2.sp, fontWeight = FontWeight.SemiBold, color = NexusText3)
         Spacer(Modifier.size(8.dp))
+        // Winner banner — the climax payoff.
+        Row(verticalAlignment = Alignment.Bottom) {
+            Text(winLabel, fontFamily = SyneFamily, fontSize = 28.sp,
+                fontWeight = FontWeight.ExtraBold, color = winColor)
+            Spacer(Modifier.size(8.dp))
+            Text(winSub, fontFamily = SpaceMonoFamily, fontSize = 11.sp, color = NexusText2,
+                modifier = Modifier.padding(bottom = 6.dp))
+        }
+        Spacer(Modifier.size(12.dp))
+        // Tally bars.
+        VoteTallyBar("FOR", state.votesFor, total, NexusGreen)
+        Spacer(Modifier.size(6.dp))
+        VoteTallyBar("AGAINST", state.votesAgainst, total, Color(0xFFEF4444))
+        Spacer(Modifier.size(6.dp))
+        VoteTallyBar("UNDECIDED", state.votesUndecided, total, NexusAmber)
+        Spacer(Modifier.size(12.dp))
+        Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(NexusBorder))
+        Spacer(Modifier.size(10.dp))
+        // Per-voter rows with the model's avatar.
         state.votes.forEach { vote ->
+            val vis = remember(vote.speakerId) { speakerVisuals(vote.speakerId) }
             val c = voteColor(vote.choice)
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 3.dp)) {
-                Box(modifier = Modifier.size(7.dp).background(c, CircleShape))
-                Spacer(Modifier.size(7.dp))
-                Text(vote.speakerLabel, fontFamily = SpaceMonoFamily, fontSize = 12.sp,
-                    color = NexusText, modifier = Modifier.weight(1f))
+            val initial = vote.speakerLabel.firstOrNull { it.isLetterOrDigit() }?.uppercaseChar()?.toString() ?: "?"
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
+                SpeakerAvatar(vis.iconResId, vis.accent, initial, size = 24.dp)
+                Spacer(Modifier.size(8.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(vote.speakerLabel, fontFamily = SpaceMonoFamily, fontSize = 12.sp, color = NexusText)
+                    if (vote.reason.isNotBlank()) {
+                        Text(vote.reason, fontFamily = SpaceMonoFamily, fontSize = 10.sp, color = NexusText2,
+                            lineHeight = 14.sp, maxLines = 2)
+                    }
+                }
+                Spacer(Modifier.size(8.dp))
                 Text(vote.choice.name, fontFamily = SpaceMonoFamily, fontSize = 11.sp,
                     fontWeight = FontWeight.Bold, color = c)
             }
-            if (vote.reason.isNotBlank()) {
-                Text(vote.reason, fontFamily = SpaceMonoFamily, fontSize = 11.sp, color = NexusText2,
-                    lineHeight = 16.sp, modifier = Modifier.padding(start = 14.dp, bottom = 4.dp))
-            }
         }
-        Spacer(Modifier.size(6.dp))
-        Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(NexusBorder))
-        Spacer(Modifier.size(6.dp))
-        Text(
-            "Result: ${state.votesFor} FOR · ${state.votesAgainst} AGAINST · ${state.votesUndecided} UNDECIDED",
-            fontFamily = SpaceMonoFamily, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = NexusText,
-        )
+    }
+}
+
+/** One horizontal tally bar for a vote bucket (FOR / AGAINST / UNDECIDED). */
+@Composable
+private fun VoteTallyBar(label: String, count: Int, total: Int, color: Color) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(label, fontFamily = SpaceMonoFamily, fontSize = 10.sp, color = NexusText2,
+            modifier = Modifier.width(82.dp))
+        Box(
+            modifier = Modifier.weight(1f).height(10.dp)
+                .clip(RoundedCornerShape(5.dp)).background(NexusSurface2)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(count.toFloat() / total)
+                    .fillMaxHeight()
+                    .clip(RoundedCornerShape(5.dp))
+                    .background(Brush.horizontalGradient(listOf(color.copy(alpha = 0.55f), color)))
+            )
+        }
+        Spacer(Modifier.size(8.dp))
+        Text("$count", fontFamily = SpaceMonoFamily, fontSize = 11.sp,
+            fontWeight = FontWeight.Bold, color = color, modifier = Modifier.width(16.dp))
     }
 }
 
