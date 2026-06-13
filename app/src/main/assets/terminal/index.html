@@ -1396,7 +1396,10 @@ msgs.addEventListener('scroll', function(){
 (function(){
   const es = document.getElementById('empty-state');
   if(!es) return;
-  function chatIsEmpty(){ return !msgs.querySelector(':scope > :not(#thinking-bubble)'); }
+  // A sys bubble (the per-session "📂 Project: … / New project session" banner,
+  // MCP status, etc.) is NOT real conversation — ignore .sys-row too, else that
+  // startup banner hides the empty state instantly (it only flashed ~0.1s). #b113
+  function chatIsEmpty(){ return !msgs.querySelector(':scope > :not(#thinking-bubble):not(.sys-row)'); }
   // Hidden by default. Only SHOW it once the chat has settled (snapshot restore
   // for an existing conversation runs slightly after load) AND only if the chat
   // is genuinely empty — otherwise it flashed over restored history for a frame.
