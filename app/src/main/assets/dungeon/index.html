@@ -691,7 +691,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd61-interstellar-s2';
+var DUNGEON_BUILD = 'd62-interstellar-s3';
 
 // ── Bridge ────────────────────────────────────────────────
 var A = (typeof DungeonAndroid !== 'undefined') ? DungeonAndroid : null;
@@ -1204,6 +1204,7 @@ function renderMonsters(){
       b._gEl=g; b._homeX=mx; b._homeY=my; svg.appendChild(g);
     });
   });
+  iwRefresh(); // bugs changed (scout find / kill) → rebuild the 3D fleet
 }
 function renderAgents(){
   svg.querySelectorAll('.agent-sprite').forEach(function(n){ n.remove(); });
@@ -1235,7 +1236,7 @@ var IW_MOON_TEX=['moon','io'];
 function iwSev(s){ s=String(s||'').toLowerCase();
   return s==='critical'?4 : (s==='major'||s==='high')?3 : (s==='minor'||s==='low')?1 : 2; }
 function iwConf(b){ return b.type==='boss'?'all' : b.type==='phantom'?'one' : 'maj'; }
-function iwBug(b){ return { conf:iwConf(b), sev:iwSev(b.severity), t:b.title||'contact', d:b.file||'' }; }
+function iwBug(b,rid){ return { conf:iwConf(b), sev:iwSev(b.severity), t:b.title||'contact', d:b.file||'', rid:rid, bid:b.id }; }
 function adaptRoomsToD(){
   var throne=rooms.find(function(r){ return r.type==='throne'; });
   var features=rooms.filter(function(r){ return r.type==='feature'; });
@@ -1244,16 +1245,17 @@ function adaptRoomsToD(){
   var D={ star:{ name:'★ '+activeName, tex:'sun', bugs:[] }, planets:[], decor:[] };
   // Earth = throne (home base, dispatch origin)
   D.planets.push({ name:'🌍 '+activeName+' — Home Base', tex:'earth', size:2.2, home:true, rid:'throne',
-    bugs:(throne?throne.bugs:[]).map(iwBug), moons:[] });
+    bugs:(throne?throne.bugs:[]).map(function(b){ return iwBug(b,'throne'); }), moons:[] });
   // feature folders → planets (first 8 use real planet textures, the rest get name-seeded procedural worlds)
   features.forEach(function(f,i){
     D.planets.push({
       name:f.name, rid:f.id,
       tex:(i<REAL_TEX.length ? REAL_TEX[i] : 'proc:'+f.name),
       size:1.3 + Math.min(1, f.bugs.length/6)*0.9,
-      bugs:f.bugs.map(iwBug),
+      bugs:f.bugs.map(function(b){ return iwBug(b,f.id); }),
       moons:subsOf(f.id).map(function(s,j){
-        return { name:s.name, rid:s.id, tex:IW_MOON_TEX[j%IW_MOON_TEX.length], bugs:s.bugs.map(iwBug) };
+        return { name:s.name, rid:s.id, tex:IW_MOON_TEX[j%IW_MOON_TEX.length],
+          bugs:s.bugs.map(function(b){ return iwBug(b,s.id); }) };
       })
     });
   });
@@ -1261,6 +1263,17 @@ function adaptRoomsToD(){
 }
 // 3D tap on a world → open the dungeon's room panel for that folder.
 window.dungeonOpenWorld=function(rid){ try{ if(rid) openRoomPanel(rid); }catch(_){} };
+// 3D tap on an enemy ship → deploy a battleship at that real bug (existing hero picker).
+window.dungeonDeployAt=function(rid,bid){ try{
+  var r=getRoom(rid); if(!r) return;
+  var bug=r.bugs.find(function(b){ return b.id===bid; }) || (r.bugs.length?r.bugs[0]:null);
+  openHeroPicker(rid, bug);
+}catch(_){} };
+// Debounced 3D rebuild — called whenever rooms[].bugs change (scout finds / kills) so the fleet stays in sync.
+var _iwRefreshT=null;
+function iwRefresh(){ if(!window.IW||!window.IW.buildSystem) return;
+  clearTimeout(_iwRefreshT);
+  _iwRefreshT=setTimeout(function(){ try{ window.IW.buildSystem(adaptRoomsToD()); }catch(e){ console.warn('[IW] refresh',e); } },120); }
 
 function enterDungeon(name,path){
   activePath=path; activeName=name;
@@ -3323,7 +3336,8 @@ renderer.domElement.addEventListener('pointerup',e=>{
   if(!hit){ unfocus(); hideInfo(); return; }            // tap empty → back to system view
   let o=hit.object;while(o&&!o.userData.info&&!o.userData.enemy)o=o.parent;
   if(!o){ unfocus(); hideInfo(); return; }
-  if(o.userData.enemy){const e2=o.userData.enemy;showInfo({name:'⚠ '+(e2.data.t),path:e2.data.host,bugs:[e2.data]});}
+  if(o.userData.enemy){const e2=o.userData.enemy;showInfo({name:'⚠ '+(e2.data.t),path:e2.data.host,bugs:[e2.data]});
+    if(window.dungeonDeployAt&&e2.data&&e2.data.rid)window.dungeonDeployAt(e2.data.rid,e2.data.bid);} // tap contact → deploy battleship
   else if(o.userData.info){
     showInfo(o.userData.info);
     if(o.userData.focusable) focusOn(o,o.userData.focusDist); else unfocus(); // sun → system view
