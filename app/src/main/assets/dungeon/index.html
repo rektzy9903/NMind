@@ -662,6 +662,7 @@
     <button class="pbtn" id="mapBackBtn">‹ Back</button>
     <button class="pbtn" id="agentsBtn">⚔ 0</button>
     <button class="pbtn" id="scoutBtn">📡 Recon</button>
+    <button class="pbtn" id="muteBtn" title="Mute mission-control voice">🔊</button>
     <div id="map-title">⚜ Dungeon</div>
   </div>
   <div id="dispatch-cards"><div id="scout-status"></div></div>
@@ -691,7 +692,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd62-interstellar-s3';
+var DUNGEON_BUILD = 'd63-interstellar-s4';
 
 // ── Bridge ────────────────────────────────────────────────
 var A = (typeof DungeonAndroid !== 'undefined') ? DungeonAndroid : null;
@@ -1274,6 +1275,9 @@ var _iwRefreshT=null;
 function iwRefresh(){ if(!window.IW||!window.IW.buildSystem) return;
   clearTimeout(_iwRefreshT);
   _iwRefreshT=setTimeout(function(){ try{ window.IW.buildSystem(adaptRoomsToD()); }catch(e){ console.warn('[IW] refresh',e); } },120); }
+// Voice — mission-control lines fired on real engine events (muteable via the top-bar button).
+var iwMuted=false;
+function iwSay(k){ if(iwMuted) return; try{ if(window.IW&&window.IW.say) window.IW.say(k); }catch(_){} }
 
 function enterDungeon(name,path){
   activePath=path; activeName=name;
@@ -1373,7 +1377,7 @@ function finishHeroDispatch(agent, roomId, bug, briefing){
     if(briefing.recentChanges)    hcParts.push('RECENT COMMITS:\n'+briefing.recentChanges.slice(0,400));
     heroContext = hcParts.join('\n');
   }
-  var sid=jDispatch(JSON.stringify({ op:'dispatch', cwd:room.path, persona:agent.body||'', task:task, heroContext:heroContext }));
+  var sid=jDispatch(JSON.stringify({ op:'dispatch', cwd:room.path, persona:agent.body||'', task:task, heroContext:heroContext })); iwSay('dispatch-battleship');
   dispatchJobs[sid]={ roomIds:[room.id], council:false, agent:agent };
   renderAgentsPanel();
   logEvent('⚔ '+agent.name+' sent on a quest '+(bug?('to slay "'+bug.title+'"'):('to '+room.name))+(briefing?' 📜':''), room);
@@ -1441,7 +1445,7 @@ function tick(now){
       var hid=currentRoomOf(a), room=hid&&getRoom(hid);
       if(room && room.bugs.length && room.id===a.destRoom){
         var bug=room.bugs[0]; bug.hp-=28*dt;
-        if(bug.hp<=0){ spawnParticles(bug._homeX,bug._homeY); room.bugs.shift(); renderMonsters(); updateRoomVisuals(); a.status='working'; a.task='Cleaning up'; renderAgentsPanel(); logEvent('⚔ '+a.name+' slew "'+bug.title+'" ('+(bug.severity||'bug')+')'+(bug.file?(' in '+bug.file):''), room); toast('💥 '+a.name+' slew '+bug.title); setTimeout(function(){ sendHome(a); },700); }
+        if(bug.hp<=0){ spawnParticles(bug._homeX,bug._homeY); room.bugs.shift(); renderMonsters(); updateRoomVisuals(); a.status='working'; a.task='Cleaning up'; renderAgentsPanel(); logEvent('⚔ '+a.name+' slew "'+bug.title+'" ('+(bug.severity||'bug')+')'+(bug.file?(' in '+bug.file):''), room); toast('💥 '+a.name+' slew '+bug.title); iwSay(rooms.reduce(function(s,r){return s+r.bugs.length;},0)===0?'sector-secured':'kill-confirmed'); setTimeout(function(){ sendHome(a); },700); }
         else {
           var hr=svg.querySelector('[data-hp="'+bug.id+'"]'), ht=svg.querySelector('[data-hptext="'+bug.id+'"]');
           if(hr) hr.setAttribute('width',Math.max(0,12*bug.hp/bug.maxHp));
@@ -1997,6 +2001,7 @@ function appendBugToLibrary(roomPath, title){
 }
 
 $('mapBackBtn').addEventListener('click', function(){ showScreen('home-screen'); renderHome(); });
+$('muteBtn').addEventListener('click', function(){ iwMuted=!iwMuted; $('muteBtn').textContent=iwMuted?'🔇':'🔊'; });
 
 // ── Scout sheet (Solo / War Council) — model picking mirrors Discussion ──
 var scoutRoom=null, scoutModels=[], scoutModelSel=[];   // sel = selected TAGGED ids "<prov>::<model>"
@@ -2169,7 +2174,7 @@ $('scout-begin').addEventListener('click', function(){
   var cwd = scope==='room' ? scoutRoom.path : activePath;
   var rootId = scope==='room' ? scoutRoom.id : 'throne';
   var ids = scope==='room' ? [scoutRoom.id] : rooms.map(function(r){ return r.id; });
-  var sid=jDispatch(JSON.stringify({ op:'scout', cwd:cwd, mode:'solo', model:(scoutModelSel[0]||''), graphContext:buildGraphContext(cwd) }));
+  var sid=jDispatch(JSON.stringify({ op:'scout', cwd:cwd, mode:'solo', model:(scoutModelSel[0]||''), graphContext:buildGraphContext(cwd) })); iwSay('launch-scout');
   dispatchJobs[sid]={ roomIds:ids, council:false, scout:true,
     cwd:cwd, rootId:rootId, members:1, models:[], findings:[] };
   startExpedition(sid, 'scout', rootId, 1);
@@ -2211,7 +2216,7 @@ function startRoamingCouncil(order, models){
                                 cardId:cardId, roomId:null, sid:null, seen:{}, done:false });
   }
   setScouting('⚖ War Council roaming ('+N+')…');
-  logEvent('⚖ War Council rides out — '+N+' knights roam '+order.length+' room(s), room by room');
+  logEvent('⚖ War Council rides out — '+N+' knights roam '+order.length+' room(s), room by room'); iwSay('council-convene');
   toast('⚖ War Council ('+N+') rides out — room by room');
   // Stagger the starting rooms so the knights fan out instead of dogpiling room 1.
   var step=Math.max(1, Math.floor(order.length/N));
@@ -2466,7 +2471,7 @@ function finalizeTribunal(trib){
   var ph=trib.list.filter(function(f){ return tribType(f)==='phantom'; }).length;
   rescanRooms(trib.roomIds);
   refreshTitle();
-  logEvent('👑 The King’s Verdict · '+trib.list.length+' foe(s): '+bosses+' 👑 Overlord, '+ph+' 👻 Wraith', trib.roomIds&&trib.roomIds[0]);
+  logEvent('👑 The King’s Verdict · '+trib.list.length+' foe(s): '+bosses+' 👑 Overlord, '+ph+' 👻 Wraith', trib.roomIds&&trib.roomIds[0]); iwSay('council-verdict');
   trib.list.forEach(function(f){ var ty=tribType(f); logEvent(tierIcon(ty)+' '+tierName(ty)+' — "'+f.title+'"'+(f.file?(' · '+f.file):'')+(f.support!=null?(' ('+f.support+'/'+f.total+' votes)'):''), roomForPath(f.file, activePath)); });
   toast('👑 Verdict sealed · '+trib.list.length+' foe(s) ('+bosses+' Overlord / '+ph+' Wraith)');
 }
@@ -2838,6 +2843,7 @@ window.onDungeonEvent=function(sid, line){
     return;
   }
   else if(ev.t==='bug'){
+    iwSay('enemy-detected');   // a contact surfaced (throttled in say())
     if(!heroId && ev.file) expRetarget(sid, ev.member, ev.file);   // a found bug → the model is in that room
     // divide: bucket per assigned room. consensus council: buffer for tribunal. solo: agent wrote library.md → ignore.
     if(job && job.divide) collectDivideFinding(job, ev.member, ev.file, ev.sev, ev.title);
