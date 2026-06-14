@@ -748,7 +748,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd70-interstellar-s6';
+var DUNGEON_BUILD = 'd71-interstellar-s7';
 
 // ── boot diagnostics: was referenced (window.__log) but never defined → all
 //    model-load reasons were silently dropped. Surface them to the #loading
@@ -2899,6 +2899,30 @@ import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 
 window.__moduleRan=true;
 window.__log && window.__log('[mod] three r'+THREE.REVISION+' (hybrid: 6 real models + procedural scene)');
+
+// ---- file:// fetch shim (WebView blocks fetch() of file: scheme → "Failed to fetch") ----
+// The page is served via loadDataWithBaseURL(file:///android_asset/dungeon/), so three.js r160's
+// FileLoader (Fetch API) can't load the bundled .glb / DRACO wasm. allowFileAccessFromFileURLs only
+// covers XHR — which IS permitted here — so reroute file: GETs through XHR and return a real Response.
+(function(){
+  const _fetch = window.fetch ? window.fetch.bind(window) : null;
+  window.fetch = function(input, init){
+    let raw = (typeof input==='string') ? input : (input && input.url) || String(input);
+    let abs; try{ abs = new URL(raw, document.baseURI).href; }catch(_){ abs = raw; }
+    if(abs.indexOf('file:')!==0) return _fetch ? _fetch(input,init) : Promise.reject(new TypeError('no fetch'));
+    return new Promise((resolve,reject)=>{
+      try{
+        const xhr=new XMLHttpRequest();
+        xhr.open('GET',abs,true); xhr.responseType='arraybuffer';
+        xhr.onload=()=>{ const buf=xhr.response;
+          if(buf) resolve(new Response(buf,{status:200,headers:{'Content-Type':'application/octet-stream'}}));
+          else reject(new TypeError('empty file: '+abs)); };
+        xhr.onerror=()=>reject(new TypeError('xhr error '+abs));
+        xhr.send();
+      }catch(e){ reject(new TypeError('xhr send '+(e&&e.message))); }
+    });
+  };
+})();
 
 // ============================================================ CURATED MODEL SET (one per class)
 // Smallest-per-class real model; cloned for every instance. Procedural fallback if any fails.
