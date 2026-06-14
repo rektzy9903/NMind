@@ -170,6 +170,25 @@
   }
   #world { position:absolute; left:50%; top:50%; transform-origin:0 0; will-change:transform; z-index:2; }
   svg.map { display:block; overflow:visible; }
+  /* ══ Interstellar 3D renderer ══ */
+  #map-screen { background:#05060a; }
+  #map-screen #c { position:absolute; inset:0; width:100%; height:100%; display:block; z-index:1; touch-action:none; }
+  #map-screen .iw-panel { position:absolute; z-index:10; background:rgba(20,16,12,.55); backdrop-filter:blur(12px);
+    border:1px solid rgba(255,255,255,.14); border-radius:14px; padding:10px 12px; font-size:12px; color:#F0F0F2; }
+  #map-screen #hud { top:60px; left:10px; min-width:150px; line-height:1.55; }
+  #map-screen #hud b { color:#E8834A; }
+  #map-screen #fpsv { color:#3DD68C; font-weight:700; }
+  #map-screen #fpsv.warn { color:#FBBF24; } #map-screen #fpsv.bad { color:#F87171; }
+  #map-screen .iw-lbl { color:#9090A0; font-size:10px; text-transform:uppercase; letter-spacing:.08em; }
+  #map-screen #info { bottom:64px; left:50%; transform:translateX(-50%); width:min(86vw,360px); display:none; }
+  #map-screen #info h3 { margin:0 0 4px; font-size:14px; }
+  #map-screen #info .p { color:#9090A0; font-family:monospace; font-size:11px; }
+  #map-screen #info .mon { border-left:2px solid rgba(255,255,255,.14); padding-left:8px; margin:6px 0; font-size:12px; }
+  #map-screen #info .x { position:absolute; top:6px; right:10px; color:#9090A0; cursor:pointer; font-size:16px; }
+  #map-screen #loading { position:absolute; inset:0; z-index:20; display:flex; align-items:center; justify-content:center;
+    background:#05060a; color:#E8834A; font:12px/1.5 monospace; white-space:pre-wrap; padding:20px; overflow:auto; }
+  #map-screen #err { position:absolute; inset:0; z-index:40; display:none; align-items:center; justify-content:center;
+    padding:30px; text-align:center; color:#F87171; font-size:13px; background:#05060a; }
 
   #topbar {
     position:fixed; top:0; left:0; right:0; padding:10px;
@@ -606,9 +625,15 @@
 
 <!-- ══ MAP SCREEN ══ -->
 <div id="map-screen" class="screen">
-  <div id="stage">
-    <div id="world"><svg class="map" id="svgMap" width="400" height="500" viewBox="-200 -250 400 500"></svg></div>
+  <!-- ══ Interstellar 3D renderer (replaces the SVG map) ══ -->
+  <canvas id="c"></canvas>
+  <div id="loading">booting…</div>
+  <div id="err">WebGL failed to start on this device.</div>
+  <div class="iw-panel" id="hud">
+    <span class="iw-lbl">render</span><br><span id="fpsv">– fps</span><br>
+    <span class="iw-lbl">scene</span><br><b id="bodies">0</b> objects · <b id="contacts">0</b> contacts
   </div>
+  <div class="iw-panel" id="info"><span class="x" onclick="hideInfo()">×</span><div id="infobody"></div></div>
   <div id="topbar">
     <button class="pbtn" id="mapBackBtn">‹ Back</button>
     <button class="pbtn" id="agentsBtn">⚔ 0</button>
@@ -642,7 +667,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd59-deliberate-watchdog';
+var DUNGEON_BUILD = 'd60-interstellar-s1';
 
 // ── Bridge ────────────────────────────────────────────────
 var A = (typeof DungeonAndroid !== 'undefined') ? DungeonAndroid : null;
@@ -828,7 +853,10 @@ var rooms=[], agents=[];
 var graphState = { raw:null, scores:{}, cycles:[], dead:[], scanning:false, error:null };
 // Pass 6: structured report per room (keyed by room id)
 var roomReports = {};   // roomId → {purpose, danger, complexity, dependsOn, exposesTo}
-var svg=$('svgMap'), SVGNS='http://www.w3.org/2000/svg';
+var SVGNS='http://www.w3.org/2000/svg';
+// SVG renderer removed — `svg` is now a DETACHED scratch node so the legacy SVG calls
+// (spawnParticles, graph rings, el()) stay harmless/invisible; the 3D canvas is the only visual.
+var svg=document.createElementNS(SVGNS,'svg');
 function el(tag,attrs){ var e=document.createElementNS(SVGNS,tag); attrs=attrs||{}; for(var k in attrs) e.setAttribute(k,attrs[k]); return e; }
 function getRoom(id){ return rooms.find(function(r){ return r.id===id; }); }
 function isVisibleDir(e){ return e.isDir && e.name.charAt(0)!=='.'; }
@@ -1168,12 +1196,47 @@ function renderAgents(){
   });
 }
 function renderAll(){
-  while(svg.firstChild) svg.removeChild(svg.firstChild);
-  renderCorridors(); renderRooms(); renderMonsters(); renderAgents();
-  updateRoomVisuals();
+  // SVG renderer retired — drive the 3D interstellar scene from real rooms[]/bugs[]/agents[].
+  if(window.IW && window.IW.buildSystem){
+    try{ window.IW.buildSystem(adaptRoomsToD()); }
+    catch(e){ console.warn('[IW] buildSystem failed', e); }
+  }
   $('agentsBtn').textContent='⚔ '+agents.length;
   $('map-title').textContent='⚜ '+activeName;   // top-right = project name only
 }
+
+// ── Adapter: dungeon rooms[]/bugs[] → interstellar D{star,planets[],decor[]} ──
+// Sun = cosmetic (no contacts) · throne → Earth (home base) · feature rooms → planets · subrooms → moons.
+var IW_MOON_TEX=['moon','io'];
+function iwSev(s){ s=String(s||'').toLowerCase();
+  return s==='critical'?4 : (s==='major'||s==='high')?3 : (s==='minor'||s==='low')?1 : 2; }
+function iwConf(b){ return b.type==='boss'?'all' : b.type==='phantom'?'one' : 'maj'; }
+function iwBug(b){ return { conf:iwConf(b), sev:iwSev(b.severity), t:b.title||'contact', d:b.file||'' }; }
+function adaptRoomsToD(){
+  var throne=rooms.find(function(r){ return r.type==='throne'; });
+  var features=rooms.filter(function(r){ return r.type==='feature'; });
+  function subsOf(fid){ return rooms.filter(function(r){ return r.type==='subroom' && r.parent===fid; }); }
+  var REAL_TEX=['mercury','venus','mars','jupiter','saturn','neptune','uranus','pluto'];
+  var D={ star:{ name:'★ '+activeName, tex:'sun', bugs:[] }, planets:[], decor:[] };
+  // Earth = throne (home base, dispatch origin)
+  D.planets.push({ name:'🌍 '+activeName+' — Home Base', tex:'earth', size:2.2, home:true, rid:'throne',
+    bugs:(throne?throne.bugs:[]).map(iwBug), moons:[] });
+  // feature folders → planets (first 8 use real planet textures, the rest get name-seeded procedural worlds)
+  features.forEach(function(f,i){
+    D.planets.push({
+      name:f.name, rid:f.id,
+      tex:(i<REAL_TEX.length ? REAL_TEX[i] : 'proc:'+f.name),
+      size:1.3 + Math.min(1, f.bugs.length/6)*0.9,
+      bugs:f.bugs.map(iwBug),
+      moons:subsOf(f.id).map(function(s,j){
+        return { name:s.name, rid:s.id, tex:IW_MOON_TEX[j%IW_MOON_TEX.length], bugs:s.bugs.map(iwBug) };
+      })
+    });
+  });
+  return D;
+}
+// 3D tap on a world → open the dungeon's room panel for that folder.
+window.dungeonOpenWorld=function(rid){ try{ if(rid) openRoomPanel(rid); }catch(_){} };
 
 function enterDungeon(name,path){
   activePath=path; activeName=name;
@@ -1184,8 +1247,8 @@ function enterDungeon(name,path){
   renderAgentsPanel();
 }
 
-// ── Pan & zoom ──
-var world=$('world'), stage=$('stage');
+// ── Pan & zoom (legacy SVG — now inert; the 3D scene has its own OrbitControls) ──
+var world=document.createElement('div'), stage=document.createElement('div');
 var vw={x:0,y:0,scale:1};
 function fitToScreen(){
   var W=window.innerWidth, H=window.innerHeight;
@@ -2805,6 +2868,773 @@ function toast(msg){ toastEl.textContent=msg; toastEl.classList.add('show'); cle
 // ── Boot ──
 renderHome();
 })();
+</script>
+
+<!-- ══════════ Interstellar 3D renderer (transplanted from InterstellarWar-sim-hybrid) ══════════ -->
+<script type="importmap">
+{ "imports": {
+  "three":"./assets/three/build/three.module.js",
+  "three/addons/":"./assets/three/jsm/"
+}}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+
+window.__moduleRan=true;
+window.__log && window.__log('[mod] three r'+THREE.REVISION+' (hybrid: 6 real models + procedural scene)');
+
+// ============================================================ CURATED MODEL SET (one per class)
+// Smallest-per-class real model; cloned for every instance. Procedural fallback if any fails.
+// All optimized via gltf-transform (texture 512 + mesh simplify + draco). Whole fleet ≈ 21 MB.
+const CURATED={
+  scout1:'assets/opt/scout1.glb', scout2:'assets/opt/scout2.glb',
+  scout3:'assets/opt/scout3.glb', scout5:'assets/opt/scout5.glb',
+  hero1:'assets/opt/hero1.glb', hero2:'assets/opt/hero2.glb',
+  hero3:'assets/opt/hero3.glb', hero4:'assets/opt/hero4.glb',
+  flagship:'assets/opt/flagship.glb',
+  mothership:'assets/opt/mothership.glb',
+  warship:'assets/opt/warship.glb',
+  drone:'assets/opt/drone.glb',
+};
+const SCOUT_KEYS=['scout1','scout2','scout3','scout5']; // 4 distinct recon ships
+const HERO_KEYS =['hero1','hero2','hero3','hero4'];      // 4 distinct battleship models (reused + recoloured for >4 agents)
+const HERO_COUNT=6;                                      // squad size — bump freely; models cycle, colours come from AGENT_PALETTE
+
+// ============================================================ TEXTURES (optional)
+const A = { tex:{ earth:'assets/textures/earth.jpg', clouds:'assets/textures/earth_clouds.jpg',
+    mars:'assets/textures/mars.jpg', jupiter:'assets/textures/jupiter.jpg',
+    saturn:'assets/textures/saturn.jpg', saturnRing:'assets/textures/saturn_rings.png',
+    neptune:'assets/textures/neptune.jpg', venus:'assets/textures/venus.jpg',
+    mercury:'assets/textures/mercury.jpg', uranus:'assets/textures/uranus.jpg',
+    pluto:'assets/textures/pluto.jpg', moon:'assets/textures/moon.jpg',
+    io:'assets/textures/io.jpg', sun:'assets/textures/sun.jpg' } };
+const PCOL={sun:0xffcf6b,earth:0x3a7bd5,clouds:0xffffff,mars:0xc1440e,jupiter:0xd8ca9d,
+  saturn:0xe3d9a6,neptune:0x4f6cd8,venus:0xe6c073,mercury:0x9c9c9c,uranus:0x9fe3e0,
+  pluto:0xb8a890,moon:0xaaaaaa,io:0xe8d96b};
+
+// ============================================================ DATA — mock default; replaced by IW.buildSystem(realD)
+let D = {
+  star:{ name:'★ index.js (root)', tex:'sun', bugs:[
+    {conf:'all',sev:2,t:'Secret in logs',d:'logs jwtSecret when debug=true'},
+    {conf:'maj',sev:2,t:'No graceful shutdown',d:'FIXME process never drains'} ]},
+  planets:[
+    // real inner→outer order so Earth lands in the 3rd ring (Mercury, Venus, Earth, Mars, Jupiter, Saturn, Neptune)
+    {name:'utils',tex:'mercury',orbit:22,size:1.3,bugs:[
+      {conf:'one',sev:2,t:'Off-by-one',d:'for i<=n'},
+      {conf:'one',sev:1,t:'Dead code',d:'unreachable after return'}], moons:[]},
+    {name:'payments',tex:'venus',orbit:31,size:1.8,bugs:[
+      {conf:'maj',sev:3,t:'Float money math',d:'amount*0.029'},
+      {conf:'one',sev:2,t:'Global key (HACK)',d:'no per-tenant creds'}], moons:[]},
+    {name:'🌍 Earth — Home Base',tex:'earth',orbit:41,size:2.2,home:true,bugs:[],moons:[]},
+    {name:'config.js',tex:'mars',orbit:52,size:1.4,bugs:[
+      {conf:'all',sev:4,t:'Live Stripe key',d:'sk_live_ in source'},
+      {conf:'all',sev:4,t:'DB password',d:'admin123 in source'}], moons:[]},
+    {name:'api',tex:'jupiter',orbit:63,size:2.0,bugs:[
+      {conf:'all',sev:4,t:'Command injection',d:'exec(req.query.name)'}],
+      moons:[{name:'routes',tex:'moon',bugs:[{conf:'maj',sev:3,t:'SQL injection',d:'WHERE id=+param'}]}]},
+    {name:'auth',tex:'saturn',ring:true,orbit:74,size:1.9,bugs:[
+      {conf:'all',sev:4,t:'SQL injection',d:"name='+username"},
+      {conf:'maj',sev:4,t:'Plaintext password',d:'no hashing'}],
+      moons:[{name:'session',tex:'io',bugs:[{conf:'maj',sev:3,t:'Weak token',d:'Math.random()'}]}]},
+    {name:'db',tex:'neptune',orbit:85,size:1.7,bugs:[
+      {conf:'maj',sev:2,t:'Password to console',d:'logs DB_PASSWORD'},
+      {conf:'one',sev:2,t:'Circular dep',d:'connection⇄pool'}], moons:[]},
+  ],
+  decor:[{tex:'uranus',orbit:96,size:1.6},{tex:'pluto',orbit:106,size:0.9}],
+};
+// DEMO: extra folders to prove the map scales past the 9 real textures → seeded procedural planets.
+// (In the real port these are real folder names; each still gets its own orbit + revolves the sun.)
+['core','ui','models','services','hooks','tests','assets','scripts','types','middleware'].forEach(function(nm){
+  const r=rng(hashStr(nm+'x')),nb=Math.floor(r()*3),bugs=[];
+  for(let i=0;i<nb;i++){const sev=1+Math.floor(r()*4),conf=['all','maj','one'][Math.floor(r()*3)];
+    bugs.push({conf,sev,t:nm+' finding '+(i+1),d:'demo finding'});}
+  D.planets.push({name:nm,tex:'proc:'+nm,size:1.1+r()*0.7,bugs,moons:[]});
+});
+let PT = D.planets.map((p,i)=>i).filter(i=>!D.planets[i].home);
+const SEVCOL={4:0xF87171,3:0xFB923C,2:0xFBBF24,1:0x60A5FA};
+const CONF={all:'mothership',maj:'warship',one:'warship'};
+
+// ============================================================ THREE SETUP
+const errEl=document.getElementById('err');
+let renderer;
+try{ renderer=new THREE.WebGLRenderer({canvas:c,antialias:true}); window.__log&&window.__log('[mod] WebGL OK'); }
+catch(e){window.__log&&window.__log('WebGL FAILED: '+e.message,true);errEl.style.display='flex';throw e;}
+renderer.setPixelRatio(Math.min(devicePixelRatio,1.5)); // perf: 1.5 not 2 (huge fragment saving)
+renderer.setSize(innerWidth,innerHeight);
+const scene=new THREE.Scene();
+const camera=new THREE.PerspectiveCamera(55,innerWidth/innerHeight,0.1,2000);
+camera.position.set(0,105,235);
+const controls=new OrbitControls(camera,renderer.domElement);
+controls.enableDamping=true;controls.dampingFactor=.08;controls.maxDistance=700;controls.minDistance=8;
+// LOCK the camera to a fixed oblique tilt → only left/right spin (azimuth) + zoom; no up/down, no pan.
+controls.enablePan=false;
+{ const pol=Math.atan2(Math.hypot(camera.position.x,camera.position.z),camera.position.y);
+  controls.minPolarAngle=controls.maxPolarAngle=pol; }
+controls.touches={ONE:THREE.TOUCH.ROTATE,TWO:THREE.TOUCH.DOLLY_PAN}; // 1-finger spin, 2-finger pinch-zoom
+// FOCUS system: tap a world → fly to it, zoom centers on IT; tap empty → back to the sun.
+const SYSTEM_DIST=camera.position.length(); // ~230, the whole-system view distance
+let focusObj=null, camTween=null;
+function flyDist(to,dur){ camTween={from:camera.position.distanceTo(controls.target),to,t:0,dur:dur||.6}; }
+function focusOn(obj,dist){ focusObj=obj; flyDist(dist,.6); }
+function unfocus(){ if(!focusObj&&!camTween)return; focusObj=null; flyDist(SYSTEM_DIST,.7); }
+{const _a=new THREE.AmbientLight(0x556070,.9);_a.userData.__keep=1;scene.add(_a);}
+{const _h=new THREE.HemisphereLight(0x6680aa,0x101018,.45);_h.userData.__keep=1;scene.add(_h);} // soft fill
+const sun=new THREE.PointLight(0xfff0d0,3.2,0);sun.position.set(0,0,0);sun.userData.__keep=1;scene.add(sun);
+// ENVIRONMENT MAP — metallic ship materials (e.g. mothership "Metallic_Red") reflect this.
+// Without it, pure-metal PBR surfaces render BLACK (metals show reflections, not diffuse light).
+{ const pmrem=new THREE.PMREMGenerator(renderer);
+  const ec=document.createElement('canvas');ec.width=128;ec.height=64;const ex=ec.getContext('2d');
+  const g=ex.createLinearGradient(0,0,0,64); // sky-ish gradient gives metals form
+  g.addColorStop(0,'#9aa3b8');g.addColorStop(.45,'#2a2e3a');g.addColorStop(1,'#0a0c12');
+  ex.fillStyle=g;ex.fillRect(0,0,128,64);
+  const rg=ex.createRadialGradient(64,38,2,64,38,34); // warm sun highlight
+  rg.addColorStop(0,'rgba(255,222,150,.95)');rg.addColorStop(1,'rgba(255,222,150,0)');
+  ex.fillStyle=rg;ex.fillRect(0,0,128,64);
+  const eq=new THREE.CanvasTexture(ec);eq.mapping=THREE.EquirectangularReflectionMapping;
+  scene.environment=pmrem.fromEquirectangular(eq).texture;
+  eq.dispose();pmrem.dispose(); }
+
+const texLoader=new THREE.TextureLoader();
+const gltf=new GLTFLoader();
+const draco=new DRACOLoader();draco.setDecoderPath('assets/draco/');gltf.setDRACOLoader(draco);
+const SPH=new THREE.SphereGeometry(1,32,32);
+
+// ---- shared geometries for procedural FALLBACK ships ----
+const G={cone:new THREE.ConeGeometry(.35,1.3,6),fin:new THREE.BoxGeometry(1.1,.06,.4),
+  wedge:new THREE.CylinderGeometry(0,.55,1.6,4),wing:new THREE.BoxGeometry(1.4,.08,.5),
+  ico:new THREE.IcosahedronGeometry(1,0),icoBig:new THREE.IcosahedronGeometry(1.4,0),
+  octa:new THREE.OctahedronGeometry(.5,0),tetra:new THREE.TetrahedronGeometry(.8),
+  torus:new THREE.TorusGeometry(1.1,.08,8,20),panel:new THREE.BoxGeometry(1.2,.05,.5),box:new THREE.BoxGeometry(.7,.7,.7)};
+function smat(c,emi){return new THREE.MeshStandardMaterial({color:c,emissive:c,
+  emissiveIntensity:emi==null?.4:emi,roughness:.45,metalness:.3,flatShading:true});}
+function makeProc(kind,color){
+  const g=new THREE.Group();
+  if(kind==='scout'){const b=new THREE.Mesh(G.cone,smat(color));b.rotation.x=Math.PI/2;const f=new THREE.Mesh(G.fin,smat(color));f.position.z=.2;g.add(b,f);}
+  else if(kind==='hero'){const h=new THREE.Mesh(G.wedge,smat(color));h.rotation.x=Math.PI/2;const w=new THREE.Mesh(G.wing,smat(color));g.add(h,w);}
+  else if(kind==='flagship'){const core=new THREE.Mesh(G.ico,smat(color,.5));const ring=new THREE.Mesh(G.torus,smat(color,.3));ring.rotation.x=Math.PI/2;g.add(core,ring);}
+  else if(kind==='mothership'){const core=new THREE.Mesh(G.ico,smat(color,.55));const sp=new THREE.Mesh(G.icoBig,new THREE.MeshStandardMaterial({color,emissive:color,emissiveIntensity:.3,wireframe:true}));g.add(core,sp);}
+  else if(kind==='warship'){g.add(new THREE.Mesh(G.tetra,smat(color,.55)));}
+  else if(kind==='drone'){const b=new THREE.Mesh(G.octa,smat(color,.25));const p=new THREE.Mesh(G.panel,smat(0x8899bb,.1));g.add(b,p);}
+  else g.add(new THREE.Mesh(G.box,smat(color)));
+  const w=new THREE.Group();w.add(g);return w; // wrap to match normalized-GLB structure
+}
+
+// ---- model preload: load each curated GLB once → normalized unit template (or null=procedural) ----
+const MODELS={};
+let dAct=0;const DMAX=3;const dQ=[];
+function dSlot(){return new Promise(r=>{if(dAct<DMAX){dAct++;r();}else dQ.push(r);});}
+function dRel(){dAct=Math.max(0,dAct-1);if(dQ.length){dAct++;dQ.shift()();}}
+function normalize(obj,target){
+  const box=new THREE.Box3().setFromObject(obj);const s=new THREE.Vector3();box.getSize(s);
+  const k=target/(Math.max(s.x,s.y,s.z)||1);obj.scale.setScalar(k);
+  const c2=new THREE.Vector3();box.getCenter(c2);obj.position.sub(c2.multiplyScalar(k));
+  const w=new THREE.Group();w.add(obj);return w;
+}
+function loadTemplate(key,path){
+  return new Promise(res=>{ dSlot().then(()=>{
+    let done=false,to;
+    const fin=()=>{if(done)return false;done=true;clearTimeout(to);dRel();return true;};
+    const fail=why=>{if(!fin())return;MODELS[key]=null;window.__log&&window.__log('[model] '+key+' → procedural ('+why+')');res();};
+    to=setTimeout(()=>fail('timeout'),15000);
+    gltf.load(path, g=>{ if(!fin())return; MODELS[key]=normalize(g.scene,1.0);
+      window.__log&&window.__log('[model] '+key+' ✓'); res(); }, undefined, e=>fail((e&&e.message)||'err'));
+  });});
+}
+// procedural fallback maps variant key → base kind (scout1→scout, hero3→hero, …)
+function getShip(key,color){ return MODELS[key]?MODELS[key].clone(true):makeProc(key.replace(/[0-9]/g,''),color); }
+// distinct per-agent hues so any number of battleships reuse the SAME model but read apart at a glance
+const AGENT_PALETTE=[0x3DD68C,0x60A5FA,0xFBBF24,0xE8834A,0xC084FC,0x2DD4BF,0xF472B6,0xF87171];
+// recolour a cloned ship in place (clone the shared material first, else we tint every instance)
+function tintShip(obj,color){const c=new THREE.Color(color);obj.traverse(o=>{if(!o.material)return;
+  const setc=m=>{const mm=m.clone();if(mm.color)mm.color.copy(c);if('emissive'in mm){mm.emissive.copy(c);mm.emissiveIntensity=.35;}return mm;};
+  o.material=Array.isArray(o.material)?o.material.map(setc):setc(o.material);});}
+
+// ---- glow halo (procedural) ----
+function glowTex(){const cv=document.createElement('canvas');cv.width=cv.height=128;const x=cv.getContext('2d');
+  const gr=x.createRadialGradient(64,64,0,64,64,64);gr.addColorStop(0,'rgba(255,255,255,1)');
+  gr.addColorStop(.3,'rgba(255,210,150,.6)');gr.addColorStop(1,'rgba(255,170,90,0)');
+  x.fillStyle=gr;x.fillRect(0,0,128,128);return new THREE.CanvasTexture(cv);}
+const GLOW=glowTex();
+function halo(color,size,op){const s=new THREE.Sprite(new THREE.SpriteMaterial({map:GLOW,color,
+  transparent:true,opacity:op,depthWrite:false,blending:THREE.AdditiveBlending}));s.scale.setScalar(size);return s;}
+
+// ---- procedural starfield ----
+let skyMesh=null;const SKYTINT=[0xffffff,0xbcd0ff,0xffe0b0];let skyTintIdx=0;
+function buildSky(tintIdx){
+  if(skyMesh){scene.remove(skyMesh);skyMesh.geometry.dispose();skyMesh.material.dispose();}
+  const N=1600,pos=new Float32Array(N*3);
+  for(let i=0;i<N;i++){const r=620+Math.random()*320,th=Math.random()*6.283,ph=Math.acos(2*Math.random()-1);
+    pos[i*3]=r*Math.sin(ph)*Math.cos(th);pos[i*3+1]=r*Math.cos(ph);pos[i*3+2]=r*Math.sin(ph)*Math.sin(th);}
+  const geo=new THREE.BufferGeometry();geo.setAttribute('position',new THREE.BufferAttribute(pos,3));
+  skyMesh=new THREE.Points(geo,new THREE.PointsMaterial({color:SKYTINT[tintIdx%SKYTINT.length],
+    size:1.7,sizeAttenuation:true,transparent:true,opacity:.9}));
+  scene.add(skyMesh);
+}
+
+// ---- procedural banded gas-giant texture (replaces the crushed 8-46KB jpgs) ----
+const PROCGEN={
+  saturn:['#e8d8a8','#d8c890','#f2e6ba','#cdbb80','#e0d09a','#f0e6c0'],
+  neptune:['#3a5fd0','#4f74e0','#2e4fb0','#6a8cf0','#3f63d8','#5a7ce8'],
+  uranus:['#a8e0e0','#c4eeee','#90d2d2','#d4f2f2','#9fdada','#bfeaea'],
+};
+function gasTex(stops){
+  const cv=document.createElement('canvas');cv.width=256;cv.height=128;const x=cv.getContext('2d');
+  for(let y=0;y<128;y++){ // latitude bands via layered sines → no hard repeats
+    const n=Math.sin(y*0.16)+0.4*Math.sin(y*0.47+1.3)+0.22*Math.sin(y*1.05+0.6);
+    const idx=Math.round(((n/1.62)*0.5+0.5)*(stops.length-1));
+    x.fillStyle=stops[Math.max(0,Math.min(stops.length-1,idx))];x.fillRect(0,y,256,1);
+  }
+  x.globalAlpha=0.05; // faint swirl streaks
+  for(let i=0;i<50;i++){const yy=Math.random()*128;x.fillStyle=Math.random()<.5?'#ffffff':'#000000';x.fillRect(0,yy,256,1+Math.random()*2);}
+  x.globalAlpha=1;
+  const t=new THREE.CanvasTexture(cv);t.wrapS=THREE.RepeatWrapping;return t;
+}
+// ---- STABLE procedural planets: unlimited distinct worlds seeded by folder NAME (no assets) ----
+function hashStr(s){let h=2166136261;for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619);}return h>>>0;}
+function rng(seed){let x=seed||1;return()=>{x^=x<<13;x^=x>>>17;x^=x<<5;return (x>>>0)/4294967296;};}
+function hslHex(h,s,l){s/=100;l/=100;const c=(1-Math.abs(2*l-1))*s,x=c*(1-Math.abs((h/60)%2-1)),m=l-c/2;
+  let r,g,b;if(h<60){r=c;g=x;b=0;}else if(h<120){r=x;g=c;b=0;}else if(h<180){r=0;g=c;b=x;}
+  else if(h<240){r=0;g=x;b=c;}else if(h<300){r=x;g=0;b=c;}else{r=c;g=0;b=x;}
+  const to=v=>('0'+Math.round((v+m)*255).toString(16)).slice(-2);return '#'+to(r)+to(g)+to(b);}
+function paletteFromHash(h){const r=rng(h),base=h%360,arr=[];
+  for(let i=0;i<6;i++){const hue=(base+(r()-.5)*50+360)%360,sat=35+r()*45,lig=Math.max(14,Math.min(82,30+i/5*45+(r()-.5)*8));
+    arr.push(hslHex(hue,sat,lig));}return arr;}
+function rockyTex(h){const r=rng(h),pal=paletteFromHash(h);
+  const cv=document.createElement('canvas');cv.width=256;cv.height=128;const x=cv.getContext('2d');
+  x.fillStyle=pal[1];x.fillRect(0,0,256,128);
+  for(let i=0;i<170;i++){x.fillStyle=pal[Math.floor(r()*pal.length)];x.globalAlpha=.12+r()*.25;
+    x.beginPath();x.arc(r()*256,r()*128,2+r()*15,0,6.283);x.fill();}
+  x.globalAlpha=1;return new THREE.CanvasTexture(cv);}
+// seed determines look: ~1/3 rocky (mottled), ~2/3 gas (banded). Same name → same planet, always.
+function procPlanetTex(seed){const h=hashStr(seed);return (h%3===0)?rockyTex(h):gasTex(paletteFromHash(h));}
+// ---- planet (real texture · procedural gas-giant · or seeded procedural by name) ----
+function planetMesh(texKey,size,ring){
+  const mat=new THREE.MeshStandardMaterial({color:PCOL[texKey]||0x888888,roughness:1,metalness:0});
+  const m=new THREE.Mesh(SPH,mat);m.scale.setScalar(size);
+  if(texKey&&texKey.indexOf('proc:')===0){ mat.map=procPlanetTex(texKey.slice(5));mat.color.set(0xffffff); } // seeded by folder name
+  else if(PROCGEN[texKey]){ mat.map=gasTex(PROCGEN[texKey]);mat.color.set(0xffffff); }
+  else if(A.tex[texKey]) texLoader.load(A.tex[texKey],tx=>{mat.map=tx;mat.color.set(0xffffff);mat.needsUpdate=true;},undefined,()=>{});
+  if(ring){const rg=new THREE.RingGeometry(1.4,2.3,40);
+    const rm=new THREE.Mesh(rg,new THREE.MeshBasicMaterial({color:0xd9c9a0,side:THREE.DoubleSide,transparent:true,opacity:.7}));
+    rm.rotation.x=Math.PI/2.2;m.add(rm);
+    if(A.tex.saturnRing) texLoader.load(A.tex.saturnRing,tx=>{rm.material.map=tx;rm.material.color.set(0xffffff);rm.material.needsUpdate=true;},undefined,()=>{});}
+  return m;
+}
+
+// ============================================================ STATE
+const orbiters=[],enemies=[],scouts=[],heroSquad=[],dronesArr=[],clickTargets=[],worlds=[],houndsArr=[];
+let gravTethers=null; // built lazily on first "scan gravity"
+
+// ============================================================ VOICE — FRIDAY-style system AI (clean Lily, /voice/*.mp3)
+const VOICE={};
+['map-welcome','dispatch-battleship','launch-scout','launch-probe','enemy-detected',
+ 'engaging','kill-confirmed','sector-secured','return-base','council-convene','council-verdict']
+ .forEach(k=>{const a=new Audio('voice/'+k+'.mp3');a.preload='auto';a.volume=0.9;VOICE[k]=a;});
+let _voiceLast=0;
+function say(key,gap=300){ const a=VOICE[key]; if(!a) return;          // gap = min ms between lines so cues don't talk over each other
+  const now=performance.now(); if(now-_voiceLast<gap) return; _voiceLast=now;
+  try{ a.currentTime=0; const p=a.play(); if(p&&p.catch)p.catch(()=>{}); }catch(e){} }
+// Browser autoplay policy blocks audio before a user gesture → arm + deliver the welcome on first interaction.
+let _welcomed=false;
+function welcome(){ if(_welcomed) return; const a=VOICE['map-welcome']; if(!a) return;
+  const p=a.play(); if(p&&p.then) p.then(()=>{_welcomed=true;}).catch(()=>{}); else _welcomed=true; }
+addEventListener('pointerdown',welcome,{once:false});
+addEventListener('keydown',welcome,{once:false});
+let earthAnchor=null,homeShip=null,homeShipPivot=null; // homeShip = the mothership parked at Earth (also the council King)
+const tmpV=new THREE.Vector3(),ZERO=new THREE.Vector3();
+function flash(pos){const fl=halo(0xFBBF24,6,.9);fl.position.copy(pos);scene.add(fl);setTimeout(()=>scene.remove(fl),250);}
+// SCAN PULSE — expanding sonar ring emanating from a planet while a scout sweeps it (= dungeon scanRing)
+const scanPulses=[];
+const RING_GEO=new THREE.RingGeometry(0.6,0.95,40);
+function spawnScan(pos,base,color){
+  const ring=new THREE.Mesh(RING_GEO,new THREE.MeshBasicMaterial({color:color||0x3DD68C,transparent:true,
+    opacity:.75,side:THREE.DoubleSide,blending:THREE.AdditiveBlending,depthWrite:false}));
+  ring.position.copy(pos);ring.rotation.x=Math.PI/2; // lie flat in the orbital plane
+  scene.add(ring);scanPulses.push({ring,t:0,base:base||2});
+}
+// RISK red-aura (dependency risk → pulsing rim) + bug HP bars + fight tuning
+const riskAuras=[];
+const ENEMY_DPS=2.6; // hero damage/sec → a normal contact dies in ~1.2s
+function riskOf(bugs){let s=0;(bugs||[]).forEach(b=>{s+=({4:1,3:.6,2:.3,1:.12})[b.sev]||.2;});return Math.min(1,s/2);}
+function drawHp(cv,frac){const x=cv.getContext('2d');x.clearRect(0,0,64,12);
+  x.fillStyle='rgba(0,0,0,.6)';x.fillRect(0,0,64,12);
+  x.fillStyle=frac>.5?'#3DD68C':frac>.25?'#FBBF24':'#F87171';x.fillRect(2,2,60*Math.max(0,frac),8);}
+function makeHpBar(){const cv=document.createElement('canvas');cv.width=64;cv.height=12;drawHp(cv,1);
+  const tex=new THREE.CanvasTexture(cv);
+  const s=new THREE.Sprite(new THREE.SpriteMaterial({map:tex,transparent:true,depthTest:false,depthWrite:false}));
+  s.scale.set(3.4,.62,1);s.visible=false;return {bar:s,cv,tex};}
+function worldPos(o){o.getWorldPosition(tmpV);return tmpV.clone();}
+
+function spawnEnemiesAround(parent,anchorX,hostRadius,bugs,label){
+  bugs.forEach((b,i)=>{
+    const key=CONF[b.conf];
+    const sizeT=key==='mothership'?3.0:1.05; // mothership dwarfs the smaller contacts
+    const ship=getShip(key,0xF87171);
+    ship.scale.setScalar(sizeT);
+    // ORIGINAL model look — NO body tint at all. Severity is shown ONLY by the coloured halo (glow) below.
+    if(b.conf==='one') ship.traverse(o=>{if(o.material){o.material=o.material.clone();o.material.transparent=true;o.material.opacity=.45;}});
+    const op=new THREE.Group();op.position.x=anchorX;parent.add(op);
+    op.rotation.y=Math.random()*6.28;op.rotation.x=(Math.random()-.5)*.5;
+    const rad=hostRadius*(1.8+i*0.7);
+    ship.position.x=rad;
+    const h=halo(SEVCOL[b.sev],sizeT*1.7,b.conf==='all'?.5:.34);h.position.x=rad; // smaller/softer so the model shows through
+    op.add(ship);op.add(h);
+    const e={group:ship,pivot:op,data:Object.assign({host:label},b),alive:true,ghost:b.conf==='one'};
+    e.data.maxHp=key==='mothership'?5:(b.conf==='one'?2:3);e.data.hp=e.data.maxHp; // boss tougher
+    const hp=makeHpBar();hp.bar.position.set(rad,sizeT*1.7,0);op.add(hp.bar); // HP bar above the ship
+    e.hpBar=hp.bar;e.hpCanvas=hp.cv;e.hpTex=hp.tex;
+    enemies.push(e);clickTargets.push(ship);ship.userData.enemy=e;
+    orbiters.push({pivot:op,speed:.25+Math.random()*.2});
+  });
+}
+
+// ============================================================ BUILD (after preload → fast & instant)
+function build(){
+  window.__log&&window.__log('[mod] build()');
+  buildSky(0);
+
+  const sunMat=new THREE.MeshBasicMaterial({color:0xfff2d0});
+  const sunMesh=new THREE.Mesh(SPH,sunMat);sunMesh.scale.setScalar(4.5);scene.add(sunMesh);
+  if(A.tex.sun) texLoader.load(A.tex.sun,tx=>{sunMat.map=tx;sunMat.needsUpdate=true;},undefined,()=>{});
+  scene.add(halo(0xffd27a,15,.8)); // corona (kept small → less overdraw)
+  sunMesh.userData.info={name:D.star.name,bugs:D.star.bugs};clickTargets.push(sunMesh);
+  orbiters.push({pivot:sunMesh,speed:.04});
+  spawnEnemiesAround(scene,0,4.5,D.star.bugs,D.star.name);
+
+  // SHARED orbit rings — a FIXED set of rings; many folders share each ring (multiple planets on one ring, incl Earth's)
+  // ≤3 planets per ring → add rings as folder count grows (min 5 rings for a sensible inner system)
+  const NR=Math.max(5,Math.ceil(D.planets.length/3)), GOLD=2.39996;
+  const RING_R=[]; for(let i=0;i<NR;i++) RING_R.push(22+i*16);
+  const RING_SPD=RING_R.map((_,i)=>Math.max(0.02,0.14-i*0.018));
+  for(let ri=0;ri<NR;ri++){ const rr=RING_R[ri],rp=[]; // draw each guide ring ONCE (not per planet)
+    for(let i=0;i<=120;i++){const a=i/120*6.283;rp.push(new THREE.Vector3(Math.cos(a)*rr,0,Math.sin(a)*rr));}
+    scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(rp),new THREE.LineBasicMaterial({color:0x33445a,transparent:true,opacity:.3}))); }
+  D.planets.forEach((p,idx)=>{
+    const ri=idx%NR; p.orbit=RING_R[ri]; // folders share rings; same ring = same radius (Earth=ring 2 = 3rd)
+    const pivot=new THREE.Group();pivot.rotation.y=idx*GOLD;scene.add(pivot); // golden-angle = stable, even spread, no overlap
+    const planet=planetMesh(p.tex,p.size,p.ring);planet.position.x=p.orbit;
+    planet.userData.info={name:p.name,bugs:p.bugs,moons:(p.moons||[]).length,rid:p.rid};
+    planet.userData.focusable=true;planet.userData.focusDist=Math.max(13,p.size*8);
+    clickTargets.push(planet);
+    const rsk=riskOf(p.bugs); // high-risk folder → pulsing red rim (in the real port this comes from graphState.scores)
+    if(rsk>0.3){const ra=halo(rsk>0.6?0xF87171:0xFB923C,p.size*(4+rsk*3),0);planet.add(ra);riskAuras.push({s:ra,risk:rsk});}
+    worlds.push({mesh:planet,risk:rsk,home:!!p.home}); // gravity-map node + hound target
+    pivot.add(planet);orbiters.push({pivot,speed:RING_SPD[ri]}); // SAME speed per ring → shared-ring planets keep their spacing
+
+    if(p.home){
+      const anchor=new THREE.Group();anchor.position.x=p.orbit;pivot.add(anchor);earthAnchor=anchor;
+      planet.add(halo(0x60A5FA,p.size*4,.5));
+      const clouds=new THREE.Mesh(SPH,new THREE.MeshStandardMaterial({color:0xffffff,transparent:true,opacity:.18,depthWrite:false}));
+      clouds.scale.setScalar(1.05);planet.add(clouds);planet.userData.cloud=clouds;
+      if(A.tex.clouds) texLoader.load(A.tex.clouds,tx=>{clouds.material.map=tx;clouds.material.opacity=.5;clouds.material.needsUpdate=true;},undefined,()=>{});
+    }
+    (p.moons||[]).forEach((mn,j)=>{
+      const mp=new THREE.Group();mp.position.x=p.orbit;pivot.add(mp);mp.rotation.y=Math.random()*6.28;
+      const mdist=p.size*1.6+1.2+j;
+      const moon=planetMesh(mn.tex,0.5);moon.position.x=mdist;
+      moon.userData.info={name:p.name+'/'+mn.name,bugs:mn.bugs,moons:0,rid:mn.rid};
+      moon.userData.focusable=true;moon.userData.focusDist=9;clickTargets.push(moon);
+      mp.add(moon);orbiters.push({pivot:mp,speed:.5+j*.2});
+      spawnEnemiesAround(mp,mdist,0.7,mn.bugs,p.name+'/'+mn.name);
+    });
+    if(!p.home) spawnEnemiesAround(pivot,p.orbit,p.size,p.bugs,p.name);
+  });
+
+  const maxO=RING_R[RING_R.length-1]; // far worlds sit beyond the outermost ring
+  D.decor.forEach((d,i)=>{
+    d.orbit=maxO+11+i*10;
+    const pivot=new THREE.Group();pivot.rotation.y=Math.random()*6.28;scene.add(pivot);
+    const pl=planetMesh(d.tex,d.size);pl.position.x=d.orbit;pivot.add(pl);orbiters.push({pivot,speed:.04});
+  });
+
+  // FLEET
+  const flag=getShip('mothership',0x60A5FA);flag.scale.setScalar(3.0);flag.add(halo(0x60A5FA,5,.6)); // the lone mothership at Earth
+  const fp=new THREE.Group();flag.position.x=7;fp.add(flag); // no x-tilt → mothership stays upright (parked & as King)
+  earthAnchor.add(fp);orbiters.push({pivot:fp,speed:.5});
+  flag.userData.info={name:'🛡 Mothership',bugs:[]};clickTargets.push(flag);
+  homeShip=flag;homeShipPivot=fp;
+
+  const DRONE_N=5; // was 14 — fewer textured clones = lighter + far less clutter around Earth
+  for(let i=0;i<DRONE_N;i++){
+    const drone=getShip('drone',0xcfd8ff);drone.scale.setScalar(.65);
+    const pivot=new THREE.Group();pivot.rotation.y=i/DRONE_N*6.283;pivot.rotation.x=(Math.random()-.5)*.4;
+    drone.position.x=6+(i%2)*1.2;drone.position.y=(Math.random()-.5)*1.5;
+    pivot.add(drone);earthAnchor.add(pivot);
+    dronesArr.push({pivot,speed:.3+Math.random()*.3,obj:drone});
+  }
+
+  const SCOUTV=['Scout · Compact Fighter','Scout · Retro Pod','Scout · Personal Pod','Scout · Corethicorn S-17'];
+  SCOUTV.forEach((nm,i)=>{
+    const s=getShip(SCOUT_KEYS[i],0x60A5FA);s.scale.setScalar(1.1);s.add(halo(0x60A5FA,2.2,.5));scene.add(s);
+    s.userData.info={name:nm,bugs:[]};clickTargets.push(s);
+    scouts.push({obj:s,phase:'out',t:Math.random(),target:i%PT.length});
+  });
+
+  for(let i=0;i<HERO_COUNT;i++){
+    const ang=i/HERO_COUNT*6.283,off=new THREE.Vector3(Math.cos(ang)*4.6,1.5,Math.sin(ang)*4.6);
+    const col=AGENT_PALETTE[i%AGENT_PALETTE.length];
+    const h=getShip(HERO_KEYS[i%HERO_KEYS.length],col);tintShip(h,col); // reuse the 4 battleship models, recolour per agent → scales to any count
+    h.scale.setScalar(1.1);h.add(halo(col,2.3,.4));scene.add(h);
+    h.userData.info={name:'⚔ Battleship '+(i+1),bugs:[]};clickTargets.push(h);
+    heroSquad.push({obj:h,offset:off,busy:false,phase:'idle',t:0,target:null,color:col});
+  }
+
+  document.getElementById('loading').style.display='none';
+  welcome(); // "Welcome back, commander." on map open (retries on first gesture if autoplay-blocked)
+  document.getElementById('bodies').textContent=clickTargets.length+dronesArr.length;
+  document.getElementById('contacts').textContent=enemies.length;
+}
+
+// ============================================================ INTERACTION
+const ray=new THREE.Raycaster(),ptr=new THREE.Vector2();let downXY=null;
+renderer.domElement.addEventListener('pointerdown',e=>downXY=[e.clientX,e.clientY]);
+renderer.domElement.addEventListener('pointerup',e=>{
+  if(!downXY)return;if(Math.hypot(e.clientX-downXY[0],e.clientY-downXY[1])>8)return;
+  if(council.active)return; // council running — ignore map taps
+  ptr.x=e.clientX/innerWidth*2-1;ptr.y=-(e.clientY/innerHeight)*2+1;ray.setFromCamera(ptr,camera);
+  const hit=ray.intersectObjects(clickTargets,true)[0];
+  if(!hit){ unfocus(); hideInfo(); return; }            // tap empty → back to system view
+  let o=hit.object;while(o&&!o.userData.info&&!o.userData.enemy)o=o.parent;
+  if(!o){ unfocus(); hideInfo(); return; }
+  if(o.userData.enemy){const e2=o.userData.enemy;showInfo({name:'⚠ '+(e2.data.t),path:e2.data.host,bugs:[e2.data]});}
+  else if(o.userData.info){
+    showInfo(o.userData.info);
+    if(o.userData.focusable) focusOn(o,o.userData.focusDist); else unfocus(); // sun → system view
+    if(o.userData.info.rid && window.dungeonOpenWorld) window.dungeonOpenWorld(o.userData.info.rid); // → dungeon room panel
+  }
+});
+function showInfo(info){
+  const el=document.getElementById('info'),b=document.getElementById('infobody');
+  let h=`<h3>${info.name}</h3>`;if(info.path)h+=`<div class="p">${info.path}</div>`;
+  if(info.moons!==undefined){const nb=(info.bugs||[]).length;
+    h+=`<div class="p" style="color:#F0F0F2;font-size:12px;margin:5px 0 3px">⚠ ${nb} contact${nb===1?'':'s'} · 🌙 ${info.moons} moon${info.moons===1?'':'s'}</div>`;}
+  (info.bugs||[]).forEach(m=>h+=`<div class="mon"><b>${m.t}</b><br><span class="p">${m.d||''}</span></div>`);
+  if(!info.bugs||!info.bugs.length)h+=`<div class="p">clean world — no contacts</div>`;
+  b.innerHTML=h;el.style.display='block';
+}
+window.hideInfo=()=>document.getElementById('info').style.display='none';
+function dispatchHero(){
+  const live=enemies.filter(e=>e.alive);if(!live.length)return;
+  const hero=heroSquad.find(h=>!h.busy);if(!hero)return;
+  hero.busy=true;hero.phase='attack';hero.t=0;hero.start=hero.obj.position.clone();hero.target=live[Math.floor(Math.random()*live.length)];
+  say('dispatch-battleship');
+}
+
+// ============================================================ GRAVITY MAP (dependency tethers)
+const GSEG=18; // segments per tether
+function gravPoint(A,B,tk,out){ out.lerpVectors(A,B,tk); out.lerp(ZERO,Math.sin(tk*Math.PI)*0.16); return out; } // sag toward the star = gravity well
+function buildGravity(){
+  const n=worlds.length; if(n<2)return [];
+  const seen=new Set(),edges=[],deg=new Array(n).fill(0);
+  const link=(i,j)=>{if(i===j)return;const k=Math.min(i,j)+'-'+Math.max(i,j);if(seen.has(k))return;seen.add(k);edges.push([i,j]);deg[i]++;deg[j]++;};
+  for(let i=0;i<n;i++){ link(i,(i+1)%n); link(i,(i+2+Math.floor(n/3))%n); } // deterministic pseudo-dep graph: ring + long-range tethers
+  const tmpA=new THREE.Vector3();
+  return edges.map(([i,j])=>{
+    const mass=Math.min(1,(deg[i]+deg[j])/8); // most-depended-on = brightest tether
+    const geom=new THREE.BufferGeometry(),pos=new Float32Array((GSEG+1)*3);
+    geom.setAttribute('position',new THREE.BufferAttribute(pos,3));geom.setDrawRange(0,0);
+    const line=new THREE.Line(geom,new THREE.LineBasicMaterial({color:0x7fd9ff,transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false}));
+    line.visible=false;line.frustumCulled=false;scene.add(line);
+    const bead=new THREE.Sprite(new THREE.SpriteMaterial({map:GLOW,color:0xbdefff,transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false,depthTest:false}));
+    bead.scale.setScalar(1.6+mass*1.4);scene.add(bead);
+    return {a:worlds[i].mesh,b:worlds[j].mesh,line,geom,pos,bead,mass,prog:0};
+  });
+}
+// ============================================================ HOUNDS (free deterministic pre-scan probes)
+function launchHounds(){
+  if(houndsArr.length||!worlds.length)return; // already running
+  say('launch-probe');
+  const home=earthAnchor?worldPos(earthAnchor):ZERO;
+  const N=Math.min(4,worlds.length);
+  for(let i=0;i<N;i++){
+    const h=getShip('drone',0x3DD68C);h.scale.setScalar(.6);h.add(halo(0x3DD68C,1.7,.6));scene.add(h);
+    h.position.copy(home);
+    const queue=[0,1,2].map(k=>worlds[(i+k)%worlds.length].mesh); // each hound sweeps 3 worlds
+    houndsArr.push({obj:h,queue,qi:0,phase:'go',dwell:0});
+  }
+}
+
+// ============================================================ TOGGLES (sim buttons removed — scene is engine-driven)
+const flags={orbit:true,patrol:true,drones:true,gravity:false};
+addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);});
+
+// ============================================================ WAR COUNCIL (3D roundtable)
+// Earth = table · 4 scouts = council members · flagship = King · vote chips + bottom dialog (hybrid)
+const council={active:false,members:[],king:null,beats:[],idx:0,t:0,speaking:-9,awaitJudge:false,holo:null,kingFlare:0};
+// hologram of the verdict's enemy ship, materialising above the allied (King) mothership
+function spawnHolo(type){
+  removeHolo(); if(type==='none')return;
+  const model=type==='overlord'?'mothership':'warship'; // overlord=mothership · beast/wraith=warship (wraith dimmer)
+  const base=type==='overlord'?4.2:type==='wraith'?2.4:3.0;
+  const h=getShip(model,0x7fd9ff);h.scale.setScalar(base*0.4);
+  h.traverse(o=>{if(o.material){o.material=o.material.clone();o.material.transparent=true;o.material.opacity=.35;o.material.depthWrite=false;
+    if('emissive'in o.material){o.material.emissive=new THREE.Color(0x7fd9ff);o.material.emissiveIntensity=.9;}}});
+  h.add(halo(0x7fd9ff,base*1.25,.5));scene.add(h);
+  council.holo={obj:h,type,base};
+}
+function removeHolo(){if(council.holo){scene.remove(council.holo.obj);council.holo=null;}}
+function councilBeats(){return [
+  // ════ ROUND 1 · FINDINGS — strict majority (support>total/2) auto-confirms; else contested ════
+  {sp:-1,role:'⚖ War Council',text:'Convened — 2 disputed contacts. Round 1: each scout reports what it swept.',vote:{},round:'Round 1 · Findings',tally:'',hold:2.5},
+  {sp:0,role:'Scout · Compact Fighter',text:'Contact A — SQL injection @ auth. I found it: query built from req.body.name.',vote:{0:'for'},tally:'Contact A · 1/4'},
+  {sp:1,role:'Scout · Retro Pod',text:'Contact A confirmed on my sweep too — the param reaches the query unsanitized.',vote:{1:'for'},tally:'Contact A · 2/4'},
+  {sp:2,role:'Scout · Personal Pod',text:'I did not see Contact A. Looks clean to me.',vote:{2:'against'}},
+  {sp:3,role:'Scout · Corethicorn',text:'Inconclusive on A — and I flag Contact B: weak crypto, but only I saw it.',vote:{3:'und'},tally:'A · 2/4 contested · B · 1/4'},
+  // ════ ROUND 2 · DELIBERATION — finder argues, the council re-votes; support shifts ════
+  {sp:-1,role:'⚖ War Council',text:'2/4 is no strict majority. Round 2: the finder argues Contact A, the council re-votes.',vote:{},round:'Round 2 · Deliberation',tally:'Contact A · 2/4',hold:2.5},
+  {sp:0,role:'Scout · Compact (argues 🗣)',text:'Trace it with me: req.body.name → query string, line 42. It is reachable.',vote:{}},
+  {sp:2,role:'Scout · Personal (✓ convinced)',text:'…you are right, I missed the path. Changing my vote.',vote:{2:'for'},tally:'Contact A · 3/4'},
+  {sp:3,role:'Scout · Corethicorn (✓ convinced)',text:'Agreed, now that I see the trace.',vote:{3:'for'},tally:'Contact A · 4/4 · UNANIMOUS',holo:'overlord'},
+  {sp:-2,role:'👑 Commander',text:'Contact A — unanimous, 4/4. Confirmed → 👑 Overlord. (Enemy mothership materialises above us.)',vote:{},
+    verdict:{title:'Contact A',result:'👑 OVERLORD',sub:'Unanimous · 4 / 4',cls:'ok'},hold:4.4},
+  // ════ ROUND 3 · KING'S VERDICT — true stalemate, YOU rule (tappable) ════
+  {sp:-1,role:'⚖ War Council',text:'Contact B stayed a stalemate — only 1 of 4 ever saw it. Round 3: the King shall rule.',vote:{},round:'Round 3 · King’s Verdict',tally:'Contact B · 1/4 · stalemate',hold:3.0},
+  {sp:-2,role:'👑 Commander',text:'Contact B is contested. The ruling is yours, Commander — Vanquish it, or release it.',vote:{},pause:'judge',hold:999},
+];}
+function applyBeat(i){const b=council.beats[i];if(!b)return;
+  document.getElementById('rt-speaker').textContent=b.role;
+  document.getElementById('rt-text').textContent=b.text;
+  if(b.vote)Object.keys(b.vote).forEach(k=>{const m=council.members[+k];if(!m)return;const v=b.vote[k];m.vote=v;
+    m.chip.className='rt-chip '+(v==='for'?'for':v==='against'?'against':'und');
+    m.chip.textContent=v==='for'?'FOR':v==='against'?'AGN':'…';});
+  council.speaking=b.sp;
+  council.members.forEach((m,mi)=>m.chip.classList.toggle('speaking',mi===b.sp));
+  // round pill + running tally
+  const rp=document.getElementById('rt-round');
+  if(b.round){document.getElementById('rtr-l').textContent=b.round;rp.classList.add('show');}
+  if(b.tally!=null)document.getElementById('rtr-t').textContent=b.tally;
+  // tally-driven enemy hologram (overlord / beast / wraith) above the allied mothership
+  if(b.holo)spawnHolo(b.holo);
+  // Round-3 interactive ruling
+  const jb=document.getElementById('rt-judge');
+  if(b.pause==='judge'){council.awaitJudge=true;jb.classList.add('show');} else {jb.classList.remove('show');}
+  const vb=document.getElementById('rt-verdict');
+  if(b.verdict){ // commander delivers — drop the banner + flare the King
+    document.getElementById('rtv-t').textContent=b.verdict.title;
+    document.getElementById('rtv-r').textContent=b.verdict.result;
+    document.getElementById('rtv-s').textContent=b.verdict.sub;
+    vb.classList.toggle('bad',b.verdict.cls==='bad');vb.classList.add('show');
+    council.kingFlare=1.4; // seconds of weapon-flash flare around the commander
+  } else { vb.classList.remove('show'); }
+}
+// the Commander rules the Round-3 stalemate — injects the closing verdict beat
+document.getElementById('rtj-van').onclick=()=>rtJudge('keep');
+document.getElementById('rtj-rel').onclick=()=>rtJudge('drop');
+function rtJudge(kind){
+  if(!council.active||!council.awaitJudge)return;
+  council.awaitJudge=false;document.getElementById('rt-judge').classList.remove('show');say('council-verdict');
+  const end = kind==='keep'
+    ? {sp:-2,role:'👑 Commander — Verdict',text:'Contact B vanquished → 👻 a Wraith rises. Confirmed.',holo:'wraith',
+       verdict:{title:'Contact B',result:'⚔ VANQUISHED',sub:'King’s ruling · 👻 Wraith',cls:'ok'},hold:4.6}
+    : {sp:-2,role:'👑 Commander — Verdict',text:'Contact B released · cleared of all charges. Dropped.',holo:'none',
+       verdict:{title:'Contact B',result:'🕊 RELEASED',sub:'Not a bug · dropped',cls:'bad'},hold:4.6};
+  council.beats=council.beats.slice(0,council.idx+1).concat([end]);
+  council.t=9999; // force-advance to the verdict beat on the next tick
+}
+function convene(){
+  if(council.active||!earthAnchor)return; council.active=true; say('council-convene');
+  scouts.forEach(o=>{if(o.obj)o.obj.visible=false;});heroSquad.forEach(o=>{if(o.obj)o.obj.visible=false;});
+  dronesArr.forEach(d=>d.obj.visible=false);
+  enemies.forEach(e=>{if(e.pivot)e.pivot.visible=false;}); // mothership + contacts group out (like scouts) — orbit also freezes while council.active
+  controls.enableZoom=false; // roundtable = static distance; left/right spin only, no zoom in/out
+  const chips=document.getElementById('rt-chips');council.members=[];
+  for(let i=0;i<4;i++){const s=getShip(SCOUT_KEYS[i],0x60A5FA);s.scale.setScalar(1.12);scene.add(s);
+    const chip=document.createElement('div');chip.className='rt-chip und';chip.textContent='…';chips.appendChild(chip);
+    council.members.push({obj:s,chip,vote:null});}
+  // Promote the existing Earth mothership to King — no second ship. Detach it to the scene (keeps world transform), it flies up to the table.
+  if(homeShip){council.kingRestore={obj:homeShip,parent:homeShip.parent,pos:homeShip.position.clone(),scale:homeShip.scale.x};
+    scene.attach(homeShip);council.king=homeShip;}
+  else{const k=getShip('mothership',0x60A5FA);k.scale.setScalar(3.4);k.add(halo(0x60A5FA,7,.5));scene.add(k);council.king=k;council.kingRestore=null;}
+  council.beats=councilBeats();council.idx=0;council.t=0;council.speaking=-9;council.awaitJudge=false;council.kingFlare=0;removeHolo();
+  focusOn(earthAnchor,26);
+  document.getElementById('rt-dialog').style.display='block';
+  document.getElementById('bCouncil').classList.add('on');
+  applyBeat(0);
+}
+function endCouncil(){
+  council.active=false;
+  council.members.forEach(m=>{scene.remove(m.obj);m.chip.remove();});council.members=[];
+  council.kingFlare=0;council.awaitJudge=false;removeHolo();
+  document.getElementById('rt-verdict').classList.remove('show');
+  document.getElementById('rt-round').classList.remove('show');
+  document.getElementById('rt-judge').classList.remove('show');
+  if(council.kingRestore){const r=council.kingRestore; // send the mothership back to its Earth orbit
+    r.parent.attach(r.obj);r.obj.position.copy(r.pos);r.obj.scale.setScalar(r.scale);council.kingRestore=null;council.king=null;}
+  else if(council.king){scene.remove(council.king);council.king=null;}
+  scouts.forEach(o=>{if(o.obj)o.obj.visible=true;});heroSquad.forEach(o=>{if(o.obj)o.obj.visible=true;});
+  dronesArr.forEach(d=>d.obj.visible=true);
+  enemies.forEach(e=>{if(e.pivot)e.pivot.visible=true;}); // contacts back (dead ships stay hidden via group.visible)
+  controls.enableZoom=true; // restore pinch-zoom after the council
+  document.getElementById('rt-dialog').style.display='none';
+  document.getElementById('bCouncil').classList.remove('on');
+  unfocus();
+}
+function councilTick(dt){
+  if(!council.active)return;
+  const c=worldPos(earthAnchor),now=performance.now();
+  const seats=council.members.length+1; // King takes one seat in the ring alongside the scouts
+  council.members.forEach((m,i)=>{
+    const ang=i/seats*6.283+now*0.00004;
+    m.obj.position.set(c.x+Math.cos(ang)*8,c.y+1.5,c.z+Math.sin(ang)*8);m.obj.lookAt(c);
+    const tgt=(i===council.speaking)?1.5:1.1,cs=m.obj.scale.x;m.obj.scale.setScalar(cs+(tgt-cs)*0.12);
+    const v=m.obj.position.clone();v.y+=2.4;v.project(camera);
+    if(v.z>1){m.chip.style.display='none';}else{m.chip.style.display='block';
+      m.chip.style.left=((v.x*0.5+0.5)*innerWidth)+'px';m.chip.style.top=((-v.y*0.5+0.5)*innerHeight)+'px';}
+  });
+  if(council.king){const flaring=council.kingFlare>0;
+    // King mothership sits side-by-side in the ring as the last seat — it no longer flies to the throne above Earth
+    const kAng=council.members.length/seats*6.283+now*0.00004;
+    const ky=c.y+1.5+(council.speaking===-2?Math.sin(now*0.005)*0.4:0);
+    council.king.position.lerp(new THREE.Vector3(c.x+Math.cos(kAng)*8,ky,c.z+Math.sin(kAng)*8),0.08);
+    council.king.lookAt(c);
+    const tScale=flaring?4.8:4.2,ks=council.king.scale.x;council.king.scale.setScalar(ks+(tScale-ks)*0.10); // stays a big mothership in the ring; swells on verdict
+    if(flaring){council.kingFlare-=dt;council._flT=(council._flT||0)-dt; // rapid weapon flashes ring the commander as it rules
+      if(council._flT<=0){const a=now*0.013,r=2.2,kp=council.king.position;flash(new THREE.Vector3(kp.x+Math.cos(a)*r,kp.y,kp.z+Math.sin(a)*r));council._flT=0.13;}}}
+  // enemy hologram materialises over the centre of Earth — the old throne spot, on the table for all to see
+  if(council.holo){const H=council.holo;
+    H.obj.position.set(c.x,c.y+5,c.z); // throne spot above Earth (where the mothership used to hover)
+    const sc=H.obj.scale.x;H.obj.scale.setScalar(sc+(H.base-sc)*0.10); // grows in
+    H.obj.rotation.y+=dt*0.6;
+    const fl=0.42+0.18*Math.sin(now*0.011)+0.10*Math.sin(now*0.05); // holographic flicker
+    H.obj.traverse(o=>{if(o.material&&o.material.opacity!=null)o.material.opacity=fl;});}
+  council.t+=dt;
+  if(council.awaitJudge)return; // Round 3: wait for the Commander to tap Vanquish / Release
+  const hold=(council.beats[council.idx]&&council.beats[council.idx].hold)||2.9; // verdict beats linger longer
+  if(council.t>hold){council.t=0;council.idx++;
+    if(council.idx>=council.beats.length){flash(c);endCouncil();return;}
+    applyBeat(council.idx);}
+}
+// (bCouncil button removed — council is triggered by the dungeon engine, Stage 3)
+
+// ============================================================ LOOP
+let frames=0,fT=performance.now();const fv=document.getElementById('fpsv'),bodiesEl=document.getElementById('bodies');
+function fps(){frames++;const n=performance.now();if(n-fT>=500){const f=Math.round(frames*1000/(n-fT));frames=0;fT=n;
+  fv.textContent=f+' fps';fv.className=f>=45?'':f>=25?'warn':'bad';}}
+let last=performance.now();
+function loop(){
+  requestAnimationFrame(loop);
+  const t=performance.now(),dt=Math.min((t-last)/1000,.05);last=t;
+  if(flags.orbit&&!council.active)orbiters.forEach(o=>o.pivot.rotation.y+=o.speed*dt); // mothership/contacts stop spinning during council
+  if(flags.drones)dronesArr.forEach(d=>{d.pivot.rotation.y+=d.speed*dt;d.obj.rotation.y+=dt;});
+  enemies.forEach(e=>{if(e.ghost&&e.alive){const ph=e.pivot.rotation.y*10;
+    // spooky: layered breathing + rare sharp flicker spikes → uneven, can nearly vanish
+    let a=.16+.14*Math.sin(t*0.004+ph)+.09*Math.sin(t*0.0131+ph*1.7);
+    a+=.16*Math.pow(Math.max(0,Math.sin(t*0.047+ph)),10); // glitchy strobe of presence
+    a=Math.max(0.015,Math.min(.5,a));
+    e.group.traverse(o=>{if(o.material&&o.material.opacity!=null)o.material.opacity=a;});
+    e.group.position.y=Math.sin(t*0.0017+ph)*0.7; // wandering drift
+    e.group.rotation.z=Math.sin(t*0.0011+ph)*0.18; // slow uneasy tumble
+  }});
+  const earthP=earthAnchor?worldPos(earthAnchor):ZERO;
+  if(flags.patrol)scouts.forEach(s=>{
+    const pd=D.planets[PT[s.target%PT.length]];
+    const planet=clickTargets.find(c=>c.userData.info&&c.userData.info.name===pd.name);
+    const dest=planet?worldPos(planet):ZERO;const pr=planet?planet.scale.x:2;
+    if(s.phase==='scan'){ // SWEEP: circle the planet + emit sonar pulses
+      s.scanT+=dt;const ang=s.scanT*2.2,rr=pr+3.5;
+      s.obj.position.set(dest.x+Math.cos(ang)*rr,dest.y+1.2,dest.z+Math.sin(ang)*rr);s.obj.lookAt(dest);
+      s.pulseT=(s.pulseT||0)-dt; if(s.pulseT<=0){spawnScan(s.obj.position.clone(),0.9,0x60A5FA);s.pulseT=0.5;} // sonar emanates from the SHIP
+      if(s.scanT>=2.6){s.phase='back';s.t=0;} return;
+    }
+    s.t+=dt*0.25;const k=Math.min(s.t,1);const from=s.phase==='out'?earthP:dest, to=s.phase==='out'?dest:earthP;
+    s.obj.position.lerpVectors(from,to,k);s.obj.position.y+=Math.sin(k*Math.PI)*14;s.obj.lookAt(to); // arc over the sun
+    if(s.t>=1){ if(s.phase==='out'){s.phase='scan';s.scanT=0;s.pulseT=0;} else {s.phase='out';s.t=0;s.target=(s.target+1)%PT.length;} }
+  });
+  // expand + fade active scan pulses
+  for(let i=scanPulses.length-1;i>=0;i--){const p=scanPulses[i];p.t+=dt;const sc=p.base*(1+p.t*3.2);
+    p.ring.scale.set(sc,sc,sc);p.ring.material.opacity=Math.max(0,.75-p.t*0.95);
+    if(p.t>0.82){scene.remove(p.ring);p.ring.material.dispose();scanPulses.splice(i,1);}}
+  // pulse risk auras (high-risk folders breathe red)
+  for(const a of riskAuras){a.s.material.opacity=(0.1+0.4*a.risk)*(0.55+0.45*Math.sin(t*0.003));}
+  // GRAVITY TETHERS — recompute curve to the moving worlds, scan-reveal from a→b, energy bead flowing along
+  if(flags.gravity&&gravTethers){const A=new THREE.Vector3(),B=new THREE.Vector3(),P=new THREE.Vector3();
+    gravTethers.forEach((g,gi)=>{
+      g.line.visible=true;g.bead.visible=true;
+      g.prog=Math.min(1,g.prog+dt*0.7); // tether grows out as it's "scanned"
+      g.a.getWorldPosition(A);g.b.getWorldPosition(B);
+      for(let k=0;k<=GSEG;k++){gravPoint(A,B,k/GSEG,P);g.pos[k*3]=P.x;g.pos[k*3+1]=P.y;g.pos[k*3+2]=P.z;}
+      g.geom.attributes.position.needsUpdate=true;
+      g.geom.setDrawRange(0,Math.max(2,Math.ceil((GSEG+1)*g.prog)));
+      g.line.material.opacity=(0.18+0.5*g.mass)*g.prog*(0.6+0.4*Math.sin(t*0.004+gi)); // pulse, brighter = more-depended-on
+      const bt=((t*0.00018+gi*0.13)%1)*g.prog; // bead travels along the revealed portion
+      gravPoint(A,B,bt,P);g.bead.position.copy(P);g.bead.material.opacity=0.5*g.prog;
+    });}
+  // HOUNDS — probes fly Earth→worlds, ping each, then return & despawn
+  if(houndsArr.length){const home=earthAnchor?worldPos(earthAnchor):ZERO;
+    for(let i=houndsArr.length-1;i>=0;i--){const hd=houndsArr[i];
+      if(hd.phase==='return'){hd.obj.position.lerp(home,0.06);hd.obj.lookAt(home);hd.obj.rotation.y+=dt;
+        if(hd.obj.position.distanceTo(home)<2.5){scene.remove(hd.obj);houndsArr.splice(i,1);}continue;}
+      const tgt=hd.queue[hd.qi];if(!tgt){hd.phase='return';continue;}
+      const dp=worldPos(tgt);
+      if(hd.dwell>0){hd.dwell-=dt;hd.obj.lookAt(dp);if(hd.dwell<=0){hd.qi++;if(hd.qi>=hd.queue.length)hd.phase='return';}continue;}
+      hd.obj.position.lerp(dp,0.05);hd.obj.lookAt(dp);hd.obj.rotation.y+=dt*1.5;
+      if(hd.obj.position.distanceTo(dp)<(tgt.scale.x+2.5)){spawnScan(hd.obj.position.clone(),0.7,0x3DD68C);hd.dwell=0.55;}
+    }}
+  heroSquad.forEach(h=>{
+    const home=earthP.clone().add(h.offset);
+    if(!h.busy){h.obj.position.lerp(home,0.1);h.obj.lookAt(earthP);return;}
+    if(h.phase==='attack'){
+      if(!h.target||!h.target.alive){h.phase='return';h.t=0;h.start=h.obj.position.clone();return;}
+      h.t+=dt*0.5;const k=Math.min(h.t,1);const dest=worldPos(h.target.group);
+      h.obj.position.lerpVectors(h.start,dest,k);h.obj.position.y+=Math.sin(k*Math.PI)*12;h.obj.lookAt(dest); // arc out
+      if(k>=1){h.phase='fight';say('engaging');}
+    }else if(h.phase==='fight'){ // hover + fire; drain the contact's HP, then destroy
+      const tg=h.target;
+      if(!tg||!tg.alive){h.phase='return';h.t=0;h.start=h.obj.position.clone();return;}
+      const dest=worldPos(tg.group);
+      h.obj.position.lerp(dest.clone().add(new THREE.Vector3(0,2.2,4.5)),0.12);h.obj.lookAt(dest);
+      if(tg.hpBar)tg.hpBar.visible=true;
+      tg.data.hp-=dt*ENEMY_DPS;
+      if(tg.hpTex){drawHp(tg.hpCanvas,Math.max(0,tg.data.hp/tg.data.maxHp));tg.hpTex.needsUpdate=true;}
+      tg._flk=(tg._flk||0)-dt; if(tg._flk<=0){flash(dest);tg._flk=0.22;} // weapon flashes
+      if(tg.data.hp<=0){tg.alive=false;tg.group.visible=false;if(tg.hpBar)tg.hpBar.visible=false;flash(dest);
+        h.phase='return';h.t=0;h.start=h.obj.position.clone();
+        const remaining=enemies.filter(e=>e.alive).length;
+        document.getElementById('contacts').textContent=remaining;
+        say(remaining===0?'sector-secured':'kill-confirmed'); }
+    }else{ h.t+=dt*0.5;const k=Math.min(h.t,1);
+      h.obj.position.lerpVectors(h.start,home,k);h.obj.position.y+=Math.sin(k*Math.PI)*12;h.obj.lookAt(home); // arc home
+      if(k>=1){h.busy=false;h.phase='idle';h.target=null;}}
+  });
+  // camera focus: target tracks the focused world (or the sun); distance flies on tap
+  const fdes=focusObj?worldPos(focusObj):ZERO;
+  controls.target.lerp(fdes,focusObj?0.18:0.1);
+  if(camTween){ camTween.t+=dt/camTween.dur; const k=Math.min(camTween.t,1),sm=k*k*(3-2*k);
+    const d=camTween.from+(camTween.to-camTween.from)*sm;
+    const dir=camera.position.clone().sub(controls.target); if(dir.lengthSq()<1e-6)dir.set(0,0,1); dir.normalize();
+    camera.position.copy(controls.target).addScaledVector(dir,d);
+    if(k>=1)camTween=null; }
+  councilTick(dt);
+  controls.update();renderer.render(scene,camera);fps();
+}
+
+// ── Interstellar API exposed to the dungeon engine (replaces the auto-build) ──
+function clearScene(){
+  for(let i=scene.children.length-1;i>=0;i--){ const o=scene.children[i]; if(o.userData&&o.userData.__keep) continue; scene.remove(o); }
+  orbiters.length=0;enemies.length=0;scouts.length=0;heroSquad.length=0;dronesArr.length=0;houndsArr.length=0;
+  worlds.length=0;clickTargets.length=0;riskAuras.length=0;scanPulses.length=0;
+  earthAnchor=null;homeShip=null;homeShipPivot=null;gravTethers=null;skyMesh=null;
+  if(council.active){ council.active=false; council.members.forEach(m=>{ if(m.chip)m.chip.remove(); }); council.members=[]; }
+}
+window.IW={
+  ready:false,
+  // Called by the dungeon's renderAll() with the real adapted system data.
+  buildSystem(d){ if(!d||!d.planets) return; clearScene(); D=d;
+    PT=D.planets.map((p,i)=>i).filter(i=>!D.planets[i].home);
+    build();
+    camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth,innerHeight); },
+  clearScene, say, dispatchHero
+};
+// boot: preload curated models (with fallback) → start the loop (build happens on buildSystem)
+window.__log&&window.__log('[mod] preloading '+Object.keys(CURATED).length+' models…');
+Promise.all(Object.entries(CURATED).map(([k,p])=>loadTemplate(k,p)))
+  .then(()=>{ const real=Object.values(MODELS).filter(Boolean).length;
+    window.__log&&window.__log('[mod] models ready: '+real+'/'+Object.keys(CURATED).length+' real, rest procedural');
+    window.IW.ready=true; loop(); })
+  .catch(e=>{window.__log&&window.__log('PRELOAD ERR: '+(e.message||e),true); try{ window.IW.ready=true; loop(); }catch(_){}});
 </script>
 </body>
 </html>
