@@ -748,7 +748,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd69-interstellar-s6';
+var DUNGEON_BUILD = 'd70-interstellar-s6';
 
 // ── boot diagnostics: was referenced (window.__log) but never defined → all
 //    model-load reasons were silently dropped. Surface them to the #loading
@@ -1419,13 +1419,11 @@ function tick(now){
       }
     }
     if(a.status==='fighting'){
+      // arrived at the target room — HOLD while the battleship engages. The kill + sendHome are
+      // NOT on a timer anymore: they fire when the REAL fix completes (bridge 'done', see dispatch
+      // handler → killByFix/recallHero), so the contact only dies when the bug is actually fixed.
       var hid=currentRoomOf(a), room=hid&&getRoom(hid);
-      if(room && room.bugs.length && room.id===a.destRoom){
-        var bug=room.bugs[0]; bug.hp-=28*dt;
-        // kill → mutate data + rebuild the 3D fleet (the enemy ship vanishes on next iwRefresh).
-        // bug.hp keeps draining each frame until ≤0; no per-frame visual (the 3D ship has no hp bar).
-        if(bug.hp<=0){ room.bugs.shift(); iwRefresh(); a.status='working'; a.task='Cleaning up'; renderAgentsPanel(); logEvent('⚔ '+a.name+' slew "'+bug.title+'" ('+(bug.severity||'bug')+')'+(bug.file?(' in '+bug.file):''), room); toast('💥 '+a.name+' slew '+bug.title); iwSay(rooms.reduce(function(s,r){return s+r.bugs.length;},0)===0?'sector-secured':'kill-confirmed'); setTimeout(function(){ sendHome(a); },700); }
-      } else a.status='working';
+      if(!(room && room.bugs.length && room.id===a.destRoom)) a.status='working';
     }
   });
   expTick(now);   // step expeditions from the always-on loop (never a private rAF that can die)
@@ -1653,6 +1651,8 @@ function expPark(sid,member){ var exp=expeditions[sid]; if(!exp) return; var s=e
 function endExpedition(sid){
   var exp=expeditions[sid]; if(!exp || !exp.active) return;
   exp.active=false;
+  // no audit still running → recall the 3D recon ships to the home base
+  try{ if(!Object.keys(expeditions).some(function(k){return expeditions[k].active;})){ if(window.IW&&window.IW.scoutsRest) window.IW.scoutsRest(); } }catch(_){}
   var col=exp.kind==='council'?'#c89b3c':'#4a8a3a';
   var seen={};
   exp.sprites.forEach(function(s){ s.rooms.forEach(function(r){ if(r && !seen[r.id]){ seen[r.id]=1; expBurst(r.cx,r.cy,col); } }); });
@@ -1704,6 +1704,7 @@ function expTick(now){
                 if(s.rooms.indexOf(s.hereRoom)===-1) s.rooms.push(s.hereRoom);
                 exp.label=s.hereRoom.name;
                 updDcard(sid+':'+(exp.sprites.indexOf(s)), { room:s.hereRoom.name, bump:true });
+                try{ if(window.IW&&window.IW.scoutTo) window.IW.scoutTo(exp.sprites.indexOf(s), s.hereRoom.name); }catch(_){} // 3D recon ship flies to + sonars the world this model is auditing
               }
             }
           } else { s.x+=dx/d*step; s.y+=dy/d*step; }
@@ -2781,7 +2782,20 @@ window.onDungeonEvent=function(sid, line){
   else if(ev.t==='result'){ updDcard(heroId||memCard, { bump:true }); return; }
   else if(ev.t==='done'){
     var assassinated = (ev.ok===false);   // timeout / 429 / crash → "Assassinated by unknown"
-    if(heroId){ if(assassinated) killDcard(heroId, ev.reason); else doneDcard(heroId, 'quest done'); }
+    if(heroId){
+      var ag=job.agent, bid=ag&&ag._targetBugId;
+      if(assassinated){
+        killDcard(heroId, ev.reason);
+        try{ if(window.IW&&window.IW.heroRecall) window.IW.heroRecall(bid); }catch(_){} // fix failed → battleship retreats, the contact stands
+      } else {
+        doneDcard(heroId, 'quest done');
+        // REAL fix landed → remove the fixed bug from data, then the battleship destroys its contact
+        if(bid){ rooms.forEach(function(r){ var ix=r.bugs.findIndex(function(b){return b.id===bid;}); if(ix>=0){ var killed=r.bugs[ix]; r.bugs.splice(ix,1); logEvent('⚔ '+(ag.name||'Hero')+' fixed "'+(killed.title||'a bug')+'"'+(killed.file?(' in '+killed.file):''), r); toast('💥 '+(ag.name||'Hero')+' fixed '+(killed.title||'the bug')); } });
+          try{ if(window.IW&&window.IW.heroStrike) window.IW.heroStrike(bid); }catch(_){}
+          if(openRoomId) renderRoomPanel(); }
+      }
+      if(ag) sendHome(ag);
+    }
     else {
       expPark(sid, ev.member);
       if(assassinated){ killDcard(memCard, ev.reason); }
@@ -3270,7 +3284,8 @@ function build(){
   SCOUTV.forEach((nm,i)=>{
     const s=getShip(SCOUT_KEYS[i],0x60A5FA);s.scale.setScalar(1.1);s.add(halo(0x60A5FA,2.2,.5));scene.add(s);
     s.userData.info={name:nm,bugs:[]};clickTargets.push(s);
-    scouts.push({obj:s,phase:'out',t:Math.random(),target:i%PT.length});
+    scouts.push({obj:s,phase:'fly',t:0,target:i%PT.length,active:false,
+      homeOff:new THREE.Vector3((Math.random()-.5)*7,1.5+Math.random()*2.5,(Math.random()-.5)*7)});
   });
 
   for(let i=0;i<HERO_COUNT;i++){
@@ -3537,19 +3552,28 @@ function loop(){
     e.group.rotation.z=Math.sin(t*0.0011+ph)*0.18; // slow uneasy tumble
   }});
   const earthP=earthAnchor?worldPos(earthAnchor):ZERO;
-  if(flags.patrol)scouts.forEach(s=>{
+  // Recon ships are DISPATCH-DRIVEN (not ambient): parked at the home base when idle; when a
+  // real scout/council audit is live, each ship flies to + ORBITS + SONAR-pulses the world its
+  // model is CURRENTLY auditing (target set by IW.scoutTo from live tool events). The pulse =
+  // "this model is auditing this place right now"; it follows the model as it moves between folders.
+  scouts.forEach(s=>{
+    if(!s.active){ s.obj.position.lerp(earthP.clone().add(s.homeOff),0.05); s.obj.lookAt(earthP); s.phase='fly'; s.flyFrom=null; s.t=0; return; }
+    if(!PT.length) return;
     const pd=D.planets[PT[s.target%PT.length]];
     const planet=clickTargets.find(c=>c.userData.info&&c.userData.info.name===pd.name);
-    const dest=planet?worldPos(planet):ZERO;const pr=planet?planet.scale.x:2;
-    if(s.phase==='scan'){ // SWEEP: circle the planet + emit sonar pulses
-      s.scanT+=dt;const ang=s.scanT*2.2,rr=pr+3.5;
-      s.obj.position.set(dest.x+Math.cos(ang)*rr,dest.y+1.2,dest.z+Math.sin(ang)*rr);s.obj.lookAt(dest);
-      s.pulseT=(s.pulseT||0)-dt; if(s.pulseT<=0){spawnScan(s.obj.position.clone(),0.9,0x60A5FA);s.pulseT=0.5;} // sonar emanates from the SHIP
-      if(s.scanT>=2.6){s.phase='back';s.t=0;} return;
+    const dest=planet?worldPos(planet):earthP; const pr=planet?planet.scale.x:2;
+    if(s.scanTarget!=null && s.scanTarget!==s.target){ s.phase='fly'; s.flyFrom=null; s.t=0; s.scanTarget=null; } // model moved → break off, fly to the new world
+    if(s.phase==='scan'){ // SWEEP: orbit the planet + emit sonar pulses for as long as the model audits it
+      s.scanT+=dt; const ang=s.scanT*2.2, rr=pr+3.5;
+      s.obj.position.set(dest.x+Math.cos(ang)*rr, dest.y+1.2, dest.z+Math.sin(ang)*rr); s.obj.lookAt(dest);
+      s.pulseT=(s.pulseT||0)-dt; if(s.pulseT<=0){ spawnScan(s.obj.position.clone(),0.9,0x60A5FA); s.pulseT=0.5; }
+      return;
     }
-    s.t+=dt*0.25;const k=Math.min(s.t,1);const from=s.phase==='out'?earthP:dest, to=s.phase==='out'?dest:earthP;
-    s.obj.position.lerpVectors(from,to,k);s.obj.position.y+=Math.sin(k*Math.PI)*14;s.obj.lookAt(to); // arc over the sun
-    if(s.t>=1){ if(s.phase==='out'){s.phase='scan';s.scanT=0;s.pulseT=0;} else {s.phase='out';s.t=0;s.target=(s.target+1)%PT.length;} }
+    // FLY OUT from wherever it is to the world under audit (arc over the sun)
+    if(!s.flyFrom) s.flyFrom=s.obj.position.clone();
+    s.t=(s.t||0)+dt*0.4; const k=Math.min(s.t,1);
+    s.obj.position.lerpVectors(s.flyFrom, dest, k); s.obj.position.y+=Math.sin(k*Math.PI)*14; s.obj.lookAt(dest);
+    if(k>=1){ s.phase='scan'; s.scanT=0; s.pulseT=0; s.scanTarget=s.target; s.flyFrom=null; s.t=0; }
   });
   // expand + fade active scan pulses
   for(let i=scanPulses.length-1;i>=0;i--){const p=scanPulses[i];p.t+=dt;const sc=p.base*(1+p.t*3.2);
@@ -3589,20 +3613,15 @@ function loop(){
       h.t+=dt*0.5;const k=Math.min(h.t,1);const dest=worldPos(h.target.group);
       h.obj.position.lerpVectors(h.start,dest,k);h.obj.position.y+=Math.sin(k*Math.PI)*12;h.obj.lookAt(dest); // arc out
       if(k>=1){h.phase='fight';say('engaging');}
-    }else if(h.phase==='fight'){ // hover + fire; drain the contact's HP, then destroy
+    }else if(h.phase==='fight'){ // hover + fire flashes, then HOLD — the kill is NOT on a timer:
+      // it lands only when the REAL fix completes (IW.heroStrike → tg.alive=false), or the ship
+      // retreats if the fix fails (IW.heroRecall). This keeps the explosion == "the bug is fixed".
       const tg=h.target;
       if(!tg||!tg.alive){h.phase='return';h.t=0;h.start=h.obj.position.clone();return;}
       const dest=worldPos(tg.group);
       h.obj.position.lerp(dest.clone().add(new THREE.Vector3(0,2.2,4.5)),0.12);h.obj.lookAt(dest);
       if(tg.hpBar)tg.hpBar.visible=true;
-      tg.data.hp-=dt*ENEMY_DPS;
-      if(tg.hpTex){drawHp(tg.hpCanvas,Math.max(0,tg.data.hp/tg.data.maxHp));tg.hpTex.needsUpdate=true;}
-      tg._flk=(tg._flk||0)-dt; if(tg._flk<=0){flash(dest);tg._flk=0.22;} // weapon flashes
-      if(tg.data.hp<=0){tg.alive=false;tg.group.visible=false;if(tg.hpBar)tg.hpBar.visible=false;flash(dest);
-        h.phase='return';h.t=0;h.start=h.obj.position.clone();
-        const remaining=enemies.filter(e=>e.alive).length;
-        document.getElementById('contacts').textContent=remaining;
-        say(remaining===0?'sector-secured':'kill-confirmed'); }
+      tg._flk=(tg._flk||0)-dt; if(tg._flk<=0){flash(dest);tg._flk=0.22;} // sustained weapon flashes while the fix runs
     }else{ h.t+=dt*0.5;const k=Math.min(h.t,1);
       h.obj.position.lerpVectors(h.start,home,k);h.obj.position.y+=Math.sin(k*Math.PI)*12;h.obj.lookAt(home); // arc home
       if(k>=1){h.busy=false;h.phase='idle';h.target=null;}}
@@ -3652,6 +3671,18 @@ window.IW={
     });
     gravTethers=built.length?built:null; flags.gravity=!!gravTethers;
   },
+  // recon ships follow the LIVE audit (idx = expedition member index, worldName = folder being audited now)
+  scoutTo(idx,worldName){ const s=scouts[idx]; if(!s)return; const pi=PT.findIndex(p=>D.planets[p].name===worldName); s.active=true; if(pi>=0)s.target=pi; },
+  scoutsRest(){ scouts.forEach(s=>{ s.active=false; }); },
+  // battleship resolves on the REAL fix: heroStrike = fix landed → destroy that contact + return;
+  // heroRecall = fix failed → retreat with the contact left standing.
+  heroStrike(bid){ const e=enemies.find(x=>x.data&&x.data.bid===bid&&x.alive);
+    if(e){ e.alive=false; if(e.group)e.group.visible=false; if(e.hpBar)e.hpBar.visible=false; flash(worldPos(e.group)); }
+    const h=heroSquad.find(h=>e&&h.target===e); if(h){ h.phase='return'; h.t=0; h.start=h.obj.position.clone(); }
+    const rem=enemies.filter(x=>x.alive).length; const ce=document.getElementById('contacts'); if(ce)ce.textContent=rem;
+    say(rem===0?'sector-secured':'kill-confirmed'); },
+  heroRecall(bid){ const e=enemies.find(x=>x.data&&x.data.bid===bid);
+    const h=heroSquad.find(h=>h.busy&&e&&h.target===e); if(h){ h.phase='return'; h.t=0; h.start=h.obj.position.clone(); } },
   clearScene, say, dispatchHero, launchHounds
 };
 // boot: preload curated models (with fallback) → start the loop (build happens on buildSystem)
