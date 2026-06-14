@@ -748,7 +748,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd67-interstellar-s6';
+var DUNGEON_BUILD = 'd68-interstellar-s6';
 
 // ── boot diagnostics: was referenced (window.__log) but never defined → all
 //    model-load reasons were silently dropped. Surface them to the #loading
@@ -1085,37 +1085,13 @@ function analyzeGraph(raw){
   graphState.raw=raw; graphState.scores=rs;
   graphState.cycles=Object.keys(rs).filter(function(k){ return rs[k].hasCycle; });
   graphState.dead=Object.keys(rs).filter(function(k){ return rs[k].isDead; });
-  updateRoomGraphVisuals();
   updateGraphChip();
   return rs;
 }
 
-// Pass 6: update room rect danger-level tint from structured report
-function updateRoomReportVisuals(roomId){
-  var r=getRoom(roomId); if(!r||!r._gEl) return;
-  var rect=r._gEl.querySelector('rect.room-rect'); if(!rect) return;
-  var rep=roomReports[roomId];
-  ['danger-low','danger-medium','danger-high','danger-critical'].forEach(function(c){ rect.classList.remove(c); });
-  if(rep && rep.danger) rect.classList.add('danger-'+rep.danger);
-}
-
-// Pass 2: apply cycle/dead CSS classes to room SVG rects
-function updateRoomGraphVisuals(){
-  rooms.forEach(function(r){
-    if(!r._gEl) return;
-    var rect=r._gEl.querySelector('rect.room-rect'); if(!rect) return;
-    // Match room name → graph folder (case-insensitive, strip leading .)
-    var rname=(r.name||'').toLowerCase().replace(/^\./,'');
-    var score=graphState.scores[rname]||graphState.scores[r.name]||null;
-    if(!score){ // try partial match
-      Object.keys(graphState.scores).forEach(function(k){
-        if(k.toLowerCase()===rname || rname.startsWith(k.toLowerCase())) score=graphState.scores[k];
-      });
-    }
-    rect.classList.toggle('has-cycle', !!(score&&score.hasCycle));
-    rect.classList.toggle('is-dead',   !!(score&&score.isDead));
-  });
-}
+// (removed dead updateRoomReportVisuals / updateRoomGraphVisuals — they toggled CSS on
+//  room SVG rects (_gEl), which no longer exist. NOTE: the cycle/dead/danger world tint
+//  is not yet ported to the 3D scene — graph data still lives in graphState for prompts.)
 
 // Build a concise graph context string for a given room path to inject into scout prompt
 function buildGraphContext(roomPath){
@@ -1206,42 +1182,11 @@ function updateGraphChip(){
 
 // (removed dead renderRooms — the 2D room boxes/labels were SVG-only, 0 callers.
 //  room tap → openRoomPanel is now wired through the 3D scene's hit-test instead.)
-function renderMonsters(){
-  svg.querySelectorAll('.monster').forEach(function(n){ n.remove(); });
-  rooms.forEach(function(r){
-    r.bugs.forEach(function(b,i){
-      var slots=r.bugs.length, spacing=Math.min(13,(r.w-10)/Math.max(slots,1));
-      var mx=r.cx+(i-(slots-1)/2)*spacing, my=r.cy+r.h*0.15;
-      // tribunal confidence → monster nature (PRD §9.5): boss bigger+crowned, phantom faint+dashed
-      // tribunal confidence → monster sprite (PRD §9.5): boss bigger (Crowned Beast),
-      // phantom faint (Shade), normal = Imp. Body art carried by MON_DESIGN.
-      var mt=b.type||'normal', mscale=mt==='boss'?1.4:mt==='phantom'?0.85:1;
-      var g=el('g',{'class':'monster monster-'+mt,'data-room':r.id,'data-bug':b.id,
-        transform:'translate('+mx+','+my+') scale('+mscale+')'});
-      if(mt==='phantom') g.setAttribute('opacity','0.5');
-      var subG=el('g',{}); svgInto(subG, wrap(MON_DESIGN[mt]||MON_DESIGN.normal, 0.3, 32, 40)); g.appendChild(subG);
-      g.appendChild(el('rect',{x:-6.5,y:-9,width:13,height:2.4,'class':'hp-bar-bg',rx:0.4}));
-      var hpRect=el('rect',{x:-6,y:-8.6,width:12*(b.hp/b.maxHp),height:1.6,'class':'hp-bar',rx:0.2}); hpRect.setAttribute('data-hp',b.id); g.appendChild(hpRect);
-      var hpText=el('text',{x:0,y:-10,'class':'hp-text'}); hpText.textContent=Math.ceil(b.hp)+'/'+b.maxHp; hpText.setAttribute('data-hptext',b.id); g.appendChild(hpText);
-      b._gEl=g; b._homeX=mx; b._homeY=my; svg.appendChild(g);
-    });
-  });
-  iwRefresh(); // bugs changed (scout find / kill) → rebuild the 3D fleet
-}
-function renderAgents(){
-  svg.querySelectorAll('.agent-sprite').forEach(function(n){ n.remove(); });
-  agents.forEach(function(a,i){
-    var g=el('g',{'class':'agent-sprite','data-id':a.id,transform:'translate('+a.x+','+a.y+')'});
-    // Hero by index → A/B/C/D class; beyond 4, hue-rotate the whole body for a fresh tint.
-    var bodyG=el('g',{}); var tier=Math.floor(i/4);
-    if(tier) bodyG.setAttribute('style','filter:hue-rotate('+(tier*55)+'deg)');
-    svgInto(bodyG, wrap(HERO_DESIGNS[i%4], 0.2, 32, 52)); g.appendChild(bodyG);
-    var lw=a.name.length*2+2.5;
-    g.appendChild(el('rect',{x:-lw/2,y:-13,width:lw,height:3,rx:0.4,'class':'agent-label-bg'}));
-    var lbl=el('text',{x:0,y:-10.8,'class':'agent-label'}); lbl.textContent=a.name; g.appendChild(lbl);
-    a._gEl=g; svg.appendChild(g);
-  });
-}
+// (removed dead renderMonsters/renderAgents — they built invisible SVG sprites into
+//  the detached scratch node. Enemy ships + battleships are now rendered by the 3D
+//  scene, rebuilt from bugs[]/agents[] via iwRefresh()→IW.buildSystem(adaptRoomsToD()).
+//  renderMonsters' only live role was its iwRefresh() tail — callers now call iwRefresh
+//  directly. Combat data (bug.hp, room.bugs) still runs in the tick() loop below.)
 function renderAll(){
   // SVG renderer retired — drive the 3D interstellar scene from real rooms[]/bugs[]/agents[].
   if(window.IW && window.IW.buildSystem){
@@ -1313,7 +1258,7 @@ function iwApplyGravity(){ try{ if(window.IW&&window.IW.showGravity) window.IW.s
 function enterDungeon(name,path){
   activePath=path; activeName=name;
   buildWorld(); renderAll();
-  loadGraph();   // reset + reload persisted Twin Lens graph for THIS project (after _gEl exists)
+  loadGraph();   // reset + reload persisted Twin Lens graph for THIS project (feeds scout prompts)
   showScreen('map-screen');
   fitToScreen();
   renderAgentsPanel();
@@ -1464,26 +1409,21 @@ function tick(now){
   agents.forEach(function(a){
     if(a.status==='traveling' && a._path){
       var t=a._path[a._pathIdx];
-      if(!t){ var here=currentRoomOf(a); a.status=(here&&getRoom(here).bugs.length)?'fighting':'working'; a._path=null; renderAgentsPanel(); updateRoomVisuals(); }
+      if(!t){ var here=currentRoomOf(a); a.status=(here&&getRoom(here).bugs.length)?'fighting':'working'; a._path=null; renderAgentsPanel(); }
       else {
+        // advance the agent's x/y along the path — LIVE: currentRoomOf() reads x/y to gate arrival→combat
         var dx=t.x-a.x, dy=t.y-a.y, dist=Math.hypot(dx,dy), step=SPEED*dt;
         if(dist<=step){ a.x=t.x; a.y=t.y; a._pathIdx++; }
         else { a.x+=dx/dist*step; a.y+=dy/dist*step; }
-        if(a._gEl) a._gEl.setAttribute('transform','translate('+a.x.toFixed(2)+','+a.y.toFixed(2)+')');
       }
     }
     if(a.status==='fighting'){
       var hid=currentRoomOf(a), room=hid&&getRoom(hid);
       if(room && room.bugs.length && room.id===a.destRoom){
         var bug=room.bugs[0]; bug.hp-=28*dt;
-        if(bug.hp<=0){ spawnParticles(bug._homeX,bug._homeY); room.bugs.shift(); renderMonsters(); updateRoomVisuals(); a.status='working'; a.task='Cleaning up'; renderAgentsPanel(); logEvent('⚔ '+a.name+' slew "'+bug.title+'" ('+(bug.severity||'bug')+')'+(bug.file?(' in '+bug.file):''), room); toast('💥 '+a.name+' slew '+bug.title); iwSay(rooms.reduce(function(s,r){return s+r.bugs.length;},0)===0?'sector-secured':'kill-confirmed'); setTimeout(function(){ sendHome(a); },700); }
-        else {
-          var hr=svg.querySelector('[data-hp="'+bug.id+'"]'), ht=svg.querySelector('[data-hptext="'+bug.id+'"]');
-          if(hr) hr.setAttribute('width',Math.max(0,12*bug.hp/bug.maxHp));
-          if(ht) ht.textContent=Math.max(0,Math.ceil(bug.hp))+'/'+bug.maxHp;
-          if(bug._gEl){ var sx=(Math.random()-0.5)*0.8, sy=(Math.random()-0.5)*0.8; bug._gEl.setAttribute('transform','translate('+(bug._homeX+sx)+','+(bug._homeY+sy)+')'); var body=bug._gEl.querySelector('.monster-body'); if(body) body.setAttribute('fill',Math.random()>0.5?'#fff':'#8b2a1f'); }
-          if(a._gEl) a._gEl.setAttribute('transform','translate('+(a.x+(Math.random()-0.5)*0.6).toFixed(2)+','+(a.y+(Math.random()-0.5)*0.6).toFixed(2)+')');
-        }
+        // kill → mutate data + rebuild the 3D fleet (the enemy ship vanishes on next iwRefresh).
+        // bug.hp keeps draining each frame until ≤0; no per-frame visual (the 3D ship has no hp bar).
+        if(bug.hp<=0){ room.bugs.shift(); iwRefresh(); a.status='working'; a.task='Cleaning up'; renderAgentsPanel(); logEvent('⚔ '+a.name+' slew "'+bug.title+'" ('+(bug.severity||'bug')+')'+(bug.file?(' in '+bug.file):''), room); toast('💥 '+a.name+' slew '+bug.title); iwSay(rooms.reduce(function(s,r){return s+r.bugs.length;},0)===0?'sector-secured':'kill-confirmed'); setTimeout(function(){ sendHome(a); },700); }
       } else a.status='working';
     }
   });
@@ -1497,22 +1437,8 @@ function sendHome(a){
   var chk=setInterval(function(){ if(a.status!=='traveling' && currentRoomOf(a)==='throne'){ a.status='idle'; a.task=null; a.destRoom=null; renderAgentsPanel(); clearInterval(chk); } },200);
   renderAgentsPanel();
 }
-function spawnParticles(x,y){
-  for(var i=0;i<10;i++){ (function(i){
-    var p=el('circle',{cx:x,cy:y,r:0.7,fill:'#c89b3c'}); svg.appendChild(p);
-    var angle=(i/10)*Math.PI*2, speed=10+Math.random()*10, t=0;
-    function an(){ t+=0.04; p.setAttribute('cx',x+Math.cos(angle)*speed*t); p.setAttribute('cy',y+Math.sin(angle)*speed*t+15*t*t); p.setAttribute('opacity',Math.max(0,1-t*1.5)); if(t<0.8) requestAnimationFrame(an); else p.remove(); }
-    requestAnimationFrame(an);
-  })(i); }
-}
-function updateRoomVisuals(){
-  rooms.forEach(function(r){
-    if(!r._gEl) return; var rect=r._gEl.querySelector('rect.room-rect'); if(!rect) return;
-    rect.classList.toggle('has-bug', r.bugs.length>0);
-    rect.classList.toggle('has-agent', agents.some(function(a){ return currentRoomOf(a)===r.id && (a.status==='working'||a.status==='fighting'); }));
-  });
-  updateRoomGraphVisuals();
-}
+// (removed dead spawnParticles + updateRoomVisuals — both wrote only into the detached
+//  SVG node / unset room _gEl. The 3D scene is the only renderer now.)
 
 // ── Expedition animations — Scout (solo) vs War Council (party), distinct from
 //    the single-hero walk+combat. index.html-only, no bridge involvement. ──
@@ -1742,7 +1668,6 @@ function expBurst(x,y,color){
   svg.appendChild(ring);
   var t=0;
   (function g(){ t+=0.04; ring.setAttribute('r',3+t*60); ring.setAttribute('opacity',Math.max(0,1-t*1.3)); ring.setAttribute('stroke-width',Math.max(0.2,1.5-t)); if(t<0.8 && ring.parentNode) requestAnimationFrame(g); else ring.remove(); })();
-  spawnParticles(x,y);
 }
 var EXP_SPEED=42;     // world units/sec along corridors
 var AUDIT_DWELL=2.6;  // sec a sprite audits (scans in place) a room before it may move on
@@ -1900,13 +1825,13 @@ $('ag-save').addEventListener('click', function(){
   var md=fm.join('\n')+'\n'+($('ag-body').value.trim()||'You are a helpful hero.')+'\n';
   if(jWriteAgent(name, md)){ toast('⚔ Saved '+name); } else { toast('⚠ Could not save'); }
   $('agent-dialog').classList.remove('show');
-  reloadAgents(); renderAgents(); renderAgentsPanel();
+  reloadAgents(); renderAgentsPanel();
 });
 $('ag-delete').addEventListener('click', function(){
   if(!editingAgent) return;
   if(jDeleteAgent(editingAgent.name)) toast('🗑 Removed '+editingAgent.name);
   $('agent-dialog').classList.remove('show');
-  reloadAgents(); renderAgents(); renderAgentsPanel();
+  reloadAgents(); renderAgentsPanel();
 });
 $('agentsBtn').addEventListener('click', function(){ agentsPanel.classList.toggle('open'); });
 
@@ -2017,7 +1942,7 @@ $('rescanBtn').addEventListener('click', function(){
   if(!openRoomId) return;
   var r=getRoom(openRoomId);
   r.bugs=mkBugs(parseBugs(r.path+'/library.md'));
-  renderMonsters(); updateRoomVisuals(); renderRoomPanel();
+  iwRefresh(); renderRoomPanel();
   toast('🔄 '+r.name+' · '+r.bugs.length+' bug(s)');
 });
 function appendBugToLibrary(roomPath, title){
@@ -2338,7 +2263,7 @@ function refreshTitle(){
 }
 function rescanRooms(ids){
   (ids||[]).forEach(function(id){ var r=getRoom(id); if(r){ r.bugs=mkBugs(parseBugs(r.path+'/library.md')); } });
-  renderMonsters(); updateRoomVisuals(); refreshTitle();
+  iwRefresh(); refreshTitle();
   if(openRoomId) renderRoomPanel();
 }
 
@@ -2813,7 +2738,6 @@ window.onDungeonEvent=function(sid, line){
       // Scribe copies the Field Report into the room's Tome — survives reloads, zero scout friction.
       var repRoom=getRoom(repRoomId); if(repRoom) writeRoomProfile(repRoom.path, roomReports[repRoomId]);
       if(openRoomId===repRoomId) renderRoomPanel();
-      updateRoomReportVisuals(repRoomId);
     }
     return;
   }
