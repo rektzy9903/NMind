@@ -748,7 +748,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd68-interstellar-s6';
+var DUNGEON_BUILD = 'd69-interstellar-s6';
 
 // ── boot diagnostics: was referenced (window.__log) but never defined → all
 //    model-load reasons were silently dropped. Surface them to the #loading
@@ -1354,6 +1354,7 @@ function finishHeroDispatch(agent, roomId, bug, briefing){
     heroContext = hcParts.join('\n');
   }
   var sid=jDispatch(JSON.stringify({ op:'dispatch', cwd:room.path, persona:agent.body||'', task:task, heroContext:heroContext })); iwSay('dispatch-battleship');
+  try{ if(window.IW&&window.IW.dispatchHero) window.IW.dispatchHero(bug&&bug.id); }catch(_){} // launch a 3D battleship at the contact
   dispatchJobs[sid]={ roomIds:[room.id], council:false, agent:agent };
   renderAgentsPanel();
   logEvent('⚔ '+agent.name+' sent on a quest '+(bug?('to slay "'+bug.title+'"'):('to '+room.name))+(briefing?' 📜':''), room);
@@ -2685,7 +2686,7 @@ window.onDungeonEvent=function(sid, line){
   // ── P1 Cartographer pre-pass: map the room(s) before scouts march ──
   if(ev.t==='packing'){ toast('🗺 Cartographer mapping '+(ev.rooms>1?ev.rooms+' rooms':'the room')+'…'); return; }
   else if(ev.t==='packed'){ toast(ev.ok ? ('🗺 Map ready · ~'+(ev.tokens||0)+' tok — '+(ev.tier==='inline'?'inlined for the scout':'scout reads the map')) : ('🗺 No map ('+(ev.err||'pack failed')+') — scout will crawl')); return; }
-  else if(ev.t==='hounds'){ toast('🐕 Hounds picked up '+ev.count+' scent'+(ev.count===1?'':'s')+(ev.total>ev.count?(' (+'+(ev.total-ev.count)+' more)'):'')+' — '+(ev.markers?'zero-token monsters':'candidates for the scout')); if(ev.cwd) houndCameo(ev.cwd); return; }
+  else if(ev.t==='hounds'){ toast('🐕 Hounds picked up '+ev.count+' scent'+(ev.count===1?'':'s')+(ev.total>ev.count?(' (+'+(ev.total-ev.count)+' more)'):'')+' — '+(ev.markers?'zero-token monsters':'candidates for the scout')); if(ev.cwd) houndCameo(ev.cwd); try{ if(window.IW&&window.IW.launchHounds) window.IW.launchHounds(); }catch(_){} return; }
   // ── Twin Lens: graph scan events ──
   else if(ev.t==='graph-start'){ graphState.scanning=true; graphState.error=null; updateGraphChip(); return; }
   else if(ev.t==='graph-data'){
@@ -3321,10 +3322,12 @@ function showInfo(info){
   b.innerHTML=h;el.style.display='block';
 }
 window.hideInfo=()=>document.getElementById('info').style.display='none';
-function dispatchHero(){
+function dispatchHero(bid){
   const live=enemies.filter(e=>e.alive);if(!live.length)return;
   const hero=heroSquad.find(h=>!h.busy);if(!hero)return;
-  hero.busy=true;hero.phase='attack';hero.t=0;hero.start=hero.obj.position.clone();hero.target=live[Math.floor(Math.random()*live.length)];
+  // target the specific contact the real dispatch is fixing (by bug id), else any live contact
+  const tgt=(bid&&live.find(e=>e.data&&e.data.bid===bid))||live[Math.floor(Math.random()*live.length)];
+  hero.busy=true;hero.phase='attack';hero.t=0;hero.start=hero.obj.position.clone();hero.target=tgt;
   say('dispatch-battleship');
 }
 
@@ -3649,7 +3652,7 @@ window.IW={
     });
     gravTethers=built.length?built:null; flags.gravity=!!gravTethers;
   },
-  clearScene, say, dispatchHero
+  clearScene, say, dispatchHero, launchHounds
 };
 // boot: preload curated models (with fallback) → start the loop (build happens on buildSystem)
 window.__log&&window.__log('[mod] preloading '+Object.keys(CURATED).length+' models…');
