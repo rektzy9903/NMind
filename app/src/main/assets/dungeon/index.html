@@ -189,6 +189,30 @@
     background:#05060a; color:#E8834A; font:12px/1.5 monospace; white-space:pre-wrap; padding:20px; overflow:auto; }
   #map-screen #err { position:absolute; inset:0; z-index:40; display:none; align-items:center; justify-content:center;
     padding:30px; text-align:center; color:#F87171; font-size:13px; background:#05060a; }
+  /* ══ Stage 2: re-skin the dungeon's parchment chrome → interstellar glass ══ */
+  #topbar .pbtn { background:rgba(20,16,12,.6); backdrop-filter:blur(10px); border:1px solid rgba(255,255,255,.16);
+    color:#F0F0F2; font-family:-apple-system,Segoe UI,Roboto,sans-serif; font-weight:600; border-radius:11px; box-shadow:none; }
+  #topbar .pbtn:active { transform:scale(.97); box-shadow:none; }
+  #map-title { font-family:-apple-system,Segoe UI,Roboto,sans-serif; color:#9aa3b8; text-shadow:none; font-weight:600; }
+  #roomPanel { background:rgba(16,14,20,.86); backdrop-filter:blur(16px); border-top:1px solid rgba(255,255,255,.14); color:#F0F0F2; }
+  #roomPanel header { border-bottom:1px solid rgba(255,255,255,.1); }
+  #roomPanel h2 { font-family:-apple-system,Segoe UI,Roboto,sans-serif; color:#F0F0F2; }
+  #roomPanel .close { color:#9090A0; }
+  #roomPanel::before { background:rgba(255,255,255,.3); }
+  #roomTabs .tab { font-family:-apple-system,Segoe UI,Roboto,sans-serif; color:#9090A0; border-right:1px solid rgba(255,255,255,.08); }
+  #roomTabs .tab.active { background:rgba(232,131,74,.18); color:#E8834A; font-weight:700; }
+  #roomFooter .mini-btn, .mini-btn { background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.14); color:#F0F0F2;
+    font-family:-apple-system,Segoe UI,Roboto,sans-serif; border-radius:9px; }
+  .mini-btn:active { background:rgba(232,131,74,.25); }
+  #agentsPanel { background:rgba(16,14,20,.86); backdrop-filter:blur(14px); border:1px solid rgba(255,255,255,.14); color:#F0F0F2; }
+  #agentsPanel h3 { color:#F0F0F2; border-bottom:1px dashed rgba(255,255,255,.2); }
+  #hint { color:#60606e; text-shadow:none; }
+  .dcard { background:rgba(20,16,12,.7); backdrop-filter:blur(10px); border:1px solid rgba(255,255,255,.16); color:#F0F0F2; box-shadow:none; }
+  .dcard .dc-name { color:#F0F0F2; } .dcard .dc-room { color:#9090A0; } .dcard .dc-room b { color:#E8834A; } .dcard .dc-file { color:#7a7a85; }
+  .dcard .dc-fill { background:linear-gradient(90deg,#b9852f,#E8834A); }
+  .dcard.done .dc-fill { background:linear-gradient(90deg,#3DD68C,#6cc06a); }
+  .dlg-box, #name-box { backdrop-filter:blur(14px); }
+  .dlg { background:rgba(3,5,10,.72); }
 
   #topbar {
     position:fixed; top:0; left:0; right:0; padding:10px;
@@ -540,30 +564,30 @@
 <!-- Scout sheet -->
 <div id="scout-dialog" class="dlg">
   <div class="dlg-box">
-    <h3>⚔ Send a Scout</h3>
-    <div class="dlg-sub" id="scout-target">Scout the whole dungeon</div>
+    <h3>📡 Recon Sweep</h3>
+    <div class="dlg-sub" id="scout-target">Scan the whole star system</div>
     <div id="graph-chip" class="graph-chip"><span class="gc-fill"></span><span class="gc-label">⬡ Dependency lens OFF · tap to scan</span></div>
     <div class="seg" id="scout-scope">
-      <button class="seg-btn active" data-v="full">Full Dungeon</button>
-      <button class="seg-btn" data-v="room">This Room</button>
+      <button class="seg-btn active" data-v="full">Full System</button>
+      <button class="seg-btn" data-v="room">This World</button>
     </div>
     <div class="dlg-label">Mode</div>
     <div class="seg" id="scout-mode">
-      <button class="seg-btn active" data-v="solo">🧭 Solo</button>
-      <button class="seg-btn" data-v="council">⚖ Council</button>
+      <button class="seg-btn active" data-v="solo">🧭 Solo Scout</button>
+      <button class="seg-btn" data-v="council">⚖ War Council</button>
     </div>
     <div id="cmode-row" style="display:none;">
       <div class="dlg-label">Council style</div>
       <div class="seg" id="scout-cmode">
         <button class="seg-btn active" data-v="consensus">🤝 Consensus</button>
-        <button class="seg-btn" data-v="divide">🗺 Divide rooms</button>
+        <button class="seg-btn" data-v="divide">🗺 Divide worlds</button>
       </div>
     </div>
     <div class="dlg-label" id="model-label">Model</div>
     <input id="model-search" class="model-search" placeholder="Search models or provider…" autocomplete="off" />
     <div id="scout-models"></div>
     <div id="scout-assign" style="display:none;"></div>
-    <div class="dlg-note" id="council-note" style="display:none;">Pick 2–4 models — knights <b>roam room-by-room</b> with light packs (one room per spawn), every room swept by all, then the King’s Verdict votes disputed finds. Unanimous → 👑 Overlord · majority → 👹 Beast · lone claim → 👻 Wraith. Slower, but weak-model-safe + more thorough than one heavy pass.</div>
+    <div class="dlg-note" id="council-note" style="display:none;">Pick 2–4 models — scouts <b>sweep world-by-world</b> with light packs (one world per spawn), every world swept by all, then the Commander's Verdict votes disputed contacts. Unanimous → 👑 Mothership · majority → 👾 Warship · lone claim → 👻 Ghost signal. Slower, but weak-model-safe + more thorough than one heavy pass.</div>
     <div class="dialog-btns" style="margin-top:14px;">
       <button id="scout-cancel">Cancel</button>
       <button id="scout-begin">Begin</button>
@@ -574,7 +598,7 @@
 <!-- Agent Builder -->
 <div id="agent-dialog" class="dlg">
   <div class="dlg-box">
-    <h3 id="agent-dlg-title">+ New Hero</h3>
+    <h3 id="agent-dlg-title">+ New Battleship</h3>
     <div class="dlg-label">Name</div>
     <input id="ag-name" type="text" placeholder="bug-hunter" maxlength="40" />
     <div class="dlg-label">Description</div>
@@ -596,11 +620,11 @@
 <!-- Battle / audit history log -->
 <div id="log-dialog" class="dlg">
   <div class="dlg-box">
-    <h3>📜 Chronicle</h3>
-    <div class="dlg-sub" id="log-sub">What happened in this room</div>
+    <h3>📖 Captain's Log</h3>
+    <div class="dlg-sub" id="log-sub">What happened in this world</div>
     <div class="seg" id="log-scope">
-      <button class="seg-btn active" data-v="room">This room</button>
-      <button class="seg-btn" data-v="all">Whole dungeon</button>
+      <button class="seg-btn active" data-v="room">This world</button>
+      <button class="seg-btn" data-v="all">Whole system</button>
     </div>
     <div id="log-list" style="margin-top:10px;max-height:52vh;overflow-y:auto;"></div>
     <div class="dialog-btns" style="margin-top:14px;">
@@ -616,7 +640,7 @@
 <!-- Hero picker (which hero → which bug) -->
 <div id="hero-dialog" class="dlg">
   <div class="dlg-box">
-    <h3>⚔ Send a Hero</h3>
+    <h3>⚔ Deploy Battleship</h3>
     <div class="dlg-sub" id="hero-target"></div>
     <div id="hero-list"></div>
     <div class="dialog-btns" style="margin-top:12px;"><button id="hero-cancel">Cancel</button></div>
@@ -637,7 +661,7 @@
   <div id="topbar">
     <button class="pbtn" id="mapBackBtn">‹ Back</button>
     <button class="pbtn" id="agentsBtn">⚔ 0</button>
-    <button class="pbtn" id="scoutBtn">Scout</button>
+    <button class="pbtn" id="scoutBtn">📡 Recon</button>
     <div id="map-title">⚜ Dungeon</div>
   </div>
   <div id="dispatch-cards"><div id="scout-status"></div></div>
@@ -648,26 +672,26 @@
       <button class="close" id="closeRoom">✕</button>
     </header>
     <div id="roomTabs">
-      <div class="tab active" data-tab="library">📜 Library</div>
-      <div class="tab" data-tab="tasks">🗝 Bugs</div>
-      <div class="tab" data-tab="agents">⚔ Agents</div>
-      <div class="tab" data-tab="subs">🏛 Subs</div>
+      <div class="tab active" data-tab="library">📖 Intel</div>
+      <div class="tab" data-tab="tasks">🎯 Contacts</div>
+      <div class="tab" data-tab="agents">⚔ Fleet</div>
+      <div class="tab" data-tab="subs">🌙 Moons</div>
     </div>
     <div id="roomContent"></div>
     <div id="roomFooter">
-      <button class="mini-btn" id="dispatchBtn">⚔ Quest</button>
-      <button class="mini-btn" id="logBugBtn">📜 Log</button>
+      <button class="mini-btn" id="dispatchBtn">⚔ Deploy</button>
+      <button class="mini-btn" id="logBugBtn">📖 Log</button>
       <button class="mini-btn" id="rescanBtn">Re-scan</button>
     </div>
   </aside>
   <div id="toast"></div>
-  <div id="hint">drag · pinch to zoom · tap a room</div>
+  <div id="hint">drag to spin · pinch to zoom · tap a world</div>
 </div>
 
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd60-interstellar-s1';
+var DUNGEON_BUILD = 'd61-interstellar-s2';
 
 // ── Bridge ────────────────────────────────────────────────
 var A = (typeof DungeonAndroid !== 'undefined') ? DungeonAndroid : null;
@@ -1365,7 +1389,7 @@ function dispatchAgent(agent,roomId,bug){
 // Hero picker — choose which idle hero fixes which bug
 function openHeroPicker(roomId, bug){
   var room=getRoom(roomId); if(!room) return;
-  $('hero-target').textContent = bug ? ('Fix: '+bug.title) : ('Work in '+room.name);
+  $('hero-target').textContent = bug ? ('Target: '+bug.title) : ('Deploy to '+room.name);
   var list=$('hero-list'); list.innerHTML='';
   if(!agents.length){
     list.innerHTML='<div class="dlg-note">No heroes yet. Open the ⚔ roster (top-left) → + New Hero, then come back.</div>';
@@ -1810,7 +1834,7 @@ function renderAgentsPanel(){
 var editingAgent=null;
 function openAgentDialog(a){
   editingAgent=a||null;
-  $('agent-dlg-title').textContent=a?('Edit '+a.name):'+ New Hero';
+  $('agent-dlg-title').textContent=a?('Edit '+a.name):'+ New Battleship';
   $('ag-name').value=a?a.name:''; $('ag-name').disabled=!!a;
   $('ag-desc').value=a?(a.desc||''):''; $('ag-model').value=a?(a.model||''):''; $('ag-tools').value=a?(a.tools||''):'';
   $('ag-body').value=a?(a.body||''):'';
@@ -2057,7 +2081,7 @@ function openScout(roomId){
   setSeg('scout-cmode','consensus');
   var roomBtn=document.querySelector('#scout-scope .seg-btn[data-v="room"]');
   roomBtn.style.opacity = scoutRoom?'1':'0.35';
-  $('scout-target').textContent = scoutRoom?('Scout room: '+scoutRoom.name):'Scout the whole dungeon';
+  $('scout-target').textContent = scoutRoom?('Recon world: '+scoutRoom.name):'Scan the whole star system';
   scoutSearch=''; var ms=$('model-search'); if(ms) ms.value='';
   fetchScoutModels();   // refresh live models each open (picks up newly-added provider keys)
   renderModelChips();
@@ -2067,7 +2091,7 @@ document.querySelectorAll('#scout-scope .seg-btn').forEach(function(b){
   b.addEventListener('click', function(){
     if(b.dataset.v==='room' && !scoutRoom){ toast('Tap a room first, then Scout'); return; }
     setSeg('scout-scope', b.dataset.v);
-    $('scout-target').textContent = b.dataset.v==='room'?('Scout room: '+scoutRoom.name):'Scout the whole dungeon';
+    $('scout-target').textContent = b.dataset.v==='room'?('Recon world: '+scoutRoom.name):'Scan the whole star system';
   });
 });
 document.querySelectorAll('#scout-mode .seg-btn').forEach(function(b){
@@ -2849,7 +2873,7 @@ function renderLog(){
   });
 }
 function openLog(){
-  $('log-sub').textContent = openRoomId ? ('Deeds in '+(getRoom(openRoomId)||{}).name) : 'Dungeon chronicle';
+  $('log-sub').textContent = openRoomId ? ('Log: '+(getRoom(openRoomId)||{}).name) : 'System log';
   setSeg('log-scope', openRoomId ? 'room' : 'all');
   var roomBtn=document.querySelector('#log-scope .seg-btn[data-v="room"]');
   if(roomBtn) roomBtn.style.opacity = openRoomId ? '1' : '0.35';
