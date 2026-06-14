@@ -175,7 +175,7 @@
   #map-screen #c { position:absolute; inset:0; width:100%; height:100%; display:block; z-index:1; touch-action:none; }
   #map-screen .iw-panel { position:absolute; z-index:10; background:rgba(20,16,12,.55); backdrop-filter:blur(12px);
     border:1px solid rgba(255,255,255,.14); border-radius:14px; padding:10px 12px; font-size:12px; color:#F0F0F2; }
-  #map-screen #hud { top:60px; left:10px; min-width:150px; line-height:1.55; }
+  #map-screen #hud { top:60px; left:10px; min-width:150px; line-height:1.55; display:none; } /* FPS gate passed → hidden */
   #map-screen #hud b { color:#E8834A; }
   #map-screen #fpsv { color:#3DD68C; font-weight:700; }
   #map-screen #fpsv.warn { color:#FBBF24; } #map-screen #fpsv.bad { color:#F87171; }
@@ -692,7 +692,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd63-interstellar-s4';
+var DUNGEON_BUILD = 'd64-interstellar-s5';
 
 // ── Bridge ────────────────────────────────────────────────
 var A = (typeof DungeonAndroid !== 'undefined') ? DungeonAndroid : null;
@@ -1224,7 +1224,7 @@ function renderAgents(){
 function renderAll(){
   // SVG renderer retired — drive the 3D interstellar scene from real rooms[]/bugs[]/agents[].
   if(window.IW && window.IW.buildSystem){
-    try{ window.IW.buildSystem(adaptRoomsToD()); }
+    try{ window.IW.buildSystem(adaptRoomsToD()); iwApplyGravity(); }
     catch(e){ console.warn('[IW] buildSystem failed', e); }
   }
   $('agentsBtn').textContent='⚔ '+agents.length;
@@ -1274,10 +1274,20 @@ window.dungeonDeployAt=function(rid,bid){ try{
 var _iwRefreshT=null;
 function iwRefresh(){ if(!window.IW||!window.IW.buildSystem) return;
   clearTimeout(_iwRefreshT);
-  _iwRefreshT=setTimeout(function(){ try{ window.IW.buildSystem(adaptRoomsToD()); }catch(e){ console.warn('[IW] refresh',e); } },120); }
+  _iwRefreshT=setTimeout(function(){ try{ window.IW.buildSystem(adaptRoomsToD()); iwApplyGravity(); }catch(e){ console.warn('[IW] refresh',e); } },120); }
 // Voice — mission-control lines fired on real engine events (muteable via the top-bar button).
 var iwMuted=false;
 function iwSay(k){ if(iwMuted) return; try{ if(window.IW&&window.IW.say) window.IW.say(k); }catch(_){} }
+// Twin Lens — derive folder→folder dependency edges from the real graph and render them as gravity tethers.
+function iwGravityEdges(){
+  var raw=graphState.raw; if(!raw) return [];
+  function folderOf(f){ return f.replace(/^(src|lib|app|source)[\/]/,'').split(/[\/]/)[0]||f; }
+  var w={};
+  Object.keys(raw).forEach(function(f){ var sf=folderOf(f);
+    (raw[f]||[]).forEach(function(dep){ var df=folderOf(dep); if(sf===df) return; var k=sf+' '+df; w[k]=(w[k]||0)+1; }); });
+  return Object.keys(w).map(function(k){ var p=k.split(' '); return [p[0],p[1],w[k]]; });
+}
+function iwApplyGravity(){ try{ if(window.IW&&window.IW.showGravity) window.IW.showGravity(iwGravityEdges()); }catch(_){} }
 
 function enterDungeon(name,path){
   activePath=path; activeName=name;
@@ -2736,6 +2746,7 @@ window.onDungeonEvent=function(sid, line){
     graphState.scanning=false;
     analyzeGraph(ev.graph||{});
     saveGraph();   // persist so this project is scanned ONCE — reloads on every reopen
+    iwApplyGravity();   // light up the gravity tethers from the fresh dependency graph
     var n=Object.keys(graphState.scores).length;
     toast('⬡ Graph ready · '+n+' folder'+(n===1?'':'s')+' mapped'+(graphState.cycles.length?' · ⚠ '+graphState.cycles.length+' cycle(s)':'')+' · saved');
     return;
@@ -3670,6 +3681,24 @@ window.IW={
     PT=D.planets.map((p,i)=>i).filter(i=>!D.planets[i].home);
     build();
     camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth,innerHeight); },
+  // Twin Lens dependency tethers — edges = [[planetNameA, planetNameB, weight], ...] from the real graph.
+  showGravity(edges){
+    if(gravTethers){ gravTethers.forEach(g=>{ scene.remove(g.line); scene.remove(g.bead); }); gravTethers=null; }
+    if(!edges||!edges.length||!worlds.length){ flags.gravity=false; return; }
+    const findW=nm=>worlds.find(w=>w.mesh.userData.info && w.mesh.userData.info.name===nm);
+    const built=[];
+    edges.forEach(([a,b,wt])=>{ const wa=findW(a),wb=findW(b); if(!wa||!wb||wa===wb) return;
+      const mass=Math.min(1,(wt||1)/8);
+      const geom=new THREE.BufferGeometry(),pos=new Float32Array((GSEG+1)*3);
+      geom.setAttribute('position',new THREE.BufferAttribute(pos,3));geom.setDrawRange(0,0);
+      const line=new THREE.Line(geom,new THREE.LineBasicMaterial({color:0x7fd9ff,transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false}));
+      line.frustumCulled=false;scene.add(line);
+      const bead=new THREE.Sprite(new THREE.SpriteMaterial({map:GLOW,color:0xbdefff,transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false,depthTest:false}));
+      bead.scale.setScalar(1.6+mass*1.4);scene.add(bead);
+      built.push({a:wa.mesh,b:wb.mesh,line,geom,pos,bead,mass,prog:0});
+    });
+    gravTethers=built.length?built:null; flags.gravity=!!gravTethers;
+  },
   clearScene, say, dispatchHero
 };
 // boot: preload curated models (with fallback) → start the loop (build happens on buildSystem)
