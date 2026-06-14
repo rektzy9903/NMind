@@ -748,7 +748,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd66-interstellar-s6';
+var DUNGEON_BUILD = 'd67-interstellar-s6';
 
 // ── boot diagnostics: was referenced (window.__log) but never defined → all
 //    model-load reasons were silently dropped. Surface them to the #loading
@@ -1019,37 +1019,10 @@ function mkBugs(parsed){
   });
 }
 
-function corridorPath(a,b){
-  var dx=b.cx-a.cx, dy=b.cy-a.cy;
-  var mid=Math.abs(dx)>Math.abs(dy)?{x:b.cx,y:a.cy}:{x:a.cx,y:b.cy};
-  return [{x:a.cx,y:a.cy},mid,{x:b.cx,y:b.cy}];
-}
-function renderCorridors(){
-  rooms.forEach(function(r){
-    if(!r.parent) return;
-    var p=getRoom(r.parent); if(!p) return;
-    var pts=corridorPath(p,r);
-    var d=pts.map(function(pt,i){ return (i===0?'M':'L')+pt.x+' '+pt.y; }).join(' ');
-    svg.appendChild(el('path',{d:d,'class':'corridor-fill'}));
-    svg.appendChild(el('path',{d:d,'class':'corridor'}));
-    r._waypoints=pts;
-  });
-}
-// Wrap a label to <=maxLines lines of <=maxChars each, breaking at separators
-// (space / _ - . /) when possible, else hard-breaking; '…' on overflow.
-function wrapLabel(name, maxChars, maxLines){
-  name=String(name); var lines=[];
-  while(name.length){
-    if(lines.length===maxLines-1 && name.length>maxChars){ lines.push(name.slice(0,maxChars-1)+'…'); break; }
-    if(name.length<=maxChars){ lines.push(name); break; }
-    var slice=name.slice(0,maxChars+1);
-    var bp=Math.max(slice.lastIndexOf(' '),slice.lastIndexOf('_'),slice.lastIndexOf('-'),slice.lastIndexOf('.'),slice.lastIndexOf('/'));
-    if(bp < Math.floor(maxChars*0.5)) bp=maxChars;   // separator too early → hard break
-    lines.push(name.slice(0,bp).replace(/[ _\-./]+$/,''));
-    name=name.slice(bp).replace(/^[ _\-./]+/,'');
-  }
-  return lines.length?lines:[''];
-}
+// (removed dead 2D-map renderers: corridorPath / renderCorridors / wrapLabel —
+//  the SVG map was retired for the 3D canvas; these had zero callers, _waypoints
+//  was already never set. Monster/agent SVG sprite code stays — it's interwoven
+//  with the live hero-quest combat sim as invisible side-effects.)
 // ── Twin Lens Pass 1: graph analysis engine ──────────────────────────────────
 // analyzeGraph: takes raw madge JSON {file:[dep,...]} → populates graphState.scores
 // with per-FOLDER centrality, cycle flag, dead flag, blastRadius list.
@@ -1231,31 +1204,8 @@ function updateGraphChip(){
   }
 }
 
-function renderRooms(){
-  rooms.forEach(function(r){
-    var g=el('g',{'class':'room','data-id':r.id});
-    var rect=el('rect',{ x:r.cx-r.w/2, y:r.cy-r.h/2, width:r.w, height:r.h, rx:2,
-      'class':'room-rect '+(r.type==='throne'?'throne':'')+(r.bugs.length?' has-bug':'') });
-    rect.addEventListener('click', function(e){ e.stopPropagation(); openRoomPanel(r.id); });
-    g.appendChild(rect);
-    g.appendChild(el('rect',{ x:r.cx-2.5, y:r.cy-r.h/2-1, width:5, height:2, fill:'#8b6f3f', stroke:'#3a2818','stroke-width':0.4 }));
-    if(r.type==='throne'){ var kingG=el('g',{'class':'throne-king'}); svgInto(kingG, wrap(KING_DESIGN, 0.52, 32, 52)); kingG.setAttribute('transform','translate('+r.cx+','+(r.cy+r.h/2-6)+')'); g.appendChild(kingG); }
-    // multi-line label that stays inside the box. Throne shows "Throne Room" (project name lives top-right).
-    var F = r.type==='throne'?6 : r.w>=50?6 : 5.2;
-    var maxChars = Math.max(4, Math.floor((r.w-6)/(F*0.52)));
-    var nameStr = r.type==='throne' ? 'Throne Room'
-                : r.name + (r._moreSubs?(' (+'+r._moreSubs+')'):'');
-    var lines = wrapLabel(nameStr, maxChars, 2);
-    // throne label sits at the TOP of the (bigger) box so the King sits in the seat below it
-    var LH = F*1.12, startY = r.type==='throne' ? (r.cy - r.h/2 + F + 4) : (r.cy - (lines.length-1)*LH/2);
-    var lbl=el('text',{ 'class':'room-label'+(r.type==='throne'?' throne-label':''),
-      'text-anchor':'middle', 'dominant-baseline':'central' });
-    lbl.style.fontSize = F+'px';   // inline beats the .room-label stylesheet rule
-    lines.forEach(function(ln,i){ var ts=el('tspan',{ x:r.cx, y:(startY+i*LH).toFixed(2) }); ts.textContent=ln; lbl.appendChild(ts); });
-    g.appendChild(lbl);
-    r._gEl=g; svg.appendChild(g);
-  });
-}
+// (removed dead renderRooms — the 2D room boxes/labels were SVG-only, 0 callers.
+//  room tap → openRoomPanel is now wired through the 3D scene's hit-test instead.)
 function renderMonsters(){
   svg.querySelectorAll('.monster').forEach(function(n){ n.remove(); });
   rooms.forEach(function(r){
