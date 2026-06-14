@@ -194,18 +194,29 @@
     color:#F0F0F2; font-family:-apple-system,Segoe UI,Roboto,sans-serif; font-weight:600; border-radius:11px; box-shadow:none; }
   #topbar .pbtn:active { transform:scale(.97); box-shadow:none; }
   #map-title { font-family:-apple-system,Segoe UI,Roboto,sans-serif; color:#9aa3b8; text-shadow:none; font-weight:600; }
-  #roomPanel { background:rgba(16,14,20,.86); backdrop-filter:blur(16px); border-top:1px solid rgba(255,255,255,.14); color:#F0F0F2; }
-  #roomPanel header { border-bottom:1px solid rgba(255,255,255,.1); }
-  #roomPanel h2 { font-family:-apple-system,Segoe UI,Roboto,sans-serif; color:#F0F0F2; }
-  #roomPanel .close { color:#9090A0; }
-  #roomPanel::before { background:rgba(255,255,255,.3); }
-  #roomTabs .tab { font-family:-apple-system,Segoe UI,Roboto,sans-serif; color:#9090A0; border-right:1px solid rgba(255,255,255,.08); }
-  #roomTabs .tab.active { background:rgba(232,131,74,.18); color:#E8834A; font-weight:700; }
-  #roomFooter .mini-btn, .mini-btn { background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.14); color:#F0F0F2;
+  /* NB: #map-screen prefix raises specificity above the legacy parchment rules
+     (#roomPanel/#agentsPanel ~line 420/440) which appear LATER in source order */
+  #map-screen #roomPanel { background:rgba(16,14,20,.86); backdrop-filter:blur(16px); border:none; border-top:1px solid rgba(255,255,255,.14); box-shadow:0 -8px 24px rgba(0,0,0,.5); color:#F0F0F2; }
+  #map-screen #roomPanel header { border-bottom:1px solid rgba(255,255,255,.1); }
+  #map-screen #roomPanel h2 { font-family:-apple-system,Segoe UI,Roboto,sans-serif; color:#F0F0F2; }
+  #map-screen #roomPanel .close { color:#9090A0; }
+  #map-screen #roomPanel::before { background:rgba(255,255,255,.3); }
+  #map-screen #roomTabs { background:rgba(255,255,255,.04); border-bottom:1px solid rgba(255,255,255,.1); }
+  #map-screen #roomTabs .tab { font-family:-apple-system,Segoe UI,Roboto,sans-serif; color:#9090A0; border-right:1px solid rgba(255,255,255,.08); }
+  #map-screen #roomTabs .tab.active { background:rgba(232,131,74,.18); color:#E8834A; font-weight:700; }
+  #map-screen #roomContent { color:#C8C8D0; }
+  #map-screen #roomContent h1,#map-screen #roomContent h2,#map-screen #roomContent h3,#map-screen #roomContent h4 { color:#F0F0F2; font-family:-apple-system,Segoe UI,Roboto,sans-serif; }
+  #map-screen #roomContent code { background:rgba(255,255,255,.08); color:#E8834A; }
+  #map-screen #roomContent .muted { color:#9090A0; }
+  #map-screen #roomFooter { border-top:1px solid rgba(255,255,255,.1); }
+  #map-screen #roomFooter .mini-btn, #map-screen .mini-btn { background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.14); color:#F0F0F2;
     font-family:-apple-system,Segoe UI,Roboto,sans-serif; border-radius:9px; }
-  .mini-btn:active { background:rgba(232,131,74,.25); }
-  #agentsPanel { background:rgba(16,14,20,.86); backdrop-filter:blur(14px); border:1px solid rgba(255,255,255,.14); color:#F0F0F2; }
-  #agentsPanel h3 { color:#F0F0F2; border-bottom:1px dashed rgba(255,255,255,.2); }
+  #map-screen .mini-btn:active { background:rgba(232,131,74,.25); }
+  #map-screen #agentsPanel { background:rgba(16,14,20,.9); backdrop-filter:blur(14px); border:1px solid rgba(255,255,255,.14); border-radius:14px; box-shadow:0 6px 20px rgba(0,0,0,.5); color:#F0F0F2; }
+  #map-screen #agentsPanel h3 { color:#F0F0F2; border-bottom:1px dashed rgba(255,255,255,.2); }
+  #map-screen #agentsPanel .agent-row { border-bottom:1px dotted rgba(255,255,255,.12); }
+  #map-screen #agentsPanel .agent-name { color:#F0F0F2; }
+  #map-screen #agentsPanel .agent-status, #map-screen #agentsPanel .agent-empty { color:#9090A0; }
   #hint { color:#60606e; text-shadow:none; }
   .dcard { background:rgba(20,16,12,.7); backdrop-filter:blur(10px); border:1px solid rgba(255,255,255,.16); color:#F0F0F2; box-shadow:none; }
   .dcard .dc-name { color:#F0F0F2; } .dcard .dc-room { color:#9090A0; } .dcard .dc-room b { color:#E8834A; } .dcard .dc-file { color:#7a7a85; }
@@ -737,7 +748,22 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd65-interstellar-s6';
+var DUNGEON_BUILD = 'd66-interstellar-s6';
+
+// ── boot diagnostics: was referenced (window.__log) but never defined → all
+//    model-load reasons were silently dropped. Surface them to the #loading
+//    overlay so asset-load failures are visible + screenshot-able on device.
+window.__bootLog = [];
+window.__log = function(msg, err){
+  try { console.log('[IW] ' + msg); } catch(_){}
+  window.__bootLog.push(String(msg));
+  if (err || /→ procedural|FAILED|ERR/i.test(String(msg))) window.__bootFail = true;
+  try {
+    var el = document.getElementById('loading');
+    if (el) { el.style.color = window.__bootFail ? '#FBBF24' : '#E8834A';
+      el.textContent = window.__bootLog.join('\n'); }
+  } catch(_){}
+};
 
 // ── Bridge ────────────────────────────────────────────────
 var A = (typeof DungeonAndroid !== 'undefined') ? DungeonAndroid : null;
@@ -1891,12 +1917,12 @@ function renderAgentsPanel(){
     var row=document.createElement('div'); row.className='agent-row '+a.status;
     var dest=a.destRoom?(getRoom(a.destRoom)||{}).name:'Throne';
     var st=a.status==='idle'?'resting · Throne':a.status==='traveling'?('→ '+dest):a.status==='fighting'?('⚔ '+(a.task||'combat')):(a.task||dest);
-    row.innerHTML='<span class="dot"></span><div style="flex:1;min-width:0"><div class="agent-name">'+esc(a.name)+'</div><div class="agent-status">'+esc(st)+'</div></div><span style="font-size:11px;color:var(--ink-soft);">✎</span>';
+    row.innerHTML='<span class="dot"></span><div style="flex:1;min-width:0"><div class="agent-name">'+esc(a.name)+'</div><div class="agent-status">'+esc(st)+'</div></div><span style="font-size:11px;color:#9090A0;">✎</span>';
     row.addEventListener('click', function(){ openAgentDialog(a); });
     agentsPanel.appendChild(row);
   });
   var add=document.createElement('div');
-  add.className='agent-row'; add.style.cssText='justify-content:center;color:var(--ink);font-weight:bold;border-bottom:none;margin-top:4px;';
+  add.className='agent-row'; add.style.cssText='justify-content:center;color:#E8834A;font-weight:bold;border-bottom:none;margin-top:4px;';
   add.innerHTML='+ New Hero';
   add.addEventListener('click', function(){ openAgentDialog(null); });
   agentsPanel.appendChild(add);
@@ -3381,7 +3407,12 @@ function build(){
     heroSquad.push({obj:h,offset:off,busy:false,phase:'idle',t:0,target:null,color:col});
   }
 
-  document.getElementById('loading').style.display='none';
+  var _le=document.getElementById('loading');
+  if(window.__bootFail){ // a model fell back to procedural — keep the boot log on-screen so the reason is visible (tap to dismiss)
+    _le.textContent=(window.__bootLog||[]).join('\n')+'\n\n[ tap to dismiss · models fell back to procedural ]';
+    _le.style.display='flex'; _le.style.cursor='pointer';
+    _le.onclick=function(){ _le.style.display='none'; };
+  } else { _le.style.display='none'; }
   welcome(); // "Welcome back, commander." on map open (retries on first gesture if autoplay-blocked)
   document.getElementById('bodies').textContent=clickTargets.length+dronesArr.length;
   document.getElementById('contacts').textContent=enemies.length;
