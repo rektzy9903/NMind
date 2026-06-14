@@ -748,7 +748,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd71-interstellar-s7';
+var DUNGEON_BUILD = 'd72-interstellar-s8';
 
 // ── boot diagnostics: was referenced (window.__log) but never defined → all
 //    model-load reasons were silently dropped. Surface them to the #loading
@@ -1190,7 +1190,7 @@ function updateGraphChip(){
 function renderAll(){
   // SVG renderer retired — drive the 3D interstellar scene from real rooms[]/bugs[]/agents[].
   if(window.IW && window.IW.buildSystem){
-    try{ window.IW.buildSystem(adaptRoomsToD()); iwApplyGravity(); }
+    try{ window.IW.buildSystem(adaptRoomsToD()); }   // gravity tethers are NOT auto-lit here — only on an explicit ⬡ graph scan (graph-data event)
     catch(e){ console.warn('[IW] buildSystem failed', e); }
   }
   $('agentsBtn').textContent='⚔ '+agents.length;
@@ -1209,7 +1209,8 @@ function adaptRoomsToD(){
   var features=rooms.filter(function(r){ return r.type==='feature'; });
   function subsOf(fid){ return rooms.filter(function(r){ return r.type==='subroom' && r.parent===fid; }); }
   var REAL_TEX=['mercury','venus','mars','jupiter','saturn','neptune','uranus','pluto'];
-  var D={ star:{ name:'★ '+activeName, tex:'sun', bugs:[] }, planets:[], decor:[] };
+  // heroCount = battleships parked at Earth = the actual roster (custom agents). 0 roster → no idle battleships.
+  var D={ star:{ name:'★ '+activeName, tex:'sun', bugs:[] }, planets:[], decor:[], heroCount:(agents?agents.length:0) };
   // Earth = throne (home base, dispatch origin)
   D.planets.push({ name:'🌍 '+activeName+' — Home Base', tex:'earth', size:2.2, home:true, rid:'throne',
     bugs:(throne?throne.bugs:[]).map(function(b){ return iwBug(b,'throne'); }), moons:[] });
@@ -1240,7 +1241,7 @@ window.dungeonDeployAt=function(rid,bid){ try{
 var _iwRefreshT=null;
 function iwRefresh(){ if(!window.IW||!window.IW.buildSystem) return;
   clearTimeout(_iwRefreshT);
-  _iwRefreshT=setTimeout(function(){ try{ window.IW.buildSystem(adaptRoomsToD()); iwApplyGravity(); }catch(e){ console.warn('[IW] refresh',e); } },120); }
+  _iwRefreshT=setTimeout(function(){ try{ window.IW.buildSystem(adaptRoomsToD()); }catch(e){ console.warn('[IW] refresh',e); } },120); }
 // Voice — mission-control lines fired on real engine events (muteable via the top-bar button).
 var iwMuted=false;
 function iwSay(k){ if(iwMuted) return; try{ if(window.IW&&window.IW.say) window.IW.say(k); }catch(_){} }
@@ -3154,7 +3155,8 @@ function planetMesh(texKey,size,ring){
   const m=new THREE.Mesh(SPH,mat);m.scale.setScalar(size);
   if(texKey&&texKey.indexOf('proc:')===0){ mat.map=procPlanetTex(texKey.slice(5));mat.color.set(0xffffff); } // seeded by folder name
   else if(PROCGEN[texKey]){ mat.map=gasTex(PROCGEN[texKey]);mat.color.set(0xffffff); }
-  else if(A.tex[texKey]) texLoader.load(A.tex[texKey],tx=>{mat.map=tx;mat.color.set(0xffffff);mat.needsUpdate=true;},undefined,()=>{});
+  else if(A.tex[texKey]) texLoader.load(A.tex[texKey],tx=>{mat.map=tx;mat.color.set(0xffffff);mat.needsUpdate=true;},undefined,
+    ()=>{ mat.map=procPlanetTex(texKey); mat.color.set(0xffffff); mat.needsUpdate=true; }); // texture missing/blocked → seeded procedural surface, never flat grey
   if(ring){const rg=new THREE.RingGeometry(1.4,2.3,40);
     const rm=new THREE.Mesh(rg,new THREE.MeshBasicMaterial({color:0xd9c9a0,side:THREE.DoubleSide,transparent:true,opacity:.7}));
     rm.rotation.x=Math.PI/2.2;m.add(rm);
@@ -3295,28 +3297,27 @@ function build(){
   flag.userData.info={name:'🛡 Mothership',bugs:[]};clickTargets.push(flag);
   homeShip=flag;homeShipPivot=fp;
 
-  const DRONE_N=5; // was 14 — fewer textured clones = lighter + far less clutter around Earth
-  for(let i=0;i<DRONE_N;i++){
-    const drone=getShip('drone',0xcfd8ff);drone.scale.setScalar(.65);
-    const pivot=new THREE.Group();pivot.rotation.y=i/DRONE_N*6.283;pivot.rotation.x=(Math.random()-.5)*.4;
-    drone.position.x=6+(i%2)*1.2;drone.position.y=(Math.random()-.5)*1.5;
-    pivot.add(drone);earthAnchor.add(pivot);
-    dronesArr.push({pivot,speed:.3+Math.random()*.3,obj:drone});
-  }
+  // No ambient drone swarm around Earth — only the mothership + roster battleships orbit home.
+  // Probes (hounds) appear only when a real scan launches them (IW.launchHounds), then fly out & despawn.
 
   const SCOUTV=['Scout · Compact Fighter','Scout · Retro Pod','Scout · Personal Pod','Scout · Corethicorn S-17'];
   SCOUTV.forEach((nm,i)=>{
     const s=getShip(SCOUT_KEYS[i],0x60A5FA);s.scale.setScalar(1.1);s.add(halo(0x60A5FA,2.2,.5));scene.add(s);
+    s.visible=false; // recon ships only appear when DISPATCHED (IW.scoutTo); idle = not present, no Earth clutter
     s.userData.info={name:nm,bugs:[]};clickTargets.push(s);
     scouts.push({obj:s,phase:'fly',t:0,target:i%PT.length,active:false,
       homeOff:new THREE.Vector3((Math.random()-.5)*7,1.5+Math.random()*2.5,(Math.random()-.5)*7)});
   });
 
-  for(let i=0;i<HERO_COUNT;i++){
-    const ang=i/HERO_COUNT*6.283,off=new THREE.Vector3(Math.cos(ang)*4.6,1.5,Math.sin(ang)*4.6);
+  // Idle battleships orbiting Earth = the real roster (custom agents). HERO_COUNT is just an upper cap.
+  const HC=Math.min(HERO_COUNT,Math.max(0,(D.heroCount!=null?D.heroCount:0)));
+  for(let i=0;i<HC;i++){
+    const ang=i/Math.max(1,HC)*6.283,off=new THREE.Vector3(Math.cos(ang)*4.6,1.5,Math.sin(ang)*4.6);
     const col=AGENT_PALETTE[i%AGENT_PALETTE.length];
-    const h=getShip(HERO_KEYS[i%HERO_KEYS.length],col);tintShip(h,col); // reuse the 4 battleship models, recolour per agent → scales to any count
-    h.scale.setScalar(1.1);h.add(halo(col,2.3,.4));scene.add(h);
+    const mkey=HERO_KEYS[i%HERO_KEYS.length];
+    const h=getShip(mkey,col);
+    if(!MODELS[mkey]) tintShip(h,col); // ONLY recolour the procedural fallback — real GLBs keep their texture; the colour halo below carries per-agent identity
+    h.scale.setScalar(1.1);h.add(halo(col,2.3,.5));scene.add(h);
     h.userData.info={name:'⚔ Battleship '+(i+1),bugs:[]};clickTargets.push(h);
     heroSquad.push({obj:h,offset:off,busy:false,phase:'idle',t:0,target:null,color:col});
   }
@@ -3343,6 +3344,7 @@ renderer.domElement.addEventListener('pointerup',e=>{
   if(!hit){ unfocus(); hideInfo(); return; }            // tap empty → back to system view
   let o=hit.object;while(o&&!o.userData.info&&!o.userData.enemy)o=o.parent;
   if(!o){ unfocus(); hideInfo(); return; }
+  if(o.visible===false){ unfocus(); hideInfo(); return; } // ignore taps on hidden ships (idle scouts, destroyed contacts)
   if(o.userData.enemy){const e2=o.userData.enemy;showInfo({name:'⚠ '+(e2.data.t),path:e2.data.host,bugs:[e2.data]});
     if(window.dungeonDeployAt&&e2.data&&e2.data.rid)window.dungeonDeployAt(e2.data.rid,e2.data.bid);} // tap contact → deploy battleship
   else if(o.userData.info){
@@ -3363,7 +3365,16 @@ function showInfo(info){
 window.hideInfo=()=>document.getElementById('info').style.display='none';
 function dispatchHero(bid){
   const live=enemies.filter(e=>e.alive);if(!live.length)return;
-  const hero=heroSquad.find(h=>!h.busy);if(!hero)return;
+  let hero=heroSquad.find(h=>!h.busy);
+  if(!hero){ // roster ship not in the scene yet (agent just created) → spawn a transient battleship so the strike always animates; a later rebuild reconciles to the roster
+    const n=heroSquad.length, col=AGENT_PALETTE[n%AGENT_PALETTE.length], mkey=HERO_KEYS[n%HERO_KEYS.length];
+    const h=getShip(mkey,col); if(!MODELS[mkey]) tintShip(h,col);
+    h.scale.setScalar(1.1);h.add(halo(col,2.3,.5));scene.add(h);
+    h.position.copy(earthAnchor?worldPos(earthAnchor):ZERO);
+    const ang=n*1.7, off=new THREE.Vector3(Math.cos(ang)*4.6,1.5,Math.sin(ang)*4.6);
+    hero={obj:h,offset:off,busy:false,phase:'idle',t:0,target:null,color:col,transient:true};
+    heroSquad.push(hero);
+  }
   // target the specific contact the real dispatch is fixing (by bug id), else any live contact
   const tgt=(bid&&live.find(e=>e.data&&e.data.bid===bid))||live[Math.floor(Math.random()*live.length)];
   hero.busy=true;hero.phase='attack';hero.t=0;hero.start=hero.obj.position.clone();hero.target=tgt;
@@ -3581,7 +3592,8 @@ function loop(){
   // model is CURRENTLY auditing (target set by IW.scoutTo from live tool events). The pulse =
   // "this model is auditing this place right now"; it follows the model as it moves between folders.
   scouts.forEach(s=>{
-    if(!s.active){ s.obj.position.lerp(earthP.clone().add(s.homeOff),0.05); s.obj.lookAt(earthP); s.phase='fly'; s.flyFrom=null; s.t=0; return; }
+    if(!s.active){ if(s.obj.visible)s.obj.visible=false; s.phase='fly'; s.flyFrom=null; s.t=0; return; } // idle → hidden, not parked at Earth
+    if(!s.obj.visible){ s.obj.visible=true; s.obj.position.copy(earthP); s.flyFrom=null; s.t=0; } // just dispatched → appear at home base, then fly out
     if(!PT.length) return;
     const pd=D.planets[PT[s.target%PT.length]];
     const planet=clickTargets.find(c=>c.userData.info&&c.userData.info.name===pd.name);
