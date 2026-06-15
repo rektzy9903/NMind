@@ -748,7 +748,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd75-interstellar-s8';
+var DUNGEON_BUILD = 'd76-interstellar-s8';
 
 // ── boot diagnostics: was referenced (window.__log) but never defined → all
 //    model-load reasons were silently dropped. Surface them to the #loading
@@ -3205,7 +3205,7 @@ function welcome(){ if(_welcomed) return; const a=VOICE['map-welcome']; if(!a) r
   const p=a.play(); if(p&&p.then) p.then(()=>{_welcomed=true;}).catch(()=>{}); else _welcomed=true; }
 addEventListener('pointerdown',welcome,{once:false});
 addEventListener('keydown',welcome,{once:false});
-let earthAnchor=null,homeShip=null,homeShipPivot=null; // homeShip = the mothership parked at Earth (also the council King)
+let earthAnchor=null,homeShip=null,homeShipPivot=null; // homeShip = the flagship parked at Earth (also the council King)
 const tmpV=new THREE.Vector3(),ZERO=new THREE.Vector3();
 function flash(pos){const fl=halo(0xFBBF24,6,.9);fl.position.copy(pos);scene.add(fl);setTimeout(()=>scene.remove(fl),250);}
 // SCAN PULSE — expanding sonar ring emanating from a planet while a scout sweeps it (= dungeon scanRing)
@@ -3313,8 +3313,8 @@ function build(){
   });
 
   // FLEET
-  const flag=getShip('mothership',0x60A5FA);flag.scale.setScalar(3.0);flag.add(halo(0x60A5FA,5,.6)); // the lone mothership at Earth
-  const fp=new THREE.Group();flag.position.x=7;fp.add(flag); // no x-tilt → mothership stays upright (parked & as King)
+  const flag=getShip('flagship',0x60A5FA);flag.scale.setScalar(3.0);flag.add(halo(0x60A5FA,5,.6)); // the lone home FLAGSHIP at Earth (allied capital ship — its own asset, NOT the enemy mothership)
+  const fp=new THREE.Group();flag.position.x=7;fp.add(flag); // no x-tilt → flagship stays upright (parked & as King)
   earthAnchor.add(fp);orbiters.push({pivot:fp,speed:.5});
   flag.userData.info={name:'🛡 Mothership',bugs:[]};clickTargets.push(flag);
   homeShip=flag;homeShipPivot=fp;
@@ -3528,10 +3528,10 @@ function convene(){
   for(let i=0;i<4;i++){const s=getShip(SCOUT_KEYS[i],0x60A5FA);s.scale.setScalar(1.12);scene.add(s);
     const chip=document.createElement('div');chip.className='iwc-chip und';chip.textContent='…';chips.appendChild(chip);
     council.members.push({obj:s,chip,vote:null});}
-  // Promote the existing Earth mothership to King — no second ship. Detach it to the scene (keeps world transform), it flies up to the table.
+  // Promote the existing Earth flagship to King — no second ship. Detach it to the scene (keeps world transform), it flies up to the table.
   if(homeShip){council.kingRestore={obj:homeShip,parent:homeShip.parent,pos:homeShip.position.clone(),scale:homeShip.scale.x};
     scene.attach(homeShip);council.king=homeShip;}
-  else{const k=getShip('mothership',0x60A5FA);k.scale.setScalar(3.4);k.add(halo(0x60A5FA,7,.5));scene.add(k);council.king=k;council.kingRestore=null;}
+  else{const k=getShip('flagship',0x60A5FA);k.scale.setScalar(3.4);k.add(halo(0x60A5FA,7,.5));scene.add(k);council.king=k;council.kingRestore=null;}
   council.beats=councilBeats();council.idx=0;council.t=0;council.speaking=-9;council.awaitJudge=false;council.kingFlare=0;removeHolo();
   focusOn(earthAnchor,26);
   document.getElementById('iwc-dialog').style.display='block';
