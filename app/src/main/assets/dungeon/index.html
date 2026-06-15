@@ -2126,6 +2126,7 @@ function knightDone(k){
   kn.done=true;
   var exp=expeditions[councilState.expSid];
   if(exp && exp.sprites[k]) exp.sprites[k].parked=true;   // this knight stops roaming, stays put
+  try{ if(window.IW&&window.IW.scoutHome) window.IW.scoutHome(k); }catch(_){}  // its recon ship flies back to Earth (others keep auditing)
   doneDcard(kn.cardId, 'swept '+Object.keys(kn.seen).length+' room(s)');
   if(councilState.knights.every(function(x){ return x.done; })){ endExpedition(councilState.expSid); consensusVerdict(); }
 }
@@ -3403,7 +3404,13 @@ function loop(){
   // model is CURRENTLY auditing (target set by IW.scoutTo from live tool events). The pulse =
   // "this model is auditing this place right now"; it follows the model as it moves between folders.
   scouts.forEach(s=>{
-    if(!s.active){ if(s.obj.visible)s.obj.visible=false; s.phase='fly'; s.flyFrom=null; s.t=0; return; } // idle → hidden, not parked at Earth
+    if(!s.active){ if(s.obj.visible)s.obj.visible=false; s.phase='fly'; s.flyFrom=null; s.t=0; s.returning=false; return; } // idle → hidden, not parked at Earth
+    // RETURNING — this scout finished its audit (knightDone → scoutHome, or convene →
+    // scoutsRest): fly visibly BACK to the home base, then go idle (instead of vanishing in place).
+    if(s.returning){ if(!s.obj.visible){ s.active=false; s.returning=false; return; }
+      s.obj.position.lerp(earthP,0.045); s.obj.lookAt(earthP); s.obj.rotation.y+=dt*0.6;
+      if(s.obj.position.distanceTo(earthP)<3){ s.obj.visible=false; s.active=false; s.returning=false; s.phase='fly'; s.flyFrom=null; s.t=0; }
+      return; }
     if(!s.obj.visible){ s.obj.visible=true; s.obj.position.copy(earthP); s.flyFrom=null; s.t=0; } // just dispatched → appear at home base, then fly out
     if(!PT.length) return;
     const pd=D.planets[PT[s.target%PT.length]];
@@ -3536,8 +3543,11 @@ window.IW={
     // Walk the room's parent chain until we hit a planet's rid (or the home base, which we skip).
     let rid=roomId, pi=-1;
     while(rid){ pi=PT.findIndex(p=>D.planets[p].rid===rid); if(pi>=0)break; const r=getRoom(rid); rid=r&&r.parent; }
-    s.active=true; if(pi>=0)s.target=pi; },
-  scoutsRest(){ scouts.forEach(s=>{ s.active=false; }); },
+    s.active=true; s.returning=false; if(pi>=0)s.target=pi; },   // re-dispatch cancels any pending fly-home
+  // One scout's audit finished (council member done) → fly THAT ship home; others keep working.
+  scoutHome(idx){ const s=scouts[idx]; if(s&&s.active) s.returning=true; },
+  // Whole expedition over → recall every ship to the home base (visible flight, not vanish).
+  scoutsRest(){ scouts.forEach(s=>{ if(s.active) s.returning=true; }); },
   // battleship resolves on the REAL fix: heroStrike = fix landed → destroy that contact + return;
   // heroRecall = fix failed → retreat with the contact left standing.
   heroStrike(bid){ const e=enemies.find(x=>x.data&&x.data.bid===bid&&x.alive);
