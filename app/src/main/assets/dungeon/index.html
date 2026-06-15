@@ -748,7 +748,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd72-interstellar-s8';
+var DUNGEON_BUILD = 'd73-interstellar-s8';
 
 // ── boot diagnostics: was referenced (window.__log) but never defined → all
 //    model-load reasons were silently dropped. Surface them to the #loading
@@ -3039,6 +3039,8 @@ const sun=new THREE.PointLight(0xfff0d0,3.2,0);sun.position.set(0,0,0);sun.userD
 const texLoader=new THREE.TextureLoader();
 const gltf=new GLTFLoader();
 const draco=new DRACOLoader();draco.setDecoderPath('assets/draco/');gltf.setDRACOLoader(draco);
+draco.setWorkerLimit(1); // ONE decoder worker → serialize draco decode; parallel decode of the big meshes was OOMing the worker in the WebView (→ all models fell back to procedural intermittently)
+try{ draco.preload(); window.__log&&window.__log('[draco] decoder preloaded'); }catch(e){ window.__log&&window.__log('[draco] preload skipped: '+(e&&e.message||e)); } // warm the decoder/worker up front so the FIRST model isn't the one that pays the cold-start (+ surfaces a decoder-fetch failure in the boot log)
 const SPH=new THREE.SphereGeometry(1,32,32);
 
 // ---- shared geometries for procedural FALLBACK ships ----
@@ -3063,7 +3065,7 @@ function makeProc(kind,color){
 
 // ---- model preload: load each curated GLB once → normalized unit template (or null=procedural) ----
 const MODELS={};
-let dAct=0;const DMAX=3;const dQ=[];
+let dAct=0;const DMAX=1;const dQ=[]; // ONE GLB at a time — with draco worker serialized (setWorkerLimit 1) parallel loads only re-create the OOM contention; a queue of 1 keeps peak memory low
 function dSlot(){return new Promise(r=>{if(dAct<DMAX){dAct++;r();}else dQ.push(r);});}
 function dRel(){dAct=Math.max(0,dAct-1);if(dQ.length){dAct++;dQ.shift()();}}
 function normalize(obj,target){
@@ -3074,12 +3076,19 @@ function normalize(obj,target){
 }
 function loadTemplate(key,path){
   return new Promise(res=>{ dSlot().then(()=>{
-    let done=false,to;
-    const fin=()=>{if(done)return false;done=true;clearTimeout(to);dRel();return true;};
-    const fail=why=>{if(!fin())return;MODELS[key]=null;window.__log&&window.__log('[model] '+key+' → procedural ('+why+')');res();};
-    to=setTimeout(()=>fail('timeout'),15000);
-    gltf.load(path, g=>{ if(!fin())return; MODELS[key]=normalize(g.scene,1.0);
-      window.__log&&window.__log('[model] '+key+' ✓'); res(); }, undefined, e=>fail((e&&e.message)||'err'));
+    let attempt=0; // each model gets ONE retry before it falls back — a transient worker death no longer dooms the model
+    const tryLoad=()=>{
+      let done=false,to;
+      const fin=()=>{if(done)return false;done=true;clearTimeout(to);return true;}; // slot is held across the retry — only released on final success/giveUp below
+      const giveUp=why=>{dRel();MODELS[key]=null;window.__log&&window.__log('[model] '+key+' → procedural ('+why+')');res();};
+      const onErr=why=>{ if(!fin())return;
+        if(attempt<1){attempt++;window.__log&&window.__log('[model] '+key+' retry ('+why+')');tryLoad();}
+        else giveUp(why); };
+      to=setTimeout(()=>onErr('timeout'),45000); // generous — a serialized big-mesh draco decode on a slow phone can take many seconds
+      gltf.load(path, g=>{ if(!fin())return; dRel(); MODELS[key]=normalize(g.scene,1.0);
+        window.__log&&window.__log('[model] '+key+' ✓'); res(); }, undefined, e=>onErr((e&&e.message)||'err'));
+    };
+    tryLoad();
   });});
 }
 // procedural fallback maps variant key → base kind (scout1→scout, hero3→hero, …)
