@@ -748,7 +748,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd78-interstellar-s9';
+var DUNGEON_BUILD = 'd79-interstellar-scout-pulse';
 
 // ── boot diagnostics: was referenced (window.__log) but never defined → all
 //    model-load reasons were silently dropped. Surface them to the #loading
@@ -1711,7 +1711,7 @@ function expTick(now){
                 if(s.rooms.indexOf(s.hereRoom)===-1) s.rooms.push(s.hereRoom);
                 exp.label=s.hereRoom.name;
                 updDcard(sid+':'+(exp.sprites.indexOf(s)), { room:s.hereRoom.name, bump:true });
-                try{ if(window.IW&&window.IW.scoutTo) window.IW.scoutTo(exp.sprites.indexOf(s), s.hereRoom.name); }catch(_){} // 3D recon ship flies to + sonars the world this model is auditing
+                try{ if(window.IW&&window.IW.scoutTo) window.IW.scoutTo(exp.sprites.indexOf(s), s.hereRoom.id); }catch(_){} // pass the room ID — scoutTo resolves subfolders→their planet (3D recon ship flies to + sonars the world this model is auditing)
               }
             }
           } else { s.x+=dx/d*step; s.y+=dy/d*step; }
@@ -3216,12 +3216,14 @@ const tmpV=new THREE.Vector3(),ZERO=new THREE.Vector3();
 function flash(pos){const fl=halo(0xFBBF24,6,.9);fl.position.copy(pos);scene.add(fl);setTimeout(()=>scene.remove(fl),250);}
 // SCAN PULSE — expanding sonar ring emanating from a planet while a scout sweeps it (= dungeon scanRing)
 const scanPulses=[];
-const RING_GEO=new THREE.RingGeometry(0.6,0.95,40);
-function spawnScan(pos,base,color){
+const RING_GEO=new THREE.RingGeometry(0.9,1.0,48); // thin wavefront band (was 0.6→0.95, too thick)
+function spawnScan(pos,base,color,follow){
   const ring=new THREE.Mesh(RING_GEO,new THREE.MeshBasicMaterial({color:color||0x3DD68C,transparent:true,
-    opacity:.75,side:THREE.DoubleSide,blending:THREE.AdditiveBlending,depthWrite:false}));
+    opacity:.42,side:THREE.DoubleSide,blending:THREE.AdditiveBlending,depthWrite:false})); // faint — reads as a wave, not a solid ring
   ring.position.copy(pos);ring.rotation.x=Math.PI/2; // lie flat in the orbital plane
-  scene.add(ring);scanPulses.push({ring,t:0,base:base||2});
+  // follow = the ship object; if set, the wavefront re-centres on it every frame so the
+  // pulse emanates FROM and TRAILS the moving ship instead of being left behind at spawn.
+  scene.add(ring);scanPulses.push({ring,t:0,base:base||2,follow:follow||null});
 }
 // RISK red-aura (dependency risk → pulsing rim) + bug HP bars + fight tuning
 const riskAuras=[];
@@ -3634,11 +3636,15 @@ function loop(){
     // Per-scout orbital SLOT so multiple recon ships auditing the SAME world don't stack on
     // one point (they share target/speed/arrival-time → identical position = looks like 1 ship).
     // Spread by index: distinct phase + a small radius/height stagger → all N stay visible.
-    const slot=(s.idx||0); const phase=slot*1.9, rr=pr+3.5+slot*0.7, hy=1.2+slot*0.55;
+    // slot = this ship's rank among the ACTIVE ships sharing THIS world (not its global id) — so
+    // 2 ships on one world sit close in a tidy formation, and a lone ship hugs the planet instead
+    // of being flung out to global-index radius. Fixes "ships scattered / look missing".
+    let slot=0; for(const o of scouts){ if(o!==s&&o.active&&o.target===s.target&&(o.idx||0)<(s.idx||0)) slot++; }
+    const phase=slot*2.1, rr=pr+3.2+slot*0.9, hy=1.2+slot*0.55;
     if(s.phase==='scan'){ // SWEEP: orbit the planet + emit sonar pulses for as long as the model audits it
       s.scanT+=dt; const ang=s.scanT*2.2+phase;
       s.obj.position.set(dest.x+Math.cos(ang)*rr, dest.y+hy, dest.z+Math.sin(ang)*rr); s.obj.lookAt(dest);
-      s.pulseT=(s.pulseT||0)-dt; if(s.pulseT<=0){ spawnScan(s.obj.position.clone(),0.9,0x60A5FA); s.pulseT=0.5; }
+      s.pulseT=(s.pulseT||0)-dt; if(s.pulseT<=0){ spawnScan(s.obj.position.clone(),0.9,0x60A5FA,s.obj); s.pulseT=0.5; } // follow=s.obj → wave trails the ship
       return;
     }
     // FLY OUT from wherever it is to its own orbit-entry slot on the world (arc over the sun)
@@ -3650,7 +3656,8 @@ function loop(){
   });
   // expand + fade active scan pulses
   for(let i=scanPulses.length-1;i>=0;i--){const p=scanPulses[i];p.t+=dt;const sc=p.base*(1+p.t*3.2);
-    p.ring.scale.set(sc,sc,sc);p.ring.material.opacity=Math.max(0,.75-p.t*0.95);
+    if(p.follow)p.ring.position.copy(p.follow.position); // wave re-centres on the live ship → follows it
+    p.ring.scale.set(sc,sc,sc);p.ring.material.opacity=Math.max(0,.42-p.t*0.52);
     if(p.t>0.82){scene.remove(p.ring);p.ring.material.dispose();scanPulses.splice(i,1);}}
   // pulse risk auras (high-risk folders breathe red)
   for(const a of riskAuras){a.s.material.opacity=(0.1+0.4*a.risk)*(0.55+0.45*Math.sin(t*0.003));}
@@ -3745,7 +3752,14 @@ window.IW={
     gravTethers=built.length?built:null; flags.gravity=!!gravTethers;
   },
   // recon ships follow the LIVE audit (idx = expedition member index, worldName = folder being audited now)
-  scoutTo(idx,worldName){ const s=scouts[idx]; if(!s)return; const pi=PT.findIndex(p=>D.planets[p].name===worldName); s.active=true; if(pi>=0)s.target=pi; },
+  scoutTo(idx,roomId){ const s=scouts[idx]; if(!s)return;
+    // Resolve the audited ROOM → the WORLD (planet) it lives under. Subfolders are MOONS, not
+    // planets, so a direct name/id match fails for nested rooms (pi=-1) and the ship kept a stale
+    // default target → it orbited the wrong world / never moved to where the model was auditing.
+    // Walk the room's parent chain until we hit a planet's rid (or the home base, which we skip).
+    let rid=roomId, pi=-1;
+    while(rid){ pi=PT.findIndex(p=>D.planets[p].rid===rid); if(pi>=0)break; const r=getRoom(rid); rid=r&&r.parent; }
+    s.active=true; if(pi>=0)s.target=pi; },
   scoutsRest(){ scouts.forEach(s=>{ s.active=false; }); },
   // battleship resolves on the REAL fix: heroStrike = fix landed → destroy that contact + return;
   // heroRecall = fix failed → retreat with the contact left standing.
