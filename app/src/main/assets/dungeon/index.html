@@ -748,7 +748,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd77-interstellar-s8';
+var DUNGEON_BUILD = 'd78-interstellar-s9';
 
 // ── boot diagnostics: was referenced (window.__log) but never defined → all
 //    model-load reasons were silently dropped. Surface them to the #loading
@@ -3333,7 +3333,7 @@ function build(){
     const s=getShip(SCOUT_KEYS[i],0x60A5FA);s.scale.setScalar(1.1);s.add(halo(0x60A5FA,2.2,.5));scene.add(s);
     s.visible=false; // recon ships only appear when DISPATCHED (IW.scoutTo); idle = not present, no Earth clutter
     s.userData.info={name:nm,bugs:[]};clickTargets.push(s);
-    scouts.push({obj:s,phase:'fly',t:0,target:i%PT.length,active:false,
+    scouts.push({obj:s,idx:i,phase:'fly',t:0,target:i%PT.length,active:false,
       homeOff:new THREE.Vector3((Math.random()-.5)*7,1.5+Math.random()*2.5,(Math.random()-.5)*7)});
   });
 
@@ -3631,16 +3631,21 @@ function loop(){
     const planet=clickTargets.find(c=>c.userData.info&&c.userData.info.name===pd.name);
     const dest=planet?worldPos(planet):earthP; const pr=planet?planet.scale.x:2;
     if(s.scanTarget!=null && s.scanTarget!==s.target){ s.phase='fly'; s.flyFrom=null; s.t=0; s.scanTarget=null; } // model moved → break off, fly to the new world
+    // Per-scout orbital SLOT so multiple recon ships auditing the SAME world don't stack on
+    // one point (they share target/speed/arrival-time → identical position = looks like 1 ship).
+    // Spread by index: distinct phase + a small radius/height stagger → all N stay visible.
+    const slot=(s.idx||0); const phase=slot*1.9, rr=pr+3.5+slot*0.7, hy=1.2+slot*0.55;
     if(s.phase==='scan'){ // SWEEP: orbit the planet + emit sonar pulses for as long as the model audits it
-      s.scanT+=dt; const ang=s.scanT*2.2, rr=pr+3.5;
-      s.obj.position.set(dest.x+Math.cos(ang)*rr, dest.y+1.2, dest.z+Math.sin(ang)*rr); s.obj.lookAt(dest);
+      s.scanT+=dt; const ang=s.scanT*2.2+phase;
+      s.obj.position.set(dest.x+Math.cos(ang)*rr, dest.y+hy, dest.z+Math.sin(ang)*rr); s.obj.lookAt(dest);
       s.pulseT=(s.pulseT||0)-dt; if(s.pulseT<=0){ spawnScan(s.obj.position.clone(),0.9,0x60A5FA); s.pulseT=0.5; }
       return;
     }
-    // FLY OUT from wherever it is to the world under audit (arc over the sun)
+    // FLY OUT from wherever it is to its own orbit-entry slot on the world (arc over the sun)
+    const entry=new THREE.Vector3(dest.x+Math.cos(phase)*rr, dest.y+hy, dest.z+Math.sin(phase)*rr);
     if(!s.flyFrom) s.flyFrom=s.obj.position.clone();
     s.t=(s.t||0)+dt*0.4; const k=Math.min(s.t,1);
-    s.obj.position.lerpVectors(s.flyFrom, dest, k); s.obj.position.y+=Math.sin(k*Math.PI)*14; s.obj.lookAt(dest);
+    s.obj.position.lerpVectors(s.flyFrom, entry, k); s.obj.position.y+=Math.sin(k*Math.PI)*14; s.obj.lookAt(dest);
     if(k>=1){ s.phase='scan'; s.scanT=0; s.pulseT=0; s.scanTarget=s.target; s.flyFrom=null; s.t=0; }
   });
   // expand + fade active scan pulses
