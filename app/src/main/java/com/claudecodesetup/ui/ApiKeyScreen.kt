@@ -53,6 +53,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.concurrent.TimeUnit
 
 enum class KeyStatus { IDLE, LOADING, SUCCESS, ERROR }
@@ -155,6 +157,17 @@ private fun buildRequest(provider: Provider, key: String): Request? {
         "mistral" -> builder
             .url("https://api.mistral.ai/v1/models")
             .header("Authorization", "Bearer $key")
+            .build()
+        // OpenCode Zen: its GET /models answers 200 for ANY key (even invalid), so a
+        // GET can't validate. POST a 1-token completion against a free model instead —
+        // a bad key → 401 AuthError, a good key → 200 (free models cost nothing).
+        "opencode" -> builder
+            .url("https://opencode.ai/zen/v1/chat/completions")
+            .header("Authorization", "Bearer $key")
+            .post(
+                "{\"model\":\"deepseek-v4-flash-free\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":1}"
+                    .toRequestBody("application/json".toMediaType())
+            )
             .build()
         // Kiro (paste-token MVP): the "key" is a Kiro credentials JSON (accessToken +
         // refreshToken), not an API key — CodeWhisperer has no public /models endpoint and

@@ -296,6 +296,32 @@ object Providers {
         )
     )
 
+    // OpenCode Zen (opencode.ai/zen) — OpenAI-compatible gateway. Has a genuinely
+    // FREE tier (no payment method needed) alongside paid Claude/GPT/Gemini. We only
+    // ever surface the free models: the live /models endpoint carries no price flag,
+    // so fetchOpenCodeFreeModels() filters to ids ending in "-free" + "big-pickle"
+    // (the rest require a card and 401 with CreditsError). Same upstream Dahono Labs
+    // uses for its free-Claude lane. Key from https://opencode.ai/auth (Bearer sk-...).
+    val OPENCODE = Provider(
+        id = "opencode",
+        name = "OpenCode Zen",
+        supportsLiveFetch = true,
+        signupUrl = "https://opencode.ai/auth",
+        rateLimit = "Free models · no card needed",
+        malaysiaStatus = MalaysiaStatus.GREEN,
+        malaysiaNote = "Works everywhere — OpenAI-compatible",
+        warningNote = "Only OpenCode Zen's free models are shown. Its premium Claude/GPT/Gemini models need a payment method on file and are hidden here.",
+        baseUrl = "https://opencode.ai/zen/v1",
+        requiresProxy = true,
+        models = listOf(
+            AiModel("DeepSeek V4 Flash (free)", "deepseek-v4-flash-free", setOf(Cap.FREE, Cap.TOOLS, Cap.REASONING, Cap.LONG_CTX), "Free · DeepSeek MoE"),
+            AiModel("Big Pickle (free)",        "big-pickle",             setOf(Cap.FREE, Cap.TOOLS),                               "Free experimental"),
+            AiModel("MiMo v2.5 (free)",         "mimo-v2.5-free",         setOf(Cap.FREE, Cap.TOOLS),                               "Xiaomi · free"),
+            AiModel("Nemotron 3 Ultra (free)",  "nemotron-3-ultra-free",  setOf(Cap.FREE, Cap.REASONING),                           "NVIDIA · free"),
+            AiModel("North Mini Code (free)",   "north-mini-code-free",   setOf(Cap.FREE, Cap.CODING),                              "Code · free")
+        )
+    )
+
     val ANTHROPIC = Provider(
         id = "anthropic",
         name = "Anthropic (Claude.ai)",
@@ -374,7 +400,7 @@ object Providers {
         models = emptyList()
     )
 
-    val ALL = listOf(GROQ, GEMINI, CEREBRAS, OPENROUTER, ANTHROPIC_API, DEEPSEEK, KIMI, QWEN, MISTRAL, NVIDIA_NIM, META_LLAMA, KIRO, OLLAMA)
+    val ALL = listOf(GROQ, GEMINI, CEREBRAS, OPENCODE, OPENROUTER, ANTHROPIC_API, DEEPSEEK, KIMI, QWEN, MISTRAL, NVIDIA_NIM, META_LLAMA, KIRO, OLLAMA)
 
     fun byId(id: String): Provider? = when (id) {
         "anthropic"     -> ANTHROPIC

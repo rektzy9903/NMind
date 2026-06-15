@@ -108,6 +108,41 @@
       ]
     },
     {
+      "id": "opencode",
+      "name": "OpenCode Zen",
+      "signupUrl": "https://opencode.ai/auth",
+      "rateLimit": "Free models · no card needed",
+      "malaysiaStatus": "GREEN",
+      "malaysiaNote": "Works everywhere — OpenAI-compatible",
+      "warningNote": "Only OpenCode Zen's free models are shown. Its premium Claude/GPT/Gemini models need a payment method on file and are hidden here.",
+      "baseUrl": "https://opencode.ai/zen/v1",
+      "requiresProxy": true,
+      "requiresApiKey": true,
+      "supportsLiveFetch": true,
+      "models": [
+        {
+          "name": "DeepSeek V4 Flash (free)",
+          "modelId": "deepseek-v4-flash-free"
+        },
+        {
+          "name": "Big Pickle (free)",
+          "modelId": "big-pickle"
+        },
+        {
+          "name": "MiMo v2.5 (free)",
+          "modelId": "mimo-v2.5-free"
+        },
+        {
+          "name": "Nemotron 3 Ultra (free)",
+          "modelId": "nemotron-3-ultra-free"
+        },
+        {
+          "name": "North Mini Code (free)",
+          "modelId": "north-mini-code-free"
+        }
+      ]
+    },
+    {
       "id": "openrouter",
       "name": "OpenRouter",
       "signupUrl": "https://openrouter.ai",

@@ -209,6 +209,7 @@ object ProvidersRepository {
         "deepseek"    -> fetchOpenAiStyleModels("https://api.deepseek.com/models", apiKey, provider)
         "kimi"        -> fetchOpenAiStyleModels("https://api.moonshot.ai/v1/models", apiKey, provider)
         "qwen"        -> fetchOpenAiStyleModels("https://dashscope-intl.aliyuncs.com/compatible-mode/v1/models", apiKey, provider)
+        "opencode"    -> fetchOpenCodeFreeModels(apiKey)
         "mistral"     -> fetchOpenAiStyleModels("https://api.mistral.ai/v1/models", apiKey, provider)
         "anthropic"     -> fetchAnthropicModels(apiKey)
         "anthropic_api" -> fetchAnthropicModels(apiKey)
@@ -222,6 +223,39 @@ object ProvidersRepository {
                              fetchOpenAiStyleModels(provider.baseUrl.trimEnd('/') + "/models", apiKey, provider)
                          else provider.models
     }
+
+    /**
+     * OpenCode Zen — fetch the live model list but surface ONLY the free models.
+     * The /zen/v1/models endpoint returns paid models (Claude/GPT/Gemini) and free
+     * ones together with NO price/free flag, and it answers 200 even for a bad key.
+     * The free tier is identifiable by an id ending in "-free" (plus the always-free
+     * "big-pickle"); everything else 401s with CreditsError unless a card is on file.
+     * So we filter to those and force Cap.FREE. Matches the OpenCode Zen catalog
+     * (models.dev) and the free-Claude lane Dahono Labs proxies.
+     */
+    suspend fun fetchOpenCodeFreeModels(apiKey: String): List<AiModel> =
+        withContext(Dispatchers.IO) {
+            val req = Request.Builder()
+                .url("https://opencode.ai/zen/v1/models")
+                .header("Authorization", "Bearer $apiKey")
+                .header("Accept", "application/json")
+                .build()
+            val body = http.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) throw Exception("HTTP ${resp.code}")
+                resp.body?.string() ?: throw Exception("Empty response")
+            }
+            val data = JSONObject(body).getJSONArray("data")
+            val models = mutableListOf<AiModel>()
+            for (i in 0 until data.length()) {
+                val id = data.getJSONObject(i).getString("id")
+                if (!(id.endsWith("-free") || id == "big-pickle")) continue
+                val name = id.removeSuffix("-free")
+                    .split('-', '.')
+                    .joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
+                models.add(AiModel(name, id, Providers.deriveCaps(id) + Cap.FREE))
+            }
+            models.sortedBy { it.modelId }
+        }
 
     /** Fetch models from Gemini's own /v1beta/models endpoint. */
     suspend fun fetchGeminiModels(apiKey: String): List<AiModel> =
