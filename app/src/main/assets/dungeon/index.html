@@ -748,7 +748,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd81-verdict-stage-seam';
+var DUNGEON_BUILD = 'd82-verdict-view3d';
 
 // ── boot diagnostics: was referenced (window.__log) but never defined → all
 //    model-load reasons were silently dropped. Surface them to the #loading
@@ -2260,7 +2260,7 @@ function consensusVerdict(){
   refreshTitle();
   logEvent('⚖ Council roam complete · '+flat.length+' finding(s) across '+st.rooms.length+' room(s) — the round table convenes');
   toast('⚔ Council audit done · '+flat.length+' candidate finding(s)');
-  openRoundtable(job);   // gather at the round table (must precede beginTribunal — it may finalize synchronously)
+  openVerdictTable(job);   // gather at the round table (must precede beginTribunal — it may finalize synchronously)
   beginTribunal(job);    // support/total → 👑 Overlord / 👹 Beast / 👻 Wraith → King's Verdict (you rule the Wraiths)
 }
 
@@ -2349,7 +2349,7 @@ function beginTribunal(job){
   // open, we have models to spawn, and we haven't already deliberated this job.
   if(anyArgued && rtState && rtState.open && (job.models&&job.models.length) && !job._delibDone){
     var contested=job.findings.filter(function(f){ return f._argued; });
-    rtSetDeliberating(contested.length);
+    VIEW.deliberating(contested.length);
     runDeliberation(job, contested);   // → on delib-done sets job._delibDone, re-calls beginTribunal
     return;
   }
@@ -2555,6 +2555,7 @@ var View2D = {
   _king(){ return rtState&&rtState.king; },
   clearMarks(){ this._seats().forEach(function(s){ s.el.classList.remove('presenting','voting','abstain'); s.vote.className='rt-vote'; s.vote.textContent=''; }); },
   clearPrompt(){ var p=$('rt-prompt'); if(p) p.innerHTML=''; },
+  deliberating(n){ rtSetDeliberating(n); },
   dots(sup,total){ var d=''; for(var i=0;i<total;i++) d+=(i<sup?'●':'○'); return d; },
   monFor(ty){ var mt = ty==='boss'?'boss' : ty==='phantom'?'phantom' : 'normal';
     return '<svg class="rt-mon'+(ty==='phantom'?' wr':'')+'" viewBox="0 0 64 64">'+(MON_DESIGN[mt]||MON_DESIGN.normal)+'</svg>'; },
@@ -2634,7 +2635,85 @@ var View2D = {
     $('rt-enter').classList.add('show');
   }
 };
-var VIEW = View2D;   // active skin (Step 2: pick View3D when the star-map is up)
+// ── View3D: the SECOND skin. Same interface as View2D, but instead of the parchment
+//    overlay it drives the 3D round table (convene()'s ships/chips/holo/judge) via the
+//    window.IW.cv* bridge. The brain (rtRunVotes) is unchanged — only VIEW swaps. ──
+var USE_3D_VERDICT = true;   // flip false (hotload) to force the 2D parchment overlay
+function use3DVerdict(){
+  try{ return USE_3D_VERDICT && window.IW && window.IW.ready && window.IW.council && !window.IW.council.active; }catch(_){ return false; }
+}
+function openVerdictTable(job){
+  if(use3DVerdict()){ VIEW=View3D; View3D.open(job); }
+  else { VIEW=View2D; openRoundtable(job); }
+}
+var View3D = {
+  _C(){ return window.IW && window.IW.council; },
+  _mem(){ var c=this._C(); return (c&&c.members)||[]; },
+  _el(id){ return document.getElementById(id); },
+  _name(i){ var m=this._mem()[i]; return (m&&m.name)|| ('Scout '+(i+1)); },
+  open(job){
+    var n=job.members || ((job.models&&job.models.length)||2);
+    var models=(job.models&&job.models.length)?job.models:[];
+    var names=[]; for(var i=0;i<n;i++){ names.push(models.length? shortModel(models[i%models.length]) : ('Scout '+(i+1))); }
+    rtFindings=job.findings;
+    try{ window.IW.cvOpen(names); }catch(e){ console.warn('[verdict3D] cvOpen',e); }
+    rtState={ open:true, members:n, mode:'3d' };
+  },
+  _round(label){ var rp=this._el('iwc-round'), rl=this._el('iwcr-l'); if(rl) rl.textContent=label; if(rp) rp.classList.add('show'); },
+  _tally(sup,total){ var t=this._el('iwcr-t'); if(t) t.textContent=sup+' / '+total; },
+  _text(t){ var x=this._el('iwc-text'); if(x) x.textContent=t; },
+  _holo(ty){ try{ window.IW.cvHolo(ty==='boss'?'overlord':ty==='phantom'?'wraith':'beast'); }catch(_){} },
+  _speak(i,action,f,arg){ var c=this._C(); if(c) c.speaking=i;
+    var sp=this._el('iwc-speaker'); if(sp) sp.textContent='🧭 '+this._name(i)+(action?' — '+action:'');
+    var t = f ? ((f.title||'')+(f.file?' · '+f.file:'')) : '';
+    if(arg) t += '  “'+(arg.length>140?arg.slice(0,139)+'…':arg)+'”';
+    this._text(t);
+    this._mem().forEach(function(m,mi){ if(m&&m.chip) m.chip.classList.toggle('speaking',mi===i); });
+  },
+  _setVote(i,kind,label){ var m=this._mem()[i]; if(!m||!m.chip) return; m.vote=kind;
+    m.chip.className='iwc-chip '+(kind==='for'?'for':kind==='against'?'against':'und');
+    m.chip.textContent=label || (kind==='for'?'FOR':kind==='against'?'AGN':'…');
+  },
+  clearMarks(){ var c=this._C(); if(!c) return; c.speaking=-9;
+    (c.members||[]).forEach(function(m){ if(m&&m.chip){ m.vote=null; m.chip.className='iwc-chip und'; m.chip.textContent='…'; m.chip.classList.remove('speaking'); } });
+  },
+  clearPrompt(){ var jb=this._el('iwc-judge'); if(jb) jb.classList.remove('show'); var c=this._C(); if(c) c.awaitJudge=false; },
+  deliberating(n){ var c=this._C(); if(c) c.speaking=-1; this._round('Round 2 · Deliberation');
+    var sp=this._el('iwc-speaker'); if(sp) sp.textContent='⚖ The council deliberates';
+    this._text(n+' contested finding'+(n===1?'':'s')+' · finders argue, the council re-votes…');
+  },
+  confirmPresent(f,pres,total){ this._round('Round 1 · Findings'); this._speak(pres,'📜 reports',f); this._tally(0,total); this._setVote(pres,'for','📜'); },
+  confirmAgree(f,pres,sup,total){ var self=this; Object.keys(f.foundBy).map(Number).forEach(function(mi){ if(mi===pres) return; self._setVote(mi,'for','✓'); }); this._tally(sup,total); },
+  confirmResult(f){ var ty=tribType(f); this._text(tierIcon(ty)+' '+tierName(ty)+' · confirmed'); this._holo(ty); },
+  arguePresent(f,pres,total){ this._round('Round 2 · Deliberation'); this._speak(pres,'🗣 argues',f,f._argument); this._tally(f._origSupport||0,total); this._setVote(pres,'for','🗣'); },
+  argueRevote(f,pres,total){ var self=this;
+    Object.keys(f.foundBy).map(Number).forEach(function(mi){ if(mi===pres) return; self._setVote(mi,'for','✓'); });
+    for(var m=0;m<total;m++){ if(f.foundBy[m]) continue; if(f.agreedBy&&f.agreedBy[m]) self._setVote(m,'for','✓'); else self._setVote(m,'against','✗'); }
+    this._tally(f.support,total);
+  },
+  argueResult(f,isPhantom){ if(!isPhantom){ var ty=tribType(f); this._text(tierIcon(ty)+' '+tierName(ty)+' · confirmed by argument'); this._holo(ty); } else { this._text('⚖ still contested · the King shall rule'); } },
+  askJudge(f,pres,onKeep,onDrop){ this._round('Round 3 · King’s Verdict'); this._speak(pres,'📜 lone claim',f);
+    this._text('Only '+f.support+' of '+f.total+' saw “'+(f.title||'')+'” — your ruling, my liege');
+    var c=this._C(); if(c) c.awaitJudge=true;
+    var jb=this._el('iwc-judge'); if(jb) jb.classList.add('show');
+    var van=this._el('iwcj-van'), rel=this._el('iwcj-rel');
+    var done=function(){ var c2=window.IW&&window.IW.council; if(c2) c2.awaitJudge=false; if(jb) jb.classList.remove('show'); };
+    if(van) van.onclick=function(){ done(); onKeep(); };
+    if(rel) rel.onclick=function(){ done(); onDrop(); };
+  },
+  judgeRuled(f,kind){ var c=this._C(); if(c){ c.kingFlare=1.4; c.speaking=-2; }
+    if(kind==='keep'){ this._text('👑 The King rules — ⚔ Vanquished · 👻 a Wraith rises'); this._holo('phantom'); }
+    else { this._text('👑 The King rules — 🕊 Released · cleared of all charges'); try{ window.IW.cvHolo('none'); }catch(_){} }
+  },
+  unseal(){},
+  seal(summary){ var c=this._C(); if(c){ c.speaking=-2; c.kingFlare=1.4; }
+    var vt=this._el('iwcv-t'), vr=this._el('iwcv-r'), vs=this._el('iwcv-s'), vb=this._el('iwc-verdict');
+    if(vt) vt.textContent='⚜ Verdict sealed'; if(vr) vr.textContent=summary; if(vs) vs.textContent='';
+    if(vb){ vb.classList.remove('bad'); vb.classList.add('show'); }
+    setTimeout(function(){ if(vb) vb.classList.remove('show'); try{ window.IW.cvEnd(); }catch(_){} rtState=null; refreshTitle(); }, 5200);
+  }
+};
+var VIEW = View2D;   // active skin — openVerdictTable() swaps to View3D when the star-map is up
 
 function rtRunVotes(trib){
   if(!rtState || !rtState.open) return;
@@ -2874,7 +2953,7 @@ window.onDungeonEvent=function(sid, line){
       finalizeDivide(job);   // write plain monsters per room, no voting
     } else if(job && job.council){
       toast('⚔ Council audit done · '+job.findings.length+' candidate findings');
-      openRoundtable(job);  // gather at the round table (must precede beginTribunal — it may finalize synchronously)
+      openVerdictTable(job);  // gather at the round table (must precede beginTribunal — it may finalize synchronously)
       beginTribunal(job);   // Phase 2/3 — writes voted library.md + renders monsters → rtRunVotes on finalize
     } else {
       refreshTitle(); toast('✅ Scout complete');
@@ -3508,83 +3587,31 @@ function spawnHolo(type){
   council.holo={obj:h,type,base};
 }
 function removeHolo(){if(council.holo){scene.remove(council.holo.obj);council.holo=null;}}
-function councilBeats(){return [
-  // ════ ROUND 1 · FINDINGS — strict majority (support>total/2) auto-confirms; else contested ════
-  {sp:-1,role:'⚖ War Council',text:'Convened — 2 disputed contacts. Round 1: each scout reports what it swept.',vote:{},round:'Round 1 · Findings',tally:'',hold:2.5},
-  {sp:0,role:'Scout · Compact Fighter',text:'Contact A — SQL injection @ auth. I found it: query built from req.body.name.',vote:{0:'for'},tally:'Contact A · 1/4'},
-  {sp:1,role:'Scout · Retro Pod',text:'Contact A confirmed on my sweep too — the param reaches the query unsanitized.',vote:{1:'for'},tally:'Contact A · 2/4'},
-  {sp:2,role:'Scout · Personal Pod',text:'I did not see Contact A. Looks clean to me.',vote:{2:'against'}},
-  {sp:3,role:'Scout · Corethicorn',text:'Inconclusive on A — and I flag Contact B: weak crypto, but only I saw it.',vote:{3:'und'},tally:'A · 2/4 contested · B · 1/4'},
-  // ════ ROUND 2 · DELIBERATION — finder argues, the council re-votes; support shifts ════
-  {sp:-1,role:'⚖ War Council',text:'2/4 is no strict majority. Round 2: the finder argues Contact A, the council re-votes.',vote:{},round:'Round 2 · Deliberation',tally:'Contact A · 2/4',hold:2.5},
-  {sp:0,role:'Scout · Compact (argues 🗣)',text:'Trace it with me: req.body.name → query string, line 42. It is reachable.',vote:{}},
-  {sp:2,role:'Scout · Personal (✓ convinced)',text:'…you are right, I missed the path. Changing my vote.',vote:{2:'for'},tally:'Contact A · 3/4'},
-  {sp:3,role:'Scout · Corethicorn (✓ convinced)',text:'Agreed, now that I see the trace.',vote:{3:'for'},tally:'Contact A · 4/4 · UNANIMOUS',holo:'overlord'},
-  {sp:-2,role:'👑 Commander',text:'Contact A — unanimous, 4/4. Confirmed → 👑 Overlord. (Enemy mothership materialises above us.)',vote:{},
-    verdict:{title:'Contact A',result:'👑 OVERLORD',sub:'Unanimous · 4 / 4',cls:'ok'},hold:4.4},
-  // ════ ROUND 3 · KING'S VERDICT — true stalemate, YOU rule (tappable) ════
-  {sp:-1,role:'⚖ War Council',text:'Contact B stayed a stalemate — only 1 of 4 ever saw it. Round 3: the King shall rule.',vote:{},round:'Round 3 · King’s Verdict',tally:'Contact B · 1/4 · stalemate',hold:3.0},
-  {sp:-2,role:'👑 Commander',text:'Contact B is contested. The ruling is yours, Commander — Vanquish it, or release it.',vote:{},pause:'judge',hold:999},
-];}
-function applyBeat(i){const b=council.beats[i];if(!b)return;
-  document.getElementById('iwc-speaker').textContent=b.role;
-  document.getElementById('iwc-text').textContent=b.text;
-  if(b.vote)Object.keys(b.vote).forEach(k=>{const m=council.members[+k];if(!m)return;const v=b.vote[k];m.vote=v;
-    m.chip.className='iwc-chip '+(v==='for'?'for':v==='against'?'against':'und');
-    m.chip.textContent=v==='for'?'FOR':v==='against'?'AGN':'…';});
-  council.speaking=b.sp;
-  council.members.forEach((m,mi)=>m.chip.classList.toggle('speaking',mi===b.sp));
-  // round pill + running tally
-  const rp=document.getElementById('iwc-round');
-  if(b.round){document.getElementById('iwcr-l').textContent=b.round;rp.classList.add('show');}
-  if(b.tally!=null)document.getElementById('iwcr-t').textContent=b.tally;
-  // tally-driven enemy hologram (overlord / beast / wraith) above the allied mothership
-  if(b.holo)spawnHolo(b.holo);
-  // Round-3 interactive ruling
-  const jb=document.getElementById('iwc-judge');
-  if(b.pause==='judge'){council.awaitJudge=true;jb.classList.add('show');} else {jb.classList.remove('show');}
-  const vb=document.getElementById('iwc-verdict');
-  if(b.verdict){ // commander delivers — drop the banner + flare the King
-    document.getElementById('iwcv-t').textContent=b.verdict.title;
-    document.getElementById('iwcv-r').textContent=b.verdict.result;
-    document.getElementById('iwcv-s').textContent=b.verdict.sub;
-    vb.classList.toggle('bad',b.verdict.cls==='bad');vb.classList.add('show');
-    council.kingFlare=1.4; // seconds of weapon-flash flare around the commander
-  } else { vb.classList.remove('show'); }
-}
-// the Commander rules the Round-3 stalemate — injects the closing verdict beat
-document.getElementById('iwcj-van').onclick=()=>rtJudge('keep');
-document.getElementById('iwcj-rel').onclick=()=>rtJudge('drop');
-function rtJudge(kind){
-  if(!council.active||!council.awaitJudge)return;
-  council.awaitJudge=false;document.getElementById('iwc-judge').classList.remove('show');say('council-verdict');
-  const end = kind==='keep'
-    ? {sp:-2,role:'👑 Commander — Verdict',text:'Contact B vanquished → 👻 a Wraith rises. Confirmed.',holo:'wraith',
-       verdict:{title:'Contact B',result:'⚔ VANQUISHED',sub:'King’s ruling · 👻 Wraith',cls:'ok'},hold:4.6}
-    : {sp:-2,role:'👑 Commander — Verdict',text:'Contact B released · cleared of all charges. Dropped.',holo:'none',
-       verdict:{title:'Contact B',result:'🕊 RELEASED',sub:'Not a bug · dropped',cls:'bad'},hold:4.6};
-  council.beats=council.beats.slice(0,council.idx+1).concat([end]);
-  council.t=9999; // force-advance to the verdict beat on the next tick
-}
-function convene(){
+// (councilBeats() canned demo + applyBeat() removed — the verdict brain drives the props)
+// The Round-3 King's-ruling tap is now wired dynamically by View3D.askJudge (the verdict
+// brain rtRunVotes drives both skins). The old canned rtJudge() + static button wiring +
+// councilBeats()/applyBeat() demo script were removed — the table no longer performs a fixed
+// play; it presents the REAL tribunal via the View3D stage adapter.
+function convene(models){
   if(council.active||!earthAnchor)return; council.active=true; say('council-convene');
   scouts.forEach(o=>{if(o.obj)o.obj.visible=false;});heroSquad.forEach(o=>{if(o.obj)o.obj.visible=false;});
   dronesArr.forEach(d=>d.obj.visible=false);
   enemies.forEach(e=>{if(e.pivot)e.pivot.visible=false;}); // mothership + contacts group out (like scouts) — orbit also freezes while council.active
   controls.enableZoom=false; // roundtable = static distance; left/right spin only, no zoom in/out
-  const chips=document.getElementById('iwc-chips');council.members=[];
-  for(let i=0;i<4;i++){const s=getShip(SCOUT_KEYS[i],0x60A5FA);s.scale.setScalar(1.12);scene.add(s);
+  const chips=document.getElementById('iwc-chips');council.members=[];chips.innerHTML='';
+  const N=Math.max(2,Math.min(4,(models&&models.length)||4)); // real council size (2–4), not a fixed 4
+  for(let i=0;i<N;i++){const s=getShip(SCOUT_KEYS[i%SCOUT_KEYS.length],0x60A5FA);s.scale.setScalar(1.12);scene.add(s);
     const chip=document.createElement('div');chip.className='iwc-chip und';chip.textContent='…';chips.appendChild(chip);
-    council.members.push({obj:s,chip,vote:null});}
+    council.members.push({obj:s,chip,vote:null,name:(models&&models[i])||('Scout '+(i+1))});}
   // Promote the existing Earth flagship to King — no second ship. Detach it to the scene (keeps world transform), it flies up to the table.
   if(homeShip){council.kingRestore={obj:homeShip,parent:homeShip.parent,pos:homeShip.position.clone(),scale:homeShip.scale.x};
     scene.attach(homeShip);council.king=homeShip;}
   else{const k=getShip('flagship',0x60A5FA);k.scale.setScalar(3.4);k.add(halo(0x60A5FA,7,.5));scene.add(k);council.king=k;council.kingRestore=null;}
-  council.beats=councilBeats();council.idx=0;council.t=0;council.speaking=-9;council.awaitJudge=false;council.kingFlare=0;removeHolo();
+  council.beats=[];council.idx=0;council.t=0;council.speaking=-9;council.awaitJudge=false;council.kingFlare=0;removeHolo();
+  // NO canned script + NO applyBeat: the real verdict brain (rtRunVotes via View3D) drives the
+  // speaker/votes/holo/judge from here on. councilTick only runs the continuous ship motion now.
   focusOn(earthAnchor,26);
   document.getElementById('iwc-dialog').style.display='block';
-  document.getElementById('bCouncil').classList.add('on');
-  applyBeat(0);
 }
 function endCouncil(){
   council.active=false;
@@ -3601,7 +3628,6 @@ function endCouncil(){
   enemies.forEach(e=>{if(e.pivot)e.pivot.visible=true;}); // contacts back (dead ships stay hidden via group.visible)
   controls.enableZoom=true; // restore pinch-zoom after the council
   document.getElementById('iwc-dialog').style.display='none';
-  document.getElementById('bCouncil').classList.remove('on');
   unfocus();
 }
 function councilTick(dt){
@@ -3632,12 +3658,7 @@ function councilTick(dt){
     H.obj.rotation.y+=dt*0.6;
     const fl=0.42+0.18*Math.sin(now*0.011)+0.10*Math.sin(now*0.05); // holographic flicker
     H.obj.traverse(o=>{if(o.material&&o.material.opacity!=null)o.material.opacity=fl;});}
-  council.t+=dt;
-  if(council.awaitJudge)return; // Round 3: wait for the Commander to tap Vanquish / Release
-  const hold=(council.beats[council.idx]&&council.beats[council.idx].hold)||2.9; // verdict beats linger longer
-  if(council.t>hold){council.t=0;council.idx++;
-    if(council.idx>=council.beats.length){flash(c);endCouncil();return;}
-    applyBeat(council.idx);}
+  // (no beat advancement — rtRunVotes/View3D drives the proceeding; this tick is motion-only now)
 }
 // (bCouncil button removed — council is triggered by the dungeon engine, Stage 3)
 
@@ -3810,7 +3831,13 @@ window.IW={
     say(rem===0?'sector-secured':'kill-confirmed'); },
   heroRecall(bid){ const e=enemies.find(x=>x.data&&x.data.bid===bid);
     const h=heroSquad.find(h=>h.busy&&e&&h.target===e); if(h){ h.phase='return'; h.t=0; h.start=h.obj.position.clone(); } },
-  clearScene, say, dispatchHero, launchHounds
+  clearScene, say, dispatchHero, launchHounds,
+  // ── Verdict bridge: the classic-side View3D drives the 3D round table through these
+  //    (council/convene/holo live in this module scope; the brain rtRunVotes is classic). ──
+  council,                              // expose state: View3D sets .speaking/.awaitJudge/.kingFlare, reads .members[i].chip
+  cvOpen(models){ convene(models); },   // fly the real N members + King into the ring (no canned beats)
+  cvEnd(){ endCouncil(); },             // dissolve the table, restore the fleet
+  cvHolo(type){ spawnHolo(type); }      // materialise the verdict's enemy hologram ('none' clears)
 };
 // boot: preload curated models (with fallback) → start the loop (build happens on buildSystem)
 window.__log&&window.__log('[mod] preloading '+Object.keys(CURATED).length+' models…');
