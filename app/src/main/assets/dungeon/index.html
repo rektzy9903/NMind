@@ -748,7 +748,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd74-interstellar-s8';
+var DUNGEON_BUILD = 'd75-interstellar-s8';
 
 // ── boot diagnostics: was referenced (window.__log) but never defined → all
 //    model-load reasons were silently dropped. Surface them to the #loading
@@ -3078,7 +3078,7 @@ function makeProc(kind,color){
 
 // ---- model preload: load each curated GLB once → normalized unit template (or null=procedural) ----
 const MODELS={};
-let dAct=0;const DMAX=1;const dQ=[]; // ONE GLB at a time — with draco worker serialized (setWorkerLimit 1) parallel loads only re-create the OOM contention; a queue of 1 keeps peak memory low
+let dAct=0;const DMAX=3;const dQ=[]; // fetch/parse up to 3 GLBs at once; the draco DECODE is already serialized by setWorkerLimit(1) above, so this only parallelizes I/O, not the memory-heavy decode
 function dSlot(){return new Promise(r=>{if(dAct<DMAX){dAct++;r();}else dQ.push(r);});}
 function dRel(){dAct=Math.max(0,dAct-1);if(dQ.length){dAct++;dQ.shift()();}}
 function normalize(obj,target){
@@ -3353,6 +3353,10 @@ function build(){
   welcome(); // "Welcome back, commander." on map open (retries on first gesture if autoplay-blocked)
   document.getElementById('bodies').textContent=clickTargets.length+dronesArr.length;
   document.getElementById('contacts').textContent=enemies.length;
+  // RACE GUARD: the dungeon calls buildSystem() as soon as room data is ready — which can be BEFORE the model
+  // preload finishes. When that happens every getShip() returns a procedural makeProc() shape and bakes it in.
+  // Flag it so the preload .then can rebuild once the real GLBs are loaded (else ships stay procedural forever).
+  if(!(window.IW&&window.IW.ready)) window.__builtBeforeModels=true;
 }
 
 // ============================================================ INTERACTION
@@ -3748,7 +3752,12 @@ window.__log&&window.__log('[mod] preloading '+Object.keys(CURATED).length+' mod
 Promise.all(Object.entries(CURATED).map(([k,p])=>loadTemplate(k,p)))
   .then(()=>{ const real=Object.values(MODELS).filter(Boolean).length;
     window.__log&&window.__log('[mod] models ready: '+real+'/'+Object.keys(CURATED).length+' real, rest procedural');
-    window.IW.ready=true; loop(); })
+    window.IW.ready=true;
+    if(window.__builtBeforeModels && D && D.planets){ // scene was built with procedural ships before models arrived → rebuild now so real GLBs swap in
+      window.__builtBeforeModels=false;
+      window.__log&&window.__log('[mod] rebuilding scene with loaded models');
+      try{ window.IW.buildSystem(D); }catch(e){ window.__log&&window.__log('[mod] rebuild failed: '+(e&&e.message||e)); } }
+    loop(); })
   .catch(e=>{window.__log&&window.__log('PRELOAD ERR: '+(e.message||e),true); try{ window.IW.ready=true; loop(); }catch(_){}});
 </script>
 </body>
