@@ -748,7 +748,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd79-interstellar-scout-pulse';
+var DUNGEON_BUILD = 'd81-verdict-stage-seam';
 
 // ── boot diagnostics: was referenced (window.__log) but never defined → all
 //    model-load reasons were silently dropped. Surface them to the #loading
@@ -1581,10 +1581,11 @@ var MON_DESIGN={
 // Scout/council members share the SCOUT_DESIGNS pool (variant = member index → A/B/C/D look);
 // the deterministic pre-scan cameo uses the Hound design. Walk/position is JS-driven (expTick).
 function spawnExpSprite(kind,variant){
-  var g=el('g',{'class':'exp-sprite'});
-  var inner = kind==='hound' ? HOUND_DESIGN : SCOUT_DESIGNS[(variant||0)%4];
-  svgInto(g, wrap(inner, 0.2, 32, 52));
-  svg.appendChild(g); return g;
+  // RETIRED: the 2D parchment scout tokens. The 3D recon ships are the only scout visual now.
+  // Return a no-op stub so all the expedition bookkeeping (.g.setAttribute / .g.remove) is a
+  // harmless no-op and we never build OR animate an invisible detached-SVG token every frame
+  // (that per-frame churn was half of the "two Dungeon Masters running at once" cost).
+  return { setAttribute:function(){}, remove:function(){} };
 }
 // Map an absolute-or-cwd-relative file path → the deepest room whose folder contains it.
 function roomForPath(p, cwd){
@@ -1626,6 +1627,11 @@ function spriteGoToRoom(s, room, exp){
   if(!wp.length) wp=[{x:room.cx,y:room.cy}];
   s.path=[{x:s.x,y:s.y}].concat(wp); s.pidx=1; s.targetId=room.id;
   if(exp) exp.label=room.name;
+  // The new (3D) DM commands the recon ship DIRECTLY the moment the knight is sent — no longer
+  // waiting on the invisible 2D token to "arrive" before whispering scoutTo (the old mentoring).
+  if(exp && exp.kind!=='hound' && window.IW && window.IW.scoutTo){
+    try{ window.IW.scoutTo(exp.sprites.indexOf(s), room.id); }catch(_){}
+  }
   return true;
 }
 function startExpedition(sid,kind,rootId,members){
@@ -1653,6 +1659,11 @@ function expRetarget(sid,member,p){
   var s=exp.sprites[member]; if(!s || s.parked) return;
   var room=roomForPath(p, exp.cwds[member]); if(!room) return;
   s.want=room.id;
+  // Model moved to a new file → break the recon ship off to the new world NOW (direct command),
+  // instead of waiting for the 2D token to finish its dwell + walk there.
+  if(exp.kind!=='hound' && window.IW && window.IW.scoutTo){
+    try{ window.IW.scoutTo(member, room.id); }catch(_){}
+  }
 }
 function expPark(sid,member){ var exp=expeditions[sid]; if(!exp) return; var s=exp.sprites[member]; if(s) s.parked=true; }
 function endExpedition(sid){
@@ -1665,17 +1676,12 @@ function endExpedition(sid){
   exp.sprites.forEach(function(s){ s.rooms.forEach(function(r){ if(r && !seen[r.id]){ seen[r.id]=1; expBurst(r.cx,r.cy,col); } }); });
 }
 function scanRing(room,kind){
-  var col=kind==='council'?'#c89b3c':'#5a6b3a';
-  var ring=el('circle',{cx:room.cx,cy:room.cy,r:room.w*0.35,fill:'none',stroke:col,'stroke-width':1,'stroke-dasharray':'2 2','class':'exp-ring'});
-  svg.appendChild(ring);
-  var t=0;
-  (function grow(){ t+=0.03; ring.setAttribute('r',room.w*0.35+t*44); ring.setAttribute('opacity',Math.max(0,0.75-t)); if(t<0.75 && ring.parentNode) requestAnimationFrame(grow); else ring.remove(); })();
+  // RETIRED: the 2D radar ring on the parchment map. It drew into a detached (invisible) SVG AND
+  // span its own recursive requestAnimationFrame per scan — many stacked up during a War Council.
+  // The visible scan now is the 3D sonar pulse (spawnScan, fired from the recon-ship loop).
 }
 function expBurst(x,y,color){
-  var ring=el('circle',{cx:x,cy:y,r:3,fill:'none',stroke:color,'stroke-width':1.5,'class':'exp-burst'});
-  svg.appendChild(ring);
-  var t=0;
-  (function g(){ t+=0.04; ring.setAttribute('r',3+t*60); ring.setAttribute('opacity',Math.max(0,1-t*1.3)); ring.setAttribute('stroke-width',Math.max(0.2,1.5-t)); if(t<0.8 && ring.parentNode) requestAnimationFrame(g); else ring.remove(); })();
+  // RETIRED with the 2D map (invisible detached-SVG burst + its own recursive rAF). No-op.
 }
 var EXP_SPEED=42;     // world units/sec along corridors
 var AUDIT_DWELL=2.6;  // sec a sprite audits (scans in place) a room before it may move on
@@ -2538,126 +2544,160 @@ function rtOpenList(idx, name){
 (function(){ var mc=document.getElementById('rt-mclose'); if(mc) mc.addEventListener('click', function(){ var m=$('rt-modal'); if(m) m.classList.remove('show'); });
   var mm=document.getElementById('rt-modal'); if(mm) mm.addEventListener('click', function(e){ if(e.target===mm) mm.classList.remove('show'); }); })();
 
-function rtRunVotes(trib){
-  if(!rtState || !rtState.open) return;
-  var ballot=$('rt-ballot'), verdict=$('rt-verdict'), prompt=$('rt-prompt');
-  var emblem=document.querySelector('#rt-overlay .rt-emblem');
-  var seats=rtState.seats, king=rtState.king;
-  function clearMarks(){ seats.forEach(function(s){ s.el.classList.remove('presenting','voting','abstain'); s.vote.className='rt-vote'; s.vote.textContent=''; }); }
-  function presenterIdx(f){ var ks=Object.keys(f.foundBy||{}).map(Number).sort(function(a,b){ return a-b; }); return ks.length?ks[0]:0; }
-  function dots(sup,total){ var d=''; for(var i=0;i<total;i++) d+=(i<sup?'\u25cf':'\u25cb'); return d; }
-  function monFor(ty){ var mt = ty==='boss'?'boss' : ty==='phantom'?'phantom' : 'normal';
-    return '<svg class="rt-mon'+(ty==='phantom'?' wr':'')+'" viewBox="0 0 64 64">'+(MON_DESIGN[mt]||MON_DESIGN.normal)+'</svg>'; }
-
-  var confirmed = trib.list.filter(function(f){ return !f._argued && tribType(f)!=='phantom'; });  // Round 1 majority — auto-confirmed
-  var argued    = trib.list.filter(function(f){ return f._argued; });                               // Round 2 — were contested, deliberated
-  var phantoms  = [];                                                                                // filled by Phase A.5: still contested after arguing → Round 3 (King)
-  confirmed.sort(function(a,b){ return presenterIdx(a)-presenterIdx(b); });          // present in turn order
-
-  // Phase A — each confirmed finding is presented once by its earliest finder; the
-  // others who found it agree (avatars move, no box glow); its monster spawns.
-  var ci=0;
-  function stepConfirmed(){
-    if(!rtState || !rtState.open) return;
-    if(ci>=confirmed.length){ clearMarks(); startArgued(); return; }
-    var f=confirmed[ci]; f.ruling='keep';
-    var sup=f.support, total=f.total, pres=presenterIdx(f);
-    clearMarks();
+// ── The STAGE seam (one brain, swappable skin) ───────────────────────────────
+// rtRunVotes below is the BRAIN — vote tally, deliberation result, King's ruling,
+// writeback. It no longer touches the overlay DOM directly; it speaks to VIEW, a
+// neutral "stage" interface. View2D is the parchment-overlay skin (this code, moved
+// verbatim). Step 2 adds View3D on convene()'s ships so the SAME brain drives the
+// 3D round table — no duplicated process. Swap VIEW = the active skin.
+var View2D = {
+  _seats(){ return (rtState&&rtState.seats)||[]; },
+  _king(){ return rtState&&rtState.king; },
+  clearMarks(){ this._seats().forEach(function(s){ s.el.classList.remove('presenting','voting','abstain'); s.vote.className='rt-vote'; s.vote.textContent=''; }); },
+  clearPrompt(){ var p=$('rt-prompt'); if(p) p.innerHTML=''; },
+  dots(sup,total){ var d=''; for(var i=0;i<total;i++) d+=(i<sup?'●':'○'); return d; },
+  monFor(ty){ var mt = ty==='boss'?'boss' : ty==='phantom'?'phantom' : 'normal';
+    return '<svg class="rt-mon'+(ty==='phantom'?' wr':'')+'" viewBox="0 0 64 64">'+(MON_DESIGN[mt]||MON_DESIGN.normal)+'</svg>'; },
+  confirmPresent(f,pres,total){
+    var seats=this._seats(), ballot=$('rt-ballot');
+    this.clearMarks();
     seats.forEach(function(s,i){ if(i===pres) s.el.classList.add('presenting'); else if(!f.foundBy[i]) s.el.classList.add('abstain'); });
     ballot.classList.add('show');
     ballot.innerHTML='<div class="bt">'+rtShort(f.title)+'</div><div class="bf">'+esc(f.file||'')+'</div>'
-      +'<div class="btally">'+dots(0,total)+'</div><div class="bres"></div>';
-    if(seats[pres]){ seats[pres].vote.className='rt-vote show for'; seats[pres].vote.textContent='\ud83d\udcdc mine'; }
-    setTimeout(function(){
-      if(!rtState || !rtState.open) return;
-      Object.keys(f.foundBy).map(Number).forEach(function(mi){ if(mi===pres) return; var s=seats[mi]; if(s){ s.el.classList.add('voting'); s.vote.className='rt-vote show for'; s.vote.textContent='\u2713 agree'; } });
-      var t=ballot.querySelector('.btally'); if(t) t.textContent=dots(sup,total)+'  '+sup+'/'+total;
-    }, 480);
-    setTimeout(function(){
-      if(!rtState || !rtState.open) return;
-      var ty=tribType(f), br=ballot.querySelector('.bres');
-      if(br){ br.className='bres ok'; br.innerHTML=monFor(ty)+tierIcon(ty)+' '+tierName(ty)+' \u00b7 confirmed'; }
-      ci++; setTimeout(stepConfirmed, 640);
-    }, 1180);
-  }
-
-  // Phase A.5 — Round 2 deliberation: the finder argues, the council re-votes, support shifts.
-  // A finding that reaches majority becomes a confirmed monster here; one that stays
-  // sub-majority is pushed to the King (Phase B).
-  var ai=0;
-  function startArgued(){ if(!argued.length){ clearMarks(); startPhantoms(); return; } ai=0; setTimeout(stepArgued, 420); }
-  function stepArgued(){
-    if(!rtState || !rtState.open) return;
-    if(ai>=argued.length){ clearMarks(); startPhantoms(); return; }
-    var f=argued[ai], pres=presenterIdx(f), total=f.total;
-    clearMarks();
+      +'<div class="btally">'+this.dots(0,total)+'</div><div class="bres"></div>';
+    if(seats[pres]){ seats[pres].vote.className='rt-vote show for'; seats[pres].vote.textContent='📜 mine'; }
+  },
+  confirmAgree(f,pres,sup,total){
+    var seats=this._seats(), ballot=$('rt-ballot');
+    Object.keys(f.foundBy).map(Number).forEach(function(mi){ if(mi===pres) return; var s=seats[mi]; if(s){ s.el.classList.add('voting'); s.vote.className='rt-vote show for'; s.vote.textContent='✓ agree'; } });
+    var t=ballot.querySelector('.btally'); if(t) t.textContent=this.dots(sup,total)+'  '+sup+'/'+total;
+  },
+  confirmResult(f){
+    var ballot=$('rt-ballot'), ty=tribType(f), br=ballot.querySelector('.bres');
+    if(br){ br.className='bres ok'; br.innerHTML=this.monFor(ty)+tierIcon(ty)+' '+tierName(ty)+' · confirmed'; }
+  },
+  arguePresent(f,pres,total){
+    var seats=this._seats(), ballot=$('rt-ballot');
+    this.clearMarks();
     seats.forEach(function(s,i){ if(i===pres) s.el.classList.add('presenting'); else s.el.classList.add('abstain'); });
     ballot.classList.add('show');
     var arg=f._argument || 'I stand by this finding.';
     ballot.innerHTML='<div class="bt">🗣 '+rtShort(f.title)+'</div><div class="bf">'+esc(f.file||'')+'</div>'
       +'<div class="barg">“'+esc(arg.length>140?arg.slice(0,139)+'…':arg)+'”</div>'
-      +'<div class="btally">'+dots(f._origSupport||0,total)+'</div><div class="bres"></div>';
+      +'<div class="btally">'+this.dots(f._origSupport||0,total)+'</div><div class="bres"></div>';
     if(seats[pres]){ seats[pres].vote.className='rt-vote show for'; seats[pres].vote.textContent='🗣 argues'; }
-    setTimeout(function(){
-      if(!rtState || !rtState.open) return;
-      // co-finders stand with the presenter
-      Object.keys(f.foundBy).map(Number).forEach(function(mi){ if(mi===pres) return; var s=seats[mi]; if(s){ s.el.classList.remove('abstain'); s.el.classList.add('voting'); s.vote.className='rt-vote show for'; s.vote.textContent='✓ mine'; } });
-      // non-finders re-vote: convinced (agreedBy) vs unmoved
-      for(var m=0;m<total;m++){ if(f.foundBy[m]) continue; var sv=seats[m]; if(!sv) continue; sv.el.classList.remove('abstain');
-        if(f.agreedBy && f.agreedBy[m]){ sv.el.classList.add('voting'); sv.vote.className='rt-vote show for'; sv.vote.textContent='✓ convinced'; }
-        else { sv.vote.className='rt-vote show against'; sv.vote.textContent='✗ unmoved'; }
-      }
-      var t=ballot.querySelector('.btally'); if(t) t.textContent=dots(f.support,total)+'  '+f.support+'/'+total;
-    }, 760);
-    setTimeout(function(){
-      if(!rtState || !rtState.open) return;
-      var br=ballot.querySelector('.bres');
-      if(tribType(f)!=='phantom'){ f.ruling='keep'; var ty=tribType(f);
-        if(br){ br.className='bres ok'; br.innerHTML=monFor(ty)+tierIcon(ty)+' '+tierName(ty)+' · confirmed by argument'; } }
-      else { phantoms.push(f); if(br){ br.className='bres wr'; br.innerHTML='⚖ still contested · the King shall rule'; } }
+  },
+  argueRevote(f,pres,total){
+    var seats=this._seats(), ballot=$('rt-ballot');
+    Object.keys(f.foundBy).map(Number).forEach(function(mi){ if(mi===pres) return; var s=seats[mi]; if(s){ s.el.classList.remove('abstain'); s.el.classList.add('voting'); s.vote.className='rt-vote show for'; s.vote.textContent='✓ mine'; } });
+    for(var m=0;m<total;m++){ if(f.foundBy[m]) continue; var sv=seats[m]; if(!sv) continue; sv.el.classList.remove('abstain');
+      if(f.agreedBy && f.agreedBy[m]){ sv.el.classList.add('voting'); sv.vote.className='rt-vote show for'; sv.vote.textContent='✓ convinced'; }
+      else { sv.vote.className='rt-vote show against'; sv.vote.textContent='✗ unmoved'; }
+    }
+    var t=ballot.querySelector('.btally'); if(t) t.textContent=this.dots(f.support,total)+'  '+f.support+'/'+total;
+  },
+  argueResult(f,isPhantom){
+    var ballot=$('rt-ballot'), br=ballot.querySelector('.bres');
+    if(!isPhantom){ var ty=tribType(f);
+      if(br){ br.className='bres ok'; br.innerHTML=this.monFor(ty)+tierIcon(ty)+' '+tierName(ty)+' · confirmed by argument'; } }
+    else { if(br){ br.className='bres wr'; br.innerHTML='⚖ still contested · the King shall rule'; } }
+  },
+  askJudge(f,pres,onKeep,onDrop){
+    var seats=this._seats(), ballot=$('rt-ballot'), prompt=$('rt-prompt');
+    this.clearMarks();
+    seats.forEach(function(s,i){ if(i===pres) s.el.classList.add('presenting'); else s.el.classList.add('abstain'); });
+    if(seats[pres]){ seats[pres].vote.className='rt-vote show for'; seats[pres].vote.textContent='📜 lone claim'; }
+    ballot.classList.add('show');
+    ballot.innerHTML='<div class="bt">🗣 '+rtShort(f.title)+'</div><div class="bf">'+esc(f.file||'')+'</div>'
+      +'<div class="btally">only '+f.support+' of '+f.total+' saw it</div><div class="bres wr">⚖ your ruling, my liege</div>';
+    prompt.innerHTML='<div class="rt-judge-btns"><button class="rt-vanquish">⚔ Vanquish<br><small>it IS a bug</small></button>'
+      +'<button class="rt-release">🕊 Let it out<br><small>not a bug</small></button></div>';
+    prompt.querySelector('.rt-vanquish').addEventListener('click', onKeep);
+    prompt.querySelector('.rt-release').addEventListener('click', onDrop);
+  },
+  judgeRuled(f,kind){
+    var ballot=$('rt-ballot'), prompt=$('rt-prompt'), king=this._king();
+    if(king){ king.el.classList.add('sealing'); king.vote.className='rt-vote show rule'; king.vote.textContent=(kind==='keep'?'⚔':'🕊'); }
+    if(kind==='keep'){ ballot.innerHTML='<div class="bt">'+rtShort(f.title)+'</div><div class="bf">'+esc(f.file||'')+'</div><div class="bres wr">'+this.monFor('phantom')+'👻 Wraith rises</div>'; }
+    else { ballot.innerHTML='<div class="bt">'+rtShort(f.title)+'</div><div class="bres ok">🕊 Released · cleared of all charges</div>'; }
+    prompt.innerHTML='';
+  },
+  unseal(){ var king=this._king(); if(king&&king.el) king.el.classList.remove('sealing'); },
+  seal(summary){
+    var ballot=$('rt-ballot'), verdict=$('rt-verdict'), king=this._king();
+    var emblem=document.querySelector('#rt-overlay .rt-emblem');
+    this.clearMarks(); this.clearPrompt(); ballot.classList.remove('show');
+    if(king&&king.el){ king.el.classList.add('sealing'); king.vote.className='rt-vote show rule'; king.vote.textContent='👑 VERDICT'; }
+    if(emblem) emblem.style.opacity='0';
+    verdict.innerHTML='<b>⚜ The verdict is sealed</b>'+summary;
+    verdict.classList.add('show');
+    $('rt-enter').classList.add('show');
+  }
+};
+var VIEW = View2D;   // active skin (Step 2: pick View3D when the star-map is up)
+
+function rtRunVotes(trib){
+  if(!rtState || !rtState.open) return;
+  function presenterIdx(f){ var ks=Object.keys(f.foundBy||{}).map(Number).sort(function(a,b){ return a-b; }); return ks.length?ks[0]:0; }
+
+  var confirmed = trib.list.filter(function(f){ return !f._argued && tribType(f)!=='phantom'; });
+  var argued    = trib.list.filter(function(f){ return f._argued; });
+  var phantoms  = [];
+  confirmed.sort(function(a,b){ return presenterIdx(a)-presenterIdx(b); });
+
+  // Phase A — each confirmed finding is presented once by its earliest finder.
+  var ci=0;
+  function stepConfirmed(){
+    if(!rtState || !rtState.open) return;
+    if(ci>=confirmed.length){ VIEW.clearMarks(); startArgued(); return; }
+    var f=confirmed[ci]; f.ruling='keep';
+    var sup=f.support, total=f.total, pres=presenterIdx(f);
+    VIEW.confirmPresent(f,pres,total);
+    setTimeout(function(){ if(!rtState||!rtState.open) return; VIEW.confirmAgree(f,pres,sup,total); }, 480);
+    setTimeout(function(){ if(!rtState||!rtState.open) return; VIEW.confirmResult(f); ci++; setTimeout(stepConfirmed, 640); }, 1180);
+  }
+
+  // Phase A.5 — Round 2 deliberation result (resolved upstream in beginTribunal/runDeliberation;
+  // here we only present the outcome — the finder's argument + the shifted re-vote).
+  var ai=0;
+  function startArgued(){ if(!argued.length){ VIEW.clearMarks(); startPhantoms(); return; } ai=0; setTimeout(stepArgued, 420); }
+  function stepArgued(){
+    if(!rtState || !rtState.open) return;
+    if(ai>=argued.length){ VIEW.clearMarks(); startPhantoms(); return; }
+    var f=argued[ai], pres=presenterIdx(f), total=f.total;
+    VIEW.arguePresent(f,pres,total);
+    setTimeout(function(){ if(!rtState||!rtState.open) return; VIEW.argueRevote(f,pres,total); }, 760);
+    setTimeout(function(){ if(!rtState||!rtState.open) return;
+      var isPh = tribType(f)==='phantom';
+      if(!isPh) f.ruling='keep'; else phantoms.push(f);
+      VIEW.argueResult(f,isPh);
       ai++; setTimeout(stepArgued, 820);
     }, 1640);
   }
 
-  // Phase B — YOU judge each remaining stalemate; the King avatar acts.
+  // Phase B — YOU judge each remaining stalemate; the King acts.
   var pi=0;
   function startPhantoms(){ if(!phantoms.length){ rtFinish(); } else judgeNext(); }
   function judgeNext(){
     if(!rtState || !rtState.open) return;
-    if(pi>=phantoms.length){ prompt.innerHTML=''; rtFinish(); return; }
+    if(pi>=phantoms.length){ VIEW.clearPrompt(); rtFinish(); return; }
     var f=phantoms[pi], pres=presenterIdx(f);
-    clearMarks();
-    seats.forEach(function(s,i){ if(i===pres) s.el.classList.add('presenting'); else s.el.classList.add('abstain'); });
-    if(seats[pres]){ seats[pres].vote.className='rt-vote show for'; seats[pres].vote.textContent='\ud83d\udcdc lone claim'; }
-    ballot.classList.add('show');
-    ballot.innerHTML='<div class="bt">\ud83d\udde3 '+rtShort(f.title)+'</div><div class="bf">'+esc(f.file||'')+'</div>'
-      +'<div class="btally">only '+f.support+' of '+f.total+' saw it</div><div class="bres wr">\u2696 your ruling, my liege</div>';
-    prompt.innerHTML='<div class="rt-judge-btns"><button class="rt-vanquish">\u2694 Vanquish<br><small>it IS a bug</small></button>'
-      +'<button class="rt-release">\ud83d\udd4a Let it out<br><small>not a bug</small></button></div>';
-    prompt.querySelector('.rt-vanquish').addEventListener('click', function(){ rule(f,'keep'); });
-    prompt.querySelector('.rt-release').addEventListener('click', function(){ rule(f,'drop'); });
+    VIEW.askJudge(f, pres, function(){ rule(f,'keep'); }, function(){ rule(f,'drop'); });
   }
   function rule(f, kind){
     if(!rtState || !rtState.open) return;
     f.ruling=kind; pi++;
-    king.el.classList.add('sealing'); king.vote.className='rt-vote show rule'; king.vote.textContent=(kind==='keep'?'\u2694':'\ud83d\udd4a');
-    if(kind==='keep'){ ballot.innerHTML='<div class="bt">'+rtShort(f.title)+'</div><div class="bf">'+esc(f.file||'')+'</div><div class="bres wr">'+monFor('phantom')+'\ud83d\udc7b Wraith rises</div>'; }
-    else { ballot.innerHTML='<div class="bt">'+rtShort(f.title)+'</div><div class="bres ok">\ud83d\udd4a Released \u00b7 cleared of all charges</div>'; }
-    prompt.innerHTML='';
-    setTimeout(function(){ if(king&&king.el) king.el.classList.remove('sealing'); judgeNext(); }, 1150);
+    VIEW.judgeRuled(f,kind);
+    setTimeout(function(){ VIEW.unseal(); judgeNext(); }, 1150);
   }
 
   function rtFinish(){
-    clearMarks(); prompt.innerHTML=''; ballot.classList.remove('show');
-    trib.list = trib.list.filter(function(f){ return f.ruling!=='drop'; });   // released phantoms dropped
-    finalizeTribunal(trib);                                                    // write libraries + render monsters
+    trib.list = trib.list.filter(function(f){ return f.ruling!=='drop'; });
+    finalizeTribunal(trib);
     var bosses=trib.list.filter(function(f){ return tribType(f)==='boss'; }).length;
     var ph=trib.list.filter(function(f){ return tribType(f)==='phantom'; }).length;
-    if(king&&king.el){ king.el.classList.add('sealing'); king.vote.className='rt-vote show rule'; king.vote.textContent='\ud83d\udc51 VERDICT'; }
-    if(emblem) emblem.style.opacity='0';
-    verdict.innerHTML='<b>\u269c The verdict is sealed</b>'+trib.list.length+' foe(s) \u00b7 '+bosses+' \ud83d\udc51 Overlord \u00b7 '+ph+' \ud83d\udc7b Wraith';
-    verdict.classList.add('show');
-    $('rt-enter').classList.add('show');
+    var summary=trib.list.length+' foe(s) · '+bosses+' 👑 Overlord · '+ph+' 👻 Wraith';
+    VIEW.seal(summary);
   }
 
   if(confirmed.length){ setTimeout(stepConfirmed, 600); }
