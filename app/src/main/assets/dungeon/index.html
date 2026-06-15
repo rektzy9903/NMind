@@ -681,8 +681,6 @@
 </div>
 
 <!-- War Council roundtable vote scene -->
-<div id="rt-overlay"><div class="rt-stage" id="rt-stage"></div></div>
-<div id="rt-modal" class="rt-modal"><div class="rt-scroll"><div class="rt-scroll-h" id="rt-mh"></div><div class="rt-scroll-list" id="rt-ml"></div><div class="rt-scroll-f"><button id="rt-mclose">Close</button></div></div></div>
 
 <!-- Hero picker (which hero → which bug) -->
 <div id="hero-dialog" class="dlg">
@@ -748,7 +746,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd82-verdict-view3d';
+var DUNGEON_BUILD = 'd83-retire-2d-overlay';
 
 // ── boot diagnostics: was referenced (window.__log) but never defined → all
 //    model-load reasons were silently dropped. Surface them to the #loading
@@ -1459,127 +1457,8 @@ function head(cx,cy,r,fill){ return '<circle cx="'+cx+'" cy="'+cy+'" r="'+r+'" f
 function eyes(cx,cy){ return '<circle class="blink" cx="'+(cx-2)+'" cy="'+cy+'" r="1" fill="var(--ink)"/><circle class="blink" cx="'+(cx+2)+'" cy="'+cy+'" r="1" fill="var(--ink)"/>'; }
 
 // King-D (High King) — the player's avatar on the throne. Picked from the sprite gallery.
-var KING_DESIGN =
-  '<g class="legL"><rect x="27" y="45" width="4" height="8" rx="1.5" fill="#3a2a1a"/></g>'+
-  '<g class="legR"><rect x="33" y="45" width="4" height="8" rx="1.5" fill="#3a2a1a"/></g>'+
-  '<path class="cape" d="M22 28 Q10 44 18 52 L30 50 L30 28 Z" fill="#8b2a1f" stroke="var(--ink)" stroke-width="1.3"/>'+
-  '<path d="M24 32 L40 32 L43 50 L21 50 Z" fill="#6a3f8a" stroke="var(--ink)" stroke-width="1.4"/>'+
-  '<rect x="30.5" y="34" width="3" height="16" fill="var(--gold)" opacity=".5"/>'+
-  '<path d="M22 28 Q32 26 42 28 L40 33 Q32 31 24 33 Z" fill="#f0ece4" stroke="var(--ink)" stroke-width="1"/>'+
-  head(32,23,5)+
-  '<g class="crownshine"><path d="M25 19 L24.5 13 L28 16.5 L32 11.5 L36 16.5 L39.5 13 L39 19 Z" fill="var(--gold)" stroke="var(--ink)" stroke-width="1.1"/><circle cx="32" cy="14" r="1.2" fill="#ff5a5a"/><circle cx="27.5" cy="16" r=".9" fill="#5aff8a"/><circle cx="36.5" cy="16" r=".9" fill="#5ab0ff"/></g>'+
-  eyes(32,23)+
-  '<g style="transform-box:fill-box;transform-origin:44px 36px"><circle class="pulse glow" cx="44" cy="34" r="3.6" fill="var(--gold)" stroke="var(--ink)" stroke-width="1"/><path d="M44 30.5 v7 M40.5 34 h7" stroke="var(--ink)" stroke-width=".7" opacity=".5"/></g>';
-
-var SCOUT_DESIGNS=[
- /* Scout-A Lanternbearer */
- '<g class="legL"><rect x="27" y="44" width="4" height="9" rx="1.5" fill="var(--greenD)"/></g>'+
- '<g class="legR"><rect x="33" y="44" width="4" height="9" rx="1.5" fill="var(--greenD)"/></g>'+
- '<rect x="25" y="31" width="14" height="15" rx="3" fill="var(--green)" stroke="var(--ink)" stroke-width="1.4"/>'+
- head(32,26,5)+eyes(32,26)+
- '<line x1="40" y1="34" x2="46" y2="22" stroke="var(--ink)" stroke-width="1.2"/>'+
- '<rect x="43" y="20" width="6" height="7" rx="1" fill="#5a432a" stroke="var(--ink)" stroke-width="1"/>'+
- '<circle class="flick" cx="46" cy="23.5" r="3" fill="var(--amber)"/><circle cx="46" cy="23.5" r="1.3" fill="#fff7d6"/>',
- /* Scout-B Pathfinder */
- '<g class="legL"><rect x="27" y="44" width="4" height="9" rx="1.5" fill="var(--greenD)"/></g>'+
- '<g class="legR"><rect x="33" y="44" width="4" height="9" rx="1.5" fill="var(--greenD)"/></g>'+
- '<rect x="25" y="31" width="14" height="15" rx="3" fill="var(--green2)" stroke="var(--ink)" stroke-width="1.4"/>'+
- head(31,26,5)+
- '<g class="pulse" style="transform-box:fill-box;transform-origin:36px 26px"><rect x="35" y="24.5" width="13" height="3.2" rx="1.6" fill="#caa15a" stroke="var(--ink)" stroke-width="1"/><circle cx="48" cy="26.1" r="2.4" fill="#bfe9ff" stroke="var(--ink)" stroke-width="1"/></g>'+
- '<path d="M27 22 Q32 19 36 22" fill="none" stroke="var(--ink)" stroke-width="1.2"/>',
- /* Scout-C Cartographer */
- '<g class="legL"><rect x="27" y="44" width="4" height="9" rx="1.5" fill="var(--greenD)"/></g>'+
- '<g class="legR"><rect x="33" y="44" width="4" height="9" rx="1.5" fill="var(--greenD)"/></g>'+
- '<rect x="25" y="30" width="14" height="14" rx="3" fill="var(--green)" stroke="var(--ink)" stroke-width="1.4"/>'+
- head(32,25,5)+eyes(32,25.5)+
- '<g class="pulse" style="transform-box:fill-box;transform-origin:32px 42px"><rect x="22" y="38" width="20" height="11" rx="1.5" fill="#f0e2bd" stroke="var(--ink)" stroke-width="1.2"/><path d="M26 41 h12 M26 44 h9 M26 46.5 h13" stroke="#9a7b45" stroke-width="1"/><circle cx="38" cy="46" r="1.4" fill="var(--maroon)"/></g>',
- /* Scout-D Torchrunner */
- '<g class="legL" style="animation-duration:.3s"><rect x="26" y="43" width="4" height="10" rx="1.5" fill="var(--greenD)"/></g>'+
- '<g class="legR" style="animation-duration:.3s"><rect x="34" y="43" width="4" height="10" rx="1.5" fill="var(--greenD)"/></g>'+
- '<rect x="24" y="30" width="15" height="14" rx="3" fill="var(--green2)" stroke="var(--ink)" stroke-width="1.4" transform="rotate(6 32 37)"/>'+
- head(34,25,5)+
- '<line x1="42" y1="30" x2="48" y2="18" stroke="var(--brown2)" stroke-width="2"/>'+
- '<path class="flick" d="M48 20 q-4 -6 0 -11 q4 5 4 9 q3 -3 2 -7 q4 6 -1 12 z" fill="var(--amberD)"/>'+
- '<path class="flick" d="M48 18 q-2 -4 0 -7 q2 3 2 5 z" fill="var(--amber)"/>'
-];
-
-var HERO_DESIGNS=[
- /* Hero-A Squire */
- '<g class="legL"><rect x="27" y="44" width="4" height="9" rx="1.5" fill="var(--steelD)"/></g>'+
- '<g class="legR"><rect x="33" y="44" width="4" height="9" rx="1.5" fill="var(--steelD)"/></g>'+
- '<rect x="25" y="30" width="14" height="16" rx="3" fill="var(--steel)" stroke="var(--ink)" stroke-width="1.4"/>'+
- '<rect x="29" y="33" width="6" height="11" fill="var(--steel2)"/>'+
- head(32,25,5)+'<rect x="27" y="20" width="10" height="4" rx="2" fill="var(--steel2)" stroke="var(--ink)" stroke-width="1"/>'+
- '<g style="transform-box:fill-box;transform-origin:42px 40px" class="pulse"><rect x="41" y="14" width="2.6" height="22" rx="1" fill="#dfe6ee" stroke="var(--ink)" stroke-width="1"/><path d="M40 14 l2.3 -5 l2.3 5 z" fill="#fff"/></g>'+
- '<rect x="39" y="34" width="8" height="2.4" rx="1" fill="var(--gold)"/>',
- /* Hero-B Battlemage */
- '<path d="M22 53 L32 30 L42 53 Z" fill="#3b5ca8" stroke="var(--ink)" stroke-width="1.4"/>'+
- '<path d="M27 44 L37 44 L40 53 L24 53 Z" fill="#2f4a86"/>'+
- head(32,25,5)+'<path d="M24 24 Q32 4 40 24 Z" fill="#3b5ca8" stroke="var(--ink)" stroke-width="1.3"/><circle cx="32" cy="10" r="1.6" fill="var(--gold)"/>'+
- '<rect x="43" y="16" width="2.4" height="34" rx="1.2" fill="var(--brown2)" stroke="var(--ink)" stroke-width="1"/>'+
- '<circle class="glow" cx="44.2" cy="15" r="4.6" fill="#7fd0ff"/><circle cx="44.2" cy="15" r="2.2" fill="#eaffff"/>',
- /* Hero-C Ranger */
- '<g class="legL"><rect x="27" y="44" width="4" height="9" rx="1.5" fill="var(--brownD)"/></g>'+
- '<g class="legR"><rect x="33" y="44" width="4" height="9" rx="1.5" fill="var(--brownD)"/></g>'+
- '<path d="M24 30 L40 30 L37 46 L27 46 Z" fill="var(--green2)" stroke="var(--ink)" stroke-width="1.4"/>'+
- '<path d="M24 30 Q22 40 26 48 L30 46 Z" fill="var(--greenD)"/>'+
- head(32,25,5)+'<path d="M27 22 Q32 18 37 22 L37 24 L27 24 Z" fill="var(--green2)" stroke="var(--ink)" stroke-width="1"/>'+
- '<path d="M44 18 Q52 32 44 46" fill="none" stroke="var(--brown2)" stroke-width="2"/><line x1="44" y1="18" x2="44" y2="46" stroke="#eee" stroke-width="0.8"/>'+
- '<line class="pulse" x1="38" y1="32" x2="48" y2="32" stroke="var(--ink)" stroke-width="1.4"/>',
- /* Hero-D Paladin */
- '<g class="legL"><rect x="26" y="44" width="4.5" height="9" rx="1.5" fill="var(--steelD)"/></g>'+
- '<g class="legR"><rect x="33.5" y="44" width="4.5" height="9" rx="1.5" fill="var(--steelD)"/></g>'+
- '<rect x="23" y="29" width="18" height="17" rx="3" fill="var(--steel)" stroke="var(--ink)" stroke-width="1.4"/>'+
- '<rect x="22" y="27" width="20" height="4" rx="2" fill="var(--gold)" stroke="var(--ink)" stroke-width="1"/>'+
- head(32,23,5)+'<rect x="27" y="18" width="10" height="4" rx="1.5" fill="var(--steel2)" stroke="var(--ink)" stroke-width="1"/><rect x="31" y="13" width="2" height="5" fill="var(--gold)"/>'+
- '<g class="pulse" style="transform-box:fill-box;transform-origin:18px 38px"><path d="M12 30 L24 30 L24 42 L18 47 L12 42 Z" fill="#c0492f" stroke="var(--ink)" stroke-width="1.3"/><path d="M18 33 L18 43 M14 37 L22 37" stroke="var(--gold)" stroke-width="1.4"/></g>'+
- '<rect x="44" y="16" width="2.6" height="24" rx="1" fill="#dfe6ee" stroke="var(--ink)" stroke-width="1"/><rect x="42" y="38" width="7" height="2.4" fill="var(--gold)"/>'
-];
-
-/* Hound-D Feral Stalker (P3 deterministic pre-scan cameo) */
-var HOUND_DESIGN=
- '<g class="legL"><rect x="42" y="43" width="3.8" height="10" rx="1.5" fill="#5a4a3a"/></g>'+
- '<g class="legR"><rect x="20" y="44" width="3.8" height="9" rx="1.5" fill="#5a4a3a"/></g>'+
- '<rect x="36" y="44" width="3.4" height="9" rx="1.5" fill="#6a5848"/>'+
- '<rect x="26" y="45" width="3.4" height="8" rx="1.5" fill="#6a5848"/>'+
- '<path class="tail" d="M14 36 q-10 -3 -9 -11" fill="none" stroke="#6a5848" stroke-width="3.6" stroke-linecap="round"/>'+
- '<path d="M16 40 q10 -6 24 -4 q8 1 8 7 q-1 5 -8 5 q-14 1 -24 -2 z" fill="#7a6552" stroke="var(--ink)" stroke-width="1.6"/>'+
- '<path d="M30 35 l2 4 l3 -5 l2 5 l3 -5" fill="none" stroke="#5a4a3a" stroke-width="2"/>'+
- '<path d="M44 40 q9 -3 13 3 q2 5 -3 8 q-6 2 -10 -2 q-3 -6 0 -9 z" fill="#7a6552" stroke="var(--ink)" stroke-width="1.5"/>'+
- '<path d="M45 39 l-1 -7 l5 4 z" fill="#5a4a3a" stroke="var(--ink)" stroke-width="1"/>'+
- '<path d="M53 47 q4 1 6 4 l-2 1 q-3 0 -5 -2 z" fill="#5a4a3a" stroke="var(--ink)" stroke-width="1"/>'+
- '<path d="M54 50 l1 3 l1.5 -2 z m3 -1 l1 3 l1.5 -2 z" fill="#fff"/>'+
- '<circle cx="50" cy="44" r="1.5" fill="#ff5a3c"/>';
-
-/* Monsters by tier: normal=Beast-B Imp, boss=Boss-A Crowned Beast, phantom=Wraith-B Shade.
-   Each carries class="monster-body" on its primary body shape (fight-flash querySelector). */
-var MON_DESIGN={
- normal:
-   '<g class="wing"><path d="M22 34 Q8 28 10 42 Q18 40 24 42 Z" fill="#6a1f17" stroke="var(--ink)" stroke-width="1.2"/></g>'+
-   '<g class="wingR"><path d="M42 34 Q56 28 54 42 Q46 40 40 42 Z" fill="#6a1f17" stroke="var(--ink)" stroke-width="1.2"/></g>'+
-   '<ellipse class="monster-body" cx="32" cy="42" rx="9" ry="10" fill="var(--beast)" stroke="var(--ink)" stroke-width="1.5"/>'+
-   '<path d="M25 33 l-2 -6 l5 4 z" fill="var(--maroon2)" stroke="var(--ink)" stroke-width="1"/>'+
-   '<path d="M39 33 l2 -6 l-5 4 z" fill="var(--maroon2)" stroke="var(--ink)" stroke-width="1"/>'+
-   '<circle cx="28" cy="40" r="1.6" fill="#ffd23f"/><circle cx="36" cy="40" r="1.6" fill="#ffd23f"/>'+
-   '<path d="M28 46 q4 3 8 0" fill="none" stroke="var(--ink)" stroke-width="1.3"/>'+
-   '<path class="tail" d="M40 50 q8 0 9 -6" fill="none" stroke="var(--maroon2)" stroke-width="2" stroke-linecap="round"/>',
- boss:
-   '<ellipse class="pulse monster-body" cx="32" cy="42" rx="15" ry="13" fill="var(--maroon)" stroke="var(--ink)" stroke-width="1.8"/>'+
-   '<path d="M22 34 l-3 -8 l7 5 z" fill="var(--maroon2)" stroke="var(--ink)" stroke-width="1.2"/>'+
-   '<path d="M42 34 l3 -8 l-7 5 z" fill="var(--maroon2)" stroke="var(--ink)" stroke-width="1.2"/>'+
-   '<circle cx="27" cy="40" r="2.4" fill="#ffd23f"/><circle cx="37" cy="40" r="2.4" fill="#ffd23f"/>'+
-   '<circle cx="27" cy="40" r="1" fill="var(--ink)"/><circle cx="37" cy="40" r="1" fill="var(--ink)"/>'+
-   '<path d="M25 47 l3 -2 l3 2 l3 -2 l3 2" fill="none" stroke="#fff" stroke-width="1.6"/>'+
-   '<path class="crownshine" d="M22 24 L26 18 L32 23 L38 18 L42 24 Z" fill="var(--gold)" stroke="var(--ink)" stroke-width="1.3"/>'+
-   '<circle cx="32" cy="22" r="1.3" fill="var(--maroon)"/>',
- phantom:
-   '<g class="phase"><path class="monster-body" d="M22 50 Q18 26 32 24 Q46 26 42 50 L36 46 L32 50 L28 46 Z" fill="#3a3550" stroke="var(--purpleD)" stroke-width="1.4"/>'+
-   '<path d="M26 30 Q32 24 38 30 L38 36 Q32 33 26 36 Z" fill="#16121f"/>'+
-   '<circle class="glow" cx="28" cy="34" r="1.6" fill="#c89bff"/><circle class="glow" cx="36" cy="34" r="1.6" fill="#c89bff"/></g>'
-};
-
-// Scout/council members share the SCOUT_DESIGNS pool (variant = member index → A/B/C/D look);
-// the deterministic pre-scan cameo uses the Hound design. Walk/position is JS-driven (expTick).
+// (2D sprite design libs removed — KING/SCOUT/HERO/HOUND/MON_DESIGN were only used by the
+// retired 2D parchment overlay + scout tokens; the 3D star-map uses GLB ships)
 function spawnExpSprite(kind,variant){
   // RETIRED: the 2D parchment scout tokens. The 3D recon ships are the only scout visual now.
   // Return a no-op stub so all the expedition bookkeeping (.g.setAttribute / .g.remove) is a
@@ -2456,185 +2335,8 @@ var rtState=null;
 // Seats ring the table (centered at 42% to leave the lower third for the judge prompt).
 // Radii kept narrow (32% / 30%) + 96px cards so left/right seats never clip on phones,
 // and the bottom seat clears the Vanquish/Release buttons.
-function rtSeatPos(i,n){ var ang=(-90 + i*360/n)*Math.PI/180; return { left:50+35*Math.cos(ang), top:50+35*Math.sin(ang) }; }
-var rtFindings=[];   // findings for the current roundtable (for the bubble-tap modal)
-function rtMkSeat(pos, name, spriteSvg, bub, isKing){
-  var seat=document.createElement('div');
-  seat.className='rt-seat'+(isKing?' king':'');
-  seat.style.left=pos.left+'%'; seat.style.top=pos.top+'%';
-  var bubbleHtml;
-  if(isKing){
-    bubbleHtml='<div class="bc">\u2696 The Judge</div><div class="bs none">rules the contested</div>';
-  } else {
-    bubbleHtml='<div class="bc">'+bub.count+' finding'+(bub.count===1?'':'s')+'</div>'+
-      '<div class="bs'+(bub.solo?'':' none')+'">'+(bub.solo?('\u2696 '+bub.solo+' solo'):'all shared \u2713')+'</div>'+
-      '<div class="bt2">tap to read</div>';
-  }
-  seat.innerHTML='<div class="rt-bubble">'+bubbleHtml+'</div>'+
-    '<div class="rt-av"><svg class="rt-svg" viewBox="0 0 64 64"><ellipse cx="32" cy="55" rx="13" ry="3.2" fill="#00000055"/><g class="rt-sprite"></g></svg><div class="rt-vote"></div></div>'+
-    '<div class="rt-nm">'+esc(name)+'</div><div class="rt-role">'+(isKing?'\u2696 the judge':'\ud83e\udded scout')+'</div>';
-  svgInto(seat.querySelector('.rt-sprite'), spriteSvg);   // sprite art is native 0-64, no wrap needed
-  if(!isKing){ seat.querySelector('.rt-bubble').addEventListener('click', function(){ rtOpenList(bub.idx, name); }); }
-  return { el:seat, vote:seat.querySelector('.rt-vote') };
-}
-
-function openRoundtable(job){
-  var stage=$('rt-stage'); if(!stage || !job || !job.findings.length) return;
-  var n=job.members || ((job.models&&job.models.length)||2);
-  rtFindings=job.findings;
-  var total=n+1;
-  stage.innerHTML='<div class="rt-title">\ud83d\udc51 The King\u2019s Verdict</div>'
-    +'<div class="rt-sub">'+job.findings.length+' finding(s) gathered \u00b7 the round table shall vote</div>'
-    +'<div class="rt-table"><div class="rt-rim"></div><div class="rt-felt"></div><div class="rt-emblem">\u265b</div></div>'
-    +'<div class="rt-ballot" id="rt-ballot"></div>'
-    +'<div class="rt-verdict" id="rt-verdict"></div>'
-    +'<div class="rt-prompt" id="rt-prompt"></div>'
-    +'<button id="rt-enter">Enter the Dungeon \u2694</button>';
-  // table studs + candles
-  var table=stage.querySelector('.rt-table');
-  for(var k=0;k<14;k++){ var a=k/14*Math.PI*2, d=document.createElement('div'); d.className='rt-stud';
-    d.style.left=(50+48*Math.cos(a))+'%'; d.style.top=(50+48*Math.sin(a))+'%'; d.style.transform='translate(-50%,-50%)'; table.appendChild(d); }
-  [[50,1],[93,50],[50,99],[7,50]].forEach(function(p){ var c=document.createElement('div'); c.className='rt-candle';
-    c.style.left=p[0]+'%'; c.style.top=p[1]+'%'; c.style.transform='translate(-50%,-50%)'; table.appendChild(c); });
-  // King at the head (slot 0 = top), models fill the rest
-  var kpos=rtSeatPos(0,total);
-  var king=rtMkSeat(kpos,'You \u00b7 The King',KING_DESIGN,null,true);
-  stage.appendChild(king.el);
-  var seats=[];
-  for(var i=0;i<n;i++){
-    var pos=rtSeatPos(i+1,total);
-    var mine=job.findings.filter(function(f){ return f.foundBy[i]; });
-    var solo=mine.filter(function(f){ return Object.keys(f.foundBy).length===1; }).length;
-    var nm=(job.models&&job.models.length)? shortModel(job.models[i%job.models.length]) : ('Scout '+(i+1));
-    var seat=rtMkSeat(pos, nm, SCOUT_DESIGNS[i%4], {count:mine.length, solo:solo, idx:i}, false);
-    if(pos.top>52) seat.el.classList.add('btm');   // lower-half seats: bubble hangs below so it never covers the table
-    stage.appendChild(seat.el); seats[i]=seat;
-  }
-  rtState={ open:true, seats:seats, king:king, members:n };
-  $('rt-overlay').classList.add('show');
-  $('rt-enter').addEventListener('click', closeRoundtable);
-}
-function closeRoundtable(){ $('rt-overlay').classList.remove('show'); var m=$('rt-modal'); if(m) m.classList.remove('show'); rtState=null; refreshTitle(); }
-function rtShort(t){ t=t||''; return esc(t.length>52?t.slice(0,51)+'\u2026':t); }
-// Round 2 waiting state: shown on the table while the bridge runs the argue\u2192re-vote passes.
-function rtSetDeliberating(n){
-  if(!rtState || !rtState.open) return;
-  var sub=document.querySelector('#rt-overlay .rt-sub'); if(sub) sub.textContent='\u2696 the council deliberates '+n+' contested finding'+(n===1?'':'s')+'\u2026';
-  var ballot=$('rt-ballot');
-  if(ballot){ ballot.classList.add('show');
-    ballot.innerHTML='<div class="bt">\u2696 Deliberation in session</div>'
-      +'<div class="barg">finders argue their case \u00b7 the council re-votes\u2026</div>'
-      +'<div class="rt-delib-dots"><span></span><span></span><span></span></div>'; }
-}
-
-// tap a scout's bubble -> scrollable list of every bug they found (shared vs solo)
-function rtOpenList(idx, name){
-  var mine=rtFindings.filter(function(f){ return f.foundBy[idx]; });
-  var solo=mine.filter(function(f){ return Object.keys(f.foundBy).length===1; }).length;
-  $('rt-mh').innerHTML='\ud83e\udded '+esc(name)+' <span class="sm">'+mine.length+' findings \u00b7 '+solo+' solo</span>';
-  $('rt-ml').innerHTML=mine.map(function(f){
-    var sl=Object.keys(f.foundBy).length===1;
-    return '<div class="rt-frow"><span class="rt-ficon">'+(sl?'\u2696':'\u2713')+'</span>'+
-      '<div class="rt-fmid"><div class="rt-ft">'+esc(f.title||'')+'</div><div class="rt-ff">'+esc(f.file||'')+'</div></div>'+
-      '<span class="rt-fbadge '+(sl?'solo':'ok')+'">'+(sl?'solo \u00b7 vote':(f.support+'/'+f.total))+'</span></div>';
-  }).join('') || '<p style="padding:10px">No findings.</p>';
-  $('rt-modal').classList.add('show');
-}
-// one-time modal close wiring (elements are static in the DOM)
-(function(){ var mc=document.getElementById('rt-mclose'); if(mc) mc.addEventListener('click', function(){ var m=$('rt-modal'); if(m) m.classList.remove('show'); });
-  var mm=document.getElementById('rt-modal'); if(mm) mm.addEventListener('click', function(e){ if(e.target===mm) mm.classList.remove('show'); }); })();
-
-// ── The STAGE seam (one brain, swappable skin) ───────────────────────────────
-// rtRunVotes below is the BRAIN — vote tally, deliberation result, King's ruling,
-// writeback. It no longer touches the overlay DOM directly; it speaks to VIEW, a
-// neutral "stage" interface. View2D is the parchment-overlay skin (this code, moved
-// verbatim). Step 2 adds View3D on convene()'s ships so the SAME brain drives the
-// 3D round table — no duplicated process. Swap VIEW = the active skin.
-var View2D = {
-  _seats(){ return (rtState&&rtState.seats)||[]; },
-  _king(){ return rtState&&rtState.king; },
-  clearMarks(){ this._seats().forEach(function(s){ s.el.classList.remove('presenting','voting','abstain'); s.vote.className='rt-vote'; s.vote.textContent=''; }); },
-  clearPrompt(){ var p=$('rt-prompt'); if(p) p.innerHTML=''; },
-  deliberating(n){ rtSetDeliberating(n); },
-  dots(sup,total){ var d=''; for(var i=0;i<total;i++) d+=(i<sup?'●':'○'); return d; },
-  monFor(ty){ var mt = ty==='boss'?'boss' : ty==='phantom'?'phantom' : 'normal';
-    return '<svg class="rt-mon'+(ty==='phantom'?' wr':'')+'" viewBox="0 0 64 64">'+(MON_DESIGN[mt]||MON_DESIGN.normal)+'</svg>'; },
-  confirmPresent(f,pres,total){
-    var seats=this._seats(), ballot=$('rt-ballot');
-    this.clearMarks();
-    seats.forEach(function(s,i){ if(i===pres) s.el.classList.add('presenting'); else if(!f.foundBy[i]) s.el.classList.add('abstain'); });
-    ballot.classList.add('show');
-    ballot.innerHTML='<div class="bt">'+rtShort(f.title)+'</div><div class="bf">'+esc(f.file||'')+'</div>'
-      +'<div class="btally">'+this.dots(0,total)+'</div><div class="bres"></div>';
-    if(seats[pres]){ seats[pres].vote.className='rt-vote show for'; seats[pres].vote.textContent='📜 mine'; }
-  },
-  confirmAgree(f,pres,sup,total){
-    var seats=this._seats(), ballot=$('rt-ballot');
-    Object.keys(f.foundBy).map(Number).forEach(function(mi){ if(mi===pres) return; var s=seats[mi]; if(s){ s.el.classList.add('voting'); s.vote.className='rt-vote show for'; s.vote.textContent='✓ agree'; } });
-    var t=ballot.querySelector('.btally'); if(t) t.textContent=this.dots(sup,total)+'  '+sup+'/'+total;
-  },
-  confirmResult(f){
-    var ballot=$('rt-ballot'), ty=tribType(f), br=ballot.querySelector('.bres');
-    if(br){ br.className='bres ok'; br.innerHTML=this.monFor(ty)+tierIcon(ty)+' '+tierName(ty)+' · confirmed'; }
-  },
-  arguePresent(f,pres,total){
-    var seats=this._seats(), ballot=$('rt-ballot');
-    this.clearMarks();
-    seats.forEach(function(s,i){ if(i===pres) s.el.classList.add('presenting'); else s.el.classList.add('abstain'); });
-    ballot.classList.add('show');
-    var arg=f._argument || 'I stand by this finding.';
-    ballot.innerHTML='<div class="bt">🗣 '+rtShort(f.title)+'</div><div class="bf">'+esc(f.file||'')+'</div>'
-      +'<div class="barg">“'+esc(arg.length>140?arg.slice(0,139)+'…':arg)+'”</div>'
-      +'<div class="btally">'+this.dots(f._origSupport||0,total)+'</div><div class="bres"></div>';
-    if(seats[pres]){ seats[pres].vote.className='rt-vote show for'; seats[pres].vote.textContent='🗣 argues'; }
-  },
-  argueRevote(f,pres,total){
-    var seats=this._seats(), ballot=$('rt-ballot');
-    Object.keys(f.foundBy).map(Number).forEach(function(mi){ if(mi===pres) return; var s=seats[mi]; if(s){ s.el.classList.remove('abstain'); s.el.classList.add('voting'); s.vote.className='rt-vote show for'; s.vote.textContent='✓ mine'; } });
-    for(var m=0;m<total;m++){ if(f.foundBy[m]) continue; var sv=seats[m]; if(!sv) continue; sv.el.classList.remove('abstain');
-      if(f.agreedBy && f.agreedBy[m]){ sv.el.classList.add('voting'); sv.vote.className='rt-vote show for'; sv.vote.textContent='✓ convinced'; }
-      else { sv.vote.className='rt-vote show against'; sv.vote.textContent='✗ unmoved'; }
-    }
-    var t=ballot.querySelector('.btally'); if(t) t.textContent=this.dots(f.support,total)+'  '+f.support+'/'+total;
-  },
-  argueResult(f,isPhantom){
-    var ballot=$('rt-ballot'), br=ballot.querySelector('.bres');
-    if(!isPhantom){ var ty=tribType(f);
-      if(br){ br.className='bres ok'; br.innerHTML=this.monFor(ty)+tierIcon(ty)+' '+tierName(ty)+' · confirmed by argument'; } }
-    else { if(br){ br.className='bres wr'; br.innerHTML='⚖ still contested · the King shall rule'; } }
-  },
-  askJudge(f,pres,onKeep,onDrop){
-    var seats=this._seats(), ballot=$('rt-ballot'), prompt=$('rt-prompt');
-    this.clearMarks();
-    seats.forEach(function(s,i){ if(i===pres) s.el.classList.add('presenting'); else s.el.classList.add('abstain'); });
-    if(seats[pres]){ seats[pres].vote.className='rt-vote show for'; seats[pres].vote.textContent='📜 lone claim'; }
-    ballot.classList.add('show');
-    ballot.innerHTML='<div class="bt">🗣 '+rtShort(f.title)+'</div><div class="bf">'+esc(f.file||'')+'</div>'
-      +'<div class="btally">only '+f.support+' of '+f.total+' saw it</div><div class="bres wr">⚖ your ruling, my liege</div>';
-    prompt.innerHTML='<div class="rt-judge-btns"><button class="rt-vanquish">⚔ Vanquish<br><small>it IS a bug</small></button>'
-      +'<button class="rt-release">🕊 Let it out<br><small>not a bug</small></button></div>';
-    prompt.querySelector('.rt-vanquish').addEventListener('click', onKeep);
-    prompt.querySelector('.rt-release').addEventListener('click', onDrop);
-  },
-  judgeRuled(f,kind){
-    var ballot=$('rt-ballot'), prompt=$('rt-prompt'), king=this._king();
-    if(king){ king.el.classList.add('sealing'); king.vote.className='rt-vote show rule'; king.vote.textContent=(kind==='keep'?'⚔':'🕊'); }
-    if(kind==='keep'){ ballot.innerHTML='<div class="bt">'+rtShort(f.title)+'</div><div class="bf">'+esc(f.file||'')+'</div><div class="bres wr">'+this.monFor('phantom')+'👻 Wraith rises</div>'; }
-    else { ballot.innerHTML='<div class="bt">'+rtShort(f.title)+'</div><div class="bres ok">🕊 Released · cleared of all charges</div>'; }
-    prompt.innerHTML='';
-  },
-  unseal(){ var king=this._king(); if(king&&king.el) king.el.classList.remove('sealing'); },
-  seal(summary){
-    var ballot=$('rt-ballot'), verdict=$('rt-verdict'), king=this._king();
-    var emblem=document.querySelector('#rt-overlay .rt-emblem');
-    this.clearMarks(); this.clearPrompt(); ballot.classList.remove('show');
-    if(king&&king.el){ king.el.classList.add('sealing'); king.vote.className='rt-vote show rule'; king.vote.textContent='👑 VERDICT'; }
-    if(emblem) emblem.style.opacity='0';
-    verdict.innerHTML='<b>⚜ The verdict is sealed</b>'+summary;
-    verdict.classList.add('show');
-    $('rt-enter').classList.add('show');
-  }
-};
+// (2D verdict overlay removed — rtSeatPos/rtMkSeat/openRoundtable/closeRoundtable/
+// rtSetDeliberating/rtOpenList/rtShort/rtFindings/View2D — View3D is the only skin now)
 // ── View3D: the SECOND skin. Same interface as View2D, but instead of the parchment
 //    overlay it drives the 3D round table (convene()'s ships/chips/holo/judge) via the
 //    window.IW.cv* bridge. The brain (rtRunVotes) is unchanged — only VIEW swaps. ──
@@ -2643,8 +2345,9 @@ function use3DVerdict(){
   try{ return USE_3D_VERDICT && window.IW && window.IW.ready && window.IW.council && !window.IW.council.active; }catch(_){ return false; }
 }
 function openVerdictTable(job){
-  if(use3DVerdict()){ VIEW=View3D; View3D.open(job); }
-  else { VIEW=View2D; openRoundtable(job); }
+  // View3D is the only verdict skin now. If the 3D star-map isn't ready (edge case), no table
+  // opens → beginTribunal finalizes silently (writes libraries, no interactive vote animation).
+  if(use3DVerdict()){ View3D.open(job); }
 }
 var View3D = {
   _C(){ return window.IW && window.IW.council; },
@@ -2655,7 +2358,6 @@ var View3D = {
     var n=job.members || ((job.models&&job.models.length)||2);
     var models=(job.models&&job.models.length)?job.models:[];
     var names=[]; for(var i=0;i<n;i++){ names.push(models.length? shortModel(models[i%models.length]) : ('Scout '+(i+1))); }
-    rtFindings=job.findings;
     try{ window.IW.cvOpen(names); }catch(e){ console.warn('[verdict3D] cvOpen',e); }
     rtState={ open:true, members:n, mode:'3d' };
   },
@@ -2713,7 +2415,7 @@ var View3D = {
     setTimeout(function(){ if(vb) vb.classList.remove('show'); try{ window.IW.cvEnd(); }catch(_){} rtState=null; refreshTitle(); }, 5200);
   }
 };
-var VIEW = View2D;   // active skin — openVerdictTable() swaps to View3D when the star-map is up
+var VIEW = View3D;   // the only verdict skin (2D parchment overlay retired)
 
 function rtRunVotes(trib){
   if(!rtState || !rtState.open) return;
