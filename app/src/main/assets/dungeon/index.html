@@ -1618,6 +1618,12 @@ function spriteGoToRoom(s, room, exp){
   if(s.targetId===room.id) return false;                    // already heading there
   if(s.atId===room.id && !s.path.length){ s.targetId=room.id; s.hereRoom=room; return false; }
   var wp=buildPath(s.atId, room.id) || [];
+  // _waypoints were retired with the 2D SVG map, so buildPath() now returns [] for every
+  // scout/council route → the sprite got a trivial 1-point path, the "ARRIVED" branch in
+  // expTick never fired, and IW.scoutTo() (the ONLY thing that flies the 3D recon ship +
+  // sonar) was never called. Fall back to the destination room centre so arrival always
+  // fires (heroes already append their own final point; scouts/council relied on buildPath).
+  if(!wp.length) wp=[{x:room.cx,y:room.cy}];
   s.path=[{x:s.x,y:s.y}].concat(wp); s.pidx=1; s.targetId=room.id;
   if(exp) exp.label=room.name;
   return true;
