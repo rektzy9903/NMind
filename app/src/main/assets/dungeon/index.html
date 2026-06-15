@@ -746,7 +746,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd83-retire-2d-overlay';
+var DUNGEON_BUILD = 'd84-aura-single+profile-dedup+delib-progress';
 
 // ── boot diagnostics: was referenced (window.__log) but never defined → all
 //    model-load reasons were silently dropped. Surface them to the #loading
@@ -848,9 +848,12 @@ function writeRoomProfile(roomPath, rep){
     'DEPENDS_ON: '+(rep.dependsOn||[]).join(', ')+'\n'+
     'EXPOSES_TO: '+(rep.exposesTo||[]).join(', ')+'\n'+
     'Last scouted: '+today+'\n';
-  if(/^##\s+📊\s+Room Profile/im.test(md)){
-    // Replace existing — match from heading to (but not including) next ## heading or end
-    md=md.replace(/^##\s+📊\s+Room Profile[\s\S]*?(?=\n##\s+|\s*$)/im, block);
+  if(/##\s+📊\s+Room Profile/i.test(md)){
+    // Replace existing — from the heading to (but not including) the next ## heading or
+    // end-of-string. NO `m` flag: with `m`, `\s*$` matched at the end of the heading LINE,
+    // so the lazy body matched nothing → only the heading was replaced and the old
+    // PURPOSE/DANGER body was orphaned + a fresh block prepended (the 3× duplication bug).
+    md=md.replace(/##\s+📊\s+Room Profile[\s\S]*?(?=\n##\s|$)/i, block);
   } else {
     // Insert before the first ## section (after the title line) — profile sits at the top
     var firstSec=md.indexOf('\n## ');
@@ -2380,10 +2383,16 @@ var View3D = {
     (c.members||[]).forEach(function(m){ if(m&&m.chip){ m.vote=null; m.chip.className='iwc-chip und'; m.chip.textContent='…'; m.chip.classList.remove('speaking'); } });
   },
   clearPrompt(){ var jb=this._el('iwc-judge'); if(jb) jb.classList.remove('show'); var c=this._C(); if(c) c.awaitJudge=false; },
-  deliberating(n){ var c=this._C(); if(c) c.speaking=-1; this._round('Round 2 · Deliberation');
+  deliberating(n){ var c=this._C(); if(c){ c.speaking=-1; c._dv=0; c._delibN=n; } this._round('Round 2 · Deliberation');
     var sp=this._el('iwc-speaker'); if(sp) sp.textContent='⚖ The council deliberates';
     this._text(n+' contested finding'+(n===1?'':'s')+' · finders argue, the council re-votes…');
   },
+  // Live deliberation feedback so the round NEVER looks frozen while the real model
+  // spawns run (each can take up to ~90s). Driven by the bridge's delib-arg / delib-vote events.
+  delibArg(title){ var sp=this._el('iwc-speaker'); if(sp) sp.textContent='🗣 A finder argues their case';
+    this._text('“'+((title||'').slice(0,80))+'” — the council weighs the evidence…'); },
+  delibVote(){ var c=this._C(); if(c) c._dv=(c._dv||0)+1; var sp=this._el('iwc-speaker');
+    if(sp) sp.textContent='🗳 The council re-votes'; this._text(((c&&c._dv)||0)+' vote(s) cast · tallying…'); },
   confirmPresent(f,pres,total){ this._round('Round 1 · Findings'); this._speak(pres,'📜 reports',f); this._tally(0,total); this._setVote(pres,'for','📜'); },
   confirmAgree(f,pres,sup,total){ var self=this; Object.keys(f.foundBy).map(Number).forEach(function(mi){ if(mi===pres) return; self._setVote(mi,'for','✓'); }); this._tally(sup,total); },
   confirmResult(f){ var ty=tribType(f); this._text(tierIcon(ty)+' '+tierName(ty)+' · confirmed'); this._holo(ty); },
@@ -2547,8 +2556,8 @@ window.onDungeonEvent=function(sid, line){
   // ── War Council Round 2 (deliberation) events ──
   if(job && job.deliberate){
     if(ev.t==='delib-start'){ return; }
-    else if(ev.t==='delib-arg'){ var fa=job.byId[ev.id]; if(fa) fa._argument=ev.text; return; }   // finder's argument captured
-    else if(ev.t==='delib-vote'){ var fv=job.byId[ev.id]; if(fv && ev.verdict==='for') fv.agreedBy[ev.member]=1; return; }  // only FOR raises support
+    else if(ev.t==='delib-arg'){ var fa=job.byId[ev.id]; if(fa) fa._argument=ev.text; try{ if(VIEW.delibArg) VIEW.delibArg(fa&&fa.title||ev.text); }catch(_){}; return; }   // finder's argument captured + shown live
+    else if(ev.t==='delib-vote'){ var fv=job.byId[ev.id]; if(fv && ev.verdict==='for') fv.agreedBy[ev.member]=1; try{ if(VIEW.delibVote) VIEW.delibVote(); }catch(_){}; return; }  // only FOR raises support; live tally
     else if(ev.t==='delib-done' || ev.t==='delib-error'){
       if(job.wd) clearTimeout(job.wd);
       var dj=job.dJob; delete dispatchJobs[sid];
@@ -3103,6 +3112,11 @@ function build(){
   for(let ri=0;ri<NR;ri++){ const rr=RING_R[ri],rp=[]; // draw each guide ring ONCE (not per planet)
     for(let i=0;i<=120;i++){const a=i/120*6.283;rp.push(new THREE.Vector3(Math.cos(a)*rr,0,Math.sin(a)*rr));}
     scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(rp),new THREE.LineBasicMaterial({color:0x33445a,transparent:true,opacity:.3}))); }
+  // Twin-Lens red aura marks ONLY the single highest-risk world (matches the 2D dungeon —
+  // one threat beacon, not a sea of red). Find the worst planet first, then aura just that one.
+  let _auraRisk=0, _auraIdx=-1;
+  D.planets.forEach((p,idx)=>{ if(p.home) return; const r=riskOf(p.bugs); if(r>_auraRisk){ _auraRisk=r; _auraIdx=idx; } });
+  if(_auraRisk<=0.3) _auraIdx=-1;   // nothing risky enough → no beacon at all
   D.planets.forEach((p,idx)=>{
     const ri=idx%NR; p.orbit=RING_R[ri]; // folders share rings; same ring = same radius (Earth=ring 2 = 3rd)
     const pivot=new THREE.Group();pivot.rotation.y=idx*GOLD;scene.add(pivot); // golden-angle = stable, even spread, no overlap
@@ -3111,7 +3125,7 @@ function build(){
     planet.userData.focusable=true;planet.userData.focusDist=Math.max(13,p.size*8);
     clickTargets.push(planet);
     const rsk=riskOf(p.bugs); // high-risk folder → pulsing red rim (in the real port this comes from graphState.scores)
-    if(rsk>0.3){const ra=halo(rsk>0.6?0xF87171:0xFB923C,p.size*(4+rsk*3),0);planet.add(ra);riskAuras.push({s:ra,risk:rsk});}
+    if(idx===_auraIdx){const ra=halo(rsk>0.6?0xF87171:0xFB923C,p.size*(4+rsk*3),0);planet.add(ra);riskAuras.push({s:ra,risk:rsk});} // ONLY the worst world gets the beacon
     worlds.push({mesh:planet,risk:rsk,home:!!p.home}); // gravity-map node + hound target
     pivot.add(planet);orbiters.push({pivot,speed:RING_SPD[ri]}); // SAME speed per ring → shared-ring planets keep their spacing
 
