@@ -87,13 +87,25 @@ fun DiscussionModelPickerSheet(
     }
 
     // Candidate list — recomputed whenever liveModels changes.
-    val candidates: List<SpeakerCandidate> = run {
+    val allCandidates: List<SpeakerCandidate> = run {
         val out = mutableListOf<SpeakerCandidate>()
         for (cfg in configured) {
             val models = liveModels[cfg.provider.id] ?: cfg.provider.models
             for (m in models) out.add(SpeakerCandidate(cfg.provider, m))
         }
         out
+    }
+    var query by remember { mutableStateOf("") }
+    // Filtered view for display only — selection + confirm always use allCandidates
+    // so toggling then searching never drops a pick.
+    val candidates: List<SpeakerCandidate> = run {
+        val q = query.trim().lowercase()
+        if (q.isEmpty()) allCandidates
+        else allCandidates.filter { c ->
+            c.model.name.lowercase().contains(q) ||
+                c.model.modelId.lowercase().contains(q) ||
+                c.provider.name.lowercase().contains(q)
+        }
     }
     val isFetching = loadingProviders.isNotEmpty()
 
@@ -138,7 +150,7 @@ fun DiscussionModelPickerSheet(
                     )
                 }
             }
-            if (candidates.isEmpty()) {
+            if (allCandidates.isEmpty()) {
                 Text(
                     "No providers with API keys configured. Go to Login → pick a provider first.",
                     fontFamily = DmSansFamily, fontSize = 13.sp,
@@ -146,6 +158,46 @@ fun DiscussionModelPickerSheet(
                     modifier = Modifier.padding(vertical = 16.dp),
                 )
             } else {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    placeholder = {
+                        Text(
+                            "Search models…",
+                            fontFamily = DmSansFamily, fontSize = 13.sp, color = NexusText3,
+                        )
+                    },
+                    singleLine = true,
+                    trailingIcon = {
+                        if (query.isNotEmpty()) {
+                            Text(
+                                "✕",
+                                color = NexusText3, fontSize = 14.sp,
+                                modifier = Modifier
+                                    .clickable { query = "" }
+                                    .padding(horizontal = 12.dp),
+                            )
+                        }
+                    },
+                    textStyle = androidx.compose.ui.text.TextStyle(
+                        color = Color.White, fontFamily = DmSansFamily, fontSize = 13.sp,
+                    ),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        cursorColor = NexusAccent,
+                        focusedBorderColor = NexusAccent,
+                        unfocusedBorderColor = NexusBorder,
+                    ),
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                )
+                if (candidates.isEmpty()) {
+                    Text(
+                        "No models match \"$query\".",
+                        fontFamily = DmSansFamily, fontSize = 13.sp, color = NexusText3,
+                        modifier = Modifier.padding(vertical = 16.dp),
+                    )
+                }
                 LazyColumn(
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                     modifier = Modifier.weight(1f, fill = false).heightIn(max = 480.dp),
@@ -229,7 +281,7 @@ fun DiscussionModelPickerSheet(
                 Button(
                     onClick = {
                         val chosen = selected.mapNotNull { id ->
-                            val cand = candidates.firstOrNull {
+                            val cand = allCandidates.firstOrNull {
                                 "${it.provider.id}:${it.model.modelId}" == id
                             } ?: return@mapNotNull null
                             // Reuse the configured snapshot (already has apiKey + resolved baseUrl).
