@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b121-delib-context-args';
+const BRIDGE_BUILD = 'b122-delib-code-evidence';
 
 const net   = require('net');
 const http  = require('http');
@@ -8246,34 +8246,53 @@ function openPrintSession() {
                     } catch (e) { log('[delib] fast call fail (' + mid + '): ' + (e && e.message) + '\n'); }
                 })();
                 const runOne = fastOk ? runChat : runSpawn;
-                // The default personas tell the model to READ the file (spawn has tool access). The fast
-                // direct-chat path has NO file access → use variants that reason from title + file path.
+                // EVIDENCE: read the real code around each finding's file:line on the host (fast, no spawn) so
+                // BOTH the finder AND the voters reason from the actual source — not just the finder's (biased)
+                // defense. This restores the independent verification the slow file-reading path had.
+                const scanCwd = r.cwd || cwd;
+                const snippetFor = (file) => {
+                    try {
+                        const mm = String(file||'').match(/^(.*?):(\d+)/);
+                        const rel = (mm ? mm[1] : String(file||'')).trim();
+                        const ln  = mm ? parseInt(mm[2],10) : 0;
+                        if (!rel) return '';
+                        const abs = path.isAbsolute(rel) ? rel : path.join(scanCwd, rel);
+                        const lines = fs.readFileSync(abs,'utf8').split('\n');
+                        let a, b;
+                        if (ln>0){ a=Math.max(0,ln-7); b=Math.min(lines.length,ln+7); } else { a=0; b=Math.min(lines.length,28); }
+                        return lines.slice(a,b).map((l,i)=> (a+i+1)+'| '+(l.length>200?l.slice(0,200)+'…':l)).join('\n');
+                    } catch(_) { return ''; }
+                };
+                const snipMap = {}; let _snipHit=0;
+                dfindings.forEach(f => { const s=snippetFor(f.file); snipMap[f.id]=s; if(s) _snipHit++; });
+                // The finder defends; the voters INDEPENDENTLY verify against the same code (claim treated as biased).
                 const ARG_P = fastOk ? [
-                    'You are a code auditor defending bug findings you reported. The other auditors have NOT seen',
-                    'the code — your argument is the ONLY context they get, so it must be self-contained.',
-                    'For EACH bug (id :: title :: file :: severity) write a SINGLE LINE that fully explains it:',
-                    'what the code does wrong (the concrete mechanism), where it happens, and the real-world impact',
-                    '(e.g. how it is exploited or what breaks). 2–3 sentences, specific, no markdown, all on one line.',
-                    'Output exactly one line per bug: 🗣ARG <id> <self-contained explanation>.'
+                    'You are a code auditor defending a bug you reported. You are shown the ACTUAL CODE for each finding.',
+                    'Argue from the code: in 2–3 concrete sentences (one line) state the exact mechanism, where it happens,',
+                    'and the real-world impact/exploit. Be specific and self-contained; no markdown.',
+                    'If the code shown does NOT actually contain the bug, say so honestly rather than inventing a defense.',
+                    'Output exactly one line per bug: 🗣ARG <id> <explanation grounded in the code>.'
                 ].join('\n') : ARG_PERSONA;
                 const VOTE_P = fastOk ? [
-                    'You are a code auditor on a review council. A colleague flagged bugs you did not report and gave',
-                    'a self-contained explanation of each. You are judging the EXPLANATION on its technical merits.',
-                    'For EACH (id :: title :: file :: severity :: argument) decide:',
-                    '  for — the explanation describes a plausible, real bug · against — it is wrong / likely fine · undecided — cannot tell.',
-                    'Be decisive and evidence-based, not deferential.',
+                    'You are an INDEPENDENT code auditor on a review council. For each finding you are shown the ACTUAL CODE',
+                    'and the reporter\'s claim. The reporter is biased toward confirming their own bug — do NOT trust the',
+                    'claim; verify it YOURSELF against the code:',
+                    '  for — the code really does have this bug · against — the code is fine or the claim is wrong · undecided — the code shown is insufficient.',
+                    'Be skeptical and evidence-based, never deferential.',
                     'Output exactly one line per bug: 🗳VOTE <id> for|against|undecided.'
                 ].join('\n') : VOTE_PERSONA;
-                log('[delib] mode=' + (fastOk ? ('fast/' + provUrl.replace(/^https?:\/\//,'').split('/')[0]) : 'spawn') + ' members=' + dmodels.length + ' findings=' + dfindings.length + '\n');
+                const fmtFinding = (f) => { const s=snipMap[f.id];
+                    return '['+f.id+'] '+f.title+'  ('+(f.file||'?')+', severity='+(f.sev||'?')+')\n' +
+                           (s ? ('```\n'+s+'\n```') : '(source unavailable — reason from the title)'); };
+                log('[delib] mode=' + (fastOk ? ('fast/' + provUrl.replace(/^https?:\/\//,'').split('/')[0]) : 'spawn') + ' members=' + dmodels.length + ' findings=' + dfindings.length + ' code=' + _snipHit + '/' + dfindings.length + '\n');
                 (async () => {
-                    // Pass 1 — each finder argues its contested findings (members run in parallel).
+                    // Pass 1 — each finder argues its contested findings FROM THE CODE (members run in parallel).
                     const byFinder = {};
                     dfindings.forEach(f => { const k = f.finder; (byFinder[k]=byFinder[k]||[]).push(f); });
                     const argMap = {};
                     await Promise.all(Object.keys(byFinder).map(k => {
                         const grp = byFinder[k], model = dmodels[k] || '';
-                        const listTxt = grp.map(f => f.id + ' :: ' + f.title + ' :: ' + (f.file || '?') + ' :: severity=' + (f.sev || '?')).join('\n');
-                        const task = 'Defend these bug(s) you reported in this project:\n\n' + listTxt;
+                        const task = 'Defend these bug(s) you reported, using the code shown:\n\n' + grp.map(fmtFinding).join('\n\n');
                         return runOne(model, ARG_P, task, txt => {
                             const re = /🗣ARG\s+(\S+)\s+(.+)/g; let m;
                             while ((m = re.exec(txt))) {
@@ -8282,13 +8301,13 @@ function openPrintSession() {
                             }
                         });
                     }));
-                    // Pass 2 — each non-finder re-votes with the argument in hand (members run in parallel).
+                    // Pass 2 — each non-finder INDEPENDENTLY verifies against the code + the (biased) claim.
                     const byVoter = {};
                     dfindings.forEach(f => (f.voters||[]).forEach(v => { (byVoter[v]=byVoter[v]||[]).push(f); }));
                     await Promise.all(Object.keys(byVoter).map(v => {
                         const grp = byVoter[v], model = dmodels[v] || '';
-                        const listTxt = grp.map(f => f.id + ' :: ' + f.title + ' :: ' + (f.file || '?') + ' :: severity=' + (f.sev || '?') + ' :: ' + (argMap[f.id] || '(no argument given)')).join('\n');
-                        const task = 'A fellow council member argues these findings are real bugs. Judge each on the evidence:\n\n' + listTxt;
+                        const task = 'Independently verify each finding against the code (the reporter is biased):\n\n' +
+                            grp.map(f => fmtFinding(f) + '\nREPORTER CLAIM (may be biased): ' + (argMap[f.id] || '(none)')).join('\n\n');
                         return runOne(model, VOTE_P, task, txt => {
                             const re = /🗳VOTE\s+(\S+)\s+(for|against|undecided)/gi; let m;
                             while ((m = re.exec(txt))) send({ t:'delib-vote', id:m[1], member:Number(v), verdict:m[2].toLowerCase() });
