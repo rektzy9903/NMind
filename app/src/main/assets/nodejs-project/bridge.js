@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b119-graph-scan-diag';
+const BRIDGE_BUILD = 'b120-delib-fast-direct-chat';
 
 const net   = require('net');
 const http  = require('http');
@@ -8225,6 +8225,43 @@ function openPrintSession() {
                     p.on('close', finish);
                     p.on('error', finish);
                 });
+                // FAST PATH (Discussion-style): deliberation is pure text reasoning — no tools, no
+                // file access, no agent loop — so for OAI-compatible providers we hit /chat/completions
+                // DIRECTLY instead of cold-spawning claude --print (~30-40s each). Anthropic
+                // (passthrough/subscription) + Kiro have no OAI endpoint → keep the spawn path.
+                const dcfg = readConfig();
+                const provUrl = dcfg.providerUrl || '';
+                const provKey = dcfg.apiKey || '';
+                const fastOk = provUrl && !/anthropic\.com|codewhisperer/i.test(provUrl);
+                const runChat = (model, persona, task, onText) => (async () => {
+                    const mid = String(model||'').split('::').pop() || undefined;
+                    try {
+                        const resp = await postOai(provUrl, provKey, {
+                            model: mid, max_tokens: 700, temperature: 0.3,
+                            messages: [{ role:'system', content:persona }, { role:'user', content:task }],
+                        });
+                        const msg = ((((resp||{}).choices)||[])[0]||{}).message || {};
+                        const content = msg.content;
+                        if (content) onText(typeof content === 'string' ? content : JSON.stringify(content));
+                    } catch (e) { log('[delib] fast call fail (' + mid + '): ' + (e && e.message) + '\n'); }
+                })();
+                const runOne = fastOk ? runChat : runSpawn;
+                // The default personas tell the model to READ the file (spawn has tool access). The fast
+                // direct-chat path has NO file access → use variants that reason from title + file path.
+                const ARG_P = fastOk ? [
+                    'You are a code auditor defending bug findings you reported.',
+                    'For EACH bug (id :: title :: file), write ONE short concrete sentence arguing WHY it is likely a real bug —',
+                    'name the mechanism and the impact, reasoning from the title and file path. No hedging, no preamble, no markdown.',
+                    'Output exactly one line per bug: 🗣ARG <id> <one sentence>.'
+                ].join('\n') : ARG_PERSONA;
+                const VOTE_P = fastOk ? [
+                    'You are a code auditor on a review council. A colleague flagged bugs you did not report, each with an argument.',
+                    'For EACH (id :: title :: file :: argument), judge the argument on its merits:',
+                    '  for — sound, it IS a real bug · against — wrong / likely fine · undecided — cannot tell.',
+                    'Be decisive and evidence-based, not deferential.',
+                    'Output exactly one line per bug: 🗳VOTE <id> for|against|undecided.'
+                ].join('\n') : VOTE_PERSONA;
+                log('[delib] mode=' + (fastOk ? ('fast/' + provUrl.replace(/^https?:\/\//,'').split('/')[0]) : 'spawn') + ' members=' + dmodels.length + ' findings=' + dfindings.length + '\n');
                 (async () => {
                     // Pass 1 — each finder argues its contested findings (members run in parallel).
                     const byFinder = {};
@@ -8234,7 +8271,7 @@ function openPrintSession() {
                         const grp = byFinder[k], model = dmodels[k] || '';
                         const listTxt = grp.map(f => f.id + ' :: ' + f.title + ' :: ' + (f.file || '?')).join('\n');
                         const task = 'Defend these bug(s) you reported in this project:\n\n' + listTxt;
-                        return runSpawn(model, ARG_PERSONA, task, txt => {
+                        return runOne(model, ARG_P, task, txt => {
                             const re = /🗣ARG\s+(\S+)\s+(.+)/g; let m;
                             while ((m = re.exec(txt))) {
                                 const id = m[1], a = (m[2]||'').trim();
@@ -8249,7 +8286,7 @@ function openPrintSession() {
                         const grp = byVoter[v], model = dmodels[v] || '';
                         const listTxt = grp.map(f => f.id + ' :: ' + f.title + ' :: ' + (f.file || '?') + ' :: ' + (argMap[f.id] || '(no argument given)')).join('\n');
                         const task = 'A fellow council member argues these findings are real bugs. Judge each on the evidence:\n\n' + listTxt;
-                        return runSpawn(model, VOTE_PERSONA, task, txt => {
+                        return runOne(model, VOTE_P, task, txt => {
                             const re = /🗳VOTE\s+(\S+)\s+(for|against|undecided)/gi; let m;
                             while ((m = re.exec(txt))) send({ t:'delib-vote', id:m[1], member:Number(v), verdict:m[2].toLowerCase() });
                         });
