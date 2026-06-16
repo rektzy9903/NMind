@@ -746,7 +746,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd85-orbit-rules+even-spacing+sun-center+single-world-panel';
+var DUNGEON_BUILD = 'd85-orbit-rules+single-world-panel+freeze-on-focus';
 
 // ── boot diagnostics: was referenced (window.__log) but never defined → all
 //    model-load reasons were silently dropped. Surface them to the #loading
@@ -3403,7 +3403,7 @@ let last=performance.now();
 function loop(){
   requestAnimationFrame(loop);
   const t=performance.now(),dt=Math.min((t-last)/1000,.05);last=t;
-  if(flags.orbit&&!council.active)orbiters.forEach(o=>o.pivot.rotation.y+=o.speed*dt); // mothership/contacts stop spinning during council
+  if(flags.orbit&&!council.active&&!focusObj)orbiters.forEach(o=>o.pivot.rotation.y+=o.speed*dt); // freeze orbits during council OR while a world is focused (tap to inspect → hold still; resumes on zoom-out)
   if(flags.drones)dronesArr.forEach(d=>{d.pivot.rotation.y+=d.speed*dt;d.obj.rotation.y+=dt;});
   enemies.forEach(e=>{if(e.ghost&&e.alive){const ph=e.pivot.rotation.y*10;
     // spooky: layered breathing + rare sharp flicker spikes → uneven, can nearly vanish
