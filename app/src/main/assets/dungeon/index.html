@@ -746,7 +746,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd85-orbit-rules+single-world-panel+freeze-on-focus';
+var DUNGEON_BUILD = 'd86-scout-root-fallback-fixes-wrong-planet-orbit';
 
 // ── boot diagnostics: was referenced (window.__log) but never defined → all
 //    model-load reasons were silently dropped. Surface them to the #loading
@@ -1512,7 +1512,7 @@ function spriteGoToRoom(s, room, exp){
   // The new (3D) DM commands the recon ship DIRECTLY the moment the knight is sent — no longer
   // waiting on the invisible 2D token to "arrive" before whispering scoutTo (the old mentoring).
   if(exp && exp.kind!=='hound' && window.IW && window.IW.scoutTo){
-    try{ window.IW.scoutTo(exp.sprites.indexOf(s), room.id); }catch(_){}
+    try{ window.IW.scoutTo(exp.sprites.indexOf(s), room.id, exp.rootRid); }catch(_){}
   }
   return true;
 }
@@ -1525,6 +1525,7 @@ function startExpedition(sid,kind,rootId,members){
   // Immediate fan-out so there's visible motion from t=0 (real tool events refine the
   // target once claude warms up — cold start is ~30–40s of no events otherwise).
   var rid = getRoom(rootId) ? rootId : 'throne';
+  exp.rootRid = rid;   // the assigned world — recon ships fall back to it when a live read can't resolve to a planet
   var fan = rooms.filter(function(r){ return r.parent===rid; });
   if(!fan.length){ var rr=getRoom(rid); if(rr && rid!=='throne') fan=[rr]; }
   if(fan.length) sprites.forEach(function(s,i){ var r=fan[i%fan.length]; s.want=r.id; spriteGoToRoom(s, r, exp); });
@@ -1544,7 +1545,7 @@ function expRetarget(sid,member,p){
   // Model moved to a new file → break the recon ship off to the new world NOW (direct command),
   // instead of waiting for the 2D token to finish its dwell + walk there.
   if(exp.kind!=='hound' && window.IW && window.IW.scoutTo){
-    try{ window.IW.scoutTo(member, room.id); }catch(_){}
+    try{ window.IW.scoutTo(member, room.id, exp.rootRid); }catch(_){}
   }
 }
 function expPark(sid,member){ var exp=expeditions[sid]; if(!exp) return; var s=exp.sprites[member]; if(s) s.parked=true; }
@@ -1599,7 +1600,7 @@ function expTick(now){
                 if(s.rooms.indexOf(s.hereRoom)===-1) s.rooms.push(s.hereRoom);
                 exp.label=s.hereRoom.name;
                 updDcard(sid+':'+(exp.sprites.indexOf(s)), { room:s.hereRoom.name, bump:true });
-                try{ if(window.IW&&window.IW.scoutTo) window.IW.scoutTo(exp.sprites.indexOf(s), s.hereRoom.id); }catch(_){} // pass the room ID — scoutTo resolves subfolders→their planet (3D recon ship flies to + sonars the world this model is auditing)
+                try{ if(window.IW&&window.IW.scoutTo) window.IW.scoutTo(exp.sprites.indexOf(s), s.hereRoom.id, exp.rootRid); }catch(_){} // pass the room ID + root fallback — scoutTo resolves subfolders→their planet (3D recon ship flies to + sonars the world this model is auditing)
               }
             }
           } else { s.x+=dx/d*step; s.y+=dy/d*step; }
@@ -3555,14 +3556,21 @@ window.IW={
     });
     gravTethers=built.length?built:null; flags.gravity=!!gravTethers;
   },
-  // recon ships follow the LIVE audit (idx = expedition member index, worldName = folder being audited now)
-  scoutTo(idx,roomId){ const s=scouts[idx]; if(!s)return;
+  // recon ships follow the LIVE audit (idx = expedition member index, roomId = folder being audited now,
+  // fallbackRid = the expedition's ROOT folder, used when roomId can't be resolved to a planet)
+  scoutTo(idx,roomId,fallbackRid){ const s=scouts[idx]; if(!s)return;
     // Resolve the audited ROOM → the WORLD (planet) it lives under. Subfolders are MOONS, not
     // planets, so a direct name/id match fails for nested rooms (pi=-1) and the ship kept a stale
     // default target → it orbited the wrong world / never moved to where the model was auditing.
     // Walk the room's parent chain until we hit a planet's rid (or the home base, which we skip).
-    let rid=roomId, pi=-1;
-    while(rid){ pi=PT.findIndex(p=>D.planets[p].rid===rid); if(pi>=0)break; const r=getRoom(rid); rid=r&&r.parent; }
+    const resolve=(start)=>{ let rid=start,pi=-1;
+      while(rid){ pi=PT.findIndex(p=>D.planets[p].rid===rid); if(pi>=0)break; const r=getRoom(rid); rid=r&&r.parent; }
+      return pi; };
+    let pi=resolve(roomId);
+    // Unresolved (the model read a repo-root / home folder, which is excluded from PT) → DON'T keep
+    // the random seed planet (the "ship orbits another planet" bug). Park it on the ASSIGNED world
+    // (the expedition root) so it stays where it was dispatched instead of drifting to a stale target.
+    if(pi<0 && fallbackRid!=null) pi=resolve(fallbackRid);
     s.active=true; s.returning=false; if(pi>=0)s.target=pi; },   // re-dispatch cancels any pending fly-home
   // One scout's audit finished (council member done) → fly THAT ship home; others keep working.
   scoutHome(idx){ const s=scouts[idx]; if(s&&s.active) s.returning=true; },
