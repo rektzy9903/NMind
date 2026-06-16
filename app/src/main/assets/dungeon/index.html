@@ -222,6 +222,8 @@
   .dcard .dc-name { color:#F0F0F2; } .dcard .dc-room { color:#9090A0; } .dcard .dc-room b { color:#E8834A; } .dcard .dc-file { color:#7a7a85; }
   .dcard .dc-fill { background:linear-gradient(90deg,#b9852f,#E8834A); }
   .dcard.done .dc-fill { background:linear-gradient(90deg,#3DD68C,#6cc06a); }
+  #scout-status { background:rgba(20,16,12,.7); backdrop-filter:blur(10px); border:1px solid rgba(255,255,255,.16);
+    color:#F0F0F2; box-shadow:none; font-family:-apple-system,Segoe UI,Roboto,sans-serif; font-weight:600; }
   .dlg-box, #name-box { backdrop-filter:blur(14px); }
   .dlg { background:rgba(3,5,10,.72); }
   /* ══ Stage 6: 3D War Council overlays (iwc- ids avoid the dungeon roundtable's rt-* collision) ══ */
@@ -766,7 +768,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd95-per-model-nosefix';
+var DUNGEON_BUILD = 'd96-nosefix-scoutstatus-glass';
 
 // ── boot diagnostics: was referenced (window.__log) but never defined → all
 //    model-load reasons were silently dropped. Surface them to the #loading
