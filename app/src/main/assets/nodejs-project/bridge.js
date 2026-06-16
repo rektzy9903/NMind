@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b118-usage-cache-tokens+prune-comment-fix';
+const BRIDGE_BUILD = 'b119-graph-scan-diag';
 
 const net   = require('net');
 const http  = require('http');
@@ -8042,26 +8042,30 @@ function openPrintSession() {
                 send({ t:'graph-start' });
                 const scanPath = r.cwd || cwd;
                 // Use npx madge inside proot so it runs under the guest Node, same env as Claude.
-                // --no-spinner keeps stdout clean (only JSON). 2>/dev/null drops madge's own warnings.
+                // Keep madge's stderr (don't 2>/dev/null) so npx-fetch/madge failures are diagnosable.
                 const madgeCmd = 'cd ' + JSON.stringify(scanPath) +
-                    ' && npx --yes madge --json --no-spinner . 2>/dev/null';
+                    ' && npx --yes madge --json --no-spinner .';
+                log('[graph-scan] start path=' + scanPath);
                 let graphOut = '', errOut = '';
                 let child;
                 try { child = prootChild(['/bin/bash', '-c', madgeCmd], { workspace: scanPath }); }
-                catch(e) { send({ t:'graph-error', err:'spawn: ' + e.message }); try{socket.end();}catch(_){} return; }
+                catch(e) { log('[graph-scan] spawn-fail ' + e.message); send({ t:'graph-error', err:'spawn: ' + e.message }); try{socket.end();}catch(_){} return; }
                 procs.add(child);
                 child.stdout.on('data', d => { graphOut += d.toString(); });
-                child.stderr.on('data', d => { errOut += d.toString().slice(0, 200); });
-                child.on('close', () => {
+                child.stderr.on('data', d => { errOut += d.toString(); });
+                child.on('close', (code) => {
                     procs.delete(child);
                     try {
                         // madge emits the JSON dep map to stdout, strip any leading junk lines
                         const jsonStart = graphOut.indexOf('{');
                         const clean = jsonStart >= 0 ? graphOut.slice(jsonStart) : graphOut;
                         const graph = JSON.parse(clean.trim());
+                        const n = Object.keys(graph).length;
+                        log('[graph-scan] ok exit=' + code + ' files=' + n + (errOut ? ' (stderr: ' + errOut.trim().slice(-180) + ')' : ''));
                         send({ t:'graph-data', graph:graph });
                     } catch(e) {
-                        send({ t:'graph-error', err:'parse: ' + e.message + ' | raw: ' + graphOut.slice(0,120) });
+                        log('[graph-scan] FAIL exit=' + code + ' parse=' + e.message + ' stderr=' + errOut.trim().slice(-300) + ' stdout=' + graphOut.slice(0,200));
+                        send({ t:'graph-error', err:(errOut.trim().slice(-160) || ('parse: ' + e.message + ' | raw: ' + graphOut.slice(0,120))) });
                     }
                     try { socket.end(); } catch(_) {}
                 });

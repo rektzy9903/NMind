@@ -746,7 +746,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd88-replay-lens-reveal-on-recon-close';
+var DUNGEON_BUILD = 'd89-scan-fill-anchor+scan-diag';
 
 // ── boot diagnostics: was referenced (window.__log) but never defined → all
 //    model-load reasons were silently dropped. Surface them to the #loading
@@ -1121,7 +1121,7 @@ function buildGraphContext(roomPath){
 function scanProjectGraph(){
   if(!activePath){ toast('Open a project first'); return; }
   if(graphState.scanning){ toast('Graph scan already running…'); return; }
-  graphState.scanning=true; graphState.error=null;
+  graphState.scanning=true; graphState.error=null; graphState.scanStartTs=Date.now();
   updateGraphChip();
   toast(graphState.raw ? '◌ Re-scanning dependencies…' : '◌ Scanning dependencies… (first run fetches madge, ~1–2 min)');
   var sid=jDispatch(JSON.stringify({ op:'graph-scan', cwd:activePath }));
@@ -1169,8 +1169,14 @@ function updateGraphChip(){
   var fill=chip.querySelector('.gc-fill');
   if(graphState.scanning){
     lbl.textContent='◌ Scanning dependencies…';
-    // restart the left→right fill animation from 0 each scan
-    if(fill){ fill.style.animation='none'; void fill.offsetWidth; fill.style.animation=''; }
+    // Anchor the fill to scanStartTs via a negative animation-delay so it reflects the REAL
+    // elapsed scan time. Without this, hiding/showing the dialog (display toggle) replays the
+    // CSS keyframe from 0 every reopen → looks like the scan restarted (it never did).
+    if(fill){
+      var elapsed=(Date.now()-(graphState.scanStartTs||Date.now()))/1000;
+      fill.style.animation='none'; void fill.offsetWidth;
+      fill.style.animation=''; fill.style.animationDelay='-'+elapsed.toFixed(1)+'s';
+    }
     chip.classList.add('scanning');
   } else if(graphState.error){
     lbl.textContent='⬡ Scan failed — tap to retry'; chip.classList.add('error');
@@ -1966,6 +1972,7 @@ function openScout(roomId){
   fetchScoutModels();   // refresh live models each open (picks up newly-added provider keys)
   renderModelChips();
   $('scout-dialog').classList.add('show');
+  updateGraphChip();   // re-anchor the scan fill to real elapsed time so reopening doesn't look like a restart
 }
 document.querySelectorAll('#scout-scope .seg-btn').forEach(function(b){
   b.addEventListener('click', function(){
