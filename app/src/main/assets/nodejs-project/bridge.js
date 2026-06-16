@@ -1798,6 +1798,15 @@ const TOOL_INTENT_KW = {
     SlashCommand: ['slash command', '/command', 'run the command'],
     BashOutput:   ['background output', 'job output', 'still running', 'check the output'],
     KillShell:    ['kill', 'stop the process', 'terminate', 'cancel the job'],
+    // Un-pruned 2026-06-16 (b123) — deferred by default (not in CORE), surfaced
+    // proactively only on clear intent so weak models can reach them without the
+    // tool_search dance. AskUserQuestion is intentionally NOT here: it's model-
+    // initiated (no user-text intent) and broad words like "ask" would over-match —
+    // strong models reach it via tool_search.
+    NotebookEdit: ['notebook', 'jupyter', '.ipynb', 'notebook cell'],
+    EnterWorktree:['worktree', 'git worktree', 'new worktree', 'separate worktree'],
+    ExitWorktree: ['exit worktree', 'leave worktree', 'remove worktree'],
+    Skill:        ['skill', 'graphify', 'run a skill', 'use the skill'],
 };
 
 // claude-code/the harness staples <system-reminder> blocks onto user turns (the
