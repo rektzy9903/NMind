@@ -746,7 +746,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd91-scanweb-during-scan';
+var DUNGEON_BUILD = 'd92-council-round1-first';
 
 // ── boot diagnostics: was referenced (window.__log) but never defined → all
 //    model-load reasons were silently dropped. Surface them to the #loading
@@ -2242,33 +2242,34 @@ function SEV_RANK(s){ return s==='critical'?3:s==='major'?2:1; }
 // Council members done → consolidate, then run the 3-round verdict at the round table:
 // Round 1 majority auto-confirms; Round 2 deliberates the sub-majority (finder argues →
 // council re-votes, op:'deliberate'); Round 3 leaves true stalemates to the King.
-function beginTribunal(job){
+// Build the verdict list from a job's findings. support = foundBy ∪ agreedBy (agreedBy fills in
+// after Round 2). _argued is the ROUND-1 contested flag (set once, preserved through deliberation).
+function buildTribList(job){
   var members=job.members||1;
-  // Round 1 tally: tag every sub-majority finding as "to be argued" (Round 2).
-  var anyArgued=false;
-  job.findings.forEach(function(f){
-    var s=Object.keys(f.foundBy||{}).length; f._origSupport=s;
-    f._argued = members>1 && !(s>members/2) && !(s>=members);   // not majority, not unanimous
-    if(f._argued) anyArgued=true;
-  });
-  // Round 2 — deliberation (async). Only when there's something contested, the table is
-  // open, we have models to spawn, and we haven't already deliberated this job.
-  if(anyArgued && rtState && rtState.open && (job.models&&job.models.length) && !job._delibDone){
-    var contested=job.findings.filter(function(f){ return f._argued; });
-    VIEW.deliberating(contested.length);
-    runDeliberation(job, contested);   // → on delib-done sets job._delibDone, re-calls beginTribunal
-    return;
-  }
-  var list=job.findings.map(function(f,i){
+  return job.findings.map(function(f,i){
     return { id:'f'+i, file:f.file, sev:f.sev, title:f.title,
              foundBy:f.foundBy, agreedBy:f.agreedBy||{},
              support:unionCount(f.foundBy, f.agreedBy), total:members, ruling:null,
              _roomId:f._roomId,                          // carry the source room through to the writeback
              _argued:f._argued, _origSupport:f._origSupport, _argument:f._argument };
   });
+}
+function beginTribunal(job){
+  var members=job.members||1;
+  // Round 1 tally (ONCE): tag every sub-majority finding as "to be argued" (Round 2).
+  if(!job._tallied){
+    job.findings.forEach(function(f){
+      var s=Object.keys(f.foundBy||{}).length; f._origSupport=s;
+      f._argued = members>1 && !(s>members/2) && !(s>=members);   // not majority, not unanimous
+    });
+    job._tallied=true;
+  }
+  var list=buildTribList(job);
   var trib={ cwd:job.cwd, roomIds:job.roomIds, models:job.models||[], list:list };
   if(!list.length){ finalizeTribunal(trib); return; }
-  if(rtState && rtState.open) rtRunVotes(trib);   // interactive — you are the judge
+  // Interactive: Round 1 presentation runs FIRST; deliberation (Round 2) is triggered by
+  // rtRunVotes only AFTER R1, so the table never opens straight into the slow Round-2 spawns.
+  if(rtState && rtState.open) rtRunVotes(trib, job);
   else finalizeTribunal(trib);                    // no overlay → keep everything as found
 }
 
@@ -2288,7 +2289,7 @@ function runDeliberation(job, contested){
     if(dispatchJobs[sid] && dispatchJobs[sid].deliberate){
       delete dispatchJobs[sid];
       toast('⚖ Deliberation timed out — the King rules on what we have');
-      job._delibDone=true; beginTribunal(job);
+      job._delibDone=true; rtResumeAfterDelib(job);
     }
   }, 220000);
   dispatchJobs[sid]={ deliberate:true, dJob:job, byId:byId, wd:wd };
@@ -2420,6 +2421,7 @@ var View3D = {
   confirmPresent(f,pres,total){ this._round('Round 1 · Findings'); this._speak(pres,'📜 reports',f); this._tally(0,total); this._setVote(pres,'for','📜'); },
   confirmAgree(f,pres,sup,total){ var self=this; Object.keys(f.foundBy).map(Number).forEach(function(mi){ if(mi===pres) return; self._setVote(mi,'for','✓'); }); this._tally(sup,total); },
   confirmResult(f){ var ty=tribType(f); this._text(tierIcon(ty)+' '+tierName(ty)+' · confirmed'); this._holo(ty); },
+  contestResult(f){ this._text('⚖ '+f.support+' / '+f.total+' · contested → Round 2'); },
   arguePresent(f,pres,total){ this._round('Round 2 · Deliberation'); this._speak(pres,'🗣 argues',f,f._argument); this._tally(f._origSupport||0,total); this._setVote(pres,'for','🗣'); },
   argueRevote(f,pres,total){ var self=this;
     Object.keys(f.foundBy).map(Number).forEach(function(mi){ if(mi===pres) return; self._setVote(mi,'for','✓'); });
@@ -2450,35 +2452,64 @@ var View3D = {
 };
 var VIEW = View3D;   // the only verdict skin (2D parchment overlay retired)
 
-function rtRunVotes(trib){
+function rtPresenterIdx(f){ var ks=Object.keys(f.foundBy||{}).map(Number).sort(function(a,b){ return a-b; }); return ks.length?ks[0]:0; }
+
+// Orchestrator: Round 1 presentation → (if anything contested) Round 2 deliberation → Round 2/3
+// resolution. The deliberation is async; delib-done / the watchdog re-enter via rtResumeAfterDelib.
+function rtRunVotes(trib, job){
   if(!rtState || !rtState.open) return;
-  function presenterIdx(f){ var ks=Object.keys(f.foundBy||{}).map(Number).sort(function(a,b){ return a-b; }); return ks.length?ks[0]:0; }
+  rtPhase1(trib, function(){
+    var contested = (job && job.findings) ? job.findings.filter(function(f){ return f._argued; }) : [];
+    if(contested.length && job && !job._delibDone && job.models && job.models.length && rtState && rtState.open){
+      VIEW.deliberating(contested.length);
+      runDeliberation(job, contested);   // delib-done / watchdog → rtResumeAfterDelib(job)
+      return;
+    }
+    rtPhase23(trib);   // nothing to argue → straight to King's verdict / finish
+  });
+}
 
-  var confirmed = trib.list.filter(function(f){ return !f._argued && tribType(f)!=='phantom'; });
-  var argued    = trib.list.filter(function(f){ return f._argued; });
-  var phantoms  = [];
-  confirmed.sort(function(a,b){ return presenterIdx(a)-presenterIdx(b); });
+// Round 2 finished (or timed out) → rebuild the list with the fresh agreedBy support and run R2/R3.
+function rtResumeAfterDelib(job){
+  var trib={ cwd:job.cwd, roomIds:job.roomIds, models:job.models||[], list:buildTribList(job) };
+  if(rtState && rtState.open) rtPhase23(trib);
+  else finalizeTribunal(trib);
+}
 
-  // Phase A — each confirmed finding is presented once by its earliest finder.
-  var ci=0;
-  function stepConfirmed(){
+// ── Round 1: every finding is presented in turn by its earliest finder, with the live tally.
+//    Majority/unanimous → confirmed here; sub-majority (2/4, 1/4) → flagged "contested → Round 2".
+function rtPhase1(trib, onDone){
+  var all = trib.list.slice().sort(function(a,b){ return rtPresenterIdx(a)-rtPresenterIdx(b); });
+  VIEW.confirmPresent && VIEW._round && VIEW._round('Round 1 · Findings');
+  var i=0;
+  function step(){
     if(!rtState || !rtState.open) return;
-    if(ci>=confirmed.length){ VIEW.clearMarks(); startArgued(); return; }
-    var f=confirmed[ci]; f.ruling='keep';
-    var sup=f.support, total=f.total, pres=presenterIdx(f);
+    if(i>=all.length){ VIEW.clearMarks(); onDone(); return; }
+    var f=all[i], pres=rtPresenterIdx(f), total=f.total, sup=f.support;
     VIEW.confirmPresent(f,pres,total);
     setTimeout(function(){ if(!rtState||!rtState.open) return; VIEW.confirmAgree(f,pres,sup,total); }, 480);
-    setTimeout(function(){ if(!rtState||!rtState.open) return; VIEW.confirmResult(f); ci++; setTimeout(stepConfirmed, 640); }, 1180);
+    setTimeout(function(){ if(!rtState||!rtState.open) return;
+      if(!f._argued){ f.ruling='keep'; VIEW.confirmResult(f); }   // reached majority → confirmed in R1
+      else { VIEW.contestResult(f); }                              // sub-majority → goes to Round 2
+      i++; setTimeout(step, 640);
+    }, 1180);
   }
+  if(all.length){ setTimeout(step, 1200); }   // let the council ships seat (convene fly-in) first
+  else onDone();
+}
 
-  // Phase A.5 — Round 2 deliberation result (resolved upstream in beginTribunal/runDeliberation;
-  // here we only present the outcome — the finder's argument + the shifted re-vote).
+// ── Round 2 result (finder's argument + shifted re-vote) then Round 3 (King rules stalemates).
+function rtPhase23(trib){
+  if(!rtState || !rtState.open) return;
+  var argued   = trib.list.filter(function(f){ return f._argued; });
+  var phantoms = [];
+
   var ai=0;
   function startArgued(){ if(!argued.length){ VIEW.clearMarks(); startPhantoms(); return; } ai=0; setTimeout(stepArgued, 420); }
   function stepArgued(){
     if(!rtState || !rtState.open) return;
     if(ai>=argued.length){ VIEW.clearMarks(); startPhantoms(); return; }
-    var f=argued[ai], pres=presenterIdx(f), total=f.total;
+    var f=argued[ai], pres=rtPresenterIdx(f), total=f.total;
     VIEW.arguePresent(f,pres,total);
     setTimeout(function(){ if(!rtState||!rtState.open) return; VIEW.argueRevote(f,pres,total); }, 760);
     setTimeout(function(){ if(!rtState||!rtState.open) return;
@@ -2489,13 +2520,12 @@ function rtRunVotes(trib){
     }, 1640);
   }
 
-  // Phase B — YOU judge each remaining stalemate; the King acts.
   var pi=0;
   function startPhantoms(){ if(!phantoms.length){ rtFinish(); } else judgeNext(); }
   function judgeNext(){
     if(!rtState || !rtState.open) return;
     if(pi>=phantoms.length){ VIEW.clearPrompt(); rtFinish(); return; }
-    var f=phantoms[pi], pres=presenterIdx(f);
+    var f=phantoms[pi], pres=rtPresenterIdx(f);
     VIEW.askJudge(f, pres, function(){ rule(f,'keep'); }, function(){ rule(f,'drop'); });
   }
   function rule(f, kind){
@@ -2510,12 +2540,10 @@ function rtRunVotes(trib){
     finalizeTribunal(trib);
     var bosses=trib.list.filter(function(f){ return tribType(f)==='boss'; }).length;
     var ph=trib.list.filter(function(f){ return tribType(f)==='phantom'; }).length;
-    var summary=trib.list.length+' foe(s) · '+bosses+' 👑 Overlord · '+ph+' 👻 Wraith';
-    VIEW.seal(summary);
+    VIEW.seal(trib.list.length+' foe(s) · '+bosses+' 👑 Overlord · '+ph+' 👻 Wraith');
   }
 
-  if(confirmed.length){ setTimeout(stepConfirmed, 600); }
-  else startArgued();
+  startArgued();
 }
 
 // ── Divide mode: each member audits one room → plain monsters, no voting ──
@@ -2591,7 +2619,7 @@ window.onDungeonEvent=function(sid, line){
       if(job.wd) clearTimeout(job.wd);
       var dj=job.dJob; delete dispatchJobs[sid];
       if(ev.error) toast('⚖ Deliberation cut short — ruling on what we have');
-      if(dj){ dj._delibDone=true; beginTribunal(dj); }   // re-enter: now builds the trib with agreedBy + animates
+      if(dj){ dj._delibDone=true; rtResumeAfterDelib(dj); }   // resume at Round 2/3 with the fresh agreedBy tally
       return;
     }
     return;
