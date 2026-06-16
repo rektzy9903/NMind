@@ -65,6 +65,13 @@ object ImageGen {
         description = "nano-banana · uses Gemini key",
     )
 
+    private val HF_IMAGE_MODEL = AiModel(
+        name = "FLUX.1-schnell",
+        modelId = "black-forest-labs/FLUX.1-schnell",
+        caps = setOf(Cap.IMAGE, Cap.FREE),
+        description = "FLUX schnell · uses HF token",
+    )
+
     /**
      * The image-gen speakers available right now. Pollinations is always present
      * (no key needed); Gemini-image only when a Gemini API key is configured.
@@ -75,6 +82,10 @@ object ImageGen {
         val geminiKey = prefs.getApiKeyForProvider(Providers.GEMINI.id)
         if (geminiKey.isNotEmpty()) {
             out.add(Speaker(Providers.GEMINI, GEMINI_IMAGE_MODEL, apiKey = geminiKey, baseUrl = Providers.GEMINI.baseUrl))
+        }
+        val hfKey = prefs.getApiKeyForProvider(Providers.HUGGINGFACE.id)
+        if (hfKey.isNotEmpty()) {
+            out.add(Speaker(Providers.HUGGINGFACE, HF_IMAGE_MODEL, apiKey = hfKey, baseUrl = Providers.HUGGINGFACE.baseUrl))
         }
         return out
     }
@@ -100,6 +111,7 @@ object ImageGen {
         when (speaker.provider.id) {
             POLLINATIONS.id -> generatePollinations(context, prompt)
             Providers.GEMINI.id -> generateGemini(context, speaker.apiKey, speaker.model.modelId, prompt)
+            Providers.HUGGINGFACE.id -> generateHuggingFace(context, speaker.apiKey, speaker.model.modelId, prompt)
             else -> Result.Failure("Unknown image route: ${speaker.provider.id}")
         }
     } catch (e: Exception) {
@@ -146,6 +158,38 @@ object ImageGen {
             val ext = imageExt(bytes) ?: "png"
             return saveImage(context, bytes, ext)
         }
+    }
+
+    /** HuggingFace Inference (text-to-image). Reuses the user's existing `hf_`
+     *  token. Returns binary image bytes on success; on a cold model HF replies
+     *  503 with an "is currently loading" JSON — we retry once after a short wait. */
+    private fun generateHuggingFace(context: Context, apiKey: String, model: String, prompt: String): Result {
+        if (apiKey.isEmpty()) return Result.Failure("HuggingFace token missing")
+        val url = "https://router.huggingface.co/hf-inference/models/$model"
+        val body = JSONObject().put("inputs", prompt).toString().toRequestBody(JSON)
+        repeat(2) { attempt ->
+            val req = Request.Builder()
+                .url(url)
+                .post(body)
+                .header("Authorization", "Bearer $apiKey")
+                .header("Accept", "image/png")
+                .build()
+            http.newCall(req).execute().use { res ->
+                if (res.code == 503 && attempt == 0) {
+                    // Model cold-loading — wait briefly and retry once.
+                    try { Thread.sleep(8000) } catch (_: InterruptedException) {}
+                    return@use
+                }
+                if (!res.isSuccessful) {
+                    return Result.Failure("HuggingFace HTTP ${res.code}: ${res.body?.string()?.take(200) ?: ""}")
+                }
+                val bytes = res.body?.bytes() ?: return Result.Failure("HuggingFace returned no data")
+                val ext = imageExt(bytes)
+                    ?: return Result.Failure("HuggingFace did not return an image: ${String(bytes).take(200)}")
+                return saveImage(context, bytes, ext)
+            }
+        }
+        return Result.Failure("HuggingFace model still loading — try again in a moment")
     }
 
     /** Pull the first inlineData.data base64 from a generateContent response. */
