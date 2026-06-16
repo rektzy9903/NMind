@@ -149,11 +149,11 @@ private fun modelIconUrl(modelId: String): String {
     }
 }
 
-private fun toDisplay(model: AiModel): ModelDisplay {
-    val id = model.modelId.lowercase()
-    val caps = model.caps.ifEmpty { Providers.deriveCaps(model.modelId) }
-    val iconUrl = modelIconUrl(model.modelId)
-    val color = when {
+/** Brand accent color for a model id (shared by the picker tiles, the usage donut
+ *  and the usage bars so a model reads the same color everywhere). */
+internal fun brandColorForModel(modelId: String): Color {
+    val id = modelId.lowercase()
+    return when {
         "gemini"  in id -> NexusGreen
         "claude"  in id -> NexusAccent
         "gpt"     in id || "openai"   in id -> NexusAccent
@@ -166,6 +166,13 @@ private fun toDisplay(model: AiModel): ModelDisplay {
         "minimax" in id -> Color(0xFFA78BFA)
         else -> NexusBlue
     }
+}
+
+private fun toDisplay(model: AiModel): ModelDisplay {
+    val id = model.modelId.lowercase()
+    val caps = model.caps.ifEmpty { Providers.deriveCaps(model.modelId) }
+    val iconUrl = modelIconUrl(model.modelId)
+    val color = brandColorForModel(model.modelId)
     val speed = when {
         Cap.FAST in caps && "1.2b" in id -> 97
         Cap.FAST in caps && ("8b" in id || "nano" in id || "mini" in id) -> 90

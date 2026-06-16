@@ -73,11 +73,6 @@ private val TxtFaint   = Color(0x40FFFFFF)      // white .25
 private val InColor = Sky
 private val OutColor = Amber
 
-// Series palette for the donut (cyan / amber / rose / emerald + tints, no purple).
-private val SeriesPalette = listOf(
-    Sky, Amber, Rose, Emerald,
-    Color(0xFF38BDF8), Color(0xFFFFB37A), Color(0xFFFF85A0), Color(0xFF6EE7B7),
-)
 
 private fun fmtTok(n: Long): String = when {
     n >= 1_000_000 -> "%.2fM".format(n / 1_000_000.0)
@@ -608,7 +603,7 @@ private fun LegendDot(c: Color) {
 private fun ChartGrid(rep: UsageReport) {
     val panels = buildList<@Composable () -> Unit> {
         if (rep.byModel.isNotEmpty()) add { DonutCard(rep) }                       // top-left  : donut (per-model detail)
-        if (rep.byProvider.isNotEmpty()) add { StackedProviderCard(rep.byProvider) } // top-right : bars (per-provider)
+        if (rep.byProvider.isNotEmpty()) add { StackedProviderCard(rep) }           // top-right : bars (per-provider, per-metric)
         if (rep.byDay.size > 1) add { TimeGraphCard(rep) }                   // bot-left  : time-series
         add { InOutRateCard(rep) }                                           // bot-right : in/out rate
     }
@@ -647,10 +642,10 @@ private fun DonutCard(rep: UsageReport) {
                     val topLeft = Offset(inset, inset)
                     val arcSize = Size(size.width - inset * 2f, size.height - inset * 2f)
                     var start = -90f
-                    rep.byModel.forEachIndexed { i, e ->
+                    rep.byModel.forEach { e ->
                         val sweep = 360f * (e.total.toFloat() / total)
                         drawArc(
-                            color = SeriesPalette[i % SeriesPalette.size],
+                            color = brandColorForModel(e.model),
                             startAngle = start, sweepAngle = sweep - 1.2f, useCenter = false,
                             topLeft = topLeft, size = arcSize,
                             style = Stroke(width = stroke, cap = StrokeCap.Butt)
@@ -666,9 +661,9 @@ private fun DonutCard(rep: UsageReport) {
             }
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                rep.byModel.take(6).forEachIndexed { i, e ->
+                rep.byModel.take(6).forEach { e ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        LegendDot(SeriesPalette[i % SeriesPalette.size])
+                        LegendDot(brandColorForModel(e.model))
                         Spacer(Modifier.width(6.dp))
                         Text(shortModel(e.model), fontSize = 11.sp, color = TxtPrimary,
                             fontFamily = SpaceMonoFamily, modifier = Modifier.weight(1f))
@@ -681,53 +676,101 @@ private fun DonutCard(rep: UsageReport) {
 }
 
 /**
- * Bars grouped BY PROVIDER (one bar = one provider's input+output total, the
- * provider's models summed). The provider name is the readable label — a cryptic
- * model id like "owl-alpha" reads as "openrouter" here, and the per-model split
- * lives in the donut + the expandable "By provider" list below. Each bar still
- * stacks input (cyan) over output (amber).
+ * Bars grouped BY PROVIDER. Each provider gets up to 4 horizontal bars — input,
+ * output, cache-read, cache-write (the two cache bars appear only when the
+ * provider reports them, e.g. Anthropic). Every bar is a stacked composite of the
+ * provider's models, each segment colored by that model's BRAND color (same
+ * mapping as the donut + picker tiles), so within one provider you can read which
+ * model drove that metric. All bars share one global scale so lengths compare
+ * across providers and metrics. The model→color key is the legend at the bottom.
  */
 @Composable
-private fun StackedProviderCard(byProvider: List<UsageEntry>) {
+private fun StackedProviderCard(rep: UsageReport) {
     UsageCard {
-        CardTitle("Input / output by provider")
-        val rows = byProvider.take(8)
-        val maxTotal = (rows.maxOfOrNull { it.total } ?: 1L).coerceAtLeast(1L)
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(150.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalAlignment = Alignment.Bottom
-        ) {
-            rows.forEach { e ->
-                Column(
-                    modifier = Modifier.weight(1f),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Bottom
-                ) {
-                    val barMaxH = 110f
-                    val totH = barMaxH * (e.total.toFloat() / maxTotal)
-                    val outH = totH * (e.outTok.toFloat() / e.total.coerceAtLeast(1L))
-                    val inH = totH - outH
-                    Text(fmtTok(e.total), fontSize = 8.sp, color = TxtMuted, fontFamily = SpaceMonoFamily)
-                    Spacer(Modifier.height(2.dp))
-                    Column(
-                        modifier = Modifier
-                            .width(20.dp)
-                            .clip(RoundedCornerShape(topStart = 3.dp, topEnd = 3.dp))
-                    ) {
-                        Box(Modifier.width(20.dp).height(outH.dp).background(OutColor))
-                        Box(Modifier.width(20.dp).height(inH.dp).background(InColor))
+        CardTitle("Input / output / cache by provider")
+        val provs = rep.byProvider.take(6)
+        val modelsByProv = rep.byModel.groupBy { it.provider }
+        // One global peak across every metric so bar lengths are comparable.
+        val peak = maxOf(
+            rep.byProvider.maxOfOrNull { it.inTok } ?: 0L,
+            rep.byProvider.maxOfOrNull { it.outTok } ?: 0L,
+            rep.byProvider.maxOfOrNull { it.cacheRead } ?: 0L,
+            rep.byProvider.maxOfOrNull { it.cacheWrite } ?: 0L,
+            1L
+        )
+        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            provs.forEach { p ->
+                val models = (modelsByProv[p.provider] ?: emptyList()).sortedByDescending { it.total }
+                Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(p.provider, fontSize = 12.sp, color = TxtPrimary, fontFamily = SpaceMonoFamily,
+                            fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                        Text(fmtTok(p.total), fontSize = 11.sp, color = TxtMuted, fontFamily = SpaceMonoFamily)
                     }
-                    Spacer(Modifier.height(4.dp))
-                    Text(e.provider.take(9), fontSize = 7.sp, color = TxtMuted,
-                        fontFamily = SpaceMonoFamily, maxLines = 1)
+                    ProvMetricBar("in", p.inTok, peak, models) { it.inTok }
+                    ProvMetricBar("out", p.outTok, peak, models) { it.outTok }
+                    if (p.cacheRead > 0)  ProvMetricBar("cache rd", p.cacheRead, peak, models) { it.cacheRead }
+                    if (p.cacheWrite > 0) ProvMetricBar("cache wr", p.cacheWrite, peak, models) { it.cacheWrite }
                 }
             }
         }
-        Spacer(Modifier.height(8.dp))
-        InOutLegend()
+        Spacer(Modifier.height(12.dp))
+        ModelLegendScroll(rep.byModel.sortedByDescending { it.total }.distinctBy { it.model }.take(8))
+    }
+}
+
+/** One labeled horizontal bar — width = value/peak, internally split by model
+ *  (segment width ∝ that model's contribution, colored by its brand color). */
+@Composable
+private fun ProvMetricBar(
+    label: String, value: Long, peak: Long,
+    models: List<UsageEntry>, metric: (UsageEntry) -> Long,
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(label, fontSize = 8.sp, color = TxtFaint, fontFamily = SpaceMonoFamily,
+            modifier = Modifier.width(48.dp))
+        Box(
+            Modifier.weight(1f).height(11.dp).clip(RoundedCornerShape(5.dp)).background(GlassFill2C)
+        ) {
+            if (value > 0) {
+                Row(
+                    Modifier
+                        .fillMaxWidth((value.toFloat() / peak).coerceIn(0f, 1f))
+                        .fillMaxHeight()
+                        .clip(RoundedCornerShape(5.dp))
+                ) {
+                    models.forEach { m ->
+                        val mv = metric(m)
+                        if (mv > 0) Box(
+                            Modifier.weight(mv.toFloat()).fillMaxHeight()
+                                .background(brandColorForModel(m.model))
+                        )
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.width(6.dp))
+        Text(fmtTok(value), fontSize = 8.sp, color = TxtMuted, fontFamily = SpaceMonoFamily,
+            modifier = Modifier.width(38.dp))
+    }
+}
+
+/** Horizontal scrolling model→brand-color key shared by the provider bars. */
+@Composable
+private fun ModelLegendScroll(models: List<UsageEntry>) {
+    Row(
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        models.forEach { m ->
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                LegendDot(brandColorForModel(m.model))
+                Spacer(Modifier.width(4.dp))
+                Text(shortModel(m.model), fontSize = 9.sp, color = TxtMuted,
+                    fontFamily = SpaceMonoFamily, maxLines = 1)
+            }
+        }
     }
 }
 
@@ -829,16 +872,6 @@ private fun StatPill(label: String, value: String, accent: Color, modifier: Modi
     }
 }
 
-@Composable
-private fun InOutLegend() {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        LegendDot(InColor); Spacer(Modifier.width(4.dp))
-        Text("input", fontSize = 10.sp, color = TxtMuted, fontFamily = SpaceMonoFamily)
-        Spacer(Modifier.width(14.dp))
-        LegendDot(OutColor); Spacer(Modifier.width(4.dp))
-        Text("output", fontSize = 10.sp, color = TxtMuted, fontFamily = SpaceMonoFamily)
-    }
-}
 
 @Composable
 private fun ProviderListCard(rep: UsageReport) {
