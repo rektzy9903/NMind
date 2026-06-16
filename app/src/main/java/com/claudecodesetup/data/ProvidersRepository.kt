@@ -105,6 +105,17 @@ object ProvidersRepository {
             // ":free" suffix to auto-detect, so tag it FREE explicitly or the
             // picker buckets it under PAID (inv 34).
             if (id == "kiro") caps = caps + Cap.FREE + Cap.TOOLS
+            // Qwen/Alibaba: the Singapore (dashscope-intl) endpoint grants a new-user
+            // free token quota on proprietary chat/coder/vision/reasoning models, but
+            // their ids carry no ":free" suffix → tag the free-quota ones explicitly
+            // or the picker buckets them under PAID. (Mirrors fetchModels' freeIf.)
+            if (id == "qwen" && isQwenFreeQuota(mid)) caps = caps + Cap.FREE
+            // Entirely-free tiers whose ids carry no ":free" suffix → tag FREE or the
+            // picker buckets them under PAID.
+            if (id in setOf("github", "sambanova", "cohere", "huggingface", "chutes", "scaleway"))
+                caps = caps + Cap.FREE
+            // Z.ai: only the GLM *Flash* models are free; larger GLM models are paid.
+            if (id == "zai" && "flash" in mid.lowercase()) caps = caps + Cap.FREE
             AiModel(m.getString("name"), mid, caps)
         }
         return Provider(
@@ -153,6 +164,7 @@ object ProvidersRepository {
         "groq"          -> com.claudecodesetup.R.drawable.ic_brand_groq
         "kimi"          -> com.claudecodesetup.R.drawable.ic_brand_kimi
         "cerebras"      -> com.claudecodesetup.R.drawable.ic_brand_cerebras
+        "huggingface"   -> com.claudecodesetup.R.drawable.ic_brand_huggingface
         else            -> 0   // providers without a bundled CC0 mark
     }
 
@@ -206,9 +218,16 @@ object ProvidersRepository {
         "gemini"      -> fetchGeminiModels(apiKey)
         "groq"        -> fetchOpenAiStyleModels("https://api.groq.com/openai/v1/models", apiKey, provider, isAlwaysFree = true)
         "cerebras"    -> fetchOpenAiStyleModels("https://api.cerebras.ai/v1/models", apiKey, provider, isAlwaysFree = true)
+        "sambanova"   -> fetchOpenAiStyleModels("https://api.sambanova.ai/v1/models", apiKey, provider, isAlwaysFree = true)
+        "github"      -> fetchGithubModels(apiKey)
+        "zai"         -> fetchOpenAiStyleModels("https://api.z.ai/api/paas/v4/models", apiKey, provider, freeIf = { "flash" in it.lowercase() })
+        "cohere"      -> fetchOpenAiStyleModels("https://api.cohere.ai/compatibility/v1/models", apiKey, provider, isAlwaysFree = true)
+        "huggingface" -> fetchOpenAiStyleModels("https://router.huggingface.co/v1/models", apiKey, provider, isAlwaysFree = true)
+        "chutes"      -> fetchOpenAiStyleModels("https://llm.chutes.ai/v1/models", apiKey, provider, isAlwaysFree = true)
+        "scaleway"    -> fetchOpenAiStyleModels("https://api.scaleway.ai/v1/models", apiKey, provider, isAlwaysFree = true)
         "deepseek"    -> fetchOpenAiStyleModels("https://api.deepseek.com/models", apiKey, provider)
         "kimi"        -> fetchOpenAiStyleModels("https://api.moonshot.ai/v1/models", apiKey, provider)
-        "qwen"        -> fetchOpenAiStyleModels("https://dashscope-intl.aliyuncs.com/compatible-mode/v1/models", apiKey, provider)
+        "qwen"        -> fetchOpenAiStyleModels("https://dashscope-intl.aliyuncs.com/compatible-mode/v1/models", apiKey, provider, freeIf = ::isQwenFreeQuota)
         "opencode"    -> fetchOpenCodeFreeModels(apiKey)
         "mistral"     -> fetchOpenAiStyleModels("https://api.mistral.ai/v1/models", apiKey, provider)
         "anthropic"     -> fetchAnthropicModels(apiKey)
@@ -306,8 +325,20 @@ object ProvidersRepository {
             }.sortedByDescending { it.modelId }
         }
 
-    /** Generic OpenAI-compatible /v1/models fetch (Groq, DeepSeek, Kimi, Meta Llama). */
-    private suspend fun fetchOpenAiStyleModels(url: String, apiKey: String, provider: Provider, isAlwaysFree: Boolean = false): List<AiModel> =
+    /**
+     * Generic OpenAI-compatible /v1/models fetch (Groq, DeepSeek, Kimi, Meta Llama).
+     * - `isAlwaysFree` marks every returned model FREE (Groq/Cerebras free tiers).
+     * - `freeIf` marks only the models matching the predicate FREE — used when a
+     *   provider's free quota covers a *subset* of its catalog (e.g. Qwen/Alibaba,
+     *   where the new-user quota covers chat models but not embeddings/TTS/image).
+     */
+    private suspend fun fetchOpenAiStyleModels(
+        url: String,
+        apiKey: String,
+        provider: Provider,
+        isAlwaysFree: Boolean = false,
+        freeIf: ((String) -> Boolean)? = null
+    ): List<AiModel> =
         withContext(Dispatchers.IO) {
             val req = Request.Builder()
                 .url(url)
@@ -327,9 +358,71 @@ object ProvidersRepository {
                         .joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
                 }
                 val caps = Providers.deriveCaps(id).toMutableSet()
-                if (isAlwaysFree) caps += Cap.FREE
+                if (isAlwaysFree || freeIf?.invoke(id) == true) caps += Cap.FREE
                 AiModel(rawName, id, caps)
             }.sortedBy { it.modelId }
+        }
+
+    /**
+     * True for Qwen/Alibaba model ids that carry the new-user free token quota on the
+     * Singapore (dashscope-intl) endpoint — i.e. the proprietary chat / coder / vision /
+     * reasoning Qwen text models. Excludes non-chat models (embeddings, TTS, audio/ASR,
+     * OCR, rerank, and image gen / `wan-*`) which the free quota does NOT cover.
+     */
+    private fun isQwenFreeQuota(id: String): Boolean {
+        val lo = id.lowercase()
+        val isQwenText = lo.startsWith("qwen") || lo.startsWith("qwq")
+        if (!isQwenText) return false
+        val nonChat = listOf("embed", "tts", "audio", "asr", "ocr", "rerank", "wan", "-image", "image-")
+        return nonChat.none { it in lo }
+    }
+
+    /**
+     * Fetch GitHub Models from the PUBLIC catalog endpoint. The OpenAI-compatible
+     * inference URL (/inference/models) is a bare list too but auth-gated; the catalog
+     * (/catalog/models) needs no token, returns a BARE JSON ARRAY (not {data:[…]}), and
+     * carries rich metadata. We keep only text-output (chat) models and tag them FREE —
+     * the whole GitHub Models tier is free (rate-limited). Caps come from `capabilities`
+     * (tool-calling/reasoning) + image input + deriveCaps(id) heuristics.
+     */
+    suspend fun fetchGithubModels(apiKey: String): List<AiModel> =
+        withContext(Dispatchers.IO) {
+            val req = Request.Builder()
+                .url("https://models.github.ai/catalog/models")
+                .apply { if (apiKey.isNotBlank()) header("Authorization", "Bearer $apiKey") }
+                .header("Accept", "application/json")
+                .build()
+            val body = http.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) throw Exception("HTTP ${resp.code}")
+                resp.body?.string() ?: throw Exception("Empty response")
+            }
+            val arr = JSONArray(body)
+            val models = mutableListOf<AiModel>()
+            for (i in 0 until arr.length()) {
+                val m = arr.getJSONObject(i)
+                val outMods = m.optJSONArray("supported_output_modalities")
+                val isText = outMods != null && (0 until outMods.length()).any {
+                    outMods.getString(it) == "text"
+                }
+                if (!isText) continue
+                val id = m.getString("id")
+                val name = m.optString("name", "").ifEmpty { id.substringAfterLast("/") }
+                val caps = Providers.deriveCaps(id).toMutableSet()
+                caps += Cap.FREE
+                val capsArr = m.optJSONArray("capabilities")
+                if (capsArr != null) for (j in 0 until capsArr.length()) {
+                    when (capsArr.getString(j)) {
+                        "tool-calling" -> caps += Cap.TOOLS
+                        "reasoning"    -> caps += Cap.REASONING
+                    }
+                }
+                val inMods = m.optJSONArray("supported_input_modalities")
+                if (inMods != null && (0 until inMods.length()).any { inMods.getString(it) == "image" }) {
+                    caps += Cap.VISION
+                }
+                models.add(AiModel(name, id, caps))
+            }
+            models.sortedBy { it.modelId }
         }
 
     /** Fetch models from an Ollama-compatible server (tries /api/tags first, then /v1/models). */

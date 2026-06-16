@@ -197,12 +197,12 @@ object Providers {
         baseUrl = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
         requiresProxy = true,
         models = listOf(
-            AiModel("Qwen Max",         "qwen-max",         setOf(Cap.TOOLS, Cap.LONG_CTX),             "Most capable · text"),
-            AiModel("Qwen Plus",        "qwen-plus",        setOf(Cap.TOOLS, Cap.LONG_CTX),             "Balanced"),
-            AiModel("Qwen Turbo",       "qwen-turbo",       setOf(Cap.TOOLS, Cap.FAST, Cap.LONG_CTX),   "Fast · cheap"),
-            AiModel("Qwen3 Coder Plus", "qwen3-coder-plus", setOf(Cap.TOOLS, Cap.CODING, Cap.LONG_CTX), "Code specialist"),
-            AiModel("Qwen VL Max",      "qwen-vl-max",      setOf(Cap.TOOLS, Cap.VISION, Cap.LONG_CTX), "Vision · most capable"),
-            AiModel("QwQ Plus",         "qwq-plus",         setOf(Cap.REASONING),                       "Deep reasoning · text")
+            AiModel("Qwen Max",         "qwen-max",         setOf(Cap.TOOLS, Cap.LONG_CTX, Cap.FREE),             "Most capable · text"),
+            AiModel("Qwen Plus",        "qwen-plus",        setOf(Cap.TOOLS, Cap.LONG_CTX, Cap.FREE),             "Balanced"),
+            AiModel("Qwen Turbo",       "qwen-turbo",       setOf(Cap.TOOLS, Cap.FAST, Cap.LONG_CTX, Cap.FREE),   "Fast · cheap"),
+            AiModel("Qwen3 Coder Plus", "qwen3-coder-plus", setOf(Cap.TOOLS, Cap.CODING, Cap.LONG_CTX, Cap.FREE), "Code specialist"),
+            AiModel("Qwen VL Max",      "qwen-vl-max",      setOf(Cap.TOOLS, Cap.VISION, Cap.LONG_CTX, Cap.FREE), "Vision · most capable"),
+            AiModel("QwQ Plus",         "qwq-plus",         setOf(Cap.REASONING, Cap.FREE),                       "Deep reasoning · text")
         )
     )
 
@@ -293,6 +293,159 @@ object Providers {
             AiModel("Qwen3 235B Instruct", "qwen-3-235b-a22b-instruct-2507", setOf(Cap.TOOLS, Cap.LONG_CTX, Cap.FREE),     "Large · instant speed"),
             AiModel("GLM 4.7",             "zai-glm-4.7",                    setOf(Cap.TOOLS, Cap.REASONING, Cap.FREE),    "Reasoning · thinking tokens"),
             AiModel("Llama 3.1 8B",        "llama3.1-8b",                    setOf(Cap.TOOLS, Cap.FAST, Cap.FREE),         "Compact · fastest")
+        )
+    )
+
+    // GitHub Models (github.com/marketplace/models) — free, no credit card. Auth is a
+    // GitHub Personal Access Token (fine-grained PAT with the "Models" permission, or a
+    // classic token). OpenAI-compatible inference endpoint; the model list comes from the
+    // PUBLIC catalog endpoint (bare array, no auth) so live fetch works even before a key
+    // is entered. Currently the only free route to GPT-5 / GPT-4.1 / o-series + Grok/DeepSeek.
+    val GITHUB = Provider(
+        id = "github",
+        name = "GitHub Models",
+        supportsLiveFetch = true,
+        signupUrl = "https://github.com/settings/personal-access-tokens",
+        rateLimit = "Free · GitHub PAT (Models permission) · rate-limited",
+        malaysiaStatus = MalaysiaStatus.GREEN,
+        malaysiaNote = "Works everywhere — GitHub account + token",
+        baseUrl = "https://models.github.ai/inference",
+        requiresProxy = true,
+        models = listOf(
+            AiModel("GPT-4.1",          "openai/gpt-4.1",                setOf(Cap.TOOLS, Cap.VISION, Cap.LONG_CTX, Cap.FREE), "OpenAI · most capable"),
+            AiModel("GPT-4.1 mini",     "openai/gpt-4.1-mini",          setOf(Cap.TOOLS, Cap.FAST, Cap.FREE),                 "OpenAI · fast"),
+            AiModel("GPT-5 mini",       "openai/gpt-5-mini",            setOf(Cap.TOOLS, Cap.REASONING, Cap.FREE),            "OpenAI · reasoning"),
+            AiModel("o4-mini",          "openai/o4-mini",               setOf(Cap.REASONING, Cap.FAST, Cap.FREE),             "OpenAI · deep reasoning"),
+            AiModel("DeepSeek R1",      "deepseek/deepseek-r1",         setOf(Cap.REASONING, Cap.FREE),                       "Chain-of-thought"),
+            AiModel("Llama 3.3 70B",    "meta/llama-3.3-70b-instruct",  setOf(Cap.TOOLS, Cap.FREE),                           "Reliable · text"),
+            AiModel("Mistral Small 3.1","mistral-ai/mistral-small-2503",setOf(Cap.TOOLS, Cap.FREE),                           "Compact · tools"),
+            AiModel("Phi-4",            "microsoft/phi-4",              setOf(Cap.FREE),                                      "Microsoft · small")
+        )
+    )
+
+    // SambaNova Cloud (cloud.sambanova.ai) — free, no credit card, persistent free tier
+    // (not just trial credits). Very fast RDU inference. OpenAI-compatible API key.
+    val SAMBANOVA = Provider(
+        id = "sambanova",
+        name = "SambaNova",
+        supportsLiveFetch = true,
+        signupUrl = "https://cloud.sambanova.ai/apis",
+        rateLimit = "Free tier · no credit card · ultra-fast",
+        malaysiaStatus = MalaysiaStatus.GREEN,
+        malaysiaNote = "Works everywhere — no credit card",
+        baseUrl = "https://api.sambanova.ai/v1",
+        requiresProxy = true,
+        models = listOf(
+            AiModel("DeepSeek V3.1",      "DeepSeek-V3.1",              setOf(Cap.TOOLS, Cap.LONG_CTX, Cap.FREE),     "Large MoE · fast"),
+            AiModel("Llama 3.3 70B",      "Meta-Llama-3.3-70B-Instruct",setOf(Cap.TOOLS, Cap.FREE),                  "Reliable · text"),
+            AiModel("GPT-OSS 120B",       "gpt-oss-120b",              setOf(Cap.TOOLS, Cap.REASONING, Cap.FREE),    "Open frontier"),
+            AiModel("MiniMax M2.7",       "MiniMax-M2.7",              setOf(Cap.TOOLS, Cap.FREE),                   "MiniMax · agentic"),
+            AiModel("Gemma 4 31B",        "gemma-4-31B-it",            setOf(Cap.TOOLS, Cap.FREE),                   "Google · compact")
+        )
+    )
+
+    // Z.ai / Zhipu GLM (z.ai) — OpenAI-compatible at /api/paas/v4. Free tier covers the
+    // GLM *Flash* models (glm-4.5-flash, glm-4-flash); larger GLM models are paid. Key
+    // from z.ai/manage-apikey/apikey-list. GLM is strong at coding + tool use.
+    val ZAI = Provider(
+        id = "zai",
+        name = "Z.ai (GLM)",
+        supportsLiveFetch = true,
+        signupUrl = "https://z.ai/manage-apikey/apikey-list",
+        rateLimit = "Free Flash tier · larger GLM paid",
+        malaysiaStatus = MalaysiaStatus.GREEN,
+        malaysiaNote = "International endpoint — works everywhere",
+        baseUrl = "https://api.z.ai/api/paas/v4",
+        requiresProxy = true,
+        models = listOf(
+            AiModel("GLM-4.5 Flash", "glm-4.5-flash", setOf(Cap.TOOLS, Cap.FAST, Cap.FREE),            "Free · fast"),
+            AiModel("GLM-4 Flash",   "glm-4-flash",   setOf(Cap.TOOLS, Cap.FAST, Cap.FREE),            "Free · compact"),
+            AiModel("GLM-4.5 Air",   "glm-4.5-air",   setOf(Cap.TOOLS, Cap.REASONING),                 "Balanced · cheap"),
+            AiModel("GLM-4.6",       "glm-4.6",       setOf(Cap.TOOLS, Cap.REASONING, Cap.LONG_CTX),   "Most capable · coding")
+        )
+    )
+
+    // Cohere (cohere.com) — OpenAI-compatible at /compatibility/v1. Trial API keys are
+    // free (rate-limited, no expiry); production keys are paid. Key from
+    // dashboard.cohere.com/api-keys. Command family (strong at RAG / tool use).
+    val COHERE = Provider(
+        id = "cohere",
+        name = "Cohere",
+        supportsLiveFetch = true,
+        signupUrl = "https://dashboard.cohere.com/api-keys",
+        rateLimit = "Free trial keys · rate-limited",
+        malaysiaStatus = MalaysiaStatus.GREEN,
+        malaysiaNote = "Works everywhere — trial key, no card",
+        baseUrl = "https://api.cohere.ai/compatibility/v1",
+        requiresProxy = true,
+        models = listOf(
+            AiModel("Command A",    "command-a-03-2025",     setOf(Cap.TOOLS, Cap.LONG_CTX, Cap.FREE), "Most capable"),
+            AiModel("Command R+",   "command-r-plus-08-2024",setOf(Cap.TOOLS, Cap.FREE),               "Strong · RAG"),
+            AiModel("Command R",    "command-r-08-2024",     setOf(Cap.TOOLS, Cap.FAST, Cap.FREE),     "Balanced"),
+            AiModel("Command R7B",  "command-r7b-12-2024",   setOf(Cap.TOOLS, Cap.FAST, Cap.FREE),     "Compact · fast")
+        )
+    )
+
+    // Hugging Face Inference Router (router.huggingface.co/v1) — OpenAI-compatible
+    // gateway over many open models. Free monthly inference credits with a `hf_…` token.
+    // Key from huggingface.co/settings/tokens. Live list is large (100+ models).
+    val HUGGINGFACE = Provider(
+        id = "huggingface",
+        name = "Hugging Face",
+        iconResId = R.drawable.ic_brand_huggingface,
+        supportsLiveFetch = true,
+        signupUrl = "https://huggingface.co/settings/tokens",
+        rateLimit = "Free monthly credits · hf_ token",
+        malaysiaStatus = MalaysiaStatus.GREEN,
+        malaysiaNote = "Works everywhere — HF account token",
+        baseUrl = "https://router.huggingface.co/v1",
+        requiresProxy = true,
+        models = listOf(
+            AiModel("DeepSeek R1",     "deepseek-ai/DeepSeek-R1",          setOf(Cap.REASONING, Cap.FREE),  "Chain-of-thought"),
+            AiModel("Llama 3.3 70B",   "meta-llama/Llama-3.3-70B-Instruct",setOf(Cap.TOOLS, Cap.FREE),      "Reliable · text"),
+            AiModel("GPT-OSS 120B",    "openai/gpt-oss-120b",              setOf(Cap.TOOLS, Cap.REASONING, Cap.FREE), "Open frontier"),
+            AiModel("Qwen2.5 Coder 32B","Qwen/Qwen2.5-Coder-32B-Instruct", setOf(Cap.TOOLS, Cap.CODING, Cap.FREE), "Code specialist"),
+            AiModel("Llama 3.1 8B",    "meta-llama/Llama-3.1-8B-Instruct", setOf(Cap.FAST, Cap.FREE),       "Compact · fast")
+        )
+    )
+
+    // Chutes AI (llm.chutes.ai/v1) — OpenAI-compatible decentralized inference. Free with
+    // a daily quota; key from chutes.ai. Live fetch is authoritative — the static list is
+    // a best-effort fallback (model availability shifts on the network).
+    val CHUTES = Provider(
+        id = "chutes",
+        name = "Chutes AI",
+        supportsLiveFetch = true,
+        signupUrl = "https://chutes.ai/",
+        rateLimit = "Free · daily quota · decentralized",
+        malaysiaStatus = MalaysiaStatus.GREEN,
+        malaysiaNote = "Works everywhere — community network",
+        baseUrl = "https://llm.chutes.ai/v1",
+        requiresProxy = true,
+        models = listOf(
+            AiModel("DeepSeek R1",   "deepseek-ai/DeepSeek-R1",      setOf(Cap.REASONING, Cap.FREE), "Chain-of-thought"),
+            AiModel("DeepSeek V3",   "deepseek-ai/DeepSeek-V3-0324", setOf(Cap.TOOLS, Cap.FREE),     "Large MoE"),
+            AiModel("Qwen3 235B",    "Qwen/Qwen3-235B-A22B",         setOf(Cap.TOOLS, Cap.LONG_CTX, Cap.FREE), "Large · reasoning")
+        )
+    )
+
+    // Scaleway Generative APIs (api.scaleway.ai/v1) — OpenAI-compatible, EU (Paris). Free
+    // beta tier; key from console.scaleway.com. Live fetch authoritative (beta catalog).
+    val SCALEWAY = Provider(
+        id = "scaleway",
+        name = "Scaleway",
+        supportsLiveFetch = true,
+        signupUrl = "https://console.scaleway.com/",
+        rateLimit = "Free beta tier · EU",
+        malaysiaStatus = MalaysiaStatus.GREEN,
+        malaysiaNote = "EU endpoint (Paris) — works in Malaysia",
+        baseUrl = "https://api.scaleway.ai/v1",
+        requiresProxy = true,
+        models = listOf(
+            AiModel("Llama 3.3 70B",     "llama-3.3-70b-instruct",          setOf(Cap.TOOLS, Cap.FREE),  "Reliable · text"),
+            AiModel("Qwen2.5 Coder 32B", "qwen2.5-coder-32b-instruct",      setOf(Cap.TOOLS, Cap.CODING, Cap.FREE), "Code specialist"),
+            AiModel("DeepSeek R1 Distill","deepseek-r1-distill-llama-70b",   setOf(Cap.REASONING, Cap.FREE), "Chain-of-thought"),
+            AiModel("Gemma 3 27B",       "gemma-3-27b-it",                  setOf(Cap.TOOLS, Cap.FREE),  "Google · compact")
         )
     )
 
@@ -400,7 +553,7 @@ object Providers {
         models = emptyList()
     )
 
-    val ALL = listOf(GROQ, GEMINI, CEREBRAS, OPENCODE, OPENROUTER, ANTHROPIC_API, DEEPSEEK, KIMI, QWEN, MISTRAL, NVIDIA_NIM, META_LLAMA, KIRO, OLLAMA)
+    val ALL = listOf(GROQ, GEMINI, CEREBRAS, GITHUB, SAMBANOVA, ZAI, COHERE, HUGGINGFACE, CHUTES, SCALEWAY, OPENCODE, OPENROUTER, ANTHROPIC_API, DEEPSEEK, KIMI, QWEN, MISTRAL, NVIDIA_NIM, META_LLAMA, KIRO, OLLAMA)
 
     fun byId(id: String): Provider? = when (id) {
         "anthropic"     -> ANTHROPIC

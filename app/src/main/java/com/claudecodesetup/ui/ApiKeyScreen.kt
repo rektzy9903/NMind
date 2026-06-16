@@ -158,6 +158,28 @@ private fun buildRequest(provider: Provider, key: String): Request? {
             .url("https://api.mistral.ai/v1/models")
             .header("Authorization", "Bearer $key")
             .build()
+        // GitHub Models: the OpenAI-compatible /inference/models endpoint is auth-gated
+        // (401 for a bad token), so a plain GET validates correctly.
+        "github" -> builder
+            .url("https://models.github.ai/inference/models")
+            .header("Authorization", "Bearer $key")
+            .build()
+        // SambaNova: GET /v1/models answers 200 for ANY key (public), so it can't validate.
+        // POST a 1-token completion against a free model instead — bad key → 401.
+        "sambanova" -> builder
+            .url("https://api.sambanova.ai/v1/chat/completions")
+            .header("Authorization", "Bearer $key")
+            .post(
+                "{\"model\":\"Meta-Llama-3.3-70B-Instruct\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":1}"
+                    .toRequestBody("application/json".toMediaType())
+            )
+            .build()
+        // Hugging Face: the router's GET /v1/models is PUBLIC (200 for any key), so validate
+        // the token against the auth-gated whoami endpoint instead (401 on a bad hf_ token).
+        "huggingface" -> builder
+            .url("https://huggingface.co/api/whoami-v2")
+            .header("Authorization", "Bearer $key")
+            .build()
         // OpenCode Zen: its GET /models answers 200 for ANY key (even invalid), so a
         // GET can't validate. POST a 1-token completion against a free model instead —
         // a bad key → 401 AuthError, a good key → 200 (free models cost nothing).

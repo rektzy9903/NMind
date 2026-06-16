@@ -222,8 +222,8 @@ fun HomeScreen(
                 enter = fadeIn(tween(400)) + slideInVertically(tween(400, easing = EaseOutCubic)) { it / 3 }
             ) {
                 MenuCard(
-                    title = "Dungeon",
-                    subtitle = "Your project as a D&D map — hunt bugs, dispatch heroes",
+                    title = "Interstellar Audit",
+                    subtitle = "Your project as a star system — scout worlds, dispatch fleets",
                     accentColor = Color(0xFF6366F1),   // indigo (per-feature accent; not an ambient hue)
                     onClick = onDungeon,
                     iconContent = { GlassIcon(Modifier.size(34.dp), Color(0x736366F1), IconDungeon) }
