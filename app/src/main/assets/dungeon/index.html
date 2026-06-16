@@ -746,7 +746,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd89-scan-fill-anchor+scan-diag';
+var DUNGEON_BUILD = 'd90-reveal-frontandcenter-on-scan-done';
 
 // ── boot diagnostics: was referenced (window.__log) but never defined → all
 //    model-load reasons were silently dropped. Surface them to the #loading
@@ -2555,9 +2555,15 @@ window.onDungeonEvent=function(sid, line){
     graphState.scanning=false;
     analyzeGraph(ev.graph||{});
     saveGraph();   // persist so this project is scanned ONCE — reloads on every reopen
-    iwApplyGravity();   // light up the gravity tethers from the fresh dependency graph
+    // The tether reveal plays ONCE when it's drawn. Get the recon dialog out of the way so the
+    // reveal happens front-and-center on the visible scene instead of behind the panel (or missed
+    // entirely if the scan finished after the user already cancelled).
+    var dlgOpen=$('scout-dialog').classList.contains('show');
+    if(dlgOpen) $('scout-dialog').classList.remove('show');
+    setTimeout(iwApplyGravity, dlgOpen?140:0);   // light up the gravity tethers from the fresh dependency graph
     var n=Object.keys(graphState.scores).length;
-    toast('⬡ Graph ready · '+n+' folder'+(n===1?'':'s')+' mapped'+(graphState.cycles.length?' · ⚠ '+graphState.cycles.length+' cycle(s)':'')+' · saved');
+    var ne=iwGravityEdges().length;
+    toast('⬡ Graph ready · '+n+' folder'+(n===1?'':'s')+' · '+ne+' link'+(ne===1?'':'s')+(graphState.cycles.length?' · ⚠ '+graphState.cycles.length+' cycle(s)':'')+' · watch the tethers draw');
     return;
   }
   else if(ev.t==='graph-error'){ graphState.scanning=false; graphState.error=ev.err||'unknown'; updateGraphChip(); toast('⬡ Graph scan failed: '+(ev.err||'').slice(0,60)); return; }
@@ -3488,12 +3494,12 @@ function loop(){
   if(flags.gravity&&gravTethers){const A=new THREE.Vector3(),B=new THREE.Vector3(),P=new THREE.Vector3();
     gravTethers.forEach((g,gi)=>{
       g.line.visible=true;g.bead.visible=true;
-      g.prog=Math.min(1,g.prog+dt*0.7); // tether grows out as it's "scanned"
+      g.prog=Math.min(1,g.prog+dt*0.45); // tether grows out as it's "scanned" (slower = catchable)
       g.a.getWorldPosition(A);g.b.getWorldPosition(B);
       for(let k=0;k<=GSEG;k++){gravPoint(A,B,k/GSEG,P);g.pos[k*3]=P.x;g.pos[k*3+1]=P.y;g.pos[k*3+2]=P.z;}
       g.geom.attributes.position.needsUpdate=true;
       g.geom.setDrawRange(0,Math.max(2,Math.ceil((GSEG+1)*g.prog)));
-      g.line.material.opacity=(0.18+0.5*g.mass)*g.prog*(0.6+0.4*Math.sin(t*0.004+gi)); // pulse, brighter = more-depended-on
+      g.line.material.opacity=(0.34+0.5*g.mass)*g.prog*(0.65+0.35*Math.sin(t*0.004+gi)); // pulse, brighter = more-depended-on
       const bt=((t*0.00018+gi*0.13)%1)*g.prog; // bead travels along the revealed portion
       gravPoint(A,B,bt,P);g.bead.position.copy(P);g.bead.material.opacity=0.5*g.prog;
     });}
