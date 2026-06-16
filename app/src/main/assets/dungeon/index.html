@@ -766,7 +766,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd94-delib-payload-sev';
+var DUNGEON_BUILD = 'd95-per-model-nosefix';
 
 // ── boot diagnostics: was referenced (window.__log) but never defined → all
 //    model-load reasons were silently dropped. Surface them to the #loading
@@ -2878,6 +2878,10 @@ const CURATED={
   drone:'assets/opt/drone.glb',
 };
 const SCOUT_KEYS=['scout1','scout2','scout3','scout5']; // 4 distinct recon ships
+// Per-model nose axis. faceShip() does lookAt (aligns local +Z to target) + a flip; how much to
+// flip depends on where the model's nose points. scout1's nose is -Z → needs the 180° flip; the
+// other three were authored nose-+Z → already aligned by lookAt, so a flip points them tail-first.
+const SHIP_NOSE_FIX={scout1:Math.PI,scout2:0,scout3:0,scout5:0};
 const HERO_KEYS =['hero1','hero2','hero3','hero4'];      // 4 distinct battleship models (reused + recoloured for >4 agents)
 const HERO_COUNT=6;                                      // squad size — bump freely; models cycle, colours come from AGENT_PALETTE
 
@@ -3185,7 +3189,7 @@ function makeHpBar(){const cv=document.createElement('canvas');cv.width=64;cv.he
 function worldPos(o){o.getWorldPosition(tmpV);return tmpV.clone();}
 // Point a ship's NOSE at a target. Object3D.lookAt aligns local +Z to the target, but the ship
 // models' nose points -Z, so a bare lookAt flies them tail-first. Flip 180° to face forward.
-function faceShip(o,target){ o.lookAt(target); o.rotateY(Math.PI); }
+function faceShip(o,target){ o.lookAt(target); const nf=(o.userData&&o.userData.noseFix!=null)?o.userData.noseFix:Math.PI; if(nf) o.rotateY(nf); }
 
 function spawnEnemiesAround(parent,anchorX,hostRadius,bugs,label){
   bugs.forEach((b,i)=>{
@@ -3303,6 +3307,7 @@ function build(){
   const SCOUTV=['Scout · Compact Fighter','Scout · Retro Pod','Scout · Personal Pod','Scout · Corethicorn S-17'];
   SCOUTV.forEach((nm,i)=>{
     const s=getShip(SCOUT_KEYS[i],0x60A5FA);s.scale.setScalar(1.1);s.add(halo(0x60A5FA,2.2,.5));scene.add(s);
+    s.userData.noseFix=SHIP_NOSE_FIX[SCOUT_KEYS[i]]; // per-model nose-axis correction (else 3 of 4 fly backward)
     s.visible=false; // recon ships only appear when DISPATCHED (IW.scoutTo); idle = not present, no Earth clutter
     s.userData.info={name:nm,bugs:[]};clickTargets.push(s);
     scouts.push({obj:s,idx:i,phase:'fly',t:0,target:i%PT.length,active:false,
@@ -3470,6 +3475,7 @@ function convene(models){
   const N=Math.max(2,Math.min(4,(models&&models.length)||4)); // real council size (2–4), not a fixed 4
   for(let i=0;i<N;i++){const s=getShip(SCOUT_KEYS[i%SCOUT_KEYS.length],0x60A5FA);s.scale.setScalar(1.12);scene.add(s);
     s.userData.councilIdx=i;   // tap a council ship → open its scout panel
+    s.userData.noseFix=SHIP_NOSE_FIX[SCOUT_KEYS[i%SCOUT_KEYS.length]]; // per-model nose-axis correction
     const nm=(models&&models[i])||('Scout '+(i+1));
     const chip=document.createElement('div');chip.className='iwc-chip und';
     chip.innerHTML='<div class="nm"></div><div class="st">…</div>';
