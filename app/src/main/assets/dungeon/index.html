@@ -766,7 +766,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd93-per-ship-dialog+graph-aura+ship-facing';
+var DUNGEON_BUILD = 'd94-delib-payload-sev';
 
 // ── boot diagnostics: was referenced (window.__log) but never defined → all
 //    model-load reasons were silently dropped. Surface them to the #loading
@@ -2299,7 +2299,7 @@ function runDeliberation(job, contested){
     var finders=Object.keys(f.foundBy).map(Number).sort(function(a,b){ return a-b; });
     var voters=[]; for(var m=0;m<job.members;m++){ if(!f.foundBy[m]) voters.push(m); }
     f._delibId='d'+i; f.agreedBy=f.agreedBy||{};
-    return { id:f._delibId, title:f.title, file:f.file||'', finder:finders[0], voters:voters };
+    return { id:f._delibId, title:f.title, file:f.file||'', sev:f.sev||'', finder:finders[0], voters:voters };
   });
   var sid=jDispatch(JSON.stringify({ op:'deliberate', cwd:job.cwd, models:job.models||[], findings:payload }));
   var byId={}; contested.forEach(function(f){ byId[f._delibId]=f; });

@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b120-delib-fast-direct-chat';
+const BRIDGE_BUILD = 'b121-delib-context-args';
 
 const net   = require('net');
 const http  = require('http');
@@ -8237,7 +8237,7 @@ function openPrintSession() {
                     const mid = String(model||'').split('::').pop() || undefined;
                     try {
                         const resp = await postOai(provUrl, provKey, {
-                            model: mid, max_tokens: 700, temperature: 0.3,
+                            model: mid, max_tokens: 900, temperature: 0.3,
                             messages: [{ role:'system', content:persona }, { role:'user', content:task }],
                         });
                         const msg = ((((resp||{}).choices)||[])[0]||{}).message || {};
@@ -8249,15 +8249,18 @@ function openPrintSession() {
                 // The default personas tell the model to READ the file (spawn has tool access). The fast
                 // direct-chat path has NO file access → use variants that reason from title + file path.
                 const ARG_P = fastOk ? [
-                    'You are a code auditor defending bug findings you reported.',
-                    'For EACH bug (id :: title :: file), write ONE short concrete sentence arguing WHY it is likely a real bug —',
-                    'name the mechanism and the impact, reasoning from the title and file path. No hedging, no preamble, no markdown.',
-                    'Output exactly one line per bug: 🗣ARG <id> <one sentence>.'
+                    'You are a code auditor defending bug findings you reported. The other auditors have NOT seen',
+                    'the code — your argument is the ONLY context they get, so it must be self-contained.',
+                    'For EACH bug (id :: title :: file :: severity) write a SINGLE LINE that fully explains it:',
+                    'what the code does wrong (the concrete mechanism), where it happens, and the real-world impact',
+                    '(e.g. how it is exploited or what breaks). 2–3 sentences, specific, no markdown, all on one line.',
+                    'Output exactly one line per bug: 🗣ARG <id> <self-contained explanation>.'
                 ].join('\n') : ARG_PERSONA;
                 const VOTE_P = fastOk ? [
-                    'You are a code auditor on a review council. A colleague flagged bugs you did not report, each with an argument.',
-                    'For EACH (id :: title :: file :: argument), judge the argument on its merits:',
-                    '  for — sound, it IS a real bug · against — wrong / likely fine · undecided — cannot tell.',
+                    'You are a code auditor on a review council. A colleague flagged bugs you did not report and gave',
+                    'a self-contained explanation of each. You are judging the EXPLANATION on its technical merits.',
+                    'For EACH (id :: title :: file :: severity :: argument) decide:',
+                    '  for — the explanation describes a plausible, real bug · against — it is wrong / likely fine · undecided — cannot tell.',
                     'Be decisive and evidence-based, not deferential.',
                     'Output exactly one line per bug: 🗳VOTE <id> for|against|undecided.'
                 ].join('\n') : VOTE_PERSONA;
@@ -8269,13 +8272,13 @@ function openPrintSession() {
                     const argMap = {};
                     await Promise.all(Object.keys(byFinder).map(k => {
                         const grp = byFinder[k], model = dmodels[k] || '';
-                        const listTxt = grp.map(f => f.id + ' :: ' + f.title + ' :: ' + (f.file || '?')).join('\n');
+                        const listTxt = grp.map(f => f.id + ' :: ' + f.title + ' :: ' + (f.file || '?') + ' :: severity=' + (f.sev || '?')).join('\n');
                         const task = 'Defend these bug(s) you reported in this project:\n\n' + listTxt;
                         return runOne(model, ARG_P, task, txt => {
                             const re = /🗣ARG\s+(\S+)\s+(.+)/g; let m;
                             while ((m = re.exec(txt))) {
                                 const id = m[1], a = (m[2]||'').trim();
-                                if (a && !argMap[id]) { argMap[id] = a; send({ t:'delib-arg', id:id, member:Number(k), text:a.slice(0,200) }); }
+                                if (a && !argMap[id]) { argMap[id] = a; send({ t:'delib-arg', id:id, member:Number(k), text:a.slice(0,400) }); }
                             }
                         });
                     }));
@@ -8284,7 +8287,7 @@ function openPrintSession() {
                     dfindings.forEach(f => (f.voters||[]).forEach(v => { (byVoter[v]=byVoter[v]||[]).push(f); }));
                     await Promise.all(Object.keys(byVoter).map(v => {
                         const grp = byVoter[v], model = dmodels[v] || '';
-                        const listTxt = grp.map(f => f.id + ' :: ' + f.title + ' :: ' + (f.file || '?') + ' :: ' + (argMap[f.id] || '(no argument given)')).join('\n');
+                        const listTxt = grp.map(f => f.id + ' :: ' + f.title + ' :: ' + (f.file || '?') + ' :: severity=' + (f.sev || '?') + ' :: ' + (argMap[f.id] || '(no argument given)')).join('\n');
                         const task = 'A fellow council member argues these findings are real bugs. Judge each on the evidence:\n\n' + listTxt;
                         return runOne(model, VOTE_P, task, txt => {
                             const re = /🗳VOTE\s+(\S+)\s+(for|against|undecided)/gi; let m;
