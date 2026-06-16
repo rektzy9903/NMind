@@ -384,6 +384,16 @@ private fun HeroCard(rep: UsageReport) {
         }
         Spacer(Modifier.height(6.dp))
         Text("${rep.totalReq} requests", fontSize = 12.sp, color = TxtMuted, fontFamily = SpaceMonoFamily)
+        if (rep.totalCacheRead + rep.totalCacheWrite > 0) {
+            Spacer(Modifier.height(4.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                LegendDot(Emerald); Spacer(Modifier.width(4.dp))
+                Text("cache  read ${fmtTok(rep.totalCacheRead)} · write ${fmtTok(rep.totalCacheWrite)}",
+                    fontSize = 11.sp, color = TxtMuted, fontFamily = SpaceMonoFamily)
+            }
+            Text("input above is fresh (uncached) tokens only",
+                fontSize = 9.sp, color = TxtFaint, fontFamily = SpaceMonoFamily)
+        }
         Spacer(Modifier.height(12.dp))
         // In vs Out proportion bar.
         val sum = (rep.totalIn + rep.totalOut).coerceAtLeast(1L)
@@ -597,8 +607,8 @@ private fun LegendDot(c: Color) {
 @Composable
 private fun ChartGrid(rep: UsageReport) {
     val panels = buildList<@Composable () -> Unit> {
-        if (rep.byModel.isNotEmpty()) add { DonutCard(rep) }                 // top-left  : donut
-        if (rep.byModel.isNotEmpty()) add { StackedModelCard(rep.byModel) }  // top-right : bars
+        if (rep.byModel.isNotEmpty()) add { DonutCard(rep) }                       // top-left  : donut (per-model detail)
+        if (rep.byProvider.isNotEmpty()) add { StackedProviderCard(rep.byProvider) } // top-right : bars (per-provider)
         if (rep.byDay.size > 1) add { TimeGraphCard(rep) }                   // bot-left  : time-series
         add { InOutRateCard(rep) }                                           // bot-right : in/out rate
     }
@@ -670,11 +680,18 @@ private fun DonutCard(rep: UsageReport) {
     }
 }
 
+/**
+ * Bars grouped BY PROVIDER (one bar = one provider's input+output total, the
+ * provider's models summed). The provider name is the readable label — a cryptic
+ * model id like "owl-alpha" reads as "openrouter" here, and the per-model split
+ * lives in the donut + the expandable "By provider" list below. Each bar still
+ * stacks input (cyan) over output (amber).
+ */
 @Composable
-private fun StackedModelCard(byModel: List<UsageEntry>) {
+private fun StackedProviderCard(byProvider: List<UsageEntry>) {
     UsageCard {
-        CardTitle("Input / output by model")
-        val rows = byModel.take(8)
+        CardTitle("Input / output by provider")
+        val rows = byProvider.take(8)
         val maxTotal = (rows.maxOfOrNull { it.total } ?: 1L).coerceAtLeast(1L)
         Row(
             modifier = Modifier
@@ -704,7 +721,7 @@ private fun StackedModelCard(byModel: List<UsageEntry>) {
                         Box(Modifier.width(20.dp).height(inH.dp).background(InColor))
                     }
                     Spacer(Modifier.height(4.dp))
-                    Text(shortModel(e.model).take(8), fontSize = 7.sp, color = TxtMuted,
+                    Text(e.provider.take(9), fontSize = 7.sp, color = TxtMuted,
                         fontFamily = SpaceMonoFamily, maxLines = 1)
                 }
             }

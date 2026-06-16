@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b116-aptshim-rp-fix+ubuntu-diag';
+const BRIDGE_BUILD = 'b117-usage-cache-tokens';
 
 const net   = require('net');
 const http  = require('http');
@@ -366,8 +366,12 @@ function isClaudeInstalled() {
 
 // ─── Usage meter ──────────────────────────────────────────────────────────────
 // One token meter for ALL proxy-mode providers: the proxy sees every request, so
-// we accumulate {providers:{<prov>:{<model>:{"YYYY-MM-DD":{inTok,outTok,req}}}}}
-// to usage_stats.json (debounced write). Subscription mode bypasses the proxy
+// we accumulate {providers:{<prov>:{<model>:{"YYYY-MM-DD":{inTok,outTok,cacheRead,cacheWrite,req}}}}}
+// to usage_stats.json (debounced write). cacheRead/cacheWrite are the prompt-cache
+// hit/write counts the provider reports (Anthropic cache_read/creation_input_tokens;
+// OAI prompt_tokens_details.cached_tokens → cacheRead). They are 0 for providers
+// that don't cache; on Anthropic, inTok is the FRESH (uncached) input only, so
+// inTok + cacheRead is the true context size. Subscription mode bypasses the proxy
 // (claude-code → api.anthropic.com direct) so it is NOT metered — by design.
 // Phase-1 surface: the !usage command. Phase-2: a Settings card reads this file.
 const USAGE_FILE = path.join(FILES_DIR, 'usage_stats.json');
@@ -407,14 +411,16 @@ const USAGE = (() => {
         if (u.includes('localhost') || u.includes('127.0.0.1') || u.includes(':11434')) return 'ollama';
         try { return new URL(u).hostname.replace(/^api\./, '').split('.')[0] || 'unknown'; } catch (_) { return 'unknown'; }
     }
-    function record(pUrl, model, inTok, outTok) {
+    function record(pUrl, model, inTok, outTok, cacheRead, cacheWrite) {
         try {
             const d = load(), prov = labelFor(pUrl), day = today();
             const p = d.providers[prov] || (d.providers[prov] = {});
             const m = p[model || 'unknown'] || (p[model || 'unknown'] = {});
-            const e = m[day] || (m[day] = { inTok: 0, outTok: 0, req: 0 });
+            const e = m[day] || (m[day] = { inTok: 0, outTok: 0, cacheRead: 0, cacheWrite: 0, req: 0 });
             e.inTok += Math.max(0, inTok | 0);
             e.outTok += Math.max(0, outTok | 0);
+            e.cacheRead = (e.cacheRead | 0) + Math.max(0, cacheRead | 0);
+            e.cacheWrite = (e.cacheWrite | 0) + Math.max(0, cacheWrite | 0);
             e.req += 1;
             dirty = true;
             if (!flushTimer) flushTimer = setTimeout(flush, 4000);
@@ -1312,14 +1318,16 @@ function sendToAnthropicDirect(providerUrl, apiKey, anthReq, stream, res) {
                     try { provRes.destroy(); } catch(_) {}
                 }, 30000);
             }
-            let sniffIn = 0, sniffOut = 0;   // usage-meter sniff; forwarding stays byte-for-byte
+            let sniffIn = 0, sniffOut = 0, sniffCR = 0, sniffCW = 0;   // usage-meter sniff; forwarding stays byte-for-byte
             provRes.on('data',  chunk => { resetIdle(); res.write(chunk);
                 try { const s = chunk.toString();
                     let m = s.match(/"input_tokens"\s*:\s*(\d+)/);  if (m) sniffIn  = Math.max(sniffIn,  +m[1]);
                     m     = s.match(/"output_tokens"\s*:\s*(\d+)/); if (m) sniffOut = Math.max(sniffOut, +m[1]);
+                    m     = s.match(/"cache_read_input_tokens"\s*:\s*(\d+)/);     if (m) sniffCR = Math.max(sniffCR, +m[1]);
+                    m     = s.match(/"cache_creation_input_tokens"\s*:\s*(\d+)/); if (m) sniffCW = Math.max(sniffCW, +m[1]);
                 } catch (_) {} });
             provRes.on('end',   ()    => { clearTimeout(idleTimer); res.end();
-                try { USAGE.record(providerUrl, anthReq.model || '', sniffIn, sniffOut); } catch (_) {} });
+                try { USAGE.record(providerUrl, anthReq.model || '', sniffIn, sniffOut, sniffCR, sniffCW); } catch (_) {} });
             provRes.on('error', ()    => { clearTimeout(idleTimer); });
         } else {
             let data = '';
@@ -3198,7 +3206,11 @@ function sendToProvider(baseUrl, apiKey, oaiReq, stream, res, onBadRequest, on42
                 outTokens = outTok;
                 try { emitLiveTokens(true); } catch (_) {}
                 // Usage meter: provider's real input count when present, else estimate.
-                try { USAGE.record(baseUrl, oaiReq.model, (providerUsage && (providerUsage.prompt_tokens || providerUsage.input_tokens)) || usageInTok, outTok); } catch (_) {}
+                // OAI prompt-cache hits arrive as prompt_tokens_details.cached_tokens
+                // (subset of prompt_tokens) → recorded as cacheRead; no cacheWrite concept.
+                const oaiCacheRead = (providerUsage && providerUsage.prompt_tokens_details
+                    && (providerUsage.prompt_tokens_details.cached_tokens | 0)) || 0;
+                try { USAGE.record(baseUrl, oaiReq.model, (providerUsage && (providerUsage.prompt_tokens || providerUsage.input_tokens)) || usageInTok, outTok, oaiCacheRead, 0); } catch (_) {}
             }
 
             function ensureOpened() {
@@ -5945,33 +5957,36 @@ function openPrintSession() {
                 const provs = (d && d.providers) || {};
                 const day = USAGE.today(), month = day.slice(0, 7), showAll = (arg === 'all');
                 const fmt = n => n >= 1e6 ? (n / 1e6).toFixed(2) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'k' : '' + (n | 0);
-                const rows = []; let tdI = 0, tdO = 0, tmI = 0, tmO = 0, tReq = 0;
+                const rows = []; let tdI = 0, tdO = 0, tmI = 0, tmO = 0, tReq = 0, tmCR = 0, tmCW = 0;
                 for (const prov of Object.keys(provs)) {
-                    let dI = 0, dO = 0, mI = 0, mO = 0, aI = 0, aO = 0, req = 0;
+                    let dI = 0, dO = 0, mI = 0, mO = 0, aI = 0, aO = 0, req = 0, mCR = 0, mCW = 0, aCR = 0, aCW = 0;
                     const models = provs[prov] || {};
                     for (const model of Object.keys(models)) {
                         const days = models[model] || {};
                         for (const dt of Object.keys(days)) {
                             const e = days[dt] || {};
                             aI += e.inTok || 0; aO += e.outTok || 0; req += e.req || 0;
-                            if (dt.slice(0, 7) === month) { mI += e.inTok || 0; mO += e.outTok || 0; }
+                            aCR += e.cacheRead || 0; aCW += e.cacheWrite || 0;
+                            if (dt.slice(0, 7) === month) { mI += e.inTok || 0; mO += e.outTok || 0; mCR += e.cacheRead || 0; mCW += e.cacheWrite || 0; }
                             if (dt === day) { dI += e.inTok || 0; dO += e.outTok || 0; }
                         }
                     }
-                    rows.push({ prov, dI, dO, mI, mO, aI, aO, req });
-                    tdI += dI; tdO += dO; tmI += mI; tmO += mO; tReq += req;
+                    rows.push({ prov, dI, dO, mI, mO, aI, aO, req, mCR, mCW, aCR, aCW });
+                    tdI += dI; tdO += dO; tmI += mI; tmO += mO; tReq += req; tmCR += mCR; tmCW += mCW;
                 }
                 rows.sort((a, b) => (b.mI + b.mO) - (a.mI + a.mO));
                 let out = '\x1b[1mUsage\x1b[0m \x1b[2m(proxy providers only — subscription mode is not metered)\x1b[0m\r\n';
                 out += '\x1b[2mtoday ' + day + ':  ' + fmt(tdI + tdO) + ' tok  (in ' + fmt(tdI) + ' / out ' + fmt(tdO) + ')\r\n';
-                out += 'month ' + month + ':  ' + fmt(tmI + tmO) + ' tok  (in ' + fmt(tmI) + ' / out ' + fmt(tmO) + ')  ·  ' + tReq + ' req\x1b[0m\r\n';
-                out += '\x1b[2m────────── ' + (showAll ? 'all-time' : 'this month') + ' by provider ──────────\x1b[0m\r\n';
+                out += 'month ' + month + ':  ' + fmt(tmI + tmO) + ' tok  (in ' + fmt(tmI) + ' / out ' + fmt(tmO) + ')  ·  ' + tReq + ' req\r\n';
+                if (tmCR + tmCW > 0) out += 'cache ' + month + ':  read ' + fmt(tmCR) + ' / write ' + fmt(tmCW) + '  \x1b[2m(in is fresh-only on Anthropic)\x1b[0m\r\n';
+                out += '\x1b[0m\x1b[2m────────── ' + (showAll ? 'all-time' : 'this month') + ' by provider ──────────\x1b[0m\r\n';
                 let shown = 0;
                 for (const r of rows) {
                     const inT = showAll ? r.aI : r.mI, outT = showAll ? r.aO : r.mO;
+                    const cr = showAll ? r.aCR : r.mCR, cw = showAll ? r.aCW : r.mCW;
                     if ((inT + outT) === 0) continue;
                     shown++;
-                    out += '\x1b[36m' + r.prov.padEnd(14) + '\x1b[0m' + fmt(inT + outT).padStart(8) + ' tok  \x1b[2m(in ' + fmt(inT) + ' / out ' + fmt(outT) + ')\x1b[0m\r\n';
+                    out += '\x1b[36m' + r.prov.padEnd(14) + '\x1b[0m' + fmt(inT + outT).padStart(8) + ' tok  \x1b[2m(in ' + fmt(inT) + ' / out ' + fmt(outT) + (cr + cw > 0 ? ' / cache ' + fmt(cr + cw) : '') + ')\x1b[0m\r\n';
                 }
                 if (!shown) out += '\x1b[2m(nothing yet — send a message through a proxy provider, then re-run)\x1b[0m\r\n';
                 out += '\x1b[2m!usage all = all-time · !usage clear = reset\x1b[0m\r\n';
