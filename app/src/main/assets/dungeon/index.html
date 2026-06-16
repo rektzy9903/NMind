@@ -225,17 +225,36 @@
   .dlg-box, #name-box { backdrop-filter:blur(14px); }
   .dlg { background:rgba(3,5,10,.72); }
   /* ══ Stage 6: 3D War Council overlays (iwc- ids avoid the dungeon roundtable's rt-* collision) ══ */
-  #iwc-dialog { position:fixed; bottom:64px; left:50%; transform:translateX(-50%); width:min(90vw,420px); display:none;
-    z-index:11; background:rgba(20,16,12,.55); backdrop-filter:blur(12px); border:1px solid rgba(255,255,255,.14); border-radius:14px; padding:10px 12px; }
-  #iwc-speaker { color:#E8834A; font-weight:700; font-size:12px; margin-bottom:3px; }
-  #iwc-text { color:#F0F0F2; font-size:12px; line-height:1.5; }
+  #iwc-dialog { display:none !important; }   /* shared speaker box retired — each scout carries its own bubble */
   #iwc-chips { position:fixed; inset:0; z-index:11; pointer-events:none; }
-  .iwc-chip { position:absolute; transform:translate(-50%,-50%); font-size:10px; font-weight:700;
-    padding:2px 7px; border-radius:9px; border:1px solid; white-space:nowrap; transition:opacity .2s; }
-  .iwc-chip.for { color:#3DD68C; border-color:#3DD68C; background:rgba(61,214,140,.16); }
-  .iwc-chip.against { color:#F87171; border-color:#F87171; background:rgba(248,113,113,.16); }
-  .iwc-chip.und { color:#FBBF24; border-color:#FBBF24; background:rgba(251,191,36,.16); }
-  .iwc-chip.speaking { box-shadow:0 0 10px currentColor; }
+  /* Per-scout floating card above its ship: name + live status (found / argues / votes). Tappable. */
+  .iwc-chip { position:absolute; transform:translate(-50%,-50%); min-width:74px; max-width:150px;
+    border-radius:10px; border:1px solid; padding:4px 8px; text-align:center; white-space:normal;
+    background:rgba(20,16,12,.72); backdrop-filter:blur(8px); pointer-events:auto; cursor:pointer;
+    transition:opacity .2s,box-shadow .2s,border-color .2s; }
+  .iwc-chip .nm { font-size:10px; font-weight:800; line-height:1.15; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .iwc-chip .st { font-size:9px; font-weight:600; line-height:1.2; margin-top:1px; opacity:.92; }
+  .iwc-chip.for { color:#3DD68C; border-color:#3DD68C; }
+  .iwc-chip.against { color:#F87171; border-color:#F87171; }
+  .iwc-chip.und { color:#FBBF24; border-color:#FBBF24; }
+  .iwc-chip.speaking { box-shadow:0 0 14px currentColor; border-width:1.5px; }
+  /* Tap-a-scout detail panel */
+  #iwc-scout { position:fixed; left:50%; bottom:18px; transform:translateX(-50%); width:min(92vw,440px); max-height:46vh; overflow-y:auto;
+    display:none; z-index:16; background:rgba(16,14,20,.92); backdrop-filter:blur(16px); border:1px solid rgba(255,255,255,.16);
+    border-radius:16px; padding:14px 16px; box-shadow:0 -8px 28px rgba(0,0,0,.55); color:#F0F0F2; }
+  #iwc-scout.show { display:block; }
+  #iwc-scout .sh-top { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+  #iwc-scout .sh-name { font-size:14px; font-weight:800; color:#60A5FA; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #iwc-scout .sh-x { background:none; border:none; color:#9090A0; font-size:20px; cursor:pointer; padding:0 4px; }
+  #iwc-scout .sh-find { border-top:1px solid rgba(255,255,255,.08); padding:7px 0; }
+  #iwc-scout .sh-title { font-size:12px; font-weight:700; }
+  #iwc-scout .sh-meta { font-size:10px; color:#9090A0; margin-top:2px; font-family:monospace; }
+  #iwc-scout .sh-arg { font-size:11px; color:#E8834A; margin-top:3px; font-style:italic; }
+  #iwc-scout .sh-empty { font-size:11px; color:#9090A0; padding:6px 0; }
+  #iwc-scout .sh-badge { font-size:9px; font-weight:800; padding:1px 6px; border-radius:6px; }
+  #iwc-scout .sh-badge.for { color:#3DD68C; background:rgba(61,214,140,.16); }
+  #iwc-scout .sh-badge.against { color:#F87171; background:rgba(248,113,113,.16); }
+  #iwc-scout .sh-badge.found { color:#FBBF24; background:rgba(251,191,36,.16); }
   #iwc-verdict { position:fixed; top:42%; left:50%; transform:translate(-50%,-50%) scale(.78); z-index:13;
     background:rgba(20,16,12,.84); backdrop-filter:blur(12px); border:1.5px solid #3DD68C; border-radius:16px;
     padding:18px 24px; text-align:center; max-width:min(86vw,440px); opacity:0; pointer-events:none;
@@ -706,6 +725,7 @@
   <!-- 3D War Council overlays (driven by real findings/votes) -->
   <div id="iwc-dialog"><div id="iwc-speaker"></div><div id="iwc-text"></div></div>
   <div id="iwc-chips"></div>
+  <div id="iwc-scout"></div>
   <div id="iwc-verdict"><div class="vt" id="iwcv-t">Commander's Verdict</div><div class="vr" id="iwcv-r">CONFIRMED</div><div class="vs" id="iwcv-s"></div></div>
   <div id="iwc-round"><span class="rl" id="iwcr-l"></span><span class="tl" id="iwcr-t"></span></div>
   <div id="iwc-judge">
@@ -746,7 +766,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd92-council-round1-first';
+var DUNGEON_BUILD = 'd93-per-ship-dialog+graph-aura+ship-facing';
 
 // ── boot diagnostics: was referenced (window.__log) but never defined → all
 //    model-load reasons were silently dropped. Surface them to the #loading
@@ -2390,47 +2410,44 @@ var View3D = {
     rtState={ open:true, members:n, mode:'3d' };
   },
   _round(label){ var rp=this._el('iwc-round'), rl=this._el('iwcr-l'); if(rl) rl.textContent=label; if(rp) rp.classList.add('show'); },
-  _tally(sup,total){ var t=this._el('iwcr-t'); if(t) t.textContent=sup+' / '+total; },
-  _text(t){ var x=this._el('iwc-text'); if(x) x.textContent=t; },
+  _tally(sup,total){ var t=this._el('iwcr-t'); if(t) t.textContent=(total?(sup+' / '+total):''); },
+  _text(t){ try{ toast(t); }catch(_){} },   // shared box retired → King's-ruling lines surface as a toast
   _holo(ty){ try{ window.IW.cvHolo(ty==='boss'?'overlord':ty==='phantom'?'wraith':'beast'); }catch(_){} },
-  _speak(i,action,f,arg){ var c=this._C(); if(c) c.speaking=i;
-    var sp=this._el('iwc-speaker'); if(sp) sp.textContent='🧭 '+this._name(i)+(action?' — '+action:'');
-    var t = f ? ((f.title||'')+(f.file?' · '+f.file:'')) : '';
-    if(arg) t += '  “'+(arg.length>140?arg.slice(0,139)+'…':arg)+'”';
-    this._text(t);
-    this._mem().forEach(function(m,mi){ if(m&&m.chip) m.chip.classList.toggle('speaking',mi===i); });
+  // Set member i's status line + (optionally) its vote-colour class, preserving the speaking glow.
+  _status(i,txt,kind){ var m=this._mem()[i]; if(!m) return;
+    if(m.stEl) m.stEl.textContent=txt;
+    if(kind && m.chip){ var sp=m.chip.classList.contains('speaking'); m.chip.className='iwc-chip '+kind+(sp?' speaking':''); }
   },
-  _setVote(i,kind,label){ var m=this._mem()[i]; if(!m||!m.chip) return; m.vote=kind;
-    m.chip.className='iwc-chip '+(kind==='for'?'for':kind==='against'?'against':'und');
-    m.chip.textContent=label || (kind==='for'?'FOR':kind==='against'?'AGN':'…');
+  _speakGlow(i){ var c=this._C(); if(c) c.speaking=i; this._mem().forEach(function(m,mi){ if(m&&m.chip) m.chip.classList.toggle('speaking',mi===i); }); },
+  _speak(i,action,f,arg){ this._speakGlow(i);
+    var t=(action||'')+(f?(' '+(f.title||'')):''); if(arg) t+=' “'+(arg.length>56?arg.slice(0,55)+'…':arg)+'”';
+    this._status(i,t.trim());
+  },
+  _setVote(i,kind,label){ var m=this._mem()[i]; if(!m) return; m.vote=kind;
+    this._status(i, label||(kind==='for'?'✓ FOR':kind==='against'?'✗ AGAINST':'…'), kind==='for'?'for':kind==='against'?'against':'und');
   },
   clearMarks(){ var c=this._C(); if(!c) return; c.speaking=-9;
-    (c.members||[]).forEach(function(m){ if(m&&m.chip){ m.vote=null; m.chip.className='iwc-chip und'; m.chip.textContent='…'; m.chip.classList.remove('speaking'); } });
+    (c.members||[]).forEach(function(m){ if(m&&m.chip){ m.vote=null; m.chip.className='iwc-chip und'; if(m.stEl) m.stEl.textContent='…'; } });
   },
   clearPrompt(){ var jb=this._el('iwc-judge'); if(jb) jb.classList.remove('show'); var c=this._C(); if(c) c.awaitJudge=false; },
-  deliberating(n){ var c=this._C(); if(c){ c.speaking=-1; c._dv=0; c._delibN=n; } this._round('Round 2 · Deliberation');
-    var sp=this._el('iwc-speaker'); if(sp) sp.textContent='⚖ The council deliberates';
-    this._text(n+' contested finding'+(n===1?'':'s')+' · finders argue, the council re-votes…');
+  deliberating(n){ var c=this._C(); if(c){ c.speaking=-1; c._dv=0; c._delibN=n; } this._round('Round 2 · Deliberation'); this._tally(0,0);
+    var self=this; (this._mem()||[]).forEach(function(m,mi){ self._status(mi,'⚖ deliberating…','und'); });
   },
-  // Live deliberation feedback so the round NEVER looks frozen while the real model
-  // spawns run (each can take up to ~90s). Driven by the bridge's delib-arg / delib-vote events.
-  delibArg(title){ var sp=this._el('iwc-speaker'); if(sp) sp.textContent='🗣 A finder argues their case';
-    this._text('“'+((title||'').slice(0,80))+'” — the council weighs the evidence…'); },
-  delibVote(){ var c=this._C(); if(c) c._dv=(c._dv||0)+1; var sp=this._el('iwc-speaker');
-    if(sp) sp.textContent='🗳 The council re-votes'; this._text(((c&&c._dv)||0)+' vote(s) cast · tallying…'); },
-  confirmPresent(f,pres,total){ this._round('Round 1 · Findings'); this._speak(pres,'📜 reports',f); this._tally(0,total); this._setVote(pres,'for','📜'); },
-  confirmAgree(f,pres,sup,total){ var self=this; Object.keys(f.foundBy).map(Number).forEach(function(mi){ if(mi===pres) return; self._setVote(mi,'for','✓'); }); this._tally(sup,total); },
-  confirmResult(f){ var ty=tribType(f); this._text(tierIcon(ty)+' '+tierName(ty)+' · confirmed'); this._holo(ty); },
-  contestResult(f){ this._text('⚖ '+f.support+' / '+f.total+' · contested → Round 2'); },
-  arguePresent(f,pres,total){ this._round('Round 2 · Deliberation'); this._speak(pres,'🗣 argues',f,f._argument); this._tally(f._origSupport||0,total); this._setVote(pres,'for','🗣'); },
+  // Live deliberation feedback (per scout) so no one looks frozen while the model spawns run.
+  delibArg(title,member){ if(member!=null) this._status(member,'🗣 argues','und'); },
+  delibVote(member,verdict){ if(member!=null) this._setVote(member, verdict==='for'?'for':verdict==='against'?'against':'und'); },
+  confirmPresent(f,pres,total){ this._round('Round 1 · Findings'); this._speakGlow(pres); this._tally(f.support,total); this._status(pres,'📜 reports: '+(f.title||''),'for'); },
+  confirmAgree(f,pres,sup,total){ var self=this; Object.keys(f.foundBy).map(Number).forEach(function(mi){ if(mi===pres) return; self._status(mi,'✓ agrees','for'); }); this._tally(sup,total); },
+  confirmResult(f){ var ty=tribType(f); this._status(rtPresenterIdx(f), tierIcon(ty)+' '+tierName(ty)+' confirmed','for'); this._holo(ty); },
+  contestResult(f){ this._status(rtPresenterIdx(f), '⚖ '+f.support+'/'+f.total+' contested → R2','und'); },
+  arguePresent(f,pres,total){ this._round('Round 2 · Deliberation'); this._speakGlow(pres); this._tally(f._origSupport||0,total); this._status(pres,'🗣 argues: '+(f.title||''),'for'); },
   argueRevote(f,pres,total){ var self=this;
-    Object.keys(f.foundBy).map(Number).forEach(function(mi){ if(mi===pres) return; self._setVote(mi,'for','✓'); });
-    for(var m=0;m<total;m++){ if(f.foundBy[m]) continue; if(f.agreedBy&&f.agreedBy[m]) self._setVote(m,'for','✓'); else self._setVote(m,'against','✗'); }
+    Object.keys(f.foundBy).map(Number).forEach(function(mi){ if(mi===pres) return; self._status(mi,'✓ FOR','for'); });
+    for(var m=0;m<total;m++){ if(f.foundBy[m]) continue; if(f.agreedBy&&f.agreedBy[m]) self._status(m,'✓ FOR','for'); else self._status(m,'✗ AGAINST','against'); }
     this._tally(f.support,total);
   },
-  argueResult(f,isPhantom){ if(!isPhantom){ var ty=tribType(f); this._text(tierIcon(ty)+' '+tierName(ty)+' · confirmed by argument'); this._holo(ty); } else { this._text('⚖ still contested · the King shall rule'); } },
-  askJudge(f,pres,onKeep,onDrop){ this._round('Round 3 · King’s Verdict'); this._speak(pres,'📜 lone claim',f);
-    this._text('Only '+f.support+' of '+f.total+' saw “'+(f.title||'')+'” — your ruling, my liege');
+  argueResult(f,isPhantom){ var ty=tribType(f); if(!isPhantom){ this._status(rtPresenterIdx(f), tierIcon(ty)+' confirmed by argument','for'); this._holo(ty); } else { this._status(rtPresenterIdx(f), '⚖ still contested · King rules','und'); } },
+  askJudge(f,pres,onKeep,onDrop){ this._round('Round 3 · King’s Verdict'); this._speakGlow(pres); this._status(pres,'📜 lone claim: '+(f.title||''),'und');
     var c=this._C(); if(c) c.awaitJudge=true;
     var jb=this._el('iwc-judge'); if(jb) jb.classList.add('show');
     var van=this._el('iwcj-van'), rel=this._el('iwcj-rel');
@@ -2458,6 +2475,7 @@ function rtPresenterIdx(f){ var ks=Object.keys(f.foundBy||{}).map(Number).sort(f
 // resolution. The deliberation is async; delib-done / the watchdog re-enter via rtResumeAfterDelib.
 function rtRunVotes(trib, job){
   if(!rtState || !rtState.open) return;
+  window.__rtTrib=trib;   // expose to the per-scout tap panel
   rtPhase1(trib, function(){
     var contested = (job && job.findings) ? job.findings.filter(function(f){ return f._argued; }) : [];
     if(contested.length && job && !job._delibDone && job.models && job.models.length && rtState && rtState.open){
@@ -2472,9 +2490,37 @@ function rtRunVotes(trib, job){
 // Round 2 finished (or timed out) → rebuild the list with the fresh agreedBy support and run R2/R3.
 function rtResumeAfterDelib(job){
   var trib={ cwd:job.cwd, roomIds:job.roomIds, models:job.models||[], list:buildTribList(job) };
+  window.__rtTrib=trib;   // refresh the per-scout tap panel data with post-deliberation votes
   if(rtState && rtState.open) rtPhase23(trib);
   else finalizeTribunal(trib);
 }
+
+// Tap a council ship/card → show that scout's findings, argument, and Round-2 votes.
+window.showCouncilScoutPanel=function(idx){
+  var panel=document.getElementById('iwc-scout'); if(!panel) return;
+  var trib=window.__rtTrib, list=(trib&&trib.list)||[];
+  var c=window.IW&&window.IW.council;
+  var nm=(c&&c.members&&c.members[idx]&&c.members[idx].name)||('Scout '+(idx+1));
+  var mine=list.filter(function(f){ return f.foundBy && f.foundBy[idx]; });
+  var votes=list.filter(function(f){ return f._argued && (!f.foundBy || !f.foundBy[idx]); });
+  var rows='';
+  if(!mine.length && !votes.length){ rows='<div class="sh-empty">No findings or votes yet — the council is still working.</div>'; }
+  mine.forEach(function(f){
+    var finder=rtPresenterIdx(f)===idx;
+    var badge=finder?'<span class="sh-badge found">FINDER</span>':'<span class="sh-badge found">co-found</span>';
+    var arg=(finder&&f._argument)?('<div class="sh-arg">🗣 “'+esc(f._argument)+'”</div>'):'';
+    rows+='<div class="sh-find"><div class="sh-title">'+badge+' '+esc(f.title||'')+'</div>'+
+          '<div class="sh-meta">'+esc(f.file||'?')+' · '+esc(f.sev||'')+' · '+f.support+'/'+f.total+' votes</div>'+arg+'</div>';
+  });
+  votes.forEach(function(f){
+    var forIt=f.agreedBy&&f.agreedBy[idx];
+    var cast=forIt?'<span class="sh-badge for">VOTED FOR</span>':'<span class="sh-badge against">VOTED AGAINST</span>';
+    rows+='<div class="sh-find"><div class="sh-title">'+cast+' '+esc(f.title||'')+'</div><div class="sh-meta">'+esc(f.file||'?')+'</div></div>';
+  });
+  panel.innerHTML='<div class="sh-top"><div class="sh-name">🧭 '+esc(nm)+'</div><button class="sh-x">×</button></div>'+rows;
+  panel.querySelector('.sh-x').addEventListener('click',function(){ panel.classList.remove('show'); });
+  panel.classList.add('show');
+};
 
 // ── Round 1: every finding is presented in turn by its earliest finder, with the live tally.
 //    Majority/unanimous → confirmed here; sub-majority (2/4, 1/4) → flagged "contested → Round 2".
@@ -2583,9 +2629,9 @@ window.onDungeonEvent=function(sid, line){
     graphState.scanning=false;
     analyzeGraph(ev.graph||{});
     saveGraph();   // persist so this project is scanned ONCE — reloads on every reopen
-    // The scan-web already animated the draw across the whole scan; resolve it to the REAL
-    // dependency tethers instantly (no second reveal) — the animation is done when the scan is.
-    iwApplyGravity(true);
+    // Rebuild the scene so the dependency-graph risk now lights the high-risk world's red aura
+    // (build() reads window.graphState), then the scan-web resolves to the REAL tethers instantly.
+    iwRefresh();
     var n=Object.keys(graphState.scores).length;
     var ne=iwGravityEdges().length;
     toast('⬡ Graph ready · '+n+' folder'+(n===1?'':'s')+' · '+ne+' link'+(ne===1?'':'s')+(graphState.cycles.length?' · ⚠ '+graphState.cycles.length+' cycle(s)':''));
@@ -2613,8 +2659,8 @@ window.onDungeonEvent=function(sid, line){
   // ── War Council Round 2 (deliberation) events ──
   if(job && job.deliberate){
     if(ev.t==='delib-start'){ return; }
-    else if(ev.t==='delib-arg'){ var fa=job.byId[ev.id]; if(fa) fa._argument=ev.text; try{ if(VIEW.delibArg) VIEW.delibArg(fa&&fa.title||ev.text); }catch(_){}; return; }   // finder's argument captured + shown live
-    else if(ev.t==='delib-vote'){ var fv=job.byId[ev.id]; if(fv && ev.verdict==='for') fv.agreedBy[ev.member]=1; try{ if(VIEW.delibVote) VIEW.delibVote(); }catch(_){}; return; }  // only FOR raises support; live tally
+    else if(ev.t==='delib-arg'){ var fa=job.byId[ev.id]; if(fa) fa._argument=ev.text; try{ if(VIEW.delibArg) VIEW.delibArg(fa&&fa.title||ev.text, ev.member); }catch(_){}; return; }   // finder's argument captured + shown on that scout's bubble
+    else if(ev.t==='delib-vote'){ var fv=job.byId[ev.id]; if(fv && ev.verdict==='for') fv.agreedBy[ev.member]=1; try{ if(VIEW.delibVote) VIEW.delibVote(ev.member, ev.verdict); }catch(_){}; return; }  // only FOR raises support; live per-scout vote
     else if(ev.t==='delib-done' || ev.t==='delib-error'){
       if(job.wd) clearTimeout(job.wd);
       var dj=job.dJob; delete dispatchJobs[sid];
@@ -3117,6 +3163,18 @@ function spawnScan(pos,base,color,follow){
 const riskAuras=[];
 const ENEMY_DPS=2.6; // hero damage/sec → a normal contact dies in ~1.2s
 function riskOf(bugs){let s=0;(bugs||[]).forEach(b=>{s+=({4:1,3:.6,2:.3,1:.12})[b.sev]||.2;});return Math.min(1,s/2);}
+// Twin-Lens / Graphify risk for a folder (planet) — comes from the dependency graph, NOT from bugs:
+// how depended-upon (centrality) + whether it sits in a cycle + how wide its blast radius is. This
+// is what flags a "high-risk place" right after a scan, before any audit has found a single bug.
+// graphState lives in the classic-script global scope; this module reads it via window.
+function graphRiskOf(name){
+  const gs=window.graphState; if(!gs||!gs.scores||!name) return 0;
+  const s=gs.scores[name]; if(!s) return 0;
+  let r=(s.centrality||0)*0.6 + (s.hasCycle?0.5:0) + Math.min(0.3,((s.blastRadius&&s.blastRadius.length)||0)*0.1);
+  return Math.min(1,r);
+}
+// Combined world risk = worst of audit-bug risk and dependency-graph risk.
+function worldRiskOf(p){ return Math.max(riskOf(p.bugs), graphRiskOf(p.name)); }
 function drawHp(cv,frac){const x=cv.getContext('2d');x.clearRect(0,0,64,12);
   x.fillStyle='rgba(0,0,0,.6)';x.fillRect(0,0,64,12);
   x.fillStyle=frac>.5?'#3DD68C':frac>.25?'#FBBF24':'#F87171';x.fillRect(2,2,60*Math.max(0,frac),8);}
@@ -3125,6 +3183,9 @@ function makeHpBar(){const cv=document.createElement('canvas');cv.width=64;cv.he
   const s=new THREE.Sprite(new THREE.SpriteMaterial({map:tex,transparent:true,depthTest:false,depthWrite:false}));
   s.scale.set(3.4,.62,1);s.visible=false;return {bar:s,cv,tex};}
 function worldPos(o){o.getWorldPosition(tmpV);return tmpV.clone();}
+// Point a ship's NOSE at a target. Object3D.lookAt aligns local +Z to the target, but the ship
+// models' nose points -Z, so a bare lookAt flies them tail-first. Flip 180° to face forward.
+function faceShip(o,target){ o.lookAt(target); o.rotateY(Math.PI); }
 
 function spawnEnemiesAround(parent,anchorX,hostRadius,bugs,label){
   bugs.forEach((b,i)=>{
@@ -3187,7 +3248,7 @@ function build(){
   // Twin-Lens red aura marks ONLY the single highest-risk world (matches the 2D dungeon —
   // one threat beacon, not a sea of red). Find the worst planet first, then aura just that one.
   let _auraRisk=0, _auraIdx=-1;
-  D.planets.forEach((p,idx)=>{ if(p.home) return; const r=riskOf(p.bugs); if(r>_auraRisk){ _auraRisk=r; _auraIdx=idx; } });
+  D.planets.forEach((p,idx)=>{ if(p.home) return; const r=worldRiskOf(p); if(r>_auraRisk){ _auraRisk=r; _auraIdx=idx; } });
   if(_auraRisk<=0.3) _auraIdx=-1;   // nothing risky enough → no beacon at all
   D.planets.forEach((p,idx)=>{
     const ri=ringOf[idx]; p.orbit=RING_R[ri]; // folders share rings; same ring = same radius (Earth shares a ring too)
@@ -3198,7 +3259,7 @@ function build(){
     planet.userData.info={name:p.name,bugs:p.bugs,moons:(p.moons||[]).length,rid:p.rid};
     planet.userData.focusable=true;planet.userData.focusDist=Math.max(13,p.size*8);
     clickTargets.push(planet);
-    const rsk=riskOf(p.bugs); // high-risk folder → pulsing red rim (in the real port this comes from graphState.scores)
+    const rsk=worldRiskOf(p); // high-risk folder → pulsing red rim, driven by the dependency graph (Twin Lens)
     if(idx===_auraIdx){const ra=halo(rsk>0.6?0xF87171:0xFB923C,p.size*(4+rsk*3),0);planet.add(ra);riskAuras.push({s:ra,risk:rsk});} // ONLY the worst world gets the beacon
     worlds.push({mesh:planet,risk:rsk,home:!!p.home}); // gravity-map node + hound target
     pivot.add(planet);orbiters.push({pivot,speed:RING_SPD[ri]}); // SAME speed per ring → shared-ring planets keep their spacing
@@ -3281,8 +3342,15 @@ const ray=new THREE.Raycaster(),ptr=new THREE.Vector2();let downXY=null;
 renderer.domElement.addEventListener('pointerdown',e=>downXY=[e.clientX,e.clientY]);
 renderer.domElement.addEventListener('pointerup',e=>{
   if(!downXY)return;if(Math.hypot(e.clientX-downXY[0],e.clientY-downXY[1])>8)return;
-  if(council.active)return; // council running — ignore map taps
   ptr.x=e.clientX/innerWidth*2-1;ptr.y=-(e.clientY/innerHeight)*2+1;ray.setFromCamera(ptr,camera);
+  if(council.active){ // council running — tap a council ship → its scout panel; tap empty → close it
+    const ms=(council.members||[]).map(m=>m.obj).filter(Boolean);
+    const ch=ray.intersectObjects(ms,true)[0];
+    if(ch){ let co=ch.object; while(co && co.userData.councilIdx==null) co=co.parent;
+      if(co && co.userData.councilIdx!=null){ try{ window.showCouncilScoutPanel(co.userData.councilIdx); }catch(_){} return; } }
+    var sp=document.getElementById('iwc-scout'); if(sp) sp.classList.remove('show');
+    return;
+  }
   const hit=ray.intersectObjects(clickTargets,true)[0];
   if(!hit){ unfocus(); hideInfo(); return; }            // tap empty → back to system view
   let o=hit.object;while(o&&!o.userData.info&&!o.userData.enemy)o=o.parent;
@@ -3401,8 +3469,14 @@ function convene(models){
   const chips=document.getElementById('iwc-chips');council.members=[];chips.innerHTML='';
   const N=Math.max(2,Math.min(4,(models&&models.length)||4)); // real council size (2–4), not a fixed 4
   for(let i=0;i<N;i++){const s=getShip(SCOUT_KEYS[i%SCOUT_KEYS.length],0x60A5FA);s.scale.setScalar(1.12);scene.add(s);
-    const chip=document.createElement('div');chip.className='iwc-chip und';chip.textContent='…';chips.appendChild(chip);
-    council.members.push({obj:s,chip,vote:null,name:(models&&models[i])||('Scout '+(i+1))});}
+    s.userData.councilIdx=i;   // tap a council ship → open its scout panel
+    const nm=(models&&models[i])||('Scout '+(i+1));
+    const chip=document.createElement('div');chip.className='iwc-chip und';
+    chip.innerHTML='<div class="nm"></div><div class="st">…</div>';
+    chip.querySelector('.nm').textContent=shortModel?shortModel(nm):nm;
+    const _ci=i; chip.addEventListener('click',function(ev){ ev.stopPropagation(); try{ if(window.showCouncilScoutPanel) window.showCouncilScoutPanel(_ci); }catch(_){} });
+    chips.appendChild(chip);
+    council.members.push({obj:s,chip,nameEl:chip.querySelector('.nm'),stEl:chip.querySelector('.st'),vote:null,name:nm});}
   // Promote the existing Earth flagship to King — no second ship. Detach it to the scene (keeps world transform), it flies up to the table.
   if(homeShip){council.kingRestore={obj:homeShip,parent:homeShip.parent,pos:homeShip.position.clone(),scale:homeShip.scale.x};
     scene.attach(homeShip);council.king=homeShip;}
@@ -3428,6 +3502,7 @@ function endCouncil(){
   enemies.forEach(e=>{if(e.pivot)e.pivot.visible=true;}); // contacts back (dead ships stay hidden via group.visible)
   controls.enableZoom=true; // restore pinch-zoom after the council
   document.getElementById('iwc-dialog').style.display='none';
+  var _sp=document.getElementById('iwc-scout'); if(_sp) _sp.classList.remove('show');
   unfocus();
 }
 function councilTick(dt){
@@ -3436,7 +3511,7 @@ function councilTick(dt){
   const seats=council.members.length+1; // King takes one seat in the ring alongside the scouts
   council.members.forEach((m,i)=>{
     const ang=i/seats*6.283+now*0.00004;
-    m.obj.position.set(c.x+Math.cos(ang)*8,c.y+1.5,c.z+Math.sin(ang)*8);m.obj.lookAt(c);
+    m.obj.position.set(c.x+Math.cos(ang)*8,c.y+1.5,c.z+Math.sin(ang)*8);faceShip(m.obj,c);
     const tgt=(i===council.speaking)?1.5:1.1,cs=m.obj.scale.x;m.obj.scale.setScalar(cs+(tgt-cs)*0.12);
     const v=m.obj.position.clone();v.y+=2.4;v.project(camera);
     if(v.z>1){m.chip.style.display='none';}else{m.chip.style.display='block';
@@ -3447,7 +3522,7 @@ function councilTick(dt){
     const kAng=council.members.length/seats*6.283+now*0.00004;
     const ky=c.y+1.5+(council.speaking===-2?Math.sin(now*0.005)*0.4:0);
     council.king.position.lerp(new THREE.Vector3(c.x+Math.cos(kAng)*8,ky,c.z+Math.sin(kAng)*8),0.08);
-    council.king.lookAt(c);
+    faceShip(council.king,c);
     const tScale=flaring?4.8:4.2,ks=council.king.scale.x;council.king.scale.setScalar(ks+(tScale-ks)*0.10); // stays a big mothership in the ring; swells on verdict
     if(flaring){council.kingFlare-=dt;council._flT=(council._flT||0)-dt; // rapid weapon flashes ring the commander as it rules
       if(council._flT<=0){const a=now*0.013,r=2.2,kp=council.king.position;flash(new THREE.Vector3(kp.x+Math.cos(a)*r,kp.y,kp.z+Math.sin(a)*r));council._flT=0.13;}}}
@@ -3491,7 +3566,7 @@ function loop(){
     // RETURNING — this scout finished its audit (knightDone → scoutHome, or convene →
     // scoutsRest): fly visibly BACK to the home base, then go idle (instead of vanishing in place).
     if(s.returning){ if(!s.obj.visible){ s.active=false; s.returning=false; return; }
-      s.obj.position.lerp(earthP,0.045); s.obj.lookAt(earthP); s.obj.rotation.y+=dt*0.6;
+      s.obj.position.lerp(earthP,0.045); faceShip(s.obj,earthP); s.obj.rotation.y+=dt*0.6;
       if(s.obj.position.distanceTo(earthP)<3){ s.obj.visible=false; s.active=false; s.returning=false; s.phase='fly'; s.flyFrom=null; s.t=0; }
       return; }
     if(!s.obj.visible){ s.obj.visible=true; s.obj.position.copy(earthP); s.flyFrom=null; s.t=0; } // just dispatched → appear at home base, then fly out
@@ -3510,7 +3585,7 @@ function loop(){
     const phase=slot*2.1, rr=pr+3.2+slot*0.9, hy=1.2+slot*0.55;
     if(s.phase==='scan'){ // SWEEP: orbit the planet + emit sonar pulses for as long as the model audits it
       s.scanT+=dt; const ang=s.scanT*2.2+phase;
-      s.obj.position.set(dest.x+Math.cos(ang)*rr, dest.y+hy, dest.z+Math.sin(ang)*rr); s.obj.lookAt(dest);
+      s.obj.position.set(dest.x+Math.cos(ang)*rr, dest.y+hy, dest.z+Math.sin(ang)*rr); faceShip(s.obj,dest);
       s.pulseT=(s.pulseT||0)-dt; if(s.pulseT<=0){ spawnScan(s.obj.position.clone(),0.9,0x60A5FA,s.obj); s.pulseT=0.5; } // follow=s.obj → wave trails the ship
       return;
     }
@@ -3518,7 +3593,7 @@ function loop(){
     const entry=new THREE.Vector3(dest.x+Math.cos(phase)*rr, dest.y+hy, dest.z+Math.sin(phase)*rr);
     if(!s.flyFrom) s.flyFrom=s.obj.position.clone();
     s.t=(s.t||0)+dt*0.4; const k=Math.min(s.t,1);
-    s.obj.position.lerpVectors(s.flyFrom, entry, k); s.obj.position.y+=Math.sin(k*Math.PI)*14; s.obj.lookAt(dest);
+    s.obj.position.lerpVectors(s.flyFrom, entry, k); s.obj.position.y+=Math.sin(k*Math.PI)*14; faceShip(s.obj,dest);
     if(k>=1){ s.phase='scan'; s.scanT=0; s.pulseT=0; s.scanTarget=s.target; s.flyFrom=null; s.t=0; }
   });
   // expand + fade active scan pulses
