@@ -746,7 +746,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd86-scout-root-fallback-fixes-wrong-planet-orbit';
+var DUNGEON_BUILD = 'd87-dependency-lens-survives-rebuild';
 
 // ── boot diagnostics: was referenced (window.__log) but never defined → all
 //    model-load reasons were silently dropped. Surface them to the #loading
@@ -1155,6 +1155,9 @@ function loadGraph(){
     catch(_){}
   }
   updateGraphChip();
+  // (re)draw or clear the tethers to match THIS project's graph — also lights a persisted
+  // lens on reopen, and clears any stale tethers carried over from a previous project.
+  iwApplyGravity();
 }
 
 // Update the graph chip badge in the scout dialog
@@ -1191,9 +1194,12 @@ function updateGraphChip(){
 function renderAll(){
   // SVG renderer retired — drive the 3D interstellar scene from real rooms[]/bugs[]/agents[].
   if(window.IW && window.IW.buildSystem){
-    try{ window.IW.buildSystem(adaptRoomsToD()); }   // gravity tethers are NOT auto-lit here — only on an explicit ⬡ graph scan (graph-data event)
+    try{ window.IW.buildSystem(adaptRoomsToD()); }
     catch(e){ console.warn('[IW] buildSystem failed', e); }
   }
+  // buildSystem→clearScene drops the gravity tethers; re-light the dependency lens if this
+  // project has a scanned graph, so a rebuild (dispatch/find/minimize) doesn't reset the lens.
+  if(graphState && graphState.raw) iwApplyGravity();
   $('agentsBtn').textContent='⚔ '+agents.length;
   $('map-title').textContent='⚜ '+activeName;   // top-right = project name only
 }
@@ -1242,7 +1248,9 @@ window.dungeonDeployAt=function(rid,bid){ try{
 var _iwRefreshT=null;
 function iwRefresh(){ if(!window.IW||!window.IW.buildSystem) return;
   clearTimeout(_iwRefreshT);
-  _iwRefreshT=setTimeout(function(){ try{ window.IW.buildSystem(adaptRoomsToD()); }catch(e){ console.warn('[IW] refresh',e); } },120); }
+  _iwRefreshT=setTimeout(function(){ try{ window.IW.buildSystem(adaptRoomsToD());
+    if(graphState && graphState.raw) iwApplyGravity();   // re-light the dependency lens after the rebuild drops it
+  }catch(e){ console.warn('[IW] refresh',e); } },120); }
 // Voice — mission-control lines fired on real engine events (muteable via the top-bar button).
 var iwMuted=false;
 function iwSay(k){ if(iwMuted) return; try{ if(window.IW&&window.IW.say) window.IW.say(k); }catch(_){} }
