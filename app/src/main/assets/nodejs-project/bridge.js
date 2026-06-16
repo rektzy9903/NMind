@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b122-delib-code-evidence';
+const BRIDGE_BUILD = 'b123-unprune-notebook-worktree-ask-skill';
 
 const net   = require('net');
 const http  = require('http');
@@ -1690,20 +1690,27 @@ function sendToKiro(pUrl, apiKey, anthReq, stream, res, cfg) {
 //   ScheduleWakeup — harness loop self-pacing
 //   NotebookEdit — Jupyter notebook editing; no notebooks on a phone
 const PRUNED_TOOLS = new Set([
-    'CronCreate', 'CronDelete', 'CronList',
-    'EnterWorktree', 'ExitWorktree',
-    'ScheduleWakeup', 'NotebookEdit',
-    // Harness/orchestration tools that don't function on this build:
-    //   Skill          — no skills configured in the guest → calling it does nothing
-    //   Monitor        — watches a backgrounded job; print mode has none across turns
-    //   PushNotification / RemoteTrigger — harness APIs with no counterpart here
-    //   AskUserQuestion — pruned at the proxy, which BOTH terminals share, so the
-    //     model never sees it in chat OR the 🐧 interactive tab; headless --print
-    //     can't collect an answer regardless. Interactive ask→answer uses text.
+    // Scheduling/wakeup — no daemon survives between turns (print mode spawns one
+    // proc per message; the 🐧 TUI's claude dies when the tab closes). A scheduled
+    // entry would have nothing to fire it, so the tool is a no-op stub.
+    'CronCreate', 'CronDelete', 'CronList', 'ScheduleWakeup',
+    // Monitor — watches a backgrounded job; headless print has none across turns.
+    //   (Plausible in the warm/interactive REPL, but unproven — probe before un-pruning.)
+    // PushNotification / RemoteTrigger — Claude Code cloud/desktop harness APIs with
+    //   no counterpart in this app's bridge.
+    'Monitor', 'PushNotification', 'RemoteTrigger',
+    // ── Un-pruned 2026-06-16 (functional on proot/glibc; defer keeps them zero-cost
+    //    until used, so the old token-bloat objection is gone): ──────────────────
+    //   NotebookEdit            — pure .ipynb file editing, works on glibc node.
+    //   EnterWorktree/ExitWorktree — the proot guest has real git → functional.
+    //   AskUserQuestion         — works in the 🐧 interactive TUI (real TTY collects
+    //     the answer). In headless --print it has no TTY, but claude-code --print
+    //     auto-resolves it with an is_error result (no hang, b54) so it's harmless
+    //     in chat. Both terminals share this proxy, so kept globally.
+    //   Skill                   — usable once skills are installed in the guest
+    //     (e.g. graphify); kept so it works the moment a skill exists.
     // The "weak models loop on Skill/AskUserQuestion" (inv 68) fear was an OLD-ENGINE
-    // permission-friction artifact: re-probed on proot 2.1.161 (b54) across
-    // kimi-k2.6 / gpt-oss-20b/120b, no loop. Pruned for uselessness, not loop danger.
-    'Skill', 'Monitor', 'PushNotification', 'RemoteTrigger', 'AskUserQuestion',
+    // permission-friction artifact: re-probed on proot 2.1.161 (b54), no loop.
 ]);
 
 // Read-only dungeon scouts (Deep Scout / War Council / Divide) are MARKERS-ONLY —
