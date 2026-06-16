@@ -11,6 +11,8 @@ object Cap {
     const val FREE      = "free"      // free tier available
     const val CODING    = "coding"    // specialized for code generation
     const val LONG_CTX  = "long_ctx"  // 200K+ context window
+    const val IMAGE     = "image"     // generates images from a text prompt
+    const val VIDEO     = "video"     // generates video from a text prompt
 }
 
 data class AiModel(

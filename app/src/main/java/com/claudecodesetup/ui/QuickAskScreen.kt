@@ -13,9 +13,15 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import java.io.File
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -40,6 +46,7 @@ fun QuickAskScreen(
     var input by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
     val clipboard = LocalClipboardManager.current
+    val context = LocalContext.current
 
     // On first composition, restore last-used speaker if there is one.
     LaunchedEffect(Unit) {
@@ -144,7 +151,7 @@ fun QuickAskScreen(
                         onClick = {
                             val t = input.trim()
                             if (t.isNotEmpty() && state.activeSpeaker != null) {
-                                vm.send(t)
+                                vm.send(t, context.applicationContext)
                                 input = ""
                             }
                         },
@@ -245,7 +252,19 @@ private fun QuickAskBubble(msg: Message, onCopy: () -> Unit) {
                 )
                 Spacer(Modifier.size(2.dp))
             }
-            if (msg.text.isNotEmpty()) {
+            if (msg.imagePath != null) {
+                AsyncImage(
+                    model = ImageRequest.Builder(LocalContext.current)
+                        .data(File(msg.imagePath))
+                        .build(),
+                    contentDescription = "generated image",
+                    contentScale = ContentScale.FillWidth,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(1f)
+                        .background(Color.Black.copy(alpha = 0.2f), RoundedCornerShape(10.dp)),
+                )
+            } else if (msg.text.isNotEmpty()) {
                 Text(
                     msg.text,
                     fontFamily = DmSansFamily, fontSize = 14.sp,

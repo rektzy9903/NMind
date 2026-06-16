@@ -22,9 +22,15 @@ import com.claudecodesetup.data.Provider
 import com.claudecodesetup.data.Providers
 import com.claudecodesetup.data.ProvidersRepository
 import com.claudecodesetup.discussion.Speaker
+import com.claudecodesetup.quickask.ImageGen
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+/** Capability filter for the Quick Ask picker. */
+enum class QaFilter(val label: String) {
+    ALL("All"), CHAT("Chat"), IMAGE("Image"), VIDEO("Video")
+}
 
 /**
  * Single-select model picker for Quick Ask. Mirrors the multi-select
@@ -77,13 +83,37 @@ fun QuickAskModelPickerSheet(
         }
     }
 
-    val candidates: List<SpeakerCandidate> = run {
+    val chatCandidates: List<SpeakerCandidate> = run {
         val out = mutableListOf<SpeakerCandidate>()
         for (cfg in configured) {
             val models = liveModels[cfg.provider.id] ?: cfg.provider.models
             for (m in models) out.add(SpeakerCandidate(cfg.provider, m))
         }
         out
+    }
+    // Image-gen routes live in a SEPARATE registry (ImageGen) — never in
+    // Providers.ALL — so they only ever appear here, never in the terminal flow.
+    val imageCandidates: List<SpeakerCandidate> = remember {
+        ImageGen.availableSpeakers(prefs).map { SpeakerCandidate(it.provider, it.model) }
+    }
+    val allCandidates = chatCandidates + imageCandidates
+
+    var filter by remember { mutableStateOf(QaFilter.ALL) }
+    var query by remember { mutableStateOf("") }
+    val candidates: List<SpeakerCandidate> = run {
+        val byFilter = when (filter) {
+            QaFilter.ALL   -> allCandidates
+            QaFilter.CHAT  -> chatCandidates
+            QaFilter.IMAGE -> imageCandidates
+            QaFilter.VIDEO -> emptyList()
+        }
+        val q = query.trim().lowercase()
+        if (q.isEmpty()) byFilter
+        else byFilter.filter { c ->
+            c.model.name.lowercase().contains(q) ||
+                c.model.modelId.lowercase().contains(q) ||
+                c.provider.name.lowercase().contains(q)
+        }
     }
     val isFetching = loadingProviders.isNotEmpty()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -114,17 +144,83 @@ fun QuickAskModelPickerSheet(
             } else {
                 Spacer(Modifier.height(4.dp))
             }
-            if (candidates.isEmpty()) {
-                Text(
-                    "No providers with API keys configured. Go to Login → pick a provider first.",
-                    fontFamily = DmSansFamily, fontSize = 13.sp,
-                    color = Color(0xFFEF4444),
-                    modifier = Modifier.padding(vertical = 16.dp),
-                )
-                TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
-                    Text("Close", color = NexusText2)
+            // Capability filter chips. Image routes are bridge-free generators
+            // (ImageGen); Video is a placeholder until a free route lands.
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.padding(bottom = 8.dp),
+            ) {
+                for (f in QaFilter.values()) {
+                    val active = f == filter
+                    Text(
+                        f.label,
+                        fontFamily = SpaceMonoFamily, fontSize = 11.sp,
+                        fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
+                        color = if (active) NexusAccent else NexusText3,
+                        modifier = Modifier
+                            .background(
+                                if (active) NexusAccent.copy(alpha = 0.18f) else NexusSurface2,
+                                RoundedCornerShape(99.dp),
+                            )
+                            .border(
+                                1.dp,
+                                if (active) NexusAccent else NexusBorder,
+                                RoundedCornerShape(99.dp),
+                            )
+                            .clickable { filter = f }
+                            .padding(horizontal = 12.dp, vertical = 5.dp),
+                    )
                 }
-            } else {
+            }
+            run {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    placeholder = {
+                        Text(
+                            "Search models…",
+                            fontFamily = DmSansFamily, fontSize = 13.sp, color = NexusText3,
+                        )
+                    },
+                    singleLine = true,
+                    trailingIcon = {
+                        if (query.isNotEmpty()) {
+                            Text(
+                                "✕",
+                                color = NexusText3, fontSize = 14.sp,
+                                modifier = Modifier
+                                    .clickable { query = "" }
+                                    .padding(horizontal = 12.dp),
+                            )
+                        }
+                    },
+                    textStyle = androidx.compose.ui.text.TextStyle(
+                        color = Color.White, fontFamily = DmSansFamily, fontSize = 13.sp,
+                    ),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        cursorColor = NexusAccent,
+                        focusedBorderColor = NexusAccent,
+                        unfocusedBorderColor = NexusBorder,
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 8.dp),
+                )
+                if (candidates.isEmpty()) {
+                    val emptyMsg = when {
+                        filter == QaFilter.VIDEO -> "Video generation coming soon — no free route yet."
+                        query.isNotEmpty()       -> "No models match \"$query\"."
+                        filter == QaFilter.CHAT  -> "No chat providers configured. Go to Login → pick a provider first."
+                        else                     -> "Nothing here yet."
+                    }
+                    Text(
+                        emptyMsg,
+                        fontFamily = DmSansFamily, fontSize = 13.sp, color = NexusText3,
+                        modifier = Modifier.padding(vertical = 16.dp),
+                    )
+                }
                 LazyColumn(
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                     modifier = Modifier.weight(1f, fill = false).heightIn(max = 520.dp),

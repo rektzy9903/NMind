@@ -17,6 +17,8 @@ data class Message(
     val promptTokens: Int = 0,
     val completionTokens: Int = 0,
     val errorMessage: String? = null,
+    /** Local file path of a generated image (image-gen turns only). */
+    val imagePath: String? = null,
 )
 
 /** Immutable UI snapshot owned by QuickAskViewModel. */

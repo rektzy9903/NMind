@@ -1,17 +1,20 @@
 package com.claudecodesetup.quickask
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.claudecodesetup.discussion.ChatChunk
 import com.claudecodesetup.discussion.ChatMessage
 import com.claudecodesetup.discussion.ProviderClient
 import com.claudecodesetup.discussion.Speaker
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Owns the Quick Ask conversation state. Reusable across screen rotations
@@ -52,15 +55,17 @@ class QuickAskViewModel(
         _state.value = _state.value.copy(messages = msgs, isStreaming = false)
     }
 
-    fun send(text: String) {
+    fun send(text: String, appContext: Context) {
         if (text.isBlank()) return
         val s = _state.value
         if (s.isStreaming) return
         val speaker = s.activeSpeaker ?: return
-        val userMsg = Message(MessageRole.USER, text.trim(), MessageStatus.DONE)
+        val prompt = text.trim()
+        val isImage = ImageGen.isImageSpeaker(speaker)
+        val userMsg = Message(MessageRole.USER, prompt, MessageStatus.DONE)
         val placeholder = Message(
             role         = MessageRole.ASSISTANT,
-            text         = "",
+            text         = if (isImage) "generating image…" else "",
             status       = MessageStatus.STREAMING,
             speakerId    = speaker.id,
             speakerLabel = speaker.model.name,
@@ -69,7 +74,37 @@ class QuickAskViewModel(
             messages = s.messages + userMsg + placeholder,
             isStreaming = true,
         )
-        streamJob = viewModelScope.launch { runStream(speaker) }
+        streamJob = viewModelScope.launch {
+            if (isImage) runImage(speaker, prompt, appContext) else runStream(speaker)
+        }
+    }
+
+    /** Image-gen turn — native, bridge-free. The prompt alone is sent (no chat
+     *  history); the result is rendered as an image bubble. */
+    private suspend fun runImage(speaker: Speaker, prompt: String, appContext: Context) {
+        val idx = _state.value.messages.lastIndex
+        try {
+            val result = withContext(Dispatchers.IO) {
+                ImageGen.generate(appContext, speaker, prompt)
+            }
+            when (result) {
+                is ImageGen.Result.Success -> updateMessage(idx) {
+                    it.copy(status = MessageStatus.DONE, text = "", imagePath = result.filePath)
+                }
+                is ImageGen.Result.Failure -> updateMessage(idx) {
+                    it.copy(status = MessageStatus.FAILED, text = "", errorMessage = result.message)
+                }
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            updateMessage(idx) { it.copy(status = MessageStatus.STOPPED, text = "") }
+            throw e
+        } catch (e: Exception) {
+            updateMessage(idx) {
+                it.copy(status = MessageStatus.FAILED, text = "", errorMessage = e.message ?: e.javaClass.simpleName)
+            }
+        } finally {
+            _state.value = _state.value.copy(isStreaming = false)
+        }
     }
 
     private suspend fun runStream(speaker: Speaker) {
@@ -126,6 +161,8 @@ class QuickAskViewModel(
             if (m.role == MessageRole.ASSISTANT && m.status == MessageStatus.STREAMING && m.text.isEmpty()) continue
             // Failed or stopped messages contributed nothing useful — skip from history.
             if (m.status == MessageStatus.FAILED || m.status == MessageStatus.STOPPED) continue
+            // Image-gen results carry no text the chat model can use — skip.
+            if (m.imagePath != null) continue
             val role = if (m.role == MessageRole.USER) "user" else "assistant"
             out.add(ChatMessage(role, m.text))
         }
