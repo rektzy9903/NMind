@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b117-usage-cache-tokens';
+const BRIDGE_BUILD = 'b118-usage-cache-tokens+prune-comment-fix';
 
 const net   = require('net');
 const http  = require('http');
@@ -1697,14 +1697,12 @@ const PRUNED_TOOLS = new Set([
     //   Skill          — no skills configured in the guest → calling it does nothing
     //   Monitor        — watches a backgrounded job; print mode has none across turns
     //   PushNotification / RemoteTrigger — harness APIs with no counterpart here
-    //   AskUserQuestion — claude-code --print auto-resolves it with an is_error
-    //     ("please choose…"); there's no TTY to collect the answer, so it's
-    //     non-functional in headless chat (it WOULD work in the 🐧 interactive tab).
-    // NOTE: the old "weak models loop on Skill/AskUserQuestion" (inv 68) fear was an
-    // OLD-ENGINE artifact (permission friction). Re-probed on proot 2.1.161 (b54
-    // !probe-loop) across kimi-k2.6 / gpt-oss-20b / gpt-oss-120b: NO loop — all ask
-    // in plain text, none even call the tools. So these stay pruned for uselessness,
-    // NOT loop danger. Interactive ask→answer already works via natural text + warm.
+    //   AskUserQuestion — pruned at the proxy, which BOTH terminals share, so the
+    //     model never sees it in chat OR the 🐧 interactive tab; headless --print
+    //     can't collect an answer regardless. Interactive ask→answer uses text.
+    // The "weak models loop on Skill/AskUserQuestion" (inv 68) fear was an OLD-ENGINE
+    // permission-friction artifact: re-probed on proot 2.1.161 (b54) across
+    // kimi-k2.6 / gpt-oss-20b/120b, no loop. Pruned for uselessness, not loop danger.
     'Skill', 'Monitor', 'PushNotification', 'RemoteTrigger', 'AskUserQuestion',
 ]);
 

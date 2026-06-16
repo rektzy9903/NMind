@@ -87,8 +87,6 @@ class DownloadManager {
     }
 
     companion object {
-        // Legacy libnode engine pin (DELETED in P4). Kept only as a historical marker.
-        const val PINNED_CLAUDE_VERSION = "2.1.112"
         // Proot Ubuntu engine: claude-code provisioned into the rootfs by !setup-engine
         // (npm i -g @anthropic-ai/claude-code). Shown in Settings → About when no live
         // version has been recorded. Update when the provisioned baseline changes.
