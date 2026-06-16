@@ -746,7 +746,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd90-reveal-frontandcenter-on-scan-done';
+var DUNGEON_BUILD = 'd91-scanweb-during-scan';
 
 // ── boot diagnostics: was referenced (window.__log) but never defined → all
 //    model-load reasons were silently dropped. Surface them to the #loading
@@ -1123,6 +1123,10 @@ function scanProjectGraph(){
   if(graphState.scanning){ toast('Graph scan already running…'); return; }
   graphState.scanning=true; graphState.error=null; graphState.scanStartTs=Date.now();
   updateGraphChip();
+  // Get the recon panel out of the way and start the scan-web NOW so the tethers draw on the
+  // visible scene for the whole scan (resolves to the real graph when madge returns).
+  $('scout-dialog').classList.remove('show');
+  iwBeginGravityScan();
   toast(graphState.raw ? '◌ Re-scanning dependencies…' : '◌ Scanning dependencies… (first run fetches madge, ~1–2 min)');
   var sid=jDispatch(JSON.stringify({ op:'graph-scan', cwd:activePath }));
   if(sid&&sid!=='no-bridge'&&sid!=='err'){
@@ -1157,7 +1161,7 @@ function loadGraph(){
   updateGraphChip();
   // (re)draw or clear the tethers to match THIS project's graph — also lights a persisted
   // lens on reopen, and clears any stale tethers carried over from a previous project.
-  iwApplyGravity();
+  iwApplyGravity(true);
 }
 
 // Update the graph chip badge in the scout dialog
@@ -1205,7 +1209,7 @@ function renderAll(){
   }
   // buildSystem→clearScene drops the gravity tethers; re-light the dependency lens if this
   // project has a scanned graph, so a rebuild (dispatch/find/minimize) doesn't reset the lens.
-  if(graphState && graphState.raw) iwApplyGravity();
+  if(graphState && graphState.raw) iwApplyGravity(true);
   $('agentsBtn').textContent='⚔ '+agents.length;
   $('map-title').textContent='⚜ '+activeName;   // top-right = project name only
 }
@@ -1255,7 +1259,7 @@ var _iwRefreshT=null;
 function iwRefresh(){ if(!window.IW||!window.IW.buildSystem) return;
   clearTimeout(_iwRefreshT);
   _iwRefreshT=setTimeout(function(){ try{ window.IW.buildSystem(adaptRoomsToD());
-    if(graphState && graphState.raw) iwApplyGravity();   // re-light the dependency lens after the rebuild drops it
+    if(graphState && graphState.raw) iwApplyGravity(true);   // re-light the dependency lens after the rebuild drops it
   }catch(e){ console.warn('[IW] refresh',e); } },120); }
 // Voice — mission-control lines fired on real engine events (muteable via the top-bar button).
 var iwMuted=false;
@@ -1269,7 +1273,8 @@ function iwGravityEdges(){
     (raw[f]||[]).forEach(function(dep){ var df=folderOf(dep); if(sf===df) return; var k=sf+' '+df; w[k]=(w[k]||0)+1; }); });
   return Object.keys(w).map(function(k){ var p=k.split(' '); return [p[0],p[1],w[k]]; });
 }
-function iwApplyGravity(){ try{ if(window.IW&&window.IW.showGravity) window.IW.showGravity(iwGravityEdges()); }catch(_){} }
+function iwApplyGravity(instant){ try{ if(window.IW&&window.IW.showGravity) window.IW.showGravity(iwGravityEdges(), instant); }catch(_){} }
+function iwBeginGravityScan(){ try{ if(window.IW&&window.IW.beginGravityScan) window.IW.beginGravityScan(); }catch(_){} }
 
 function enterDungeon(name,path){
   activePath=path; activeName=name;
@@ -1997,11 +2002,6 @@ document.querySelectorAll('#scout-cmode .seg-btn').forEach(function(b){
 $('model-search').addEventListener('input', function(){ scoutSearch=this.value; renderModelChips(); });
 $('scout-cancel').addEventListener('click', function(){
   $('scout-dialog').classList.remove('show');
-  // If the lens already scanned, REPLAY its reveal animation now that the dialog is out of
-  // the way — otherwise the tether-draw + bead flow played behind the open dialog and looks
-  // "stopped" (static shimmer) by the time you close it. (If still scanning, graphState.raw
-  // is null → skip; the reveal fires on graph-data when the scan finishes.)
-  if(graphState && graphState.raw) setTimeout(iwApplyGravity, 60);
 });
 $('scout-begin').addEventListener('click', function(){
   var mode=segVal('scout-mode'), council=mode==='council';
@@ -2555,18 +2555,17 @@ window.onDungeonEvent=function(sid, line){
     graphState.scanning=false;
     analyzeGraph(ev.graph||{});
     saveGraph();   // persist so this project is scanned ONCE — reloads on every reopen
-    // The tether reveal plays ONCE when it's drawn. Get the recon dialog out of the way so the
-    // reveal happens front-and-center on the visible scene instead of behind the panel (or missed
-    // entirely if the scan finished after the user already cancelled).
-    var dlgOpen=$('scout-dialog').classList.contains('show');
-    if(dlgOpen) $('scout-dialog').classList.remove('show');
-    setTimeout(iwApplyGravity, dlgOpen?140:0);   // light up the gravity tethers from the fresh dependency graph
+    // The scan-web already animated the draw across the whole scan; resolve it to the REAL
+    // dependency tethers instantly (no second reveal) — the animation is done when the scan is.
+    iwApplyGravity(true);
     var n=Object.keys(graphState.scores).length;
     var ne=iwGravityEdges().length;
-    toast('⬡ Graph ready · '+n+' folder'+(n===1?'':'s')+' · '+ne+' link'+(ne===1?'':'s')+(graphState.cycles.length?' · ⚠ '+graphState.cycles.length+' cycle(s)':'')+' · watch the tethers draw');
+    toast('⬡ Graph ready · '+n+' folder'+(n===1?'':'s')+' · '+ne+' link'+(ne===1?'':'s')+(graphState.cycles.length?' · ⚠ '+graphState.cycles.length+' cycle(s)':''));
     return;
   }
-  else if(ev.t==='graph-error'){ graphState.scanning=false; graphState.error=ev.err||'unknown'; updateGraphChip(); toast('⬡ Graph scan failed: '+(ev.err||'').slice(0,60)); return; }
+  else if(ev.t==='graph-error'){ graphState.scanning=false; graphState.error=ev.err||'unknown'; updateGraphChip();
+    iwApplyGravity(true);   // tear down the speculative scan-web (or restore the last good graph on a failed rescan)
+    toast('⬡ Graph scan failed: '+(ev.err||'').slice(0,60)); return; }
   // Hero pre-pass (GraphRAG-style): resolve briefing then fire real dispatch
   else if(ev.t==='prepass-start'){ return; }
   else if(ev.t==='prepass-data'){
@@ -3055,6 +3054,7 @@ function planetMesh(texKey,size,ring){
 // ============================================================ STATE
 const orbiters=[],enemies=[],scouts=[],heroSquad=[],dronesArr=[],clickTargets=[],worlds=[],houndsArr=[];
 let gravTethers=null; // built lazily on first "scan gravity"
+let gravScanActive=false; // true while a speculative scan-web is drawing (before madge returns)
 
 // ============================================================ VOICE — FRIDAY-style system AI (clean Lily, /voice/*.mp3)
 const VOICE={};
@@ -3299,6 +3299,16 @@ function dispatchHero(bid){
 // ============================================================ GRAVITY MAP (dependency tethers)
 const GSEG=18; // segments per tether
 function gravPoint(A,B,tk,out){ out.lerpVectors(A,B,tk); out.lerp(ZERO,Math.sin(tk*Math.PI)*0.16); return out; } // sag toward the star = gravity well
+// Build one tether (line + flowing bead) between two world meshes. prog=1 => already fully drawn.
+function _buildTether(meshA,meshB,mass,prog,scan){
+  const geom=new THREE.BufferGeometry(),pos=new Float32Array((GSEG+1)*3);
+  geom.setAttribute('position',new THREE.BufferAttribute(pos,3));geom.setDrawRange(0,0);
+  const line=new THREE.Line(geom,new THREE.LineBasicMaterial({color:scan?0x9fe6ff:0x7fd9ff,transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false}));
+  line.frustumCulled=false;scene.add(line);
+  const bead=new THREE.Sprite(new THREE.SpriteMaterial({map:GLOW,color:0xbdefff,transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false,depthTest:false}));
+  bead.scale.setScalar(1.6+mass*1.4);scene.add(bead);
+  return {a:meshA,b:meshB,line,geom,pos,bead,mass,prog:prog||0,scan:!!scan};
+}
 function buildGravity(){
   const n=worlds.length; if(n<2)return [];
   const seen=new Set(),edges=[],deg=new Array(n).fill(0);
@@ -3567,22 +3577,31 @@ window.IW={
     build();
     camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth,innerHeight); },
   // Twin Lens dependency tethers — edges = [[planetNameA, planetNameB, weight], ...] from the real graph.
-  showGravity(edges){
+  // instant=true => tethers appear already-drawn (no reveal); used when the scan-web already animated
+  // the draw and we're just resolving it to the real edges, or re-lighting after a scene rebuild.
+  showGravity(edges,instant){
     if(gravTethers){ gravTethers.forEach(g=>{ scene.remove(g.line); scene.remove(g.bead); }); gravTethers=null; }
+    gravScanActive=false;
     if(!edges||!edges.length||!worlds.length){ flags.gravity=false; return; }
     const findW=nm=>worlds.find(w=>w.mesh.userData.info && w.mesh.userData.info.name===nm);
     const built=[];
     edges.forEach(([a,b,wt])=>{ const wa=findW(a),wb=findW(b); if(!wa||!wb||wa===wb) return;
-      const mass=Math.min(1,(wt||1)/8);
-      const geom=new THREE.BufferGeometry(),pos=new Float32Array((GSEG+1)*3);
-      geom.setAttribute('position',new THREE.BufferAttribute(pos,3));geom.setDrawRange(0,0);
-      const line=new THREE.Line(geom,new THREE.LineBasicMaterial({color:0x7fd9ff,transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false}));
-      line.frustumCulled=false;scene.add(line);
-      const bead=new THREE.Sprite(new THREE.SpriteMaterial({map:GLOW,color:0xbdefff,transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false,depthTest:false}));
-      bead.scale.setScalar(1.6+mass*1.4);scene.add(bead);
-      built.push({a:wa.mesh,b:wb.mesh,line,geom,pos,bead,mass,prog:0});
+      built.push(_buildTether(wa.mesh,wb.mesh,Math.min(1,(wt||1)/8),instant?1:0,false));
     });
     gravTethers=built.length?built:null; flags.gravity=!!gravTethers;
+  },
+  // Speculative scan web — drawn the moment the lens is tapped, BEFORE madge returns. Probes up to
+  // 24 world-pairs so the user watches tethers draw out for the whole scan; showGravity(real,true)
+  // then collapses it to the real dependency edges when the data lands. Animation spans the scan.
+  beginGravityScan(){
+    if(gravTethers){ gravTethers.forEach(g=>{ scene.remove(g.line); scene.remove(g.bead); }); gravTethers=null; }
+    if(!worlds.length){ flags.gravity=false; gravScanActive=false; return; }
+    const built=[]; let cap=24;
+    outer: for(let i=0;i<worlds.length;i++) for(let j=i+1;j<worlds.length;j++){
+      built.push(_buildTether(worlds[i].mesh,worlds[j].mesh,0.4,0,true));
+      if(--cap<=0) break outer;
+    }
+    gravTethers=built.length?built:null; flags.gravity=!!gravTethers; gravScanActive=!!gravTethers;
   },
   // recon ships follow the LIVE audit (idx = expedition member index, roomId = folder being audited now,
   // fallbackRid = the expedition's ROOT folder, used when roomId can't be resolved to a planet)
