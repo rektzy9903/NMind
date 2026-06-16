@@ -746,7 +746,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd87-dependency-lens-survives-rebuild';
+var DUNGEON_BUILD = 'd88-replay-lens-reveal-on-recon-close';
 
 // ── boot diagnostics: was referenced (window.__log) but never defined → all
 //    model-load reasons were silently dropped. Surface them to the #loading
@@ -1988,7 +1988,14 @@ document.querySelectorAll('#scout-cmode .seg-btn').forEach(function(b){
   b.addEventListener('click', function(){ setSeg('scout-cmode', b.dataset.v); syncCouncilUi(); });
 });
 $('model-search').addEventListener('input', function(){ scoutSearch=this.value; renderModelChips(); });
-$('scout-cancel').addEventListener('click', function(){ $('scout-dialog').classList.remove('show'); });
+$('scout-cancel').addEventListener('click', function(){
+  $('scout-dialog').classList.remove('show');
+  // If the lens already scanned, REPLAY its reveal animation now that the dialog is out of
+  // the way — otherwise the tether-draw + bead flow played behind the open dialog and looks
+  // "stopped" (static shimmer) by the time you close it. (If still scanning, graphState.raw
+  // is null → skip; the reveal fires on graph-data when the scan finishes.)
+  if(graphState && graphState.raw) setTimeout(iwApplyGravity, 60);
+});
 $('scout-begin').addEventListener('click', function(){
   var mode=segVal('scout-mode'), council=mode==='council';
   if(council && scoutModelSel.length<2){ toast('Pick at least 2 council models'); return; }
