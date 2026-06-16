@@ -196,7 +196,7 @@
   #map-title { font-family:-apple-system,Segoe UI,Roboto,sans-serif; color:#9aa3b8; text-shadow:none; font-weight:600; }
   /* NB: #map-screen prefix raises specificity above the legacy parchment rules
      (#roomPanel/#agentsPanel ~line 420/440) which appear LATER in source order */
-  #map-screen #roomPanel { background:rgba(16,14,20,.86); backdrop-filter:blur(16px); border:none; border-top:1px solid rgba(255,255,255,.14); box-shadow:0 -8px 24px rgba(0,0,0,.5); color:#F0F0F2; }
+  #map-screen #roomPanel { background:rgba(16,14,20,.86); backdrop-filter:blur(16px); border:none; border-top:1px solid rgba(255,255,255,.14); box-shadow:0 -8px 24px rgba(0,0,0,.5); color:#F0F0F2; max-height:50vh; }
   #map-screen #roomPanel header { border-bottom:1px solid rgba(255,255,255,.1); }
   #map-screen #roomPanel h2 { font-family:-apple-system,Segoe UI,Roboto,sans-serif; color:#F0F0F2; }
   #map-screen #roomPanel .close { color:#9090A0; }
@@ -746,7 +746,7 @@
 <script>
 (function(){
 'use strict';
-var DUNGEON_BUILD = 'd84-aura-single+profile-dedup+delib-progress';
+var DUNGEON_BUILD = 'd85-orbit-rules+even-spacing+sun-center+single-world-panel';
 
 // ── boot diagnostics: was referenced (window.__log) but never defined → all
 //    model-load reasons were silently dropped. Surface them to the #loading
@@ -3105,11 +3105,25 @@ function build(){
   orbiters.push({pivot:sunMesh,speed:.04});
   spawnEnemiesAround(scene,0,4.5,D.star.bugs,D.star.name);
 
-  // SHARED orbit rings — a FIXED set of rings; many folders share each ring (multiple planets on one ring, incl Earth's)
-  // ≤3 planets per ring → add rings as folder count grows (min 5 rings for a sensible inner system)
-  const NR=Math.max(5,Math.ceil(D.planets.length/3)), GOLD=2.39996;
+  // SHARED orbit rings — each ring (orbit) holds AT MOST 3 planets. A newly-added folder
+  // "drops" into a RANDOM ring that still has a free slot (not always the outermost); once a
+  // ring is full the next free one is used. Planets sharing a ring are then spread at EQUAL
+  // angular distance (1→anywhere · 2→180° · 3→120°) so they never drift side-by-side into a
+  // collision, and re-space whenever a folder is added/removed. Earth is just one of these
+  // orbiting planets (the Sun at the center is cosmetic — see InterstellarWar-Nexus-design §2.1).
+  const PER_RING=3;
+  const NR=Math.max(5,Math.ceil(D.planets.length/PER_RING));   // enough rings that a free slot always exists
   const RING_R=[]; for(let i=0;i<NR;i++) RING_R.push(22+i*16);
   const RING_SPD=RING_R.map((_,i)=>Math.max(0.02,0.14-i*0.018));
+  // Assign each planet a ring + slot. Order + ring pick are NAME-SEEDED → "random" scatter
+  // that is STABLE across rebuilds (no jitter on every refresh), while honouring ≤3-per-ring.
+  const _seed=(p)=>hashStr((p.rid||p.name||'')+'§');
+  const _order=D.planets.map((_,idx)=>idx).sort((a,b)=>_seed(D.planets[a])-_seed(D.planets[b]));
+  const ringCount=new Array(NR).fill(0), ringOf=[], slotOf=[];
+  _order.forEach((pi)=>{ const free=[]; for(let r=0;r<NR;r++) if(ringCount[r]<PER_RING) free.push(r);
+    const r=free[_seed(D.planets[pi])%free.length];   // pick a random ring that still has room
+    ringOf[pi]=r; slotOf[pi]=ringCount[r]; ringCount[r]++; });
+  const ringPhase=RING_R.map((_,i)=>(hashStr('ring'+i)%628)/100);   // per-ring start offset so rings don't all align
   for(let ri=0;ri<NR;ri++){ const rr=RING_R[ri],rp=[]; // draw each guide ring ONCE (not per planet)
     for(let i=0;i<=120;i++){const a=i/120*6.283;rp.push(new THREE.Vector3(Math.cos(a)*rr,0,Math.sin(a)*rr));}
     scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(rp),new THREE.LineBasicMaterial({color:0x33445a,transparent:true,opacity:.3}))); }
@@ -3119,8 +3133,10 @@ function build(){
   D.planets.forEach((p,idx)=>{ if(p.home) return; const r=riskOf(p.bugs); if(r>_auraRisk){ _auraRisk=r; _auraIdx=idx; } });
   if(_auraRisk<=0.3) _auraIdx=-1;   // nothing risky enough → no beacon at all
   D.planets.forEach((p,idx)=>{
-    const ri=idx%NR; p.orbit=RING_R[ri]; // folders share rings; same ring = same radius (Earth=ring 2 = 3rd)
-    const pivot=new THREE.Group();pivot.rotation.y=idx*GOLD;scene.add(pivot); // golden-angle = stable, even spread, no overlap
+    const ri=ringOf[idx]; p.orbit=RING_R[ri]; // folders share rings; same ring = same radius (Earth shares a ring too)
+    const k=Math.max(1,ringCount[ri]); // planets on this ring → EVEN spacing: angle = phase + slot·(2π/k)
+    const ang=ringPhase[ri]+slotOf[idx]*(6.283185/k);
+    const pivot=new THREE.Group();pivot.rotation.y=ang;scene.add(pivot); // equal angular gap → no two worlds collide
     const planet=planetMesh(p.tex,p.size,p.ring);planet.position.x=p.orbit;
     planet.userData.info={name:p.name,bugs:p.bugs,moons:(p.moons||[]).length,rid:p.rid};
     planet.userData.focusable=true;planet.userData.focusDist=Math.max(13,p.size*8);
@@ -3218,9 +3234,9 @@ renderer.domElement.addEventListener('pointerup',e=>{
   if(o.userData.enemy){const e2=o.userData.enemy;showInfo({name:'⚠ '+(e2.data.t),path:e2.data.host,bugs:[e2.data]});
     if(window.dungeonDeployAt&&e2.data&&e2.data.rid)window.dungeonDeployAt(e2.data.rid,e2.data.bid);} // tap contact → deploy battleship
   else if(o.userData.info){
-    showInfo(o.userData.info);
-    if(o.userData.focusable) focusOn(o,o.userData.focusDist); else unfocus(); // sun → system view
-    if(o.userData.info.rid && window.dungeonOpenWorld) window.dungeonOpenWorld(o.userData.info.rid); // → dungeon room panel
+    if(o.userData.focusable) focusOn(o,o.userData.focusDist); else unfocus(); // frame the world (sun → system view)
+    if(o.userData.info.rid && window.dungeonOpenWorld){ hideInfo(); window.dungeonOpenWorld(o.userData.info.rid); } // real world → the WIRED room panel only (no duplicate compact card)
+    else showInfo(o.userData.info); // sun / mothership / scout — no room panel → compact info card
   }
 });
 function showInfo(info){
@@ -3492,6 +3508,10 @@ function loop(){
   });
   // camera focus: target tracks the focused world (or the sun); distance flies on tap
   const fdes=focusObj?worldPos(focusObj):ZERO;
+  // While the (bottom) room panel is open, lower the look-at point so the focused world
+  // frames in the clear UPPER half of the screen — the ≤50vh sheet never covers the planet.
+  if(focusObj){ const rp=document.getElementById('roomPanel');
+    if(rp&&rp.classList.contains('open')) fdes.y -= camera.position.distanceTo(controls.target)*0.28; }
   controls.target.lerp(fdes,focusObj?0.18:0.1);
   if(camTween){ camTween.t+=dt/camTween.dur; const k=Math.min(camTween.t,1),sm=k*k*(3-2*k);
     const d=camTween.from+(camTween.to-camTween.from)*sm;
