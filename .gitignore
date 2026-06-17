@@ -31,3 +31,6 @@ package-lock.json
 
 # Kiro derisk spike — reference/regression harness, never shipped
 kiro_spike/
+
+# graphify knowledge-graph output (local analysis, never commit)
+graphify-out/
