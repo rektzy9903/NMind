@@ -134,7 +134,7 @@ class ClaudeLoginActivity : ComponentActivity() {
                                                 phase = "exchanging"
                                                 scope.launch {
                                                     try {
-                                                        val tokens = exchangeCode(code, verifier)
+                                                        val tokens = exchangeCode(code, verifier, state)
                                                         writeCredentials(tokens)
                                                         setResult(Activity.RESULT_OK)
                                                         finish()
@@ -266,14 +266,17 @@ class ClaudeLoginActivity : ComponentActivity() {
             .build()
             .toString()
 
-    private suspend fun exchangeCode(code: String, verifier: String): JSONObject =
+    private suspend fun exchangeCode(code: String, verifier: String, state: String): JSONObject =
         withContext(Dispatchers.IO) {
+            // Body must match @anthropic-ai/claude-code's token request exactly — it sends
+            // `state` alongside the PKCE verifier; omitting it can be rejected as an invalid request.
             val body = JSONObject().apply {
                 put("grant_type",    "authorization_code")
                 put("code",          code)
                 put("redirect_uri",  REDIRECT_URI)
                 put("client_id",     CLIENT_ID)
                 put("code_verifier", verifier)
+                put("state",         state)
             }.toString().toRequestBody("application/json".toMediaType())
 
             val response = httpClient.newCall(
