@@ -43,8 +43,12 @@ class ClaudeLoginActivity : ComponentActivity() {
         private const val AUTH_URL      = "https://claude.com/cai/oauth/authorize"
         private const val TOKEN_URL     = "https://platform.claude.com/v1/oauth/token"
         private const val REDIRECT_URI  = "https://platform.claude.com/oauth/code/callback"
-        private const val SCOPES        = "org:create_api_key user:profile user:inference " +
-                                          "user:sessions:claude_code user:mcp_servers user:file_upload"
+        // Must match the scope set the real Claude Code CLI sends for subscription login
+        // (verified against @anthropic-ai/claude-code 2.1.179). Sending extra scopes the public
+        // client isn't authorized for (e.g. org:create_api_key, user:file_upload) makes the
+        // authorize server reject the request after login with "invalid request format".
+        private const val SCOPES        = "user:profile user:inference " +
+                                          "user:sessions:claude_code user:mcp_servers"
     }
 
     private val httpClient by lazy {
