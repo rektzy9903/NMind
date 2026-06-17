@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b123-unprune-notebook-worktree-ask-skill';
+const BRIDGE_BUILD = 'b124-hotload-modules';
 
 const net   = require('net');
 const http  = require('http');
@@ -5653,8 +5653,51 @@ function openPrintSession() {
                     if (!txt) throw new Error('all sources failed (API + raw CDN)');
                     const m = txt.match(/BRIDGE_BUILD\s*=\s*'([^']+)'/);
                     const dlBuild = m ? m[1] : '(no stamp)';
+
+                    // ── Phase 0b: hot-load split bridge.js + its local modules as a
+                    // consistent SET. Scan the downloaded bridge.js for any local
+                    // require('./<name>.js'), fetch+validate every one IN MEMORY first,
+                    // and only if ALL succeed write the modules to their runtime path
+                    // AND activate the new bridge_dev.js. A partial failure throws →
+                    // nothing is written → the running build stays intact (no skew).
+                    // ensureBridgeJs() (preferExistingRuntime=useDev) keeps these
+                    // hot-loaded modules on the next start instead of clobbering them.
+                    const REPO_BASE = 'app/src/main/assets/nodejs-project/';
+                    const fetchRepoFile = async (rel, marker) => {
+                        const tries = [
+                            ['https://api.github.com/repos/fahmi304/Nexus-Mind/contents/' + REPO_BASE + rel + '?ref=' + REF, apiHeaders],
+                            ['https://raw.githubusercontent.com/fahmi304/Nexus-Mind/' + REF + '/' + REPO_BASE + rel, rawHeaders],
+                        ];
+                        for (const [u, headers] of tries) {
+                            try {
+                                const res = await httpsGet(u, { headers });
+                                if (res.statusCode !== 200) { res.resume(); continue; }
+                                let chunk = ''; res.setEncoding('utf8');
+                                await new Promise((rs, rj) => { res.on('data', c => chunk += c); res.on('end', rs); res.on('error', rj); });
+                                if (chunk.length > 30 && (!marker || chunk.includes(marker))) return chunk;
+                            } catch (_) {}
+                        }
+                        return null;
+                    };
+                    const modRe = /require\(\s*['"]\.\/([A-Za-z0-9_\-./]+\.js)['"]\s*\)/g;
+                    const modPaths = new Set();
+                    let mm; while ((mm = modRe.exec(txt))) modPaths.add(mm[1]);
+                    const fetchedMods = [];
+                    for (const rel of modPaths) {
+                        w('\x1b[33m  fetching module ' + rel + '…\x1b[0m\r\n');
+                        const body = await fetchRepoFile(rel, 'module.exports');
+                        if (!body) throw new Error('module fetch failed: ' + rel + ' — hot-load aborted, running build intact');
+                        fetchedMods.push([rel, body]);
+                    }
+                    // All modules in hand → write them to runtime path, then activate bridge.js.
+                    for (const [rel, body] of fetchedMods) {
+                        const mdest = path.join(FILES_DIR, rel);
+                        fs.mkdirSync(path.dirname(mdest), { recursive: true });
+                        fs.writeFileSync(mdest, body);
+                    }
                     fs.writeFileSync(devPath, txt);
                     w('\x1b[32m✓ hot-loaded ' + txt.length + ' bytes → build ' + dlBuild + ' (via ' + src + ')\x1b[0m\r\n' +
+                      (fetchedMods.length ? '\x1b[32m✓ + ' + fetchedMods.length + ' module(s): ' + fetchedMods.map(x => x[0]).join(', ') + '\x1b[0m\r\n' : '') +
                       (dlBuild === BRIDGE_BUILD
                         ? '\x1b[33m⚠ downloaded build == running build (already current, or you just need to force-stop+reopen)\x1b[0m\r\n'
                         : '') +
