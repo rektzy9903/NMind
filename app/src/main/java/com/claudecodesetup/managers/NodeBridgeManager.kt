@@ -340,22 +340,64 @@ class NodeBridgeManager(private val context: Context) {
                     dest.outputStream().use { src.copyTo(it) }
                 }
             }
-            // MCP-1: also copy the HTTP MCP stdio-proxy shim. bridge.js patchSettings
-            // looks for it at filesDir/mcp_http_proxy.js and injects mcpServers entries
-            // for each upstream HTTP MCP server. Missing file → HTTP MCP stays
-            // agentic-only (current invariant 52 behavior).
+            // Copy every other *.js shipped under nodejs-project/ — the MCP-1
+            // mcp_http_proxy.js shim AND any bridge/<name>.js modules that bridge.js
+            // require()s — preserving the subdir layout so they resolve next to the
+            // runtime bridge.js (filesDir/). bridge.js itself is excluded here; it has
+            // the dev/bundled hot-load handling above. When bridge.js came from a
+            // hot-load (useDev), keep any module already written by that same hot-load
+            // rather than clobbering it with the stale bundled copy; otherwise refresh
+            // all modules from the audited bundled assets (so a stale hot-load can't
+            // shadow the bundled build). See Phase 0 of the bridge.js split.
             try {
-                val proxyDest = File(context.filesDir, "mcp_http_proxy.js")
-                context.assets.open("nodejs-project/mcp_http_proxy.js").use { src ->
-                    proxyDest.outputStream().use { src.copyTo(it) }
-                }
+                copyBridgeModules(preferExistingRuntime = useDev)
             } catch (e: Exception) {
-                Log.w(TAG, "Failed to copy mcp_http_proxy.js (HTTP MCP in terminal disabled)", e)
+                Log.w(TAG, "Failed to copy bridge module assets", e)
             }
             dest
         } catch (e: Exception) {
             Log.e(TAG, "Failed to copy bridge.js from assets", e)
             null
+        }
+    }
+
+    /**
+     * Copy bundled *.js modules — everything under assets/nodejs-project/ EXCEPT
+     * bridge.js, preserving subdir layout — into filesDir so bridge.js can
+     * `require('./bridge/<name>.js')` (and so the MCP-1 mcp_http_proxy.js shim
+     * lands at filesDir/mcp_http_proxy.js as before).
+     *
+     * @param preferExistingRuntime when true (bridge.js was hot-loaded), keep any
+     *   module already present at its runtime path — it was written by that same
+     *   hot-load — and only fill in missing ones; never overwrite a hot-loaded
+     *   module with the stale bundled copy. When false (running the bundled
+     *   bridge.js), refresh ALL modules from bundled so a stale hot-load can't
+     *   shadow the audited build.
+     */
+    private fun copyBridgeModules(preferExistingRuntime: Boolean) {
+        forEachJsAsset("nodejs-project") { assetPath ->
+            if (assetPath == "nodejs-project/bridge.js") return@forEachJsAsset
+            val rel = assetPath.removePrefix("nodejs-project/")
+            val outFile = File(context.filesDir, rel)
+            if (preferExistingRuntime && outFile.exists() && outFile.length() > 0L)
+                return@forEachJsAsset
+            outFile.parentFile?.mkdirs()
+            context.assets.open(assetPath).use { src ->
+                outFile.outputStream().use { src.copyTo(it) }
+            }
+        }
+    }
+
+    /** Recursively walk every *.js asset under [dir], invoking [action] with its
+     *  asset path (e.g. "nodejs-project/bridge/rtk.js"). assets.list() returns a
+     *  non-empty array for directories and an empty array for files. */
+    private fun forEachJsAsset(dir: String, action: (String) -> Unit) {
+        val entries = context.assets.list(dir) ?: return
+        for (name in entries) {
+            val path = "$dir/$name"
+            val kids = context.assets.list(path)
+            if (kids != null && kids.isNotEmpty()) forEachJsAsset(path, action)
+            else if (name.endsWith(".js")) action(path)
         }
     }
 
