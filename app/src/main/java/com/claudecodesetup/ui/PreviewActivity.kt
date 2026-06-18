@@ -34,10 +34,12 @@ class PreviewActivity : AppCompatActivity() {
     private lateinit var prefs: AppPreferences
     private lateinit var webView: WebView
     private lateinit var errorView: View
+    private lateinit var loadingView: View
     private lateinit var portChip: TextView
     private val handler = Handler(Looper.getMainLooper())
     private var currentPort = 5173
     private var retryCount = 0
+    private val MAX_RETRIES = 10
     private val retryRunnable = Runnable { checkAndLoad() }
 
     // Common dev-server port presets
@@ -105,14 +107,21 @@ class PreviewActivity : AppCompatActivity() {
         // Error overlay (hidden by default)
         errorView = buildErrorView()
 
-        // Frame stacks the WebView and the error overlay; frame fills the
-        // remaining vertical space under the top bar.
+        // Loading overlay (shown while probing the port, so the user never sees
+        // a blank white WebView or a premature "not running" error during retries)
+        loadingView = buildLoadingView()
+
+        // Frame stacks the WebView, the loading overlay and the error overlay;
+        // frame fills the remaining vertical space under the top bar.
         val frame = FrameLayout(this).apply {
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f
             )
         }
         frame.addView(webView, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
+        ))
+        frame.addView(loadingView, FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
         ))
         frame.addView(errorView, FrameLayout.LayoutParams(
@@ -178,9 +187,11 @@ class PreviewActivity : AppCompatActivity() {
             setTextColor(Color.parseColor("#9090A0"))
             setPadding(12.dp, 0, 8.dp, 0)
             setOnClickListener {
-                errorView.visibility = View.GONE
-                webView.visibility = View.VISIBLE
-                webView.reload()
+                // Re-probe from scratch: works whether we're showing the page
+                // (content refresh), the loading overlay, or the error screen.
+                handler.removeCallbacks(retryRunnable)
+                retryCount = 0
+                checkAndLoad()
             }
         }
         bar.addView(refresh, LinearLayout.LayoutParams(
@@ -211,6 +222,31 @@ class PreviewActivity : AppCompatActivity() {
         ))
 
         return bar
+    }
+
+    private fun buildLoadingView(): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setBackgroundColor(Color.parseColor("#0C0C0F"))
+            visibility = View.GONE
+            setPadding(32.dp, 0, 32.dp, 0)
+
+            addView(android.widget.ProgressBar(this@PreviewActivity).apply {
+                isIndeterminate = true
+                indeterminateTintList =
+                    android.content.res.ColorStateList.valueOf(Color.parseColor("#FF8C42"))
+            })
+            addView(TextView(this@PreviewActivity).apply {
+                tag = "loading-label"
+                text = "Connecting to localhost:$currentPort…"
+                textSize = 13f
+                typeface = android.graphics.Typeface.MONOSPACE
+                setTextColor(Color.parseColor("#9090A0"))
+                gravity = Gravity.CENTER
+                setPadding(0, 16.dp, 0, 0)
+            })
+        }
     }
 
     private fun buildErrorView(): LinearLayout {
@@ -452,13 +488,23 @@ class PreviewActivity : AppCompatActivity() {
         (errorView.findViewWithTag<TextView>("hint"))?.text =
             hintForPort(currentPort)
 
+        // Show the loading overlay instead of a blank WebView / premature error
+        // while we probe + retry. Reflects which attempt we're on.
+        errorView.visibility = View.GONE
+        webView.visibility = View.GONE
+        loadingView.visibility = View.VISIBLE
+        (loadingView.findViewWithTag<TextView>("loading-label"))?.text =
+            if (retryCount == 0) "Connecting to localhost:$currentPort…"
+            else "Connecting to localhost:$currentPort… (retry $retryCount/$MAX_RETRIES)"
+
         // Silently probe the port on a background thread; if reachable → load,
-        // else auto-retry for 10s then show the error screen.
+        // else auto-retry then show the error screen. A 3s timeout + more retries
+        // tolerate a slow / single-threaded dev server still binding the port.
         Thread {
             val reachable = try {
                 val con = URL(url).openConnection() as HttpURLConnection
-                con.connectTimeout = 1500
-                con.readTimeout = 1500
+                con.connectTimeout = 3000
+                con.readTimeout = 3000
                 con.connect()
                 con.responseCode in 100..599   // any HTTP response = server up
             } catch (_: Exception) { false }
@@ -466,11 +512,12 @@ class PreviewActivity : AppCompatActivity() {
             runOnUiThread {
                 if (reachable) {
                     errorView.visibility = View.GONE
+                    loadingView.visibility = View.GONE
                     webView.visibility = View.VISIBLE
                     webView.loadUrl(url)
-                } else if (retryCount < 6) {
+                } else if (retryCount < MAX_RETRIES) {
                     retryCount++
-                    handler.postDelayed(retryRunnable, 1800)
+                    handler.postDelayed(retryRunnable, 1500)
                 } else {
                     showError()
                 }
@@ -479,6 +526,7 @@ class PreviewActivity : AppCompatActivity() {
     }
 
     private fun showError() {
+        loadingView.visibility = View.GONE
         webView.visibility = View.GONE
         errorView.visibility = View.VISIBLE
     }
