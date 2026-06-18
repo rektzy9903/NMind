@@ -87,6 +87,7 @@ class TerminalActivity : AppCompatActivity() {
 
     /** Model ID at the time TerminalActivity was last resumed — used to detect model switches. */
     private var lastKnownModelId = ""
+    private var lastKnownProviderId = ""
 
     private val statusHandler = Handler(Looper.getMainLooper())
     private var timeoutRunnable: Runnable? = null
@@ -211,9 +212,16 @@ class TerminalActivity : AppCompatActivity() {
         claudeService?.cancelResponseNotification()
         // Refresh model name + avatar in case user changed provider in Settings
         val currentModelId = prefs.getModelId()
-        if (lastKnownModelId.isNotEmpty() && lastKnownModelId != currentModelId) {
-            // Model changed — update bridge_config.json immediately so the next message
-            // uses the new model/provider without waiting for the next startBridge().
+        val currentProviderId = prefs.getProviderId()
+        // Refresh when EITHER the model OR the provider changed. Gating on modelId
+        // alone missed provider switches where the new provider exposes a same-named
+        // model id → stale providerUrl/apiKey in bridge_config.json → upstream 403.
+        val modelOrProviderChanged =
+            (lastKnownModelId.isNotEmpty() && lastKnownModelId != currentModelId) ||
+            (lastKnownProviderId.isNotEmpty() && lastKnownProviderId != currentProviderId)
+        if (modelOrProviderChanged) {
+            // Model/provider changed — update bridge_config.json immediately so the next
+            // message uses the new model/provider without waiting for the next startBridge().
             NodeBridgeManager(this).refreshConfig(prefs)
             // Kill any pending bridge process, clear the terminal display and replay
             // buffer so old provider errors don't carry over.
@@ -225,6 +233,7 @@ class TerminalActivity : AppCompatActivity() {
             runOnUiThread { hideStatus() }
         }
         lastKnownModelId = currentModelId
+        lastKnownProviderId = currentProviderId
         val model = currentModelId.let { m ->
             when {
                 m.isEmpty() -> "claude"

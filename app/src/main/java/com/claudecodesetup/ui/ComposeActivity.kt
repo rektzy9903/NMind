@@ -27,6 +27,7 @@ import com.claudecodesetup.data.AiModel
 import com.claudecodesetup.data.AppPreferences
 import com.claudecodesetup.data.Provider
 import com.claudecodesetup.data.Providers
+import com.claudecodesetup.managers.NodeBridgeManager
 
 class ComposeActivity : ComponentActivity() {
     /** Apply FLAG_SECURE only on screens that show secrets (API-key entry, OAuth login).
@@ -59,6 +60,13 @@ class ComposeActivity : ComponentActivity() {
                 else provider.baseUrl
                 prefs.setBaseUrl(effectiveBaseUrl)
                 prefs.setProviderConfigured(true)
+                // Rewrite bridge_config.json NOW so the new provider/key/url is live
+                // for the next request — including the interactive 🐧 Ubuntu `claude`
+                // (gateway mode, proxy reads cfg.apiKey/cfg.providerUrl fresh per
+                // request). Previously this relied on TerminalActivity.onResume's
+                // modelId-only change check, which left a stale-config window after a
+                // provider switch → upstream 403 "Invalid or unauthorised API key".
+                NodeBridgeManager(this).refreshConfig(prefs)
                 // When launched from the terminal header pill (start_at=picker), just
                 // save prefs and return — the existing TerminalActivity resumes via back
                 // stack and its onResume() detects the model change. Launching a new
