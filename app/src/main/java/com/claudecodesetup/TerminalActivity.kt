@@ -816,8 +816,24 @@ class TerminalActivity : AppCompatActivity() {
     // ─── Voice input (background SpeechRecognizer — no Google popup) ─────────
 
     private var speechRecognizer: SpeechRecognizer? = null
+    private var isListening = false
+
+    // Tell the WebView mic button which state to show ("listening" → pulsing red,
+    // "processing" → spinner-ish, "idle" → normal). Guarded so an old index.html
+    // without the hook is a no-op.
+    private fun setMicState(state: String) {
+        runOnUiThread {
+            binding.webViewTerminal.evaluateJavascript(
+                "window.termSetMicState && window.termSetMicState('$state')", null)
+        }
+    }
 
     private fun startVoiceInput() {
+        // Tap again while listening = stop and use whatever was captured so far.
+        if (isListening) {
+            try { speechRecognizer?.stopListening() } catch (_: Exception) {}
+            return
+        }
         // RECORD_AUDIO is a runtime (dangerous) permission. Declared in the manifest
         // is NOT enough — until the user grants it, SpeechRecognizer.startListening()
         // fires onError(ERROR_INSUFFICIENT_PERMISSIONS) instantly, every time. Request
@@ -835,31 +851,39 @@ class TerminalActivity : AppCompatActivity() {
         speechRecognizer?.destroy()
         speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this)
         speechRecognizer?.setRecognitionListener(object : android.speech.RecognitionListener {
-            override fun onReadyForSpeech(params: android.os.Bundle?) {}
+            // The CRITICAL fix: the mic now lights up the instant the recognizer is
+            // actually ready, so the user doesn't speak into the dead init window
+            // (which was causing ERROR_NO_MATCH and "nothing recorded").
+            override fun onReadyForSpeech(params: android.os.Bundle?) {
+                isListening = true; setMicState("listening")
+            }
             override fun onBeginningOfSpeech() {}
             override fun onRmsChanged(rmsdB: Float) {}
             override fun onBufferReceived(buffer: ByteArray?) {}
-            override fun onEndOfSpeech() {}
+            override fun onEndOfSpeech() { setMicState("processing") }
             override fun onPartialResults(p: android.os.Bundle?) {}
             override fun onEvent(t: Int, p: android.os.Bundle?) {}
             override fun onError(error: Int) {
+                isListening = false; setMicState("idle")
+                // ERROR_CLIENT fires on a normal stopListening()/cancel — stay silent.
+                if (error == SpeechRecognizer.ERROR_CLIENT) return
                 // Map the code to something actionable — "Voice error" hid the real
                 // cause (almost always a missing mic permission or no speech).
                 val msg = when (error) {
                     SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS ->
                         "Microphone permission denied — enable it in Settings → Apps → Nexus-Mind"
                     SpeechRecognizer.ERROR_NO_MATCH,
-                    SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "Didn't catch that — try again"
+                    SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "Didn't catch that — tap the mic, wait for it to turn red, then speak"
                     SpeechRecognizer.ERROR_NETWORK,
-                    SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "Voice needs a network connection"
-                    SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "Recognizer busy — tap again"
+                    SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "Voice needs a network connection (or install offline speech)"
+                    SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "Still finishing the last one — wait a moment"
                     SpeechRecognizer.ERROR_AUDIO -> "Microphone audio error"
-                    SpeechRecognizer.ERROR_CLIENT -> "Voice cancelled"
                     else -> "Voice error ($error) — try again"
                 }
                 android.widget.Toast.makeText(this@TerminalActivity, msg, android.widget.Toast.LENGTH_SHORT).show()
             }
             override fun onResults(results: android.os.Bundle?) {
+                isListening = false; setMicState("idle")
                 val text = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull() ?: return
                 val escaped = text.replace("\\", "\\\\").replace("\"", "\\\"")
                 runOnUiThread {
@@ -871,7 +895,15 @@ class TerminalActivity : AppCompatActivity() {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
             putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, packageName)
+            // Use the device language explicitly (some engines default to a locale
+            // the user isn't speaking → silent no-match).
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, java.util.Locale.getDefault().toString())
+            // Don't cut the user off after a tiny pause — give them room to speak.
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 2000)
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 2000)
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 2000)
         }
+        setMicState("starting")
         speechRecognizer?.startListening(intent)
     }
 
