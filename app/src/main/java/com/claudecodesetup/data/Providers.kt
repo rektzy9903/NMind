@@ -279,6 +279,39 @@ object Providers {
         )
     )
 
+    // Ollama Cloud (ollama.com) — hosted, OpenAI-compatible at /v1. DISTINCT from the local
+    // `ollama` provider above (self-hosted, user URL). Free tier: ONE shared GPU-time quota
+    // across ALL models (session reset ~5h + weekly cap), no credit card. Any model on the
+    // list is usable on the free key — heavy models (glm-5.2 753B, deepseek-v4-pro,
+    // qwen3-coder:480b) just drain the shared quota faster. Key format is `id.secret`,
+    // sent as a plain Bearer token. Live fetch returns the full catalog.
+    val OLLAMA_CLOUD = Provider(
+        id = "ollama_cloud",
+        name = "Ollama Cloud",
+        iconResId = R.drawable.ic_brand_ollama,
+        supportsLiveFetch = true,
+        signupUrl = "https://ollama.com/settings/keys",
+        rateLimit = "Free · shared GPU-time quota (resets ~5h + weekly) · no card",
+        malaysiaStatus = MalaysiaStatus.GREEN,
+        malaysiaNote = "Works everywhere — no credit card",
+        warningNote = "All models share one free GPU-time quota — heavy models (GLM 5.2, DeepSeek V4 Pro, Qwen3-Coder 480B) spend it faster.",
+        baseUrl = "https://ollama.com/v1",
+        requiresProxy = true,
+        models = listOf(
+            AiModel("GLM 5.2",            "glm-5.2",           setOf(Cap.TOOLS, Cap.REASONING, Cap.CODING, Cap.LONG_CTX, Cap.FREE), "Flagship · 753B · 1M ctx · heavy"),
+            AiModel("GLM 5",              "glm-5",             setOf(Cap.TOOLS, Cap.REASONING, Cap.CODING, Cap.FREE), "Strong coding · heavy"),
+            AiModel("DeepSeek V4 Pro",    "deepseek-v4-pro",   setOf(Cap.TOOLS, Cap.REASONING, Cap.FREE), "Frontier · heavy"),
+            AiModel("DeepSeek V3.2",      "deepseek-v3.2",     setOf(Cap.TOOLS, Cap.FREE),                "Large MoE"),
+            AiModel("Qwen3 Coder 480B",   "qwen3-coder:480b",  setOf(Cap.TOOLS, Cap.CODING, Cap.FREE),    "Code specialist · heavy"),
+            AiModel("Kimi K2.6",          "kimi-k2.6",         setOf(Cap.TOOLS, Cap.FREE),                "Moonshot · agentic"),
+            AiModel("GPT-OSS 120B",       "gpt-oss:120b",      setOf(Cap.TOOLS, Cap.REASONING, Cap.FREE), "Open frontier"),
+            AiModel("GPT-OSS 20B",        "gpt-oss:20b",       setOf(Cap.TOOLS, Cap.FAST, Cap.FREE),      "Light · stretches quota"),
+            AiModel("Gemma3 12B",         "gemma3:12b",        setOf(Cap.TOOLS, Cap.FAST, Cap.FREE),      "Google · compact"),
+            AiModel("Ministral 3 8B",     "ministral-3:8b",    setOf(Cap.FAST, Cap.FREE),                 "Mistral · light"),
+            AiModel("MiniMax M3",         "minimax-m3",        setOf(Cap.TOOLS, Cap.FREE),                "MiniMax")
+        )
+    )
+
     val CEREBRAS = Provider(
         id = "cerebras",
         name = "Cerebras",
@@ -555,7 +588,7 @@ object Providers {
         models = emptyList()
     )
 
-    val ALL = listOf(GROQ, GEMINI, CEREBRAS, GITHUB, SAMBANOVA, ZAI, COHERE, HUGGINGFACE, CHUTES, SCALEWAY, OPENCODE, OPENROUTER, ANTHROPIC_API, DEEPSEEK, KIMI, QWEN, MISTRAL, NVIDIA_NIM, META_LLAMA, KIRO, OLLAMA)
+    val ALL = listOf(GROQ, GEMINI, CEREBRAS, OLLAMA_CLOUD, GITHUB, SAMBANOVA, ZAI, COHERE, HUGGINGFACE, CHUTES, SCALEWAY, OPENCODE, OPENROUTER, ANTHROPIC_API, DEEPSEEK, KIMI, QWEN, MISTRAL, NVIDIA_NIM, META_LLAMA, KIRO, OLLAMA)
 
     fun byId(id: String): Provider? = when (id) {
         "anthropic"     -> ANTHROPIC

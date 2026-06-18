@@ -150,6 +150,10 @@ private fun buildRequest(provider: Provider, key: String): Request? {
             .url("https://api.cerebras.ai/v1/models")
             .header("Authorization", "Bearer $key")
             .build()
+        "ollama_cloud" -> builder
+            .url("https://ollama.com/v1/models")
+            .header("Authorization", "Bearer $key")
+            .build()
         "qwen" -> builder
             .url("https://dashscope-intl.aliyuncs.com/compatible-mode/v1/models")
             .header("Authorization", "Bearer $key")

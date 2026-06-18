@@ -159,6 +159,7 @@ object ProvidersRepository {
         "qwen"          -> com.claudecodesetup.R.drawable.ic_brand_qwen
         "mistral"       -> com.claudecodesetup.R.drawable.ic_brand_mistral
         "ollama"        -> com.claudecodesetup.R.drawable.ic_brand_ollama
+        "ollama_cloud"  -> com.claudecodesetup.R.drawable.ic_brand_ollama
         "anthropic"     -> com.claudecodesetup.R.drawable.ic_brand_claude
         "anthropic_api" -> com.claudecodesetup.R.drawable.ic_brand_claude
         "groq"          -> com.claudecodesetup.R.drawable.ic_brand_groq
@@ -234,6 +235,7 @@ object ProvidersRepository {
         "anthropic_api" -> fetchAnthropicModels(apiKey)
         "meta_llama"  -> fetchOpenAiStyleModels("https://api.llama.com/v1/models", apiKey, provider)
         "ollama"      -> fetchOllamaModels(provider.baseUrl.ifEmpty { "http://localhost:11434" }, apiKey)
+        "ollama_cloud"-> fetchOpenAiStyleModels("https://ollama.com/v1/models", apiKey, provider, isAlwaysFree = true)
         // Generic fallback for HOTLOADED providers not named above: if the JSON entry
         // says it supports live fetch and has an OpenAI-style baseUrl, hit the standard
         // <baseUrl>/models endpoint. Makes a new OAI-compatible provider get live fetch
