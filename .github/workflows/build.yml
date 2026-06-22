@@ -140,6 +140,31 @@ jobs:
           echo "── arm64 libproot.so NEEDED (libtalloc.so.2 + libandroid-shmem.so expected — resolved via LD_LIBRARY_PATH/symlink):"
           patchelf --print-needed app/src/main/jniLibs/arm64-v8a/libproot.so
 
+      # ── 4c. Cross-compile the linkat shim (glibc) ────────────────────────────
+      # liblinkatshim.so is an LD_PRELOAD shim loaded INSIDE the proot Ubuntu
+      # GUEST (glibc), NOT the Android app (bionic). It emulates hardlink() in
+      # userspace so `apt install` survives dpkg's status-old backup, which the
+      # bundled proot's --link2symlink can't satisfy on arm64 (no link(2) syscall;
+      # linkat falls through → EPERM). See scripts/linkat_shim.c + CLAUDE.md.
+      # Built with the GLIBC cross toolchains (must match the guest, not Android).
+      # bridge.js copies it from nativeLibDir into the rootfs and LD_PRELOADs it.
+      - name: Cross-compile linkat shim (glibc arm64 + armv7)
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y -qq gcc-aarch64-linux-gnu gcc-arm-linux-gnueabihf
+          CFLAGS="-shared -fPIC -O2 -Wall -s"
+          aarch64-linux-gnu-gcc $CFLAGS \
+            -o app/src/main/jniLibs/arm64-v8a/liblinkatshim.so \
+            scripts/linkat_shim.c -ldl
+          # armv7 is best-effort (Ubuntu engine on 32-bit is itself best-effort).
+          arm-linux-gnueabihf-gcc $CFLAGS \
+            -o app/src/main/jniLibs/armeabi-v7a/liblinkatshim.so \
+            scripts/linkat_shim.c -ldl \
+            || echo "::warning::armv7 linkat shim build failed — native apt stays broken on 32-bit (use !apt-extract)"
+          echo "── linkat shim built (glibc, NEEDED should be libc.so.6 + libdl.so.2):"
+          ls -la app/src/main/jniLibs/*/liblinkatshim.so
+          readelf -d app/src/main/jniLibs/arm64-v8a/liblinkatshim.so | grep -iE "NEEDED" || true
+
       # ── 5. Cache Gradle packages ─────────────────────────────────────────────
       - name: Cache Gradle packages
         uses: actions/cache@v4

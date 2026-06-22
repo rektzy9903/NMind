@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b127-format-module';
+const BRIDGE_BUILD = 'b128-linkat-shim';
 
 const net   = require('net');
 const http  = require('http');
@@ -545,6 +545,33 @@ function prootGuestArgv(rp, command, opts) {
 // proot scans /proc/self/fd and ptrace-processes each → hangs on the emulator
 // ("access to /dev/goldfish_pipe (fd N) won't be translated"). Closing them
 // first gives proot a clean table (just stdio) so it starts instantly.
+// Copy the glibc linkat shim (liblinkatshim.so, cross-compiled in CI, shipped in
+// nativeLibDir) into the rootfs so it can be LD_PRELOAD'd in the GUEST. The shim
+// emulates hardlink() in userspace so `apt install` survives dpkg's status-old
+// backup, which the bundled proot's --link2symlink can't satisfy on arm64
+// (no link(2) syscall; linkat falls through → EPERM). See scripts/linkat_shim.c
+// + CLAUDE.md apt/dpkg TODO. Returns the GUEST path of the shim, or '' if absent
+// (older APK without the CI build step → silently no-op, !apt-extract still works).
+// Copy is idempotent: only re-copies when missing or the size differs (APK update).
+function ensureLinkatShim(rp) {
+    try {
+        const src = path.join(NATIVE_DIR, 'liblinkatshim.so');
+        if (!fs.existsSync(src)) return '';
+        const guestRel = '/usr/local/lib/liblinkatshim.so';
+        const dst = path.join(rp, 'usr', 'local', 'lib', 'liblinkatshim.so');
+        let need = true;
+        try {
+            const ss = fs.statSync(src), ds = fs.statSync(dst);
+            need = (ss.size !== ds.size);
+        } catch (_) { need = true; }
+        if (need) {
+            fs.mkdirSync(path.dirname(dst), { recursive: true });
+            fs.copyFileSync(src, dst);
+        }
+        return guestRel;
+    } catch (_) { return ''; }
+}
+
 // Build the proot env + argv and SPAWN the guest, returning the live ChildProcess
 // (NOT a promise). Shared by runProotGuest (buffered, for probes) and the proot
 // ENGINE path in runMessage (streaming stdout + stdin.end + kill). opts.extraEnv
@@ -601,6 +628,18 @@ function prootChild(command, opts) {
             // the env -i exec-replace issue (since removed), not seccomp.
             // Still overridable per probe via opts.extraEnv.
         });
+        // LD_PRELOAD the glibc linkat shim so hardlink() works in the guest →
+        // native `apt install` survives dpkg's status-old backup (see
+        // ensureLinkatShim + scripts/linkat_shim.c). Propagates to every guest
+        // child (apt → dpkg → maintainer scripts) via env inheritance. Absent on
+        // an older APK (no CI build) → '' → not set → !apt-extract remains the
+        // fallback. Safe to leave on for ALL guest spawns (claude included): the
+        // shim only emulates hardlinks as copies, harmless to node/claude, and
+        // self-neutral on a future proot that hooks linkat natively.
+        try {
+            const shim = ensureLinkatShim(rp);
+            if (shim) env.LD_PRELOAD = env.LD_PRELOAD ? (shim + ':' + env.LD_PRELOAD) : shim;
+        } catch (_) {}
         // Per-probe env overrides (diagnostic): test PROOT_* knobs from the
         // terminal without a rebuild. Set to null/'' to DELETE a base var.
         if (opts && opts.extraEnv) {
@@ -6227,9 +6266,9 @@ function openPrintSession() {
                     if (lnOk && isSymlink)
                         rep += G+'✓ link2symlink WORKS (hardlink became a symlink) — dpkg backup should not EPERM. The earlier failure may be elsewhere; retry: apt-get install -y ca-certificates'+X+'\r\n';
                     else if (lnOk)
-                        rep += Y+'~ hardlink succeeded as a REAL link — fs supports it; dpkg should work. Retry the install.'+X+'\r\n';
+                        rep += G+'✓ hardlink succeeded (linkat shim active — emulated as a copy). dpkg status-old backup will not EPERM → native `apt install` should work. Try: apt-get install -y ripgrep'+X+'\r\n';
                     else
-                        rep += R+'✗ hardlink FAILED (link2symlink not intercepting linkat on arm64). This is why dpkg EPERMs on status-old. Needs a newer proot binary (rebuild) OR a guest-side workaround.'+X+'\r\n';
+                        rep += R+'✗ hardlink FAILED (still EPERM). The linkat shim is NOT loaded — this APK predates the shim build (rebuild needed) OR liblinkatshim.so is missing from nativeLibDir. Until then use !apt-extract <pkg>.'+X+'\r\n';
                     w(rep);
                   })
                   .catch(e => { w(R+'[!dpkg-test error] '+(e&&e.message)+X+'\r\n'); });
