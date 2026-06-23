@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b128-linkat-shim';
+const BRIDGE_BUILD = 'b129-install-skill';
 
 const net   = require('net');
 const http  = require('http');
@@ -4697,6 +4697,7 @@ function openPrintSession() {
                     '  \x1b[33m!context [path]\x1b[0m     Load file/dir as context\r\n' +
                     '  \x1b[33m!attach <file>\x1b[0m      Attach file to next message\r\n' +
                     '  \x1b[33m!install [pkg]\x1b[0m      Install binary/npm (no arg = list available)\r\n' +
+                    '  \x1b[33m!install-skill [src]\x1b[0m Install a Claude Code Skill (owner/repo/path) into ~/.claude/skills\r\n' +
                     '  \x1b[33m!log [n|all|clear]\x1b[0m   Show last n lines (default 100); !log all = full; !log clear = wipe\r\n' +
                     '  \x1b[33m!mcp\x1b[0m                List connected (and failed) MCP servers and tools\r\n' +
                     '  \x1b[33m!mcp-log [name|all]\x1b[0m Show captured stderr from stdio MCP servers (default 50 lines)\r\n' +
@@ -6719,7 +6720,151 @@ function openPrintSession() {
                 continue;
             }
 
-            if (line.startsWith('!install')) {
+            // ── !install-skill — install a Claude Code Skill into the guest ──────
+            // Skills live at ~/.claude/skills/<name>/SKILL.md. FILES_DIR/.claude is
+            // bound into the proot guest at /root/.claude (see prootGuestArgv bind),
+            // so we install with plain host-side fs — no proot/guest spawn needed.
+            // Source = any public GitHub folder that contains a SKILL.md, fetched
+            // recursively via the contents API (same mechanism as !hotload).
+            if (line.startsWith('!install-skill')) {
+                const w = (s) => { try { if (state.socket) state.socket.write(SYS_FENCE + s); } catch(_) {} };
+                const arg = line.slice('!install-skill'.length).trim();
+                const SKILLS_DIR = path.join(FILES_DIR, '.claude', 'skills');
+                const sanitize = (n) => (n || '').replace(/[^A-Za-z0-9_.-]/g, '-').replace(/^-+|-+$/g, '');
+
+                const listInstalled = () => {
+                    let names = [];
+                    try { names = fs.readdirSync(SKILLS_DIR).filter(n => {
+                        try { return fs.statSync(path.join(SKILLS_DIR, n)).isDirectory(); } catch(_) { return false; }
+                    }); } catch(_) {}
+                    if (!names.length) { w('\x1b[2m(no skills installed)\x1b[0m\r\n'); return; }
+                    w('\x1b[1;33mInstalled skills\x1b[0m\r\n');
+                    for (const n of names) {
+                        const sm = path.join(SKILLS_DIR, n, 'SKILL.md');
+                        let desc = '';
+                        try {
+                            const head = fs.readFileSync(sm, 'utf8').slice(0, 600);
+                            const m = head.match(/description:\s*(.+)/i);
+                            if (m) desc = ' \x1b[2m— ' + m[1].trim().slice(0, 60) + '\x1b[0m';
+                        } catch(_) { desc = ' \x1b[31m(missing SKILL.md)\x1b[0m'; }
+                        w('  \x1b[36m' + n + '\x1b[0m' + desc + '\r\n');
+                    }
+                };
+
+                if (!arg || arg === 'list') {
+                    listInstalled();
+                    if (!arg) {
+                        w('\x1b[2m─────────────────────────────────\x1b[0m\r\n');
+                        w('Install a skill from any public GitHub folder containing SKILL.md:\r\n');
+                        w('  \x1b[33m!install-skill <owner>/<repo>[/<sub/dir>][@<ref>]\x1b[0m\r\n');
+                        w('  \x1b[33m!install-skill <github-url>\x1b[0m  (…/tree/<branch>/<path>)\r\n');
+                        w('  \x1b[33m!install-skill list\x1b[0m            list installed\r\n');
+                        w('  \x1b[33m!install-skill remove <name>\x1b[0m   uninstall\r\n');
+                        w('\x1b[2mExample: !install-skill anthropics/skills/document-skills/pdf\x1b[0m\r\n');
+                    }
+                    continue;
+                }
+
+                if (arg.startsWith('remove ') || arg.startsWith('rm ')) {
+                    const name = sanitize(arg.replace(/^(remove|rm)\s+/, '').trim());
+                    const dir = path.join(SKILLS_DIR, name);
+                    if (!name) { w('\x1b[31m✗ usage: !install-skill remove <name>\x1b[0m\r\n'); continue; }
+                    try {
+                        if (!fs.existsSync(dir)) { w('\x1b[33m(no skill "' + name + '" installed)\x1b[0m\r\n'); }
+                        else { fs.rmSync(dir, { recursive: true, force: true }); w('\x1b[32m✓ removed skill "' + name + '"\x1b[0m\r\n'); }
+                    } catch(e) { w('\x1b[31m✗ remove failed: ' + e.message + '\x1b[0m\r\n'); }
+                    continue;
+                }
+
+                // ── parse the source spec → owner / repo / basePath / ref ──────────
+                let spec = arg, ref = null, owner = '', repo = '', basePath = '';
+                try {
+                    if (spec.startsWith('http')) {
+                        const u = new URL(spec);
+                        const p = u.pathname.split('/').filter(Boolean); // owner/repo[/tree|blob/ref/...path]
+                        owner = p[0]; repo = (p[1] || '').replace(/\.git$/, '');
+                        if (p[2] === 'tree' || p[2] === 'blob') { ref = p[3]; basePath = p.slice(4).join('/'); }
+                        else { basePath = p.slice(2).join('/'); }
+                    } else {
+                        if (spec.includes('@')) { const i = spec.lastIndexOf('@'); ref = spec.slice(i + 1); spec = spec.slice(0, i); }
+                        const p = spec.split('/').filter(Boolean);
+                        owner = p[0]; repo = (p[1] || '').replace(/\.git$/, ''); basePath = p.slice(2).join('/');
+                    }
+                } catch(e) { w('\x1b[31m✗ could not parse "' + arg + '": ' + e.message + '\x1b[0m\r\n'); continue; }
+
+                if (!owner || !repo) {
+                    w('\x1b[31m✗ need at least <owner>/<repo>.\x1b[0m  e.g. anthropics/skills/document-skills/pdf\r\n');
+                    continue;
+                }
+                const skillName = sanitize(basePath ? basePath.split('/').filter(Boolean).pop() : repo);
+                const destDir = path.join(SKILLS_DIR, skillName);
+                const apiBase = 'https://api.github.com/repos/' + owner + '/' + repo + '/contents/';
+                const refQ = ref ? ('?ref=' + encodeURIComponent(ref)) : '';
+                const ghHeaders = { 'Accept': 'application/vnd.github+json', 'User-Agent': 'nexus-skill', 'Cache-Control': 'no-cache' };
+
+                w('\x1b[33m!install-skill: fetching ' + owner + '/' + repo + (basePath ? '/' + basePath : '') + (ref ? ' @' + ref : '') + '…\x1b[0m\r\n');
+
+                (async () => {
+                    const ghJson = async (url) => {
+                        const res = await httpsGet(url, { headers: ghHeaders });
+                        if (res.statusCode !== 200) { res.resume(); throw new Error('HTTP ' + res.statusCode + ' (' + url.replace(apiBase, '') + ')'); }
+                        let b = ''; res.setEncoding('utf8');
+                        await new Promise((rs, rj) => { res.on('data', c => b += c); res.on('end', rs); res.on('error', rj); });
+                        return JSON.parse(b);
+                    };
+                    const ghRaw = async (url) => {
+                        const res = await httpsGet(url, { headers: { 'User-Agent': 'nexus-skill' } });
+                        if (res.statusCode !== 200) { res.resume(); throw new Error('HTTP ' + res.statusCode + ' downloading file'); }
+                        const chunks = [];
+                        await new Promise((rs, rj) => { res.on('data', c => chunks.push(c)); res.on('end', rs); res.on('error', rj); });
+                        return Buffer.concat(chunks);
+                    };
+                    const apiFor = (p) => apiBase + p.split('/').map(encodeURIComponent).join('/') + refQ;
+
+                    // Pre-validate: the base path must be a folder containing SKILL.md.
+                    const root = await ghJson(apiFor(basePath));
+                    if (!Array.isArray(root)) throw new Error('that path is a single file — point at the skill FOLDER');
+                    if (!root.some(it => it.type === 'file' && /^skill\.md$/i.test(it.name)))
+                        throw new Error('no SKILL.md in that folder — not a Claude Code skill');
+
+                    let fileCount = 0, byteCount = 0;
+                    const walk = async (items, localDir) => {
+                        fs.mkdirSync(localDir, { recursive: true });
+                        for (const it of items) {
+                            if (it.type === 'dir') {
+                                await walk(await ghJson(apiFor(it.path)), path.join(localDir, it.name));
+                            } else if (it.type === 'file') {
+                                let buf;
+                                if (it.download_url) buf = await ghRaw(it.download_url);
+                                else { const meta = await ghJson(it.url); buf = Buffer.from(meta.content || '', meta.encoding || 'base64'); }
+                                fs.writeFileSync(path.join(localDir, it.name), buf);
+                                fileCount++; byteCount += buf.length;
+                                w('\x1b[2m  + ' + it.name + ' (' + buf.length + 'b)\x1b[0m\r\n');
+                            }
+                        }
+                    };
+
+                    // Clean reinstall, then write into a temp dir and swap in atomically.
+                    const tmpDir = destDir + '.tmp-' + Date.now();
+                    try {
+                        await walk(root, tmpDir);
+                        fs.rmSync(destDir, { recursive: true, force: true });
+                        fs.renameSync(tmpDir, destDir);
+                    } catch (e) {
+                        try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch(_) {}
+                        throw e;
+                    }
+                    w('\x1b[32m✓ installed skill "' + skillName + '"\x1b[0m — ' + fileCount + ' file(s), ' + Math.round(byteCount / 1024) + ' KB\r\n');
+                    w('\x1b[2m→ /root/.claude/skills/' + skillName + ' (available to the Skill tool next turn)\x1b[0m\r\n');
+                })().catch(e => {
+                    w('\x1b[31m✗ install-skill failed: ' + e.message + '\x1b[0m\r\n');
+                    if (/HTTP 404/.test(e.message)) w('\x1b[2m  check owner/repo/path + that the repo is public.\x1b[0m\r\n');
+                    if (/HTTP 403/.test(e.message)) w('\x1b[2m  GitHub API rate-limited — wait a minute and retry.\x1b[0m\r\n');
+                });
+                continue;
+            }
+
+            if (line.startsWith('!install') && !line.startsWith('!install-skill')) {
                 const pkgName = line.slice(8).trim();
                 if (!pkgName) {
                     const entries = Object.entries(PACKAGE_CATALOG);
@@ -7963,6 +8108,7 @@ function startBridgeServer() {
 // Ensure custom slash commands directory exists (HOME=FILES_DIR so claude
 // reads commands from FILES_DIR/.claude/commands/*.md on every run).
 try { fs.mkdirSync(path.join(FILES_DIR, '.claude', 'commands'), { recursive: true }); } catch(_) {}
+try { fs.mkdirSync(path.join(FILES_DIR, '.claude', 'skills'), { recursive: true }); } catch(_) {}
 
 // Pre-create/patch claude settings so the theme/onboarding picker never appears.
 // P4: the customApiKeyResponses approved-list seeding is GONE — it was the legacy
