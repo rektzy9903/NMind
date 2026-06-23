@@ -1,0 +1,296 @@
+name: Build APK
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build Debug APK
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # ── 1. Checkout ─────────────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── 2. Java 17 ──────────────────────────────────────────────────────────
+      - name: Set up JDK 17
+        uses: actions/setup-java@v3
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      # ── 3. Cache libnode.so (57 MB per ABI — cache to avoid repeated download)
+      - name: Cache nodejs-mobile native libraries
+        id: cache-libnode
+        uses: actions/cache@v4
+        with:
+          path: app/src/main/jniLibs
+          key: nodejs-mobile-v18.20.4
+
+      # ── 4. Download libnode.so from official nodejs-mobile release ───────────
+      - name: Download nodejs-mobile native libraries
+        if: steps.cache-libnode.outputs.cache-hit != 'true'
+        run: |
+          curl -fL \
+            "https://github.com/nodejs-mobile/nodejs-mobile/releases/download/v18.20.4/nodejs-mobile-v18.20.4-android.zip" \
+            -o /tmp/nodejs-mobile.zip
+          mkdir -p \
+            app/src/main/jniLibs/arm64-v8a \
+            app/src/main/jniLibs/armeabi-v7a
+          unzip -p /tmp/nodejs-mobile.zip bin/arm64-v8a/libnode.so \
+            > app/src/main/jniLibs/arm64-v8a/libnode.so
+          unzip -p /tmp/nodejs-mobile.zip bin/armeabi-v7a/libnode.so \
+            > app/src/main/jniLibs/armeabi-v7a/libnode.so
+          echo "libnode.so sizes:"
+          du -sh app/src/main/jniLibs/*/libnode.so
+
+      # ── 4b. Download + repackage proot (Ubuntu engine, P1) ───────────────────
+      # The Ubuntu engine (ubuntu-engine.md) runs latest claude-code inside a
+      # proot rootfs. proot must live in nativeLibDir (the only exec-capable path
+      # on Android 10+; /data is noexec) and be named lib*.so (Android only
+      # extracts /^lib.*\.so$/ from the APK).
+      #
+      # SOURCE = TERMUX apt repo (was UserLAnd v1.5.1 .a10; swapped 2026-06-02).
+      # UserLAnd's older proot reached guest launch on the Appetize emulator but
+      # HUNG at the ptrace loader-injection step (memfd loader, fd3/fd4 — see
+      # !test-loader trace paste.rs/846nK). Termux ships a current, actively-
+      # patched proot (5.x) with Android-specific fixes that UserLAnd lacks. The
+      # binary is a dynamic PIE NEEDing libtalloc.so.2 (we ship Termux's libtalloc
+      # as libtalloc.so + a runtime symlink; bionic rejects any patchelf, so the
+      # binary stays PRISTINE — never patchelf an Android-targeted ELF).
+      #   usr/bin/proot              → libproot.so          (dynamic PIE)
+      #   usr/libexec/proot/loader   → libproot-loader.so   (PROOT_LOADER points here)
+      #   usr/libexec/proot/loader32 → libproot-loader32.so (PROOT_LOADER_32)
+      #   usr/lib/libtalloc.so.2     → libtalloc.so         (proot's only non-system dep)
+      # bridge.js sets PROOT_LOADER/PROOT_LOADER_32 + LD_LIBRARY_PATH=symlink-dir:nativeDir.
+      - name: Download + repackage proot (Termux apt)
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq && sudo apt-get install -y -qq patchelf
+          TBASE="https://packages.termux.dev/apt/termux-main"
+
+          # Resolve a package's pool Filename from the binary-<arch> Packages index
+          # (try plain, then .gz). Prints the Filename: path, empty if not found.
+          pkg_filename() {  # $1=pkg  $2=termux-arch
+            local pkg="$1" arch="$2" idx
+            idx="$(curl -fsSL "${TBASE}/dists/stable/main/binary-${arch}/Packages" 2>/dev/null || true)"
+            if [ -z "$idx" ]; then
+              idx="$(curl -fsSL "${TBASE}/dists/stable/main/binary-${arch}/Packages.gz" 2>/dev/null | gunzip -c 2>/dev/null || true)"
+            fi
+            # NOTE: no awk `exit` on first match — that closes the pipe early and
+            # `echo` (writing the ~1.7MB index) gets SIGPIPE, which pipefail+set-e
+            # turns into a silent script death. Use a `!d` flag to print the first
+            # (= newest) match while still consuming all input.
+            echo "$idx" | awk -v p="$pkg" 'BEGIN{RS="";FS="\n"}{n="";f="";for(i=1;i<=NF;i++){if($i=="Package: "p)n=p;if($i ~ /^Filename: /)f=substr($i,11)}if(n!=""&&f!=""&&!d){print f;d=1}}'
+          }
+
+          fetch_deb() {  # $1=pkg  $2=termux-arch  $3=outfile
+            local fn; fn="$(pkg_filename "$1" "$2")"
+            [ -n "$fn" ] || { echo "::error::termux pkg '$1' ($2) not in index"; return 1; }
+            curl -fL --retry 3 "${TBASE}/${fn}" -o "$3"
+          }
+
+          repackage_abi() {  # $1 = termux-arch   $2 = jniLibs abi dir
+            local tarch="$1" abi="$2" tmp pre
+            tmp="$(mktemp -d)"
+            echo "── $abi: fetching Termux proot + libtalloc + libandroid-shmem ($tarch)"
+            fetch_deb proot            "$tarch" "$tmp/proot.deb"
+            fetch_deb libtalloc        "$tarch" "$tmp/libtalloc.deb"
+            # Newer Termux proot (5.x) NEEDs libandroid-shmem.so (SysV shm shim).
+            # Without it the bionic linker fails proot launch with
+            # 'CANNOT LINK EXECUTABLE … library "libandroid-shmem.so" not found'.
+            fetch_deb libandroid-shmem "$tarch" "$tmp/shmem.deb"
+            dpkg-deb -x "$tmp/proot.deb"     "$tmp/x"
+            dpkg-deb -x "$tmp/libtalloc.deb" "$tmp/x"
+            dpkg-deb -x "$tmp/shmem.deb"     "$tmp/x"
+            pre="$tmp/x/data/data/com.termux/files/usr"
+            for r in "bin/proot" "libexec/proot/loader" "lib/libtalloc.so.2" "lib/libandroid-shmem.so"; do
+              [ -e "$pre/$r" ] || { echo "::error::$abi: missing '$r' in Termux debs"; rm -rf "$tmp"; return 1; }
+            done
+            mkdir -p "app/src/main/jniLibs/$abi"
+            # PRISTINE copies — no patchelf (bionic rejects rewritten ELFs).
+            # cp -L resolves the libtalloc.so.2 → .so.2.x.y symlink to the real file.
+            cp    "$pre/bin/proot"            "app/src/main/jniLibs/$abi/libproot.so"
+            cp    "$pre/libexec/proot/loader" "app/src/main/jniLibs/$abi/libproot-loader.so"
+            cp -L "$pre/lib/libtalloc.so.2"   "app/src/main/jniLibs/$abi/libtalloc.so"
+            # SONAME is exactly libandroid-shmem.so (no version) and nativeLibDir is
+            # already on LD_LIBRARY_PATH → resolves with no symlink (unlike talloc).
+            cp -L "$pre/lib/libandroid-shmem.so" "app/src/main/jniLibs/$abi/libandroid-shmem.so"
+            if [ -e "$pre/libexec/proot/loader32" ]; then
+              cp  "$pre/libexec/proot/loader32" "app/src/main/jniLibs/$abi/libproot-loader32.so"
+            else
+              echo "  ($abi: no loader32 — expected for a 32-bit ABI)"
+            fi
+            rm -rf "$tmp"
+          }
+
+          # arm64 is the test/primary target → strict (a failure must fail CI).
+          repackage_abi "aarch64" "arm64-v8a"
+          # armv7 is best-effort: if it can't be packaged, the Ubuntu engine just
+          # stays unavailable on 32-bit devices (prootReady()=false → libnode).
+          ( repackage_abi "arm" "armeabi-v7a" ) \
+            || echo "::warning::armv7 proot packaging failed — Ubuntu engine unavailable on 32-bit (libnode fallback stays)"
+
+          echo "── proot payload packaged (Termux, pristine — NOT patchelf'd):"
+          ls -la app/src/main/jniLibs/*/libproot*.so app/src/main/jniLibs/*/libtalloc.so app/src/main/jniLibs/*/libandroid-shmem.so
+          echo "── arm64 libproot.so NEEDED (libtalloc.so.2 + libandroid-shmem.so expected — resolved via LD_LIBRARY_PATH/symlink):"
+          patchelf --print-needed app/src/main/jniLibs/arm64-v8a/libproot.so
+
+      # ── 4c. Cross-compile the linkat shim (glibc) ────────────────────────────
+      # liblinkatshim.so is an LD_PRELOAD shim loaded INSIDE the proot Ubuntu
+      # GUEST (glibc), NOT the Android app (bionic). It emulates hardlink() in
+      # userspace so `apt install` survives dpkg's status-old backup, which the
+      # bundled proot's --link2symlink can't satisfy on arm64 (no link(2) syscall;
+      # linkat falls through → EPERM). See scripts/linkat_shim.c + CLAUDE.md.
+      # Built with the GLIBC cross toolchains (must match the guest, not Android).
+      # bridge.js copies it from nativeLibDir into the rootfs and LD_PRELOADs it.
+      - name: Cross-compile linkat shim (glibc arm64 + armv7)
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y -qq gcc-aarch64-linux-gnu gcc-arm-linux-gnueabihf
+          CFLAGS="-shared -fPIC -O2 -Wall -s"
+          aarch64-linux-gnu-gcc $CFLAGS \
+            -o app/src/main/jniLibs/arm64-v8a/liblinkatshim.so \
+            scripts/linkat_shim.c -ldl
+          # armv7 is best-effort (Ubuntu engine on 32-bit is itself best-effort).
+          arm-linux-gnueabihf-gcc $CFLAGS \
+            -o app/src/main/jniLibs/armeabi-v7a/liblinkatshim.so \
+            scripts/linkat_shim.c -ldl \
+            || echo "::warning::armv7 linkat shim build failed — native apt stays broken on 32-bit (use !apt-extract)"
+          echo "── linkat shim built (glibc, NEEDED should be libc.so.6 + libdl.so.2):"
+          ls -la app/src/main/jniLibs/*/liblinkatshim.so
+          readelf -d app/src/main/jniLibs/arm64-v8a/liblinkatshim.so | grep -iE "NEEDED" || true
+
+      # ── 5. Cache Gradle packages ─────────────────────────────────────────────
+      - name: Cache Gradle packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-
+
+      # ── 6. Make scripts executable ───────────────────────────────────────────
+      - name: Make gradlew executable
+        run: chmod +x gradlew && chmod +x scripts/build-llamaserver.sh
+
+      - name: Syntax-check bridge.js
+        run: node --check app/src/main/assets/nodejs-project/bridge.js
+
+      - name: Syntax-check embedded HTML <script> blocks (dungeon + terminal)
+        run: |
+          node -e '
+            const fs=require("fs"),vm=require("vm");
+            const files=["app/src/main/assets/dungeon/index.html","app/src/main/assets/terminal/index.html"];
+            let bad=0;
+            for(const f of files){
+              const html=fs.readFileSync(f,"utf8");
+              const re=/<script>([\s\S]*?)<\/script>/g; let m,i=0;
+              while((m=re.exec(html))){
+                i++;
+                try{ new vm.Script(m[1]); }
+                catch(e){ console.error(`SYNTAX ERROR in ${f} <script> #${i}: ${e.message}`); bad++; }
+              }
+            }
+            if(bad){ process.exit(1); }
+            console.log("embedded <script> blocks OK");
+          '
+
+      # ── 7. Install NDK ───────────────────────────────────────────────────────
+      - name: Install NDK 25.1.8937393
+        run: |
+          echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "ndk;25.1.8937393"
+
+      # ── 8. Build llama-server for Android ARM64 ─────────────────────────────
+      - name: Cache llama-server binary
+        id: cache-llama
+        uses: actions/cache@v4
+        with:
+          path: .llama-cache
+          key: llama-server-b5188-arm64-v2
+
+      - name: Build llama-server
+        run: |
+          export ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/25.1.8937393
+          ./scripts/build-llamaserver.sh
+
+      # ── 9. Build debug APK ───────────────────────────────────────────────────
+      - name: Build debug APK
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
+
+      # ── 9. Upload APK artifact ───────────────────────────────────────────────
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: NexusMind-debug-${{ github.run_number }}
+          path: app/build/outputs/apk/debug/NexusMind-debug.apk
+          retention-days: 3
+          if-no-files-found: error
+
+      # ── 10. Show APK info ────────────────────────────────────────────────────
+      - name: Show APK info
+        run: |
+          APK=app/build/outputs/apk/debug/NexusMind-debug.apk
+          echo "Build successful"
+          echo "APK size: $(du -sh "$APK" | cut -f1)"
+          echo "Path: $APK"
+
+      # ── 11. Push APK to Appetize.io (browser emulator) ───────────────────────
+      # Appetize runs a PREBUILT APK; it cannot pull from CI, so we push it via
+      # the REST API. Token is hardcoded below by owner choice (free-trial token,
+      # exposure waived). Optional repo VARIABLE APPETIZE_PUBLIC_KEY: when set, we
+      # UPDATE that same app so the test URL stays stable; when empty, we CREATE a
+      # new app and print its publicKey to save.
+      - name: Upload APK to Appetize
+        env:
+          APPETIZE_API_TOKEN:  tok_sbpkqmqqbvb46opko5x2kavsnq
+          APPETIZE_PUBLIC_KEY: ${{ vars.APPETIZE_PUBLIC_KEY }}
+        run: |
+          set -euo pipefail
+          APK=app/build/outputs/apk/debug/NexusMind-debug.apk
+
+          if [ -z "${APPETIZE_API_TOKEN:-}" ]; then
+            echo "::notice::APPETIZE_API_TOKEN not set — skipping Appetize upload."
+            echo "Add it under Settings → Secrets and variables → Actions to enable."
+            exit 0
+          fi
+
+          if [ -n "${APPETIZE_PUBLIC_KEY:-}" ]; then
+            echo "Updating existing Appetize app ($APPETIZE_PUBLIC_KEY) — URL stays the same"
+            ENDPOINT="https://${APPETIZE_API_TOKEN}@api.appetize.io/v1/apps/${APPETIZE_PUBLIC_KEY}"
+          else
+            echo "Creating a NEW Appetize app (no APPETIZE_PUBLIC_KEY set yet)"
+            ENDPOINT="https://${APPETIZE_API_TOKEN}@api.appetize.io/v1/apps"
+          fi
+
+          RESP=$(curl -sS --fail-with-body "$ENDPOINT" \
+                   -F "file=@${APK}" \
+                   -F "platform=android")
+
+          PUB=$(echo "$RESP" | jq -r '.publicKey // empty')
+          URL=$(echo "$RESP" | jq -r '.publicURL // .appURL // empty')
+
+          {
+            echo "### 📱 Appetize build ready"
+            echo ""
+            echo "- **Test link:** ${URL:-<see raw response>}"
+            echo "- **publicKey:** \`${PUB:-?}\`"
+            if [ -z "${APPETIZE_PUBLIC_KEY:-}" ]; then
+              echo ""
+              echo "> ⚠️ First upload — save \`$PUB\` as repo **variable** \`APPETIZE_PUBLIC_KEY\`"
+              echo "> (Settings → Secrets and variables → Actions → Variables) so future pushes"
+              echo "> update the SAME app and the test URL stops changing."
+            fi
+            echo ""
+            echo "> ℹ️ ABI note: this APK ships **arm64/armv7 only** (no x86). If Appetize's device"
+            echo "> is x86_64, the UI loads but the Node bridge (libnode.so) won't — pick an ARM"
+            echo "> device, or treat a real phone as ground truth for engine testing."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo "Appetize upload OK — publicKey=$PUB url=$URL"
