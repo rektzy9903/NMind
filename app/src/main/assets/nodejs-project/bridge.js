@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b129-install-skill';
+const BRIDGE_BUILD = 'b130-linkatshim-guestside';
 
 const net   = require('net');
 const http  = require('http');
@@ -531,7 +531,28 @@ function prootGuestArgv(rp, command, opts) {
     // environment (HOME/PATH/…) is supplied via proot's spawn env in runProotGuest
     // (proot propagates its environ to the guest), so no env wrapper is needed.
     // opts.rawExec is now a no-op (kept for call-site compatibility).
-    return a.concat(command);
+    //
+    // GUEST-side linkat shim preload: when the guest command is a shell
+    // (`sh -c`/`bash -lc`/`-li`/`-i`), prepend an `export LD_PRELOAD=<shim>` so
+    // the glibc shim is loaded by the GUEST loader (where it belongs) and
+    // inherited by every child (apt → dpkg → maintainer scripts, or an
+    // interactively-typed `apt install`). This makes hardlink() succeed so
+    // native `apt install` survives dpkg's status-old backup. It is NOT put in
+    // the host spawn env — that breaks the bionic launchers (see prootChild).
+    // No-op when the shim isn't shipped (older APK → '' → !apt-extract fallback)
+    // or the command isn't a shell (e.g. claude exec'd directly — doesn't need it).
+    let cmd = command;
+    try {
+        if (Array.isArray(cmd) && cmd.length >= 3 &&
+            /(^|\/)(ba)?sh$/.test(cmd[0]) && /^-l?i?c?$/.test(cmd[1]) && cmd[1].includes('c')) {
+            const shim = ensureLinkatShim(rp);
+            if (shim) {
+                cmd = cmd.slice();
+                cmd[2] = 'export LD_PRELOAD="' + shim + '${LD_PRELOAD:+:$LD_PRELOAD}"; ' + (cmd[2] || '');
+            }
+        }
+    } catch (_) {}
+    return a.concat(cmd);
 }
 
 // Run a command inside the Ubuntu rootfs via node spawn (NOT ProcessBuilder —
@@ -568,6 +589,17 @@ function ensureLinkatShim(rp) {
             fs.mkdirSync(path.dirname(dst), { recursive: true });
             fs.copyFileSync(src, dst);
         }
+        // Interactive 🐧 login shells (bash -li) have no `-c` script for the
+        // prootGuestArgv injection to prepend to, so drop a profile.d snippet the
+        // login shell sources — makes an interactively-typed `apt install` get the
+        // shim too. Guest-side only (glibc); never touches the host env.
+        try {
+            const pd = path.join(rp, 'etc', 'profile.d', 'linkatshim.sh');
+            const want = 'export LD_PRELOAD="' + guestRel + '${LD_PRELOAD:+:$LD_PRELOAD}"\n';
+            let cur = '';
+            try { cur = fs.readFileSync(pd, 'utf8'); } catch (_) {}
+            if (cur !== want) { fs.mkdirSync(path.dirname(pd), { recursive: true }); fs.writeFileSync(pd, want); }
+        } catch (_) {}
         return guestRel;
     } catch (_) { return ''; }
 }
@@ -628,18 +660,16 @@ function prootChild(command, opts) {
             // the env -i exec-replace issue (since removed), not seccomp.
             // Still overridable per probe via opts.extraEnv.
         });
-        // LD_PRELOAD the glibc linkat shim so hardlink() works in the guest →
-        // native `apt install` survives dpkg's status-old backup (see
-        // ensureLinkatShim + scripts/linkat_shim.c). Propagates to every guest
-        // child (apt → dpkg → maintainer scripts) via env inheritance. Absent on
-        // an older APK (no CI build) → '' → not set → !apt-extract remains the
-        // fallback. Safe to leave on for ALL guest spawns (claude included): the
-        // shim only emulates hardlinks as copies, harmless to node/claude, and
-        // self-neutral on a future proot that hooks linkat natively.
-        try {
-            const shim = ensureLinkatShim(rp);
-            if (shim) env.LD_PRELOAD = env.LD_PRELOAD ? (shim + ':' + env.LD_PRELOAD) : shim;
-        } catch (_) {}
+        // NOTE: the glibc linkat shim is NOT injected here. It must NEVER reach
+        // the host spawn env: libfdexec.so / libpty.so / libproot.so are bionic
+        // PIE executables, and bionic's linker honours LD_PRELOAD at process
+        // startup → it would try to load the glibc shim from a host-nonexistent
+        // path (/usr/local/lib/liblinkatshim.so) and abort with "CANNOT LINK
+        // EXECUTABLE … not found" before proot (let alone the guest) ever runs.
+        // The shim is preloaded GUEST-side instead, via a shell export injected
+        // into sh/bash -c commands in prootGuestArgv (glibc honours it there; it
+        // propagates to apt → dpkg → maintainer scripts via fork+exec). claude is
+        // exec'd directly (no shell) and doesn't need the shim, so it's unaffected.
         // Per-probe env overrides (diagnostic): test PROOT_* knobs from the
         // terminal without a rebuild. Set to null/'' to DELETE a base var.
         if (opts && opts.extraEnv) {
