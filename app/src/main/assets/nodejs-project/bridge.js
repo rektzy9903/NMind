@@ -21,7 +21,7 @@
 // Hot-load build stamp. BUMP THIS STRING on every push that touches bridge.js so
 // !hotload can prove which version actually loaded (the GitHub raw CDN serves
 // ~5-min-stale copies; this is the ground-truth marker, not the CDN timestamp).
-const BRIDGE_BUILD = 'b130-linkatshim-guestside';
+const BRIDGE_BUILD = 'b131-repoint-nmind';
 
 const net   = require('net');
 const http  = require('http');
@@ -2228,7 +2228,7 @@ function postOai(baseUrl, apiKey, reqObj) {
             'Accept':         'application/json',
         };
         if (tgt.hostname.includes('openrouter')) {
-            hdrs['HTTP-Referer'] = 'https://github.com/fahmi304/Nexus-Mind';
+            hdrs['HTTP-Referer'] = 'https://github.com/rektzy9903/NMind';
             hdrs['X-Title']      = 'Nexus Mind';
         }
         const lib2 = tgt.protocol === 'https:' ? https : http;
@@ -2287,7 +2287,7 @@ function sendToProvider(baseUrl, apiKey, oaiReq, stream, res, onBadRequest, on42
 
     // OpenRouter needs attribution headers to unlock free models
     if (targetUrl.hostname.includes('openrouter')) {
-        headers['HTTP-Referer'] = 'https://github.com/fahmi304/Nexus-Mind';
+        headers['HTTP-Referer'] = 'https://github.com/rektzy9903/NMind';
         headers['X-Title']      = 'Nexus Mind';
     }
 
@@ -2757,7 +2757,7 @@ function sendToProvider(baseUrl, apiKey, oaiReq, stream, res, onBadRequest, on42
                                                 'Accept':         'application/json',
                                             };
                                             if (tgt.hostname.includes('openrouter')) {
-                                                followHeaders['HTTP-Referer'] = 'https://github.com/fahmi304/Nexus-Mind';
+                                                followHeaders['HTTP-Referer'] = 'https://github.com/rektzy9903/NMind';
                                                 followHeaders['X-Title']      = 'Nexus Mind';
                                             }
                                             const lib2 = tgt.protocol === 'https:' ? https : http;
@@ -4901,9 +4901,9 @@ function openPrintSession() {
                 // Fetch via the GitHub *API* contents endpoint. Falls back to
                 // raw.githubusercontent.com if the API fails (rate-limit / DNS issues).
                 const REF = 'feat/glass-ui';
-                const apiUrl = 'https://api.github.com/repos/fahmi304/Nexus-Mind/contents/' +
+                const apiUrl = 'https://api.github.com/repos/rektzy9903/NMind/contents/' +
                                'app/src/main/assets/nodejs-project/bridge.js?ref=' + REF;
-                const rawUrl = 'https://raw.githubusercontent.com/fahmi304/Nexus-Mind/' + REF +
+                const rawUrl = 'https://raw.githubusercontent.com/rektzy9903/NMind/' + REF +
                                '/app/src/main/assets/nodejs-project/bridge.js';
                 // Try API first (ETag-based, fresh), then raw CDN as fallback.
                 const urls = [apiUrl, rawUrl];
@@ -4943,8 +4943,8 @@ function openPrintSession() {
                     const REPO_BASE = 'app/src/main/assets/nodejs-project/';
                     const fetchRepoFile = async (rel, marker) => {
                         const tries = [
-                            ['https://api.github.com/repos/fahmi304/Nexus-Mind/contents/' + REPO_BASE + rel + '?ref=' + REF, apiHeaders],
-                            ['https://raw.githubusercontent.com/fahmi304/Nexus-Mind/' + REF + '/' + REPO_BASE + rel, rawHeaders],
+                            ['https://api.github.com/repos/rektzy9903/NMind/contents/' + REPO_BASE + rel + '?ref=' + REF, apiHeaders],
+                            ['https://raw.githubusercontent.com/rektzy9903/NMind/' + REF + '/' + REPO_BASE + rel, rawHeaders],
                         ];
                         for (const [u, headers] of tries) {
                             try {
@@ -5007,8 +5007,8 @@ function openPrintSession() {
                     continue;
                 }
                 const REF = 'feat/glass-ui';
-                const api = (p) => 'https://api.github.com/repos/fahmi304/Nexus-Mind/contents/' + p + '?ref=' + REF;
-                const raw = (p) => 'https://raw.githubusercontent.com/fahmi304/Nexus-Mind/' + REF + '/' + p;
+                const api = (p) => 'https://api.github.com/repos/rektzy9903/NMind/contents/' + p + '?ref=' + REF;
+                const raw = (p) => 'https://raw.githubusercontent.com/rektzy9903/NMind/' + REF + '/' + p;
                 const apiHeaders = { 'Accept': 'application/vnd.github.raw', 'User-Agent': 'nexus-hotload', 'Cache-Control': 'no-cache' };
                 const rawHeaders = { 'User-Agent': 'nexus-hotload', 'Cache-Control': 'no-cache' };
                 // [remote path, dest, minBytes, validator(text)]
@@ -5065,7 +5065,7 @@ function openPrintSession() {
                 }
                 const REF = 'feat/glass-ui';
                 const remote = 'app/src/main/assets/dungeon/index.html';
-                const api = 'https://api.github.com/repos/fahmi304/Nexus-Mind/contents/' + remote + '?ref=' + REF;
+                const api = 'https://api.github.com/repos/rektzy9903/NMind/contents/' + remote + '?ref=' + REF;
                 w('\x1b[33m!hotload-dungeon: fetching dungeon/index.html…\x1b[0m\r\n');
                 (async () => {
                     try {

@@ -96,7 +96,7 @@ private fun testOpenAiCompat(baseUrl: String, apiKey: String, model: AiModel): T
 
     if (baseUrl.contains("openrouter")) {
         reqBuilder
-            .header("HTTP-Referer", "https://github.com/fahmi304/Nexus-Mind")
+            .header("HTTP-Referer", "https://github.com/rektzy9903/NMind")
             .header("X-Title", "Nexus Mind")
     }
 
